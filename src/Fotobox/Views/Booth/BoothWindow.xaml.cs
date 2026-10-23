@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Animation;
@@ -9,9 +10,13 @@ namespace Fotobox.Views.Booth;
 /// <summary>Vollbild-Gastansicht: Leertaste löst ein Foto aus, Strg+Alt+A öffnet die Admin-Ansicht.</summary>
 public sealed partial class BoothWindow : Window
 {
+    private static readonly TimeSpan FocusReclaimDelay = TimeSpan.FromMilliseconds(400);
+
     private readonly BoothViewModel _viewModel;
     private readonly IAdminLauncher _adminLauncher;
-    private bool _adminOpen;
+    // Schließen ist nur über „Fotobox beenden“ in der Admin-Ansicht (oder Abmeldung/App-Shutdown) erlaubt.
+    private bool _allowClose;
+    private bool _focusReclaimPending;
 
     public BoothWindow(BoothViewModel viewModel, ICameraService camera, IAdminLauncher adminLauncher, ISettingsStore settings)
     {
@@ -24,9 +29,17 @@ public sealed partial class BoothWindow : Window
         viewModel.FlashRequested += (_, _) => PlayFlash();
 
         Loaded += OnLoaded;
-        Closing += (_, _) => _viewModel.Shutdown();
+        Closing += OnClosing;
+        Activated += (_, _) => Focus();
+        Deactivated += OnDeactivated;
         PreviewKeyDown += OnPreviewKeyDown;
+
+        // Windows-Abmeldung/Herunterfahren darf nie blockiert werden.
+        if (Application.Current is { } app)
+            app.SessionEnding += (_, _) => _allowClose = true;
     }
+
+    private bool IsShuttingDown => _allowClose || Dispatcher.HasShutdownStarted;
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
@@ -42,30 +55,96 @@ public sealed partial class BoothWindow : Window
         }
     }
 
+    /// <summary>Alt+F4, Systemmenü oder Taskleiste beenden die Fotobox nicht; nur ein erlaubtes Schließen fährt herunter.</summary>
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (!IsShuttingDown)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        _viewModel.Shutdown();
+    }
+
+    /// <summary>
+    /// Holt den Fokus zurück, wenn ihn ein anderes Programm (Druckdialog, Statusmonitor, Benachrichtigung) übernommen hat –
+    /// sonst reagiert die Leertaste nicht mehr. Verzögert und nur, wenn kein eigener Dialog offen ist.
+    /// </summary>
+    private async void OnDeactivated(object? sender, EventArgs e)
+    {
+        if (_focusReclaimPending || !CanReclaimFocus)
+            return;
+
+        _focusReclaimPending = true;
+        try
+        {
+            await Task.Delay(FocusReclaimDelay);
+            if (!CanReclaimFocus)
+                return;
+
+            Activate();
+            Focus();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Fokus konnte nicht zurückgeholt werden.", ex);
+        }
+        finally
+        {
+            _focusReclaimPending = false;
+        }
+    }
+
+    private bool CanReclaimFocus =>
+        IsLoaded && !IsActive && !IsShuttingDown && !_viewModel.IsAdminOpen && !HasOtherVisibleWindow();
+
+    // Eigene Dialoge (PIN, Admin, Erststart) sind Fenster dieser Anwendung und dürfen nicht verdrängt werden.
+    private bool HasOtherVisibleWindow()
+    {
+        if (Application.Current is not { } app)
+            return false;
+
+        foreach (Window window in app.Windows)
+        {
+            if (!ReferenceEquals(window, this) && window.IsVisible)
+                return true;
+        }
+        return false;
+    }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0;
+
+        // Alt+F4 und Alt+Leertaste (Systemmenü) wirkungslos machen.
+        if (e.Key == Key.System && (key == Key.F4 || key == Key.Space))
+        {
+            e.Handled = true;
+            return;
+        }
 
         if (key == Key.Space)
         {
             e.Handled = true;
-            if (!e.IsRepeat && !_adminOpen)
-                _viewModel.Controller.TryTrigger();
+            if (!e.IsRepeat && !alt)
+                _viewModel.TryTrigger();
             return;
         }
 
         if (key == Key.A && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt))
         {
             e.Handled = true;
-            if (!e.IsRepeat && !_adminOpen && _viewModel.CanOpenAdmin)
+            if (!e.IsRepeat && _viewModel.CanOpenAdmin)
                 Dispatcher.BeginInvoke(OpenAdmin);
         }
     }
 
     private async void OpenAdmin()
     {
-        if (_adminOpen || !_viewModel.CanOpenAdmin) return;
-        _adminOpen = true;
+        if (!_viewModel.CanOpenAdmin) return;
+        _viewModel.IsAdminOpen = true;
 
         var result = new AdminResult(false, false, false);
         Cursor = Cursors.Arrow;
@@ -80,13 +159,14 @@ public sealed partial class BoothWindow : Window
         finally
         {
             Cursor = Cursors.None;
-            _adminOpen = false;
+            _viewModel.IsAdminOpen = false;
             Activate();
             Focus();
         }
 
         if (result.ExitRequested)
         {
+            _allowClose = true;
             Application.Current.Shutdown();
             return;
         }
