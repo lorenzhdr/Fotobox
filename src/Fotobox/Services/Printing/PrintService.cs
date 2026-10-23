@@ -13,6 +13,12 @@ public sealed class PrintService : IPrintService
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     private const int DefaultTimeoutSeconds = 120;
 
+    /// <summary>Port von Druckern, die beim Drucken nach einem Dateinamen fragen (z. B. „Microsoft Print to PDF“).</summary>
+    private const string FilePromptPort = "PORTPROMPT";
+
+    public const string FailedFilePrompt =
+        "Dieser Drucker fragt nach einem Dateinamen (z. B. „Microsoft Print to PDF“) und kann in der Fotobox nicht verwendet werden. Bitte einen echten Drucker wählen.";
+
     /// <summary>Papiergröße samt Treiber-Medium (für das PrintTicket).</summary>
     private sealed record PaperEntry(PaperSizeInfo Info, PageMediaSize Media);
 
@@ -123,7 +129,6 @@ public sealed class PrintService : IPrintService
     private static PrintResult PrintCore(BitmapSource page, PrinterSettings settings, IProgress<string>? status, CancellationToken ct)
     {
         var timeout = TimeSpan.FromSeconds(settings.TimeoutSeconds > 0 ? settings.TimeoutSeconds : DefaultTimeoutSeconds);
-        var total = Stopwatch.StartNew();
         var lastStatus = PrintJobStateEvaluator.StatusPrinting;
         status?.Report(lastStatus);
 
@@ -134,6 +139,13 @@ public sealed class PrintService : IPrintService
             var name = settings.PrinterName ?? "Standarddrucker";
             AppLog.Error($"Drucker „{name}“ nicht gefunden.");
             return new PrintResult(PrintOutcome.Failed, $"Der Drucker „{name}“ wurde nicht gefunden.");
+        }
+
+        // Ein modaler "Speichern unter"-Dialog würde hinter der Vollbild-Box hängen und den Druck blockieren.
+        if (IsFilePromptQueue(queue))
+        {
+            AppLog.Error($"Drucker „{queue.FullName}“ fragt nach einem Dateinamen (Port {FilePromptPort}) – Druck abgelehnt.");
+            return new PrintResult(PrintOutcome.Failed, FailedFilePrompt);
         }
 
         var jobName = $"Fotobox {DateTime.Now:yyyyMMdd-HHmmss-fff}";
@@ -147,8 +159,10 @@ public sealed class PrintService : IPrintService
         queue.CurrentJobSettings.Description = jobName;
         PrintQueue.CreateXpsDocumentWriter(queue).Write(visual, ticket);
 
-        // Überwachung bis fertig
+        // Überwachung bis fertig – die Zeit läuft erst nach dem Schreiben (ein offener Dialog zählt nicht mit).
+        var total = Stopwatch.StartNew();
         var sinceSubmit = Stopwatch.StartNew();
+        var lastJobCompleted = false;
         var seenBefore = false;
         int? trackedId = null;
         DateTime? errorSince = null;
@@ -178,6 +192,7 @@ public sealed class PrintService : IPrintService
             if (queryOk)
             {
                 seenBefore |= job is not null;
+                lastJobCompleted = job is { Flags.IsCompleted: true };
                 var errorFor = errorSince is { } since ? DateTime.UtcNow - since : TimeSpan.Zero;
                 var decision = PrintJobStateEvaluator.Evaluate(job?.Flags, queueFlags, seenBefore, sinceSubmit.Elapsed, errorFor);
 
@@ -187,8 +202,17 @@ public sealed class PrintService : IPrintService
                         AppLog.Info($"Druckauftrag „{jobName}“ abgeschlossen.");
                         return new PrintResult(PrintOutcome.Completed);
                     case PrintJobPhase.Failed:
-                        AppLog.Error($"Druckauftrag „{jobName}“ fehlgeschlagen: {decision.Message}");
-                        return new PrintResult(PrintOutcome.Failed, decision.Message);
+                        var message = decision.Message;
+                        if (decision.GenericError && trackedId is { } failedId)
+                        {
+                            // Sonst bliebe der Job in der Queue und käme später doch noch heraus (doppelter Druck).
+                            message += TryCancelJob(queue, failedId)
+                                ? " Der Auftrag wurde abgebrochen."
+                                : " Der Auftrag konnte nicht abgebrochen werden und bleibt evtl. in der Warteschlange.";
+                        }
+
+                        AppLog.Error($"Druckauftrag „{jobName}“ fehlgeschlagen: {message}");
+                        return new PrintResult(PrintOutcome.Failed, message);
                 }
 
                 errorSince = decision.GenericError ? errorSince ?? DateTime.UtcNow : null;
@@ -202,6 +226,9 @@ public sealed class PrintService : IPrintService
             if (total.Elapsed >= timeout)
             {
                 AppLog.Warn($"Zeitüberschreitung beim Druckauftrag „{jobName}“ (letzter Status: {lastStatus}).");
+                if (lastJobCompleted && lastStatus == PrintJobStateEvaluator.StatusPrinting)
+                    return new PrintResult(PrintOutcome.TimedOut,
+                        "Der Auftrag wurde an den Drucker gesendet, der Drucker meldet aber kein Ende des Drucks. Der Auftrag bleibt in der Warteschlange.");
                 var detail = lastStatus == PrintJobStateEvaluator.StatusPrinting ? string.Empty : $" ({lastStatus})";
                 return new PrintResult(PrintOutcome.TimedOut,
                     $"Der Druck wurde nicht rechtzeitig fertig{detail}. Der Auftrag bleibt in der Warteschlange.");
@@ -341,6 +368,40 @@ public sealed class PrintService : IPrintService
         }
     }
 
+    /// <summary>Bricht den Auftrag ab. Fehler werden geloggt und geschluckt; true = Abbruch wurde ausgelöst.</summary>
+    private static bool TryCancelJob(PrintQueue queue, int jobId)
+    {
+        try
+        {
+            using var job = queue.GetJob(jobId);
+            job.Cancel();
+            AppLog.Info($"Druckauftrag {jobId} wurde abgebrochen.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Druckauftrag {jobId} konnte nicht abgebrochen werden.", ex);
+            return false;
+        }
+    }
+
+    /// <summary>true, wenn der Port beim Drucken nach einem Dateinamen fragt (PORTPROMPT:).</summary>
+    public static bool IsFilePromptPort(string? portName) =>
+        portName is not null && portName.Trim().StartsWith(FilePromptPort, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsFilePromptQueue(PrintQueue queue)
+    {
+        try
+        {
+            return IsFilePromptPort(queue.QueuePort?.Name);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Druckerport nicht lesbar.", ex);
+            return false;
+        }
+    }
+
     private static PrintJobFlags ReadJobFlags(PrintSystemJobInfo job) => new(
         IsCompleted: job.IsCompleted,
         IsPrinted: job.IsPrinted,
@@ -351,7 +412,8 @@ public sealed class PrintService : IPrintService
         IsPaperOut: job.IsPaperOut,
         IsOffline: job.IsOffline,
         IsBlocked: job.IsBlocked,
-        IsUserInterventionRequired: job.IsUserInterventionRequired);
+        IsUserInterventionRequired: job.IsUserInterventionRequired,
+        IsRetained: job.IsRetained);
 
     private static PrintQueueFlags ReadQueueFlags(PrintQueue queue) => new(
         IsInError: queue.IsInError,
