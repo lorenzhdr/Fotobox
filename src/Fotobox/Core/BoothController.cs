@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -7,7 +8,7 @@ namespace Fotobox.Core;
 public enum BoothState { Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error }
 
 /// <summary>
-/// Ablaufsteuerung eines Foto-Durchgangs (Countdown → Aufnahme → Layout → Speichern → Vorschau/Druck).
+/// Ablaufsteuerung eines Foto-Durchgangs (Countdown → Aufnahme → Layout → Speichern → Vorschau/Druck → „Fertig“).
 /// Ohne UI testbar; Zeit läuft über <see cref="TimeProvider"/>. Zustandsänderungen werden auf dem
 /// SynchronizationContext des Aufrufers von <see cref="TryTrigger"/> ausgelöst (kein ConfigureAwait(false),
 /// damit auch Compose auf dem UI-Thread läuft).
@@ -25,10 +26,26 @@ public sealed class BoothController(
     private static readonly TimeSpan PageSpecTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Obergrenze für das Speichern (z. B. hängende Netzwerkfreigabe, abgezogener USB-Stick).</summary>
     private static readonly TimeSpan SaveTimeout = TimeSpan.FromSeconds(30);
+    /// <summary>So lange bleibt die „Fertig“-Meldung nach erfolgreichem Druck stehen.</summary>
+    public static readonly TimeSpan PrintedDisplay = TimeSpan.FromSeconds(5);
+    /// <summary>Takt, in dem <see cref="Changed"/> während des Drucks den Fortschritt meldet.</summary>
+    private static readonly TimeSpan ProgressTick = TimeSpan.FromMilliseconds(250);
 
     private volatile BoothState _state = BoothState.Starting;
     private int _busy;
+    private int _settingsHooked;
     private CancellationTokenSource? _sessionCts;
+
+    // Druckfortschritt: wird bei jedem Lesen aus der Zeit berechnet, der Takt löst nur Changed aus.
+    private DateTimeOffset _printStart;
+    private volatile bool _printActive;
+    private volatile bool _printDone;
+    private int _expectedPrintSeconds = 120;
+
+    // Seitengröße: zuletzt erfolgreich ermittelter Wert je Schlüssel (Rückfall bei Zeitüberschreitung)
+    // und die Schlüssel, für die gerade ein Vorabruf läuft (kein Stapeln bei hängendem Drucker).
+    private readonly ConcurrentDictionary<PageSpecKey, PageSpec> _lastGoodPage = new();
+    private readonly ConcurrentDictionary<PageSpecKey, byte> _prefetching = new();
 
     private int _countdownValue;
     private int _shotIndex;
@@ -59,8 +76,33 @@ public sealed class BoothController(
     public string? ErrorMessage { get => _errorMessage; private set => Set(ref _errorMessage, value); }
     public SavedPhotoSet? LastSaved { get => _lastSaved; private set => Set(ref _lastSaved, value); }
 
+    /// <summary>
+    /// Vorabruf der Seitengröße im Hintergrund (bei Start, Auslösen und geänderten Einstellungen), damit die
+    /// Komposition nicht auf einen langsamen Drucker warten muss. Nur für Tests abschaltbar.
+    /// </summary>
+    public bool PrefetchPageSpec { get; init; } = true;
+
+    /// <summary>Erwartete Druckdauer der laufenden bzw. letzten Sitzung in Sekunden.</summary>
+    public int ExpectedPrintSeconds => _expectedPrintSeconds;
+
+    /// <summary>Druckfortschritt 0..1: verstrichene Zeit seit Druckstart / erwartete Dauer, gedeckelt auf 1; nach erfolgreichem Druck 1.</summary>
+    public double PrintProgress
+    {
+        get
+        {
+            if (_printDone) return 1;
+            if (!_printActive) return 0;
+            var elapsed = (time.GetUtcNow() - _printStart).TotalSeconds;
+            return Math.Clamp(elapsed / _expectedPrintSeconds, 0, 1);
+        }
+    }
+
+    /// <summary>Die erwartete Druckzeit ist abgelaufen, der Druck aber noch nicht fertig.</summary>
+    public bool PrintOverdue =>
+        _printActive && !_printDone && (time.GetUtcNow() - _printStart).TotalSeconds >= _expectedPrintSeconds;
+
     public event EventHandler? StateChanged;
-    /// <summary>Alle übrigen Eigenschaften (Countdown, Fotonummer, Status …) haben sich geändert.</summary>
+    /// <summary>Alle übrigen Eigenschaften (Countdown, Fotonummer, Status, Druckfortschritt …) haben sich geändert.</summary>
     public event EventHandler? Changed;
     /// <summary>Unmittelbar vor der Aufnahme: weißen Blitz anzeigen.</summary>
     public event EventHandler? FlashRequested;
@@ -68,8 +110,12 @@ public sealed class BoothController(
     /// <summary>Beendet die Startphase (Starting → Idle). Ob die Kamera läuft, prüft <see cref="TryTrigger"/> separat.</summary>
     public void MarkReady()
     {
+        if (Interlocked.CompareExchange(ref _settingsHooked, 1, 0) == 0)
+            settings.SettingsChanged += (_, _) => StartPageSpecPrefetch();
+
         if (_state == BoothState.Starting)
             State = BoothState.Idle;
+        StartPageSpecPrefetch();
     }
 
     /// <summary>Startet einen Durchgang. Nur im Zustand Idle und bei laufender Kamera.</summary>
@@ -90,9 +136,31 @@ public sealed class BoothController(
         CountdownValue = 0;
         ShotIndex = 0;
         ShotCount = 0;
+        ResetPrintProgress(cfg.Flow.ExpectedPrintSeconds);
         State = BoothState.Countdown;
 
+        // Bis zur Komposition vergeht der Countdown: genug Zeit, die Seitengröße vorab zu holen.
+        StartPageSpecPrefetch();
+
         _ = RunSessionAsync(cfg, cts);
+        return true;
+    }
+
+    /// <summary>
+    /// Bricht den Countdown ab (auch die Pause zwischen zwei Streifenfotos): Fotos werden verworfen, es geht
+    /// ohne Fehleranzeige zurück zu Idle. In allen anderen Zuständen wirkungslos.
+    /// </summary>
+    public bool TryCancelCountdown()
+    {
+        if (_state != BoothState.Countdown)
+            return false;
+
+        var cts = _sessionCts;
+        if (cts is null)
+            return false;
+
+        try { cts.Cancel(); }
+        catch (ObjectDisposedException) { return false; }
         return true;
     }
 
@@ -145,6 +213,7 @@ public sealed class BoothController(
                 PreviewImage = null;
                 CountdownValue = 0;
                 StatusMessage = null;
+                ResetPrintProgress(_expectedPrintSeconds);
                 State = BoothState.Idle;
             }
             finally
@@ -204,13 +273,16 @@ public sealed class BoothController(
         var timestamp = time.GetLocalNow().DateTime;
 
         // Die Abfrage blockiert intern (Druckserver/Treiber) und läuft deshalb abseits des UI-Threads mit Timeout.
-        // Die Seitengröße bestimmt auch bei deaktiviertem Druck die Auflösung des Layouts.
+        // Die Seitengröße bestimmt auch bei deaktiviertem Druck die Auflösung des Layouts. Bei Zeitüberschreitung
+        // oder Fehler gilt der zuletzt ermittelte Wert für dieselben Druckereinstellungen, sonst der Standard.
+        var pageKey = PageSpecKey.From(cfg.Printer, cfg.Layout.Kind);
         PageSpec page;
         try
         {
             var pageTask = Task.Run(() => print.GetPageSpec(cfg.Printer, cfg.Layout.Kind));
             ObserveFault(pageTask);
             page = await pageTask.WaitAsync(PageSpecTimeout, time, ct);
+            _lastGoodPage[pageKey] = page;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -218,13 +290,11 @@ public sealed class BoothController(
         }
         catch (TimeoutException)
         {
-            AppLog.Warn("Seitengröße wurde nicht rechtzeitig ermittelt, verwende Standard.");
-            page = PageSpec.Default;
+            page = FallbackPage(pageKey, "Seitengröße wurde nicht rechtzeitig ermittelt");
         }
         catch (Exception ex)
         {
-            AppLog.Warn("Seitengröße konnte nicht ermittelt werden, verwende Standard.", ex);
-            page = PageSpec.Default;
+            page = FallbackPage(pageKey, "Seitengröße konnte nicht ermittelt werden", ex);
         }
 
         BitmapSource layout;
@@ -261,9 +331,14 @@ public sealed class BoothController(
 
         // Vorschau; der Druck läuft parallel dazu.
         PreviewImage = layout;
-        Task<PrintResult>? printTask = cfg.Flow.PrintingEnabled
-            ? PrintGuardedAsync(layout, cfg.Printer, ct)
-            : null;
+        Task<PrintResult>? printTask = null;
+        if (cfg.Flow.PrintingEnabled)
+        {
+            ResetPrintProgress(cfg.Flow.ExpectedPrintSeconds);
+            _printStart = time.GetUtcNow();
+            _printActive = true;
+            printTask = PrintGuardedAsync(layout, cfg.Printer, ct);
+        }
         State = BoothState.Preview;
 
         await DelayAsync(cfg.Flow.PreviewSeconds, ct);
@@ -275,12 +350,23 @@ public sealed class BoothController(
         {
             StatusMessage ??= "Wird gedruckt…";
             State = BoothState.Printing;
+            await TrackPrintProgressAsync(printTask, ct);
         }
 
         var result = await printTask;
         ct.ThrowIfCancellationRequested();
+        _printActive = false;
+
         if (result.Success)
+        {
+            // Auch wenn der Druck schon während der Vorschau fertig wurde: Gast zum Abholen auffordern.
+            _printDone = true;
+            StatusMessage = null;
+            Raise(Changed);
+            State = BoothState.Printed;
+            await Task.Delay(PrintedDisplay, time, ct);
             return null;
+        }
 
         var detail = !string.IsNullOrWhiteSpace(result.Message)
             ? result.Message
@@ -291,6 +377,78 @@ public sealed class BoothController(
                 _ => "Unbekannter Fehler.",
             };
         return $"Das Foto wurde gespeichert, aber der Druck ist fehlgeschlagen: {detail}";
+    }
+
+    /// <summary>Meldet während des Drucks im festen Takt den Fortschritt (<see cref="Changed"/>), bis der Druck endet.</summary>
+    private async Task TrackPrintProgressAsync(Task printTask, CancellationToken ct)
+    {
+        while (!printTask.IsCompleted && !ct.IsCancellationRequested)
+        {
+            using var tickCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var tick = Task.Delay(ProgressTick, time, tickCts.Token);
+            await Task.WhenAny(printTask, tick);
+            tickCts.Cancel();
+            if (!printTask.IsCompleted)
+                Raise(Changed);
+        }
+    }
+
+    private void ResetPrintProgress(int expectedSeconds)
+    {
+        _printActive = false;
+        _printDone = false;
+        _expectedPrintSeconds = Math.Max(1, expectedSeconds);
+    }
+
+    /// <summary>Seitengröße nach Zeitüberschreitung/Fehler: zuletzt guter Wert desselben Schlüssels, sonst Standard.</summary>
+    private PageSpec FallbackPage(PageSpecKey key, string reason, Exception? ex = null)
+    {
+        if (_lastGoodPage.TryGetValue(key, out var lastGood))
+        {
+            AppLog.Warn($"{reason}, verwende den zuletzt ermittelten Wert.", ex);
+            return lastGood;
+        }
+
+        AppLog.Warn($"{reason}, verwende Standard.", ex);
+        return PageSpec.Default;
+    }
+
+    /// <summary>Holt die Seitengröße im Hintergrund (füllt den Zwischenspeicher des Druckdienstes und den letzten guten Wert).</summary>
+    private void StartPageSpecPrefetch()
+    {
+        if (!PrefetchPageSpec)
+            return;
+
+        try
+        {
+            var cfg = settings.Current;
+            var printer = cfg.Printer;
+            var kind = cfg.Layout.Kind;
+            var key = PageSpecKey.From(printer, kind);
+            if (!_prefetching.TryAdd(key, 0))
+                return;
+
+            var task = Task.Run(() =>
+            {
+                try
+                {
+                    _lastGoodPage[key] = print.GetPageSpec(printer, kind);
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Warn("Vorabruf der Seitengröße fehlgeschlagen.", ex);
+                }
+                finally
+                {
+                    _prefetching.TryRemove(key, out _);
+                }
+            });
+            ObserveFault(task);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Vorabruf der Seitengröße konnte nicht gestartet werden.", ex);
+        }
     }
 
     /// <summary>Druckt mit hartem Timeout (Druckerzeitlimit + Reserve); wirft nie.</summary>
@@ -351,4 +509,13 @@ public sealed class BoothController(
         try { handler?.Invoke(this, EventArgs.Empty); }
         catch (Exception ex) { AppLog.Error("Ausnahme in einem Ereignis-Handler des BoothController.", ex); }
     }
+}
+
+/// <summary>Druckereinstellungen, von denen die ermittelte Seitengröße abhängt (Schlüssel für Zwischenspeicher).</summary>
+public readonly record struct PageSpecKey(
+    string? PrinterName, string? PaperSizeName, double? PaperWidthMm, double? PaperHeightMm,
+    PageOrientation Orientation, LayoutKind Kind)
+{
+    public static PageSpecKey From(PrinterSettings printer, LayoutKind kind) =>
+        new(printer.PrinterName, printer.PaperSizeName, printer.PaperWidthMm, printer.PaperHeightMm, printer.Orientation, kind);
 }

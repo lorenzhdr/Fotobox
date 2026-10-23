@@ -21,6 +21,45 @@
             <GradientStop Color="#FFE59A4A" Offset="1" />
         </LinearGradientBrush>
 
+        <!-- Fortschrittsbalken des Drucks: Breite der Füllung = Value (0..1) der Spur. -->
+        <Style x:Key="PrintProgressBar" TargetType="ProgressBar">
+            <Setter Property="Minimum" Value="0" />
+            <Setter Property="Maximum" Value="1" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid>
+                            <Border x:Name="PART_Track" CornerRadius="19" Background="#40FFFFFF"
+                                    BorderBrush="{StaticResource GoldBorder}" BorderThickness="2.5" />
+                            <Grid x:Name="PART_Indicator" HorizontalAlignment="Left">
+                                <Border CornerRadius="19" Margin="5" Background="{StaticResource GoldBorder}" />
+                            </Grid>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Text pulsiert, solange die erwartete Druckzeit überschritten ist („Gleich geschafft …“). -->
+        <Style x:Key="PulseWhenOverdue" TargetType="TextBlock">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsPrintOverdue}" Value="True">
+                    <DataTrigger.EnterActions>
+                        <BeginStoryboard x:Name="PulseStoryboard">
+                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity" From="1" To="0.45"
+                                                 Duration="0:0:0.9" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.EnterActions>
+                    <DataTrigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="PulseStoryboard" />
+                    </DataTrigger.ExitActions>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- Overlay, das sanft eingeblendet wird, sobald es sichtbar wird. -->
         <Style x:Key="FadeInOverlay" TargetType="Grid">
             <Setter Property="Visibility" Value="Collapsed" />
@@ -88,7 +127,7 @@
                     </BeginStoryboard>
                 </EventTrigger>
             </Border.Triggers>
-            <TextBlock Text="Drücke die Leertaste für ein Foto 📸" Foreground="White"
+            <TextBlock Text="{Binding HintText}" Foreground="White"
                        FontSize="38" FontWeight="SemiBold" />
         </Border>
 
@@ -140,7 +179,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
-                <RowDefinition Height="140" />
+                <RowDefinition Height="240" />
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="Dein Foto ✨" Foreground="{StaticResource Gold}"
                        HorizontalAlignment="Center" Margin="0,40,0,0" FontSize="54" FontWeight="SemiBold" />
@@ -151,14 +190,55 @@
                 </Border.Effect>
                 <Image Source="{Binding PreviewImage}" Stretch="Uniform" />
             </Border>
+
+            <!-- Druck: Hinweis und Fortschrittsbalken; danach „Fertig“ -->
+            <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Stretch" MaxWidth="1400"
+                        Margin="120,0,120,30"
+                        Visibility="{Binding ShowPrintInfo, Converter={StaticResource BoolToVis}}">
+                <StackPanel Visibility="{Binding IsPrinting, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Ellipse Width="30" Height="30" Stroke="{StaticResource Gold}" StrokeThickness="4"
+                                 StrokeDashArray="3.5 4" StrokeDashCap="Round" Margin="0,0,20,0"
+                                 RenderTransformOrigin="0.5,0.5" VerticalAlignment="Center">
+                            <Ellipse.RenderTransform>
+                                <RotateTransform Angle="0" />
+                            </Ellipse.RenderTransform>
+                            <Ellipse.Triggers>
+                                <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                                    <BeginStoryboard>
+                                        <Storyboard RepeatBehavior="Forever">
+                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                             From="0" To="360" Duration="0:0:1.6" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </EventTrigger>
+                            </Ellipse.Triggers>
+                        </Ellipse>
+                        <TextBlock Text="{Binding StatusText}" Foreground="White" FontSize="32" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding PrintWaitText}" Style="{StaticResource PulseWhenOverdue}"
+                               Foreground="{StaticResource Gold}" FontSize="34" FontWeight="SemiBold"
+                               TextWrapping="Wrap" TextAlignment="Center" Margin="0,14,0,0" />
+                </StackPanel>
+                <TextBlock Text="Fertig! 🎉 Bitte nimm dein Foto aus dem Drucker." Foreground="White"
+                           FontSize="52" FontWeight="Bold" TextWrapping="Wrap" TextAlignment="Center"
+                           Visibility="{Binding IsPrinted, Converter={StaticResource BoolToVis}}">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="40" ShadowDepth="0" Color="#F5C26B" Opacity="0.7" />
+                    </TextBlock.Effect>
+                </TextBlock>
+                <ProgressBar Style="{StaticResource PrintProgressBar}" Value="{Binding PrintProgress, Mode=OneWay}"
+                             Margin="0,26,0,0" />
+            </StackPanel>
         </Grid>
 
-        <!-- Status-Banner (Drucken / Foto wird erstellt) -->
+        <!-- Status-Banner (Foto wird erstellt) -->
         <Border HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,48"
                 Padding="40,18" CornerRadius="50" BorderThickness="2"
                 Background="{StaticResource PillBackground}" BorderBrush="{StaticResource GoldBorder}"
                 IsHitTestVisible="False"
-                Visibility="{Binding ShowStatusBanner, Converter={StaticResource BoolToVis}}">
+                Visibility="{Binding ShowProcessingBanner, Converter={StaticResource BoolToVis}}">
             <StackPanel Orientation="Horizontal">
                 <Ellipse Width="32" Height="32" Stroke="{StaticResource Gold}" StrokeThickness="4"
                          StrokeDashArray="3.5 4" StrokeDashCap="Round" Margin="0,0,22,0"
