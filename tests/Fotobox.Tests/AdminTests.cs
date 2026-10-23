@@ -1,4 +1,5 @@
 using System.IO;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Fotobox.Core;
@@ -503,7 +504,13 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.True(vm.IsTestPrinting);
         Assert.False(vm.TestPrintCommand.CanExecute(null));
 
-        time.Advance(TimeSpan.FromSeconds(vm.Draft.Printer.TimeoutSeconds + 30));
+        // Die Seitengröße wird im Hintergrund ermittelt: Die Zeit erst vorstellen, wenn der Druck wirklich wartet.
+        await WaitUntilAsync(() => _print.PrintedPage is not null);
+        while (!running.IsCompleted)
+        {
+            time.Advance(TimeSpan.FromSeconds(vm.Draft.Printer.TimeoutSeconds + 30));
+            await Task.Delay(10);
+        }
         await running.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Contains("Zeitüberschreitung", vm.TestPrintStatus);
@@ -518,6 +525,7 @@ public sealed class AdminViewModelTests : IDisposable
         var vm = CreateViewModel(new FakeTimeProvider());
 
         var running = vm.TestPrintCommand.ExecuteAsync(null);
+        await WaitUntilAsync(() => _print.PrintedPage is not null);
         vm.Dispose();
         await running.WaitAsync(TimeSpan.FromSeconds(10));
 
@@ -526,12 +534,118 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.False(vm.IsTestPrinting);
     }
 
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "Bedingung wurde nicht rechtzeitig erfüllt.");
+            await Task.Delay(10);
+        }
+    }
+
     [Fact]
-    public void OverlayHint_NamesRecommendedPixelSize()
+    public async Task OverlayHint_NamesRecommendedPixelSize_AfterBackgroundLookup()
     {
         var vm = CreateViewModel();
 
+        // Bis die Seitengröße ermittelt ist, steht ein neutraler Text da (kein synchroner Druckerzugriff im Getter).
+        Assert.Contains("wird ermittelt", vm.OverlayHint);
+        Assert.Equal(0, _print.PageSpecCalls);
+
+        await vm.RefreshPageSpecAsync();
+
         Assert.Contains("1200 × 1800", vm.OverlayHint);
+    }
+
+    [Fact]
+    public async Task OverlayHint_PageSpecArrives_RaisesPropertyChanged()
+    {
+        var vm = CreateViewModel();
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        await vm.RefreshPageSpecAsync();
+
+        Assert.Contains(nameof(AdminViewModel.OverlayHint), raised);
+    }
+
+    [Fact]
+    public async Task OverlayHint_StaleResult_IsDiscarded()
+    {
+        // Erste Abfrage (Querformat) hängt, zweite (Hochformat) ist sofort fertig und gewinnt.
+        using var release = new ManualResetEventSlim();
+        _print.PageSpecFor = p =>
+        {
+            if (p.Orientation == PageOrientation.Landscape)
+            {
+                release.Wait(TimeSpan.FromSeconds(10));
+                return new PageSpec(152.4, 101.6);
+            }
+            return new PageSpec(210, 297);
+        };
+        var vm = CreateViewModel();
+        vm.Draft.Printer.Orientation = PageOrientation.Landscape;
+        var first = vm.RefreshPageSpecAsync();
+        vm.Draft.Printer.Orientation = PageOrientation.Portrait;
+        await vm.RefreshPageSpecAsync();
+        Assert.Contains("2480 × 3508", vm.OverlayHint);
+
+        release.Set();
+        await first.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Contains("2480 × 3508", vm.OverlayHint);
+    }
+
+    [Fact]
+    public async Task OverlayHint_PageSpecThrows_FallsBackToDefault()
+    {
+        _print.PageSpecFor = _ => throw new InvalidOperationException("Drucker offline");
+        var vm = CreateViewModel();
+
+        await vm.RefreshPageSpecAsync();
+
+        Assert.Contains("1200 × 1800", vm.OverlayHint);
+    }
+
+    [Fact]
+    public async Task PageSpecLookup_HangingPrinter_TimesOut_WithoutBlocking()
+    {
+        var time = new FakeTimeProvider();
+        using var release = new ManualResetEventSlim();
+        _print.PageSpecFor = _ =>
+        {
+            release.Wait(TimeSpan.FromSeconds(10));
+            return PageSpec.Default;
+        };
+        var vm = CreateViewModel(time);
+
+        var refresh = vm.RefreshPageSpecAsync();
+        Assert.Contains("wird ermittelt", vm.OverlayHint);
+        while (!refresh.IsCompleted)
+        {
+            time.Advance(TimeSpan.FromSeconds(30));
+            await Task.Delay(10);
+        }
+        await refresh;
+        release.Set();
+
+        // Zeitüberschreitung → Standardgröße statt Endlos-Warten.
+        Assert.Contains("1200 × 1800", vm.OverlayHint);
+    }
+
+    [Fact]
+    public async Task PaperChange_RefreshesPageSpec()
+    {
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        var before = _print.PageSpecCalls;
+
+        vm.SelectedPaper = vm.PaperSizes.First(p => p.Info?.Name == "A4");
+        await WaitUntilAsync(() => _print.PageSpecCalls > before);
+        await WaitUntilAsync(() => !vm.OverlayHint.Contains("ermittelt"));
+
+        Assert.Contains("A4", vm.SelectedPaper!.Display);
     }
 
     [StaFact]
@@ -678,6 +792,546 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Equal(Path.Combine(_dir, "Fotos"), _ui.OpenedFolder);
     }
 
+    // ------------------------------------------------------------------ Streifenvariante, Schrift
+
+    [Fact]
+    public void StripStyle_DefaultsToDoubleCut_RadioFlagsAreExclusive_AndIsSaved()
+    {
+        var vm = CreateViewModel();
+        Assert.True(vm.IsStripDoubleCut);
+        Assert.False(vm.IsStripSingle);
+
+        vm.IsStripSingle = true;
+        Assert.False(vm.IsStripDoubleCut);
+        Assert.Equal(StripStyle.Single, vm.Draft.Layout.StripStyle);
+
+        vm.IsStripLayout = true;
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(StripStyle.Single, _store.Current.Layout.StripStyle);
+    }
+
+    [Fact]
+    public void StripStyle_LoadsSavedValue()
+    {
+        _store.Current.Layout.StripStyle = StripStyle.Single;
+
+        var vm = CreateViewModel();
+
+        Assert.True(vm.IsStripSingle);
+    }
+
+    [Fact]
+    public async Task FontList_IsSortedByDisplayName_AndContainsDefaultFont()
+    {
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.NotEmpty(vm.CaptionFonts);
+        var names = vm.CaptionFonts.Select(f => f.Display).ToList();
+        var sorted = names.OrderBy(n => n, StringComparer.CurrentCultureIgnoreCase).ToList();
+        Assert.Equal(sorted, names);
+        Assert.Equal(LayoutSettings.DefaultCaptionFont, vm.SelectedCaptionFont.Source);
+        Assert.False(vm.IsCaptionFontMissing);
+    }
+
+    [Fact]
+    public async Task CaptionFont_SelectionIsSavedAsFamilySource()
+    {
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        var other = vm.CaptionFonts.First(f => f.IsInstalled && f.Source != LayoutSettings.DefaultCaptionFont);
+
+        vm.SelectedCaptionFont = other;
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(other.Source, _store.Current.Layout.CaptionFontFamily);
+        Assert.Same(other.Family, vm.CaptionPreviewFont);
+    }
+
+    [Fact]
+    public async Task CaptionFont_NotInstalled_StaysSelectedWithHint_AndIsKept()
+    {
+        const string missing = "Nicht installierte Testschrift 4711";
+        _store.Current.Layout.CaptionFontFamily = missing;
+        var vm = CreateViewModel();
+        Assert.False(vm.IsCaptionFontMissing); // vor dem Laden der Liste noch unbekannt
+
+        await vm.InitializeAsync();
+
+        Assert.True(vm.IsCaptionFontMissing);
+        Assert.Equal(missing, vm.SelectedCaptionFont.Source);
+        Assert.Equal(missing, vm.CaptionFonts[0].Source);
+        Assert.Equal("Diese Schrift ist auf diesem PC nicht installiert – es wird Segoe UI verwendet.", AdminViewModel.CaptionFontMissingHint);
+        Assert.Equal(LayoutSettings.DefaultCaptionFont, vm.CaptionPreviewFont.Source);
+
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(missing, _store.Current.Layout.CaptionFontFamily);
+    }
+
+    [Fact]
+    public void CaptionPreviewText_FollowsCaption()
+    {
+        var vm = CreateViewModel();
+        Assert.False(string.IsNullOrWhiteSpace(vm.CaptionPreviewText));
+
+        vm.CaptionText = "Hochzeit Anna & Ben";
+
+        Assert.Equal("Hochzeit Anna & Ben", vm.CaptionPreviewText);
+    }
+
+    // ------------------------------------------------------------------ Druckdauer
+
+    [Fact]
+    public void ExpectedPrintSeconds_IsSaved()
+    {
+        var vm = CreateViewModel();
+        Assert.Equal(120, vm.ExpectedPrintSeconds);
+
+        vm.ExpectedPrintSeconds = 200;
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(200, _store.Current.Flow.ExpectedPrintSeconds);
+    }
+
+    [Theory]
+    [InlineData(SettingsLimits.ExpectedPrintMin - 1)]
+    [InlineData(SettingsLimits.ExpectedPrintMax + 1)]
+    public void ExpectedPrintSeconds_OutOfRange_IsRejected(int value)
+    {
+        var vm = CreateViewModel();
+        vm.ExpectedPrintSeconds = value;
+
+        var errors = vm.Validate();
+
+        Assert.Contains(errors, e => e.Contains("erwartete Druckdauer") && e.Contains(SettingsLimits.ExpectedPrintMax.ToString()));
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(0, _store.SaveCount);
+    }
+
+    [Fact]
+    public void PrintTimeout_UsesSettingsLimits_NoSeparateMaximum()
+    {
+        var vm = CreateViewModel();
+
+        vm.PrintTimeoutSeconds = SettingsLimits.PrintTimeoutMax;
+        Assert.DoesNotContain(vm.Validate(), e => e.Contains("Druck-Timeout"));
+
+        vm.PrintTimeoutSeconds = SettingsLimits.PrintTimeoutMax + 1;
+        Assert.Contains(vm.Validate(), e => e.Contains("Druck-Timeout") && e.Contains(SettingsLimits.PrintTimeoutMax.ToString()));
+    }
+
+    [Fact]
+    public void PrintTimeoutBelowExpectedPlusReserve_ShowsHint_ButIsNoError()
+    {
+        var vm = CreateViewModel();
+        vm.ExpectedPrintSeconds = 120;
+        vm.PrintTimeoutSeconds = 150;
+
+        Assert.True(vm.HasPrintTimeoutHint);
+        Assert.Contains("180", vm.PrintTimeoutHint);
+        Assert.Empty(vm.Validate());
+
+        vm.PrintTimeoutSeconds = 180;
+        Assert.False(vm.HasPrintTimeoutHint);
+
+        vm.ExpectedPrintSeconds = 300; // verschiebt die Grenze auf 360 s
+        Assert.True(vm.HasPrintTimeoutHint);
+        Assert.Contains("360", vm.PrintTimeoutHint);
+    }
+
+    // ------------------------------------------------------------------ Tasten
+
+    private KeyActionEditor Keys(AdminViewModel vm, KeyAction action) => vm.KeyEditors.Single(e => e.Action == action);
+
+    private static KeyChord Chord(Key key, ModifierKeys modifiers = ModifierKeys.None) => new(key, modifiers);
+
+    [Fact]
+    public void Keys_LoadDefaults_WithGermanDisplayNames()
+    {
+        var vm = CreateViewModel();
+
+        Assert.Equal(["Leertaste"], Keys(vm, KeyAction.Trigger).Keys.Select(k => k.DisplayName));
+        Assert.Equal(["Strg+Alt+A"], Keys(vm, KeyAction.Admin).Keys.Select(k => k.DisplayName));
+        Assert.Equal(["Esc"], Keys(vm, KeyAction.CancelCountdown).Keys.Select(k => k.DisplayName));
+        Assert.Equal(["Foto auslösen", "Admin-Ansicht öffnen", "Countdown abbrechen"], vm.KeyEditors.Select(e => e.Title));
+        Assert.Equal("Strg+Alt+A", vm.AdminKeysDisplay);
+    }
+
+    [Fact]
+    public void Keys_InvalidStoredEntries_AreReplacedByDefaults()
+    {
+        _store.Current.Input.TriggerKeys = ["Quatsch", "Alt+F4"];
+
+        var vm = CreateViewModel();
+
+        Assert.Equal(["Space"], vm.Draft.Input.TriggerKeys);
+        Assert.Single(Keys(vm, KeyAction.Trigger).Keys);
+    }
+
+    [Fact]
+    public void Keys_AddKey_EndsCaptureAndUpdatesDraft()
+    {
+        var vm = CreateViewModel();
+        var trigger = Keys(vm, KeyAction.Trigger);
+
+        trigger.AddKeyCommand.Execute(null);
+        Assert.True(vm.IsKeyCaptureActive);
+        Assert.True(trigger.IsCapturing);
+        Assert.Contains("Foto auslösen", vm.KeyCaptureHint);
+
+        Assert.True(vm.CaptureKey(Chord(Key.Enter)));
+
+        Assert.False(vm.IsKeyCaptureActive);
+        Assert.False(trigger.IsCapturing);
+        Assert.Equal(["Space", "Enter"], vm.Draft.Input.TriggerKeys);
+        Assert.Equal(["Leertaste", "Eingabetaste"], trigger.Keys.Select(k => k.DisplayName));
+        Assert.False(vm.HasKeyMessage);
+    }
+
+    [Fact]
+    public void Keys_EscapeAndTab_CanBeCaptured()
+    {
+        var vm = CreateViewModel();
+        vm.BeginKeyCapture(KeyAction.Trigger);
+        Assert.True(vm.CaptureKey(Chord(Key.Tab)));
+
+        vm.BeginKeyCapture(KeyAction.Admin);
+        Assert.True(vm.CaptureKey(Chord(Key.Escape, ModifierKeys.Shift)));
+
+        Assert.Contains("Tab", vm.Draft.Input.TriggerKeys);
+        Assert.Contains("Shift+Escape", vm.Draft.Input.AdminKeys);
+    }
+
+    [Fact]
+    public void Keys_KeyOfAnotherAction_IsRejectedWithMessage_AndCaptureStaysActive()
+    {
+        var vm = CreateViewModel();
+        vm.BeginKeyCapture(KeyAction.Admin);
+
+        var ok = vm.CaptureKey(Chord(Key.Space)); // gehört zu „Foto auslösen“
+
+        Assert.False(ok);
+        Assert.Equal("Diese Taste ist bereits ‚Foto auslösen‘ zugeordnet.", vm.KeyMessage);
+        Assert.True(vm.IsKeyCaptureActive);
+        Assert.Single(Keys(vm, KeyAction.Admin).Keys);
+        Assert.Equal(["Ctrl+Alt+A"], vm.Draft.Input.AdminKeys);
+    }
+
+    [Fact]
+    public void Keys_KeyAlreadyInSameAction_IsIgnoredWithHint()
+    {
+        var vm = CreateViewModel();
+        vm.BeginKeyCapture(KeyAction.Trigger);
+
+        Assert.False(vm.CaptureKey(Chord(Key.Space)));
+
+        Assert.Contains("bereits", vm.KeyMessage);
+        Assert.Single(Keys(vm, KeyAction.Trigger).Keys);
+    }
+
+    [Theory]
+    [InlineData(Key.F4, ModifierKeys.Alt)]
+    [InlineData(Key.Tab, ModifierKeys.Alt)]
+    [InlineData(Key.Escape, ModifierKeys.Control)]
+    [InlineData(Key.Delete, ModifierKeys.Control | ModifierKeys.Alt)]
+    [InlineData(Key.LWin, ModifierKeys.None)]
+    [InlineData(Key.LeftCtrl, ModifierKeys.Control)]
+    public void Keys_SystemReservedCombination_IsRejected(Key key, ModifierKeys modifiers)
+    {
+        var vm = CreateViewModel();
+        vm.BeginKeyCapture(KeyAction.CancelCountdown);
+
+        var ok = vm.CaptureKey(Chord(key, modifiers));
+
+        Assert.False(ok);
+        Assert.Equal("Diese Tastenkombination ist vom System belegt und kann nicht verwendet werden.", vm.KeyMessage);
+        Assert.Single(Keys(vm, KeyAction.CancelCountdown).Keys);
+    }
+
+    [Fact]
+    public void Keys_CaptureWithoutBegin_IsIgnored()
+    {
+        var vm = CreateViewModel();
+
+        Assert.False(vm.CaptureKey(Chord(Key.F5)));
+        Assert.Single(Keys(vm, KeyAction.Trigger).Keys);
+    }
+
+    [Fact]
+    public void Keys_CancelCapture_LeavesKeysUnchanged()
+    {
+        var vm = CreateViewModel();
+        vm.BeginKeyCapture(KeyAction.Trigger);
+
+        vm.CancelKeyCaptureCommand.Execute(null);
+
+        Assert.False(vm.IsKeyCaptureActive);
+        Assert.Equal(["Space"], vm.Draft.Input.TriggerKeys);
+    }
+
+    [Theory]
+    [InlineData(KeyAction.Trigger)]
+    [InlineData(KeyAction.Admin)]
+    public void Keys_LastRequiredKey_CannotBeRemoved(KeyAction action)
+    {
+        var vm = CreateViewModel();
+        var editor = Keys(vm, action);
+        var only = editor.Keys[0];
+
+        Assert.False(only.RemoveCommand.CanExecute(null));
+        only.RemoveCommand.Execute(null);
+
+        Assert.Single(editor.Keys);
+    }
+
+    [Fact]
+    public void Keys_RequiredAction_KeyRemovableOnceASecondExists()
+    {
+        var vm = CreateViewModel();
+        var trigger = Keys(vm, KeyAction.Trigger);
+        var first = trigger.Keys[0];
+        vm.BeginKeyCapture(KeyAction.Trigger);
+        vm.CaptureKey(Chord(Key.Enter));
+        Assert.True(first.RemoveCommand.CanExecute(null));
+
+        first.RemoveCommand.Execute(null);
+
+        Assert.Equal(["Enter"], vm.Draft.Input.TriggerKeys);
+        Assert.False(trigger.Keys[0].RemoveCommand.CanExecute(null)); // jetzt die letzte
+    }
+
+    [Fact]
+    public void Keys_OptionalAction_CanBeEmptied()
+    {
+        var vm = CreateViewModel();
+        var cancel = Keys(vm, KeyAction.CancelCountdown);
+
+        cancel.Keys[0].RemoveCommand.Execute(null);
+
+        Assert.Empty(cancel.Keys);
+        Assert.Empty(vm.Draft.Input.CancelCountdownKeys);
+        Assert.Empty(vm.Validate());
+    }
+
+    [Fact]
+    public void Keys_MaximumPerAction_DisablesAdding()
+    {
+        var vm = CreateViewModel();
+        var trigger = Keys(vm, KeyAction.Trigger);
+        for (var i = 1; trigger.Keys.Count < SettingsLimits.KeysPerActionMax; i++)
+        {
+            vm.BeginKeyCapture(KeyAction.Trigger);
+            Assert.True(vm.CaptureKey(Chord(Key.F1 + i)));
+        }
+
+        Assert.Equal(SettingsLimits.KeysPerActionMax, trigger.Keys.Count);
+        Assert.False(trigger.CanAddKey);
+        Assert.False(trigger.AddKeyCommand.CanExecute(null));
+        vm.BeginKeyCapture(KeyAction.Trigger);
+        Assert.False(vm.IsKeyCaptureActive);
+    }
+
+    [Fact]
+    public void Keys_OnlyOneCaptureAtATime_DisablesOtherAddButtons()
+    {
+        var vm = CreateViewModel();
+        var admin = Keys(vm, KeyAction.Admin);
+
+        Keys(vm, KeyAction.Trigger).AddKeyCommand.Execute(null);
+
+        Assert.False(admin.AddKeyCommand.CanExecute(null));
+        vm.CancelKeyCapture();
+        Assert.True(admin.AddKeyCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void Keys_Save_WritesCanonicalStrings()
+    {
+        var vm = CreateViewModel();
+        vm.BeginKeyCapture(KeyAction.Trigger);
+        vm.CaptureKey(Chord(Key.K, ModifierKeys.Shift | ModifierKeys.Control));
+        vm.BeginKeyCapture(KeyAction.Admin);
+        vm.CaptureKey(Chord(Key.PageDown, ModifierKeys.Alt));
+        vm.BeginKeyCapture(KeyAction.CancelCountdown);
+        vm.CaptureKey(Chord(Key.Back));
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(1, _store.SaveCount);
+        Assert.Equal(["Space", "Ctrl+Shift+K"], _store.Current.Input.TriggerKeys);
+        Assert.Equal(["Ctrl+Alt+A", "Alt+PageDown"], _store.Current.Input.AdminKeys);
+        Assert.Equal(["Escape", "Back"], _store.Current.Input.CancelCountdownKeys);
+    }
+
+    [Fact]
+    public void Keys_ResetToDefaults_RestoresStandardAssignment()
+    {
+        var vm = CreateViewModel();
+        vm.BeginKeyCapture(KeyAction.Trigger);
+        vm.CaptureKey(Chord(Key.Enter));
+        Keys(vm, KeyAction.CancelCountdown).Keys[0].RemoveCommand.Execute(null);
+
+        vm.ResetKeysCommand.Execute(null);
+
+        Assert.Equal(["Space"], vm.Draft.Input.TriggerKeys);
+        Assert.Equal(["Ctrl+Alt+A"], vm.Draft.Input.AdminKeys);
+        Assert.Equal(["Escape"], vm.Draft.Input.CancelCountdownKeys);
+        Assert.Single(Keys(vm, KeyAction.Trigger).Keys);
+    }
+
+    [Fact]
+    public void Keys_RequiredActionWithoutKey_FailsValidation()
+    {
+        var vm = CreateViewModel();
+        Keys(vm, KeyAction.Admin).Keys.Clear();
+
+        var errors = vm.Validate();
+
+        Assert.Contains(errors, e => e.Contains("Admin-Ansicht öffnen"));
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(0, _store.SaveCount);
+    }
+
+    // ------------------------------------------------------------------ Speichern-Pfad
+
+    [Fact]
+    public void Save_StoreThrows_ShowsMessage_AndStaysOpen()
+    {
+        var vm = CreateViewModel();
+        bool? closed = null;
+        vm.CloseRequested += save => closed = save;
+        _store.ThrowOnSave = new IOException("gesperrt");
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Null(closed);
+        Assert.False(vm.SettingsSaved);
+        Assert.Contains("gesperrt", vm.ValidationMessage);
+    }
+
+    [Fact]
+    public void Save_Twice_WritesOnlyOnce()
+    {
+        var vm = CreateViewModel();
+
+        vm.SaveCommand.Execute(null);
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(1, _store.SaveCount);
+    }
+
+    // ------------------------------------------------------------------ CameraChanged
+
+    [Fact]
+    public void CameraSettingsDiffer_DetectsEveryRelevantChange()
+    {
+        static CameraSettings Base() => new() { DeviceId = "cam1", ResolutionWidth = 1280, ResolutionHeight = 720, MirrorPreview = true, MirrorPhoto = false };
+
+        Assert.False(Fotobox.Views.Admin.AdminLauncher.CameraSettingsDiffer(Base(), Base()));
+
+        var device = Base(); device.DeviceId = "cam2";
+        var width = Base(); width.ResolutionWidth = 1920;
+        var height = Base(); height.ResolutionHeight = 1080;
+        var auto = Base(); auto.ResolutionWidth = null; auto.ResolutionHeight = null;
+        var preview = Base(); preview.MirrorPreview = false;
+        var photo = Base(); photo.MirrorPhoto = true;
+
+        foreach (var changed in new[] { device, width, height, auto, preview, photo })
+            Assert.True(Fotobox.Views.Admin.AdminLauncher.CameraSettingsDiffer(Base(), changed));
+    }
+
+    private static CameraSettings SnapshotCamera(CameraSettings c) => new()
+    {
+        DeviceId = c.DeviceId,
+        ResolutionWidth = c.ResolutionWidth,
+        ResolutionHeight = c.ResolutionHeight,
+        MirrorPreview = c.MirrorPreview,
+        MirrorPhoto = c.MirrorPhoto,
+    };
+
+    private void UseSavedCamera(string? deviceId, int? width, int? height)
+    {
+        _store.Current.Camera.DeviceId = deviceId;
+        _store.Current.Camera.ResolutionWidth = width;
+        _store.Current.Camera.ResolutionHeight = height;
+        _store.Current.Camera.MirrorPhoto = true;
+    }
+
+    [Fact]
+    public async Task OpenAndSaveWithoutChanges_LeavesCameraSettingsUntouched()
+    {
+        UseSavedCamera("cam1", 1280, 720);
+        var before = SnapshotCamera(_store.Current.Camera);
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(1, _store.SaveCount);
+        Assert.False(Fotobox.Views.Admin.AdminLauncher.CameraSettingsDiffer(before, _store.Current.Camera));
+        Assert.False(vm.CameraTouched);
+        Assert.Empty(_camera.StartCalls);
+    }
+
+    [Fact]
+    public async Task OpenAndSaveWithoutChanges_ResolutionListUnavailable_KeepsSavedResolution()
+    {
+        UseSavedCamera("cam1", 1280, 720);
+        var before = SnapshotCamera(_store.Current.Camera);
+        _camera.ResolutionsError = new InvalidOperationException("Kamera belegt");
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.Contains("nicht verfügbar", vm.SelectedResolution?.Display);
+        vm.SaveCommand.Execute(null);
+
+        Assert.False(Fotobox.Views.Admin.AdminLauncher.CameraSettingsDiffer(before, _store.Current.Camera));
+        Assert.Equal(1280, _store.Current.Camera.ResolutionWidth);
+        Assert.Equal(720, _store.Current.Camera.ResolutionHeight);
+    }
+
+    [Fact]
+    public async Task OpenAndSaveWithoutChanges_SavedDeviceNotListed_KeepsSavedCamera()
+    {
+        UseSavedCamera("abgesteckte-kamera", 800, 600);
+        var before = SnapshotCamera(_store.Current.Camera);
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.False(Fotobox.Views.Admin.AdminLauncher.CameraSettingsDiffer(before, _store.Current.Camera));
+        Assert.Equal("abgesteckte-kamera", _store.Current.Camera.DeviceId);
+    }
+
+    [Fact]
+    public async Task SavedResolutionMissingFromDevicesList_FallsBackToAutomatic()
+    {
+        UseSavedCamera("cam1", 1000, 500);
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.Null(vm.SelectedResolution?.Resolution);
+        Assert.Null(vm.Draft.Camera.ResolutionWidth);
+        vm.SaveCommand.Execute(null);
+        Assert.Null(_store.Current.Camera.ResolutionWidth);
+    }
+
+    [Fact]
+    public async Task ChangingResolution_IsDetectedAsCameraChange()
+    {
+        UseSavedCamera("cam1", 1280, 720);
+        var before = SnapshotCamera(_store.Current.Camera);
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        vm.SelectedResolution = vm.Resolutions.First(r => r.Resolution == new CameraResolution(640, 480));
+        vm.SaveCommand.Execute(null);
+
+        Assert.True(Fotobox.Views.Admin.AdminLauncher.CameraSettingsDiffer(before, _store.Current.Camera));
+    }
+
     private static void WritePng(string path, int width, int height)
     {
         var source = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null,
@@ -704,8 +1358,13 @@ public sealed class AdminViewModelTests : IDisposable
         public int SaveCount { get; private set; }
         public event EventHandler? SettingsChanged;
 
+        /// <summary>Gesetzt: <see cref="Save"/> wirft diese Ausnahme (z. B. gesperrte Datei).</summary>
+        public Exception? ThrowOnSave { get; set; }
+
         public void Save(AppSettings settings)
         {
+            if (ThrowOnSave is not null)
+                throw ThrowOnSave;
             SaveCount++;
             Current = settings.Clone();
             SettingsChanged?.Invoke(this, EventArgs.Empty);
@@ -744,9 +1403,14 @@ public sealed class AdminViewModelTests : IDisposable
         public Task<IReadOnlyList<CameraDevice>> GetDevicesAsync() =>
             Task.FromResult<IReadOnlyList<CameraDevice>>([new CameraDevice("cam1", "Kamera 1"), new CameraDevice("cam2", "Kamera 2")]);
 
+        /// <summary>Gesetzt: <see cref="GetResolutionsAsync"/> wirft (z. B. Kamera gerade belegt).</summary>
+        public Exception? ResolutionsError { get; set; }
+
         public Task<IReadOnlyList<CameraResolution>> GetResolutionsAsync(string deviceId) =>
-            Task.FromResult<IReadOnlyList<CameraResolution>>(
-                [new CameraResolution(640, 480), new CameraResolution(1280, 720), new CameraResolution(1920, 1080)]);
+            ResolutionsError is not null
+                ? Task.FromException<IReadOnlyList<CameraResolution>>(ResolutionsError)
+                : Task.FromResult<IReadOnlyList<CameraResolution>>(
+                    [new CameraResolution(640, 480), new CameraResolution(1280, 720), new CameraResolution(1920, 1080)]);
 
         public Task StartAsync(CameraSettings settings, CancellationToken ct = default)
         {
@@ -789,7 +1453,16 @@ public sealed class AdminViewModelTests : IDisposable
             return [new PaperSizeInfo("4x6", "10 x 15 cm randlos", 101.6, 152.4), new PaperSizeInfo("A4", "A4", 210, 297)];
         }
 
-        public PageSpec GetPageSpec(PrinterSettings printer, LayoutKind layout) => PageSpec.Default;
+        private int _pageSpecCalls;
+        public int PageSpecCalls => Volatile.Read(ref _pageSpecCalls);
+        /// <summary>Gesetzt: liefert die Seitengröße (oder hängt/wirft) statt <see cref="PageSpec.Default"/>.</summary>
+        public Func<PrinterSettings, PageSpec>? PageSpecFor { get; set; }
+
+        public PageSpec GetPageSpec(PrinterSettings printer, LayoutKind layout)
+        {
+            Interlocked.Increment(ref _pageSpecCalls);
+            return PageSpecFor?.Invoke(printer) ?? PageSpec.Default;
+        }
 
         public Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer, IProgress<string>? status = null, CancellationToken ct = default)
         {
@@ -815,6 +1488,8 @@ public sealed class AdminViewModelTests : IDisposable
         public BitmapSource RenderTestPage(PageSpec page)
         {
             LastTestPage = BitmapSource.Create(page.PixelWidth, 4, 96, 96, PixelFormats.Gray8, null, new byte[page.PixelWidth * 4], page.PixelWidth);
+            // Eingefroren: Die Fortsetzung nach dem Hintergrund-await läuft im Test nicht auf dem erzeugenden Thread.
+            LastTestPage.Freeze();
             return LastTestPage;
         }
     }

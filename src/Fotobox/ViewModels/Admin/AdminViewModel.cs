@@ -61,6 +61,20 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private string _overlayInfo = string.Empty;
     private ImageSource? _overlayThumbnail;
 
+    // Seitengröße für den Overlay-Hinweis: wird im Hintergrund ermittelt (der Drucker kann Sekunden brauchen).
+    private PageSpec? _overlayPage;
+    private int _pageSpecVersion;
+
+    private IReadOnlyList<FontOption> _captionFonts = [];
+    private FontOption _selectedCaptionFont;
+    private bool _fontsLoaded;
+
+    private KeyActionEditor? _capturingEditor;
+    private string _keyMessage = string.Empty;
+
+    /// <summary>Länger darf die Abfrage der Seitengröße nicht dauern (der Druckdienst selbst gibt nach 5 s auf).</summary>
+    private static readonly TimeSpan PageSpecTimeout = TimeSpan.FromSeconds(10);
+
     public AdminViewModel(ISettingsStore store, IPinService pin, ICameraService camera, IPrintService print, IAdminUi ui,
         TimeProvider? time = null)
     {
@@ -80,6 +94,21 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         ];
         _selectedOrientation = Orientations.First(o => o.Orientation == _draft.Printer.Orientation);
 
+        // Bis die Systemschriften geladen sind, zeigt die Auswahl die gespeicherte Schrift.
+        _selectedCaptionFont = CreateMissingFontOption(SettingsNormalizer.SanitizeFontName(_draft.Layout.CaptionFontFamily), installed: true);
+        _captionFonts = [_selectedCaptionFont];
+
+        KeyEditors =
+        [
+            new KeyActionEditor(this, KeyAction.Trigger, "Foto auslösen",
+                "Startet den Countdown und das Foto.", isRequired: true),
+            new KeyActionEditor(this, KeyAction.Admin, "Admin-Ansicht öffnen",
+                "Öffnet diese Einstellungen (nach PIN-Eingabe).", isRequired: true),
+            new KeyActionEditor(this, KeyAction.CancelCountdown, "Countdown abbrechen",
+                "Bricht einen laufenden Countdown ab.", isRequired: false),
+        ];
+        LoadKeysFromDraft();
+
         SaveCommand = new RelayCommand(Save);
         CancelCommand = new RelayCommand(Cancel);
         ExitCommand = new RelayCommand(RequestExit);
@@ -90,6 +119,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         OpenFolderCommand = new RelayCommand(OpenFolder);
         ChangePinCommand = new RelayCommand(ChangePin);
         TestPrintCommand = new AsyncRelayCommand(TestPrintAsync, () => !IsTestPrinting);
+        CancelKeyCaptureCommand = new RelayCommand(CancelKeyCapture);
+        ResetKeysCommand = new RelayCommand(ResetKeys);
 
         Camera.StatusChanged += OnCameraStatusChanged;
         UpdateOverlay();
@@ -113,6 +144,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     public IRelayCommand OpenFolderCommand { get; }
     public IRelayCommand ChangePinCommand { get; }
     public IAsyncRelayCommand TestPrintCommand { get; }
+    public IRelayCommand CancelKeyCaptureCommand { get; }
+    public IRelayCommand ResetKeysCommand { get; }
 
     /// <summary>Wird ausgelöst, wenn das Fenster geschlossen werden soll (Parameter: true = Speichern).</summary>
     public event Action<bool>? CloseRequested;
@@ -144,10 +177,17 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     /// <summary>Lädt Geräte, Auflösungen, Drucker und Papiergrößen. Wirft nicht.</summary>
     public async Task InitializeAsync()
     {
+        // Die Schriftenliste lädt parallel zu Kamera und Drucker (und nur einmal pro Prozess).
+        var fontsTask = FontCatalog.GetAsync();
+        // Seitengröße ebenfalls im Hintergrund; sie hängt nur vom Entwurf ab, nicht von den geladenen Listen.
+        var pageTask = RefreshPageSpecAsync();
+
         await LoadCameraListsAsync();
         await LoadPrintersAsync();
+        await ApplyFontsAsync(fontsTask);
         UpdateOverlay();
         RaiseCameraStatus();
+        await pageTask;
     }
 
     // ---------------------------------------------------------------- Kamera
@@ -165,7 +205,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             _selectedDevice = value;
             OnPropertyChanged();
             if (!_loading)
-                _ = SelectDeviceAsync(value);
+                Forget(SelectDeviceAsync(value));
         }
     }
 
@@ -198,7 +238,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 return;
             _draft.Camera.ResolutionWidth = value.Resolution?.Width;
             _draft.Camera.ResolutionHeight = value.Resolution?.Height;
-            _ = RestartCameraAsync();
+            Forget(RestartCameraAsync());
         }
     }
 
@@ -336,6 +376,13 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             resolutions = [];
         }
 
+        // Nur eine vollständige Liste des eigenen Geräts darf die gespeicherte Auflösung für ungültig erklären. Fehlt die Liste
+        // (Abfrage fehlgeschlagen, z. B. weil die Kamera gerade belegt ist) oder gehört sie zu einem anderen Gerät als dem
+        // gespeicherten, bleibt der Entwurf unverändert – sonst würde „Speichern ohne Änderung“ die Auflösung löschen
+        // und einen unnötigen Kamera-Neustart auslösen.
+        var listIsAuthoritative = resolutions.Count > 0
+            && (_draft.Camera.DeviceId is null || _draft.Camera.DeviceId == deviceId);
+
         _loading = true;
         try
         {
@@ -348,10 +395,19 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 o.Resolution is { } r && r.Width == _draft.Camera.ResolutionWidth && r.Height == _draft.Camera.ResolutionHeight);
             if (current is null)
             {
-                // Gespeicherte Auflösung gibt es für dieses Gerät nicht → Automatisch anzeigen und speichern.
-                _draft.Camera.ResolutionWidth = null;
-                _draft.Camera.ResolutionHeight = null;
-                current = Resolutions[0];
+                if (!listIsAuthoritative && _draft.Camera.ResolutionWidth is { } width && _draft.Camera.ResolutionHeight is { } height)
+                {
+                    // Liste nicht verfügbar → gespeicherte Auswahl erhalten (wie bei Drucker und Papier).
+                    current = new ResolutionOption(new CameraResolution(width, height), $"{width} × {height} (nicht verfügbar)");
+                    Resolutions.Add(current);
+                }
+                else
+                {
+                    // Gespeicherte Auflösung gibt es für dieses Gerät nicht → Automatisch anzeigen und speichern.
+                    _draft.Camera.ResolutionWidth = null;
+                    _draft.Camera.ResolutionHeight = null;
+                    current = Resolutions[0];
+                }
             }
 
             _selectedResolution = current;
@@ -362,6 +418,14 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             _loading = false;
         }
     }
+
+    /// <summary>
+    /// Für bewusst nicht abgewartete Aufgaben aus Property-Settern: Ein unerwarteter Fehler wird protokolliert,
+    /// statt unbeobachtet zu bleiben.
+    /// </summary>
+    private static void Forget(Task task) =>
+        _ = task.ContinueWith(t => AppLog.Error("Hintergrundaufgabe der Admin-Ansicht fehlgeschlagen.", t.Exception?.GetBaseException()),
+            CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
 
     private void OnCameraStatusChanged(object? sender, EventArgs e)
     {
@@ -405,6 +469,40 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         set => SetProperty(_draft.Flow.PrintingEnabled, value, v => _draft.Flow.PrintingEnabled = v);
     }
 
+    /// <summary>So lange läuft der Fortschrittsbalken in der Gastansicht.</summary>
+    public int ExpectedPrintSeconds
+    {
+        get => _draft.Flow.ExpectedPrintSeconds;
+        set
+        {
+            if (SetProperty(_draft.Flow.ExpectedPrintSeconds, value, v => _draft.Flow.ExpectedPrintSeconds = v))
+                RaisePrintTimeoutHint();
+        }
+    }
+
+    private void RaisePrintTimeoutHint()
+    {
+        OnPropertyChanged(nameof(PrintTimeoutHint));
+        OnPropertyChanged(nameof(HasPrintTimeoutHint));
+    }
+
+    /// <summary>
+    /// Hinweis, wenn das Druck-Timeout unter „erwartete Dauer + Reserve“ liegt (der Normalisierer hebt es beim
+    /// Speichern an; ein Fehler ist das nicht). Leer = nichts anzuzeigen.
+    /// </summary>
+    public string PrintTimeoutHint
+    {
+        get
+        {
+            var minimum = _draft.Flow.ExpectedPrintSeconds + SettingsLimits.PrintTimeoutReserveSeconds;
+            return _draft.Printer.TimeoutSeconds < minimum
+                ? $"Das Zeitlimit ist kürzer als die erwartete Druckdauer plus {SettingsLimits.PrintTimeoutReserveSeconds} s. Es wird beim Speichern auf {minimum} s angehoben."
+                : string.Empty;
+        }
+    }
+
+    public bool HasPrintTimeoutHint => PrintTimeoutHint.Length > 0;
+
     // ---------------------------------------------------------------- Layout
 
     public bool IsSingleLayout
@@ -441,11 +539,122 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         set => SetProperty(_draft.Layout.StripPhotoCount, value, v => _draft.Layout.StripPhotoCount = v);
     }
 
+    /// <summary>Fotostreifen: zwei gleiche Streifen nebeneinander (zum Teilen).</summary>
+    public bool IsStripDoubleCut
+    {
+        get => _draft.Layout.StripStyle == StripStyle.DoubleCut;
+        set => SetStripStyle(StripStyle.DoubleCut, value);
+    }
+
+    /// <summary>Fotostreifen: ein Streifen über die ganze Seite.</summary>
+    public bool IsStripSingle
+    {
+        get => _draft.Layout.StripStyle == StripStyle.Single;
+        set => SetStripStyle(StripStyle.Single, value);
+    }
+
+    private void SetStripStyle(StripStyle style, bool selected)
+    {
+        if (!selected || _draft.Layout.StripStyle == style)
+            return;
+        _draft.Layout.StripStyle = style;
+        OnPropertyChanged(nameof(IsStripDoubleCut));
+        OnPropertyChanged(nameof(IsStripSingle));
+    }
+
     public string CaptionText
     {
         get => _draft.Layout.CaptionText ?? string.Empty;
-        set => SetProperty(_draft.Layout.CaptionText ?? string.Empty, value,
-            v => _draft.Layout.CaptionText = string.IsNullOrWhiteSpace(v) ? null : v);
+        set
+        {
+            if (SetProperty(_draft.Layout.CaptionText ?? string.Empty, value,
+                    v => _draft.Layout.CaptionText = string.IsNullOrWhiteSpace(v) ? null : v))
+                OnPropertyChanged(nameof(CaptionPreviewText));
+        }
+    }
+
+    // ---- Schrift der Bildunterschrift
+
+    public const string CaptionFontMissingHint = "Diese Schrift ist auf diesem PC nicht installiert – es wird Segoe UI verwendet.";
+
+    /// <summary>Alle Systemschriften (nach Anzeigename sortiert); eine fehlende gespeicherte Schrift steht an erster Stelle.</summary>
+    public IReadOnlyList<FontOption> CaptionFonts
+    {
+        get => _captionFonts;
+        private set => SetProperty(ref _captionFonts, value);
+    }
+
+    public FontOption SelectedCaptionFont
+    {
+        get => _selectedCaptionFont;
+        set
+        {
+            if (value is null || ReferenceEquals(value, _selectedCaptionFont))
+                return;
+            _selectedCaptionFont = value;
+            if (!_loading)
+                _draft.Layout.CaptionFontFamily = value.Source;
+            RaiseCaptionFont();
+        }
+    }
+
+    /// <summary>Die gespeicherte Schrift ist nicht installiert (erst bekannt, wenn die Liste geladen ist).</summary>
+    public bool IsCaptionFontMissing => _fontsLoaded && !_selectedCaptionFont.IsInstalled;
+
+    /// <summary>Schrift für die Vorschau: die gewählte, bei fehlender Schrift Segoe UI.</summary>
+    public FontFamily CaptionPreviewFont => _selectedCaptionFont.IsInstalled ? _selectedCaptionFont.Family : FontCatalog.Fallback;
+
+    public string CaptionPreviewText =>
+        string.IsNullOrWhiteSpace(_draft.Layout.CaptionText) ? "Vorschau der Bildunterschrift" : _draft.Layout.CaptionText;
+
+    private void RaiseCaptionFont()
+    {
+        OnPropertyChanged(nameof(SelectedCaptionFont));
+        OnPropertyChanged(nameof(IsCaptionFontMissing));
+        OnPropertyChanged(nameof(CaptionPreviewFont));
+    }
+
+    private static FontOption CreateMissingFontOption(string name, bool installed) =>
+        installed
+            ? new FontOption(name, name, new FontFamily(name))
+            : new FontOption(name, name + " (nicht installiert)", FontCatalog.Fallback, IsInstalled: false);
+
+    private async Task ApplyFontsAsync(Task<IReadOnlyList<FontOption>> fontsTask)
+    {
+        IReadOnlyList<FontOption> fonts;
+        try
+        {
+            fonts = await fontsTask;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Schriftenliste konnte nicht geladen werden.", ex);
+            fonts = [];
+        }
+
+        var saved = SettingsNormalizer.SanitizeFontName(_draft.Layout.CaptionFontFamily);
+        var match = fonts.FirstOrDefault(f => string.Equals(f.Source, saved, StringComparison.OrdinalIgnoreCase));
+        var list = fonts;
+        if (match is null)
+        {
+            // Nicht installiert: Eintrag trotzdem zeigen, damit nichts stillschweigend wechselt. Ist die Liste leer
+            // (Aufzählung fehlgeschlagen), lässt sich "nicht installiert" nicht behaupten.
+            match = CreateMissingFontOption(saved, installed: fonts.Count == 0);
+            list = [match, .. fonts];
+        }
+
+        _loading = true;
+        try
+        {
+            CaptionFonts = list;
+            _selectedCaptionFont = match;
+            _fontsLoaded = true;
+            RaiseCaptionFont();
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 
     public bool ShowDate
@@ -475,25 +684,77 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     {
         get
         {
-            var page = GetPageSpecSafe(LayoutKind.Overlay);
+            // Nur der zwischengespeicherte Wert: Die Abfrage beim Drucker läuft im Hintergrund (RefreshPageSpecAsync).
+            if (_overlayPage is not { } page)
+                return "Seitengröße wird ermittelt …";
             var size = string.Create(CultureInfo.GetCultureInfo("de-DE"),
                 $"Empfohlene Größe: {page.PixelWidth} × {page.PixelHeight} Pixel ({page.WidthMm:0.#} × {page.HeightMm:0.#} mm bei {page.Dpi} dpi). ");
             return size + "Transparente Bereiche lassen das Foto durchscheinen.";
         }
     }
 
-    private PageSpec GetPageSpecSafe(LayoutKind kind)
+    /// <summary>
+    /// Ermittelt die Seitengröße für den Overlay-Hinweis im Hintergrund (mit Timeout; Fehler → Standardgröße).
+    /// Ergebnisse, die von neueren Anfragen überholt wurden (Drucker, Papier oder Ausrichtung inzwischen geändert),
+    /// werden verworfen. Wirft nicht.
+    /// </summary>
+    public async Task RefreshPageSpecAsync()
     {
+        if (_disposed)
+            return;
+
+        var version = Interlocked.Increment(ref _pageSpecVersion);
+        if (_overlayPage is not null)
+        {
+            _overlayPage = null;
+            OnPropertyChanged(nameof(OverlayHint));
+        }
+
+        PageSpec page;
         try
         {
-            return _print.GetPageSpec(_draft.Printer, kind);
+            page = await GetPageSpecAsync(SnapshotPrinter(_draft.Printer.Copies), LayoutKind.Overlay, _lifetime.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
         }
         catch (Exception ex)
         {
             AppLog.Warn("Seitengröße konnte nicht ermittelt werden.", ex);
-            return PageSpec.Default;
+            page = PageSpec.Default;
         }
+
+        if (_disposed || version != Volatile.Read(ref _pageSpecVersion))
+            return;
+
+        _overlayPage = page;
+        OnPropertyChanged(nameof(OverlayHint));
     }
+
+    /// <summary>Fragt die Seitengröße auf dem Threadpool ab; wirft <see cref="TimeoutException"/> nach <see cref="PageSpecTimeout"/>.</summary>
+    private async Task<PageSpec> GetPageSpecAsync(PrinterSettings printer, LayoutKind kind, CancellationToken ct)
+    {
+        var query = Task.Run(() => _print.GetPageSpec(printer, kind));
+        // Hängt der Treiber, läuft die Abfrage ohne uns weiter; ihr Fehler soll nicht unbeobachtet bleiben.
+        _ = query.ContinueWith(t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+        return await query.WaitAsync(PageSpecTimeout, _time, ct);
+    }
+
+    /// <summary>Kopie der Druckeinstellungen des Entwurfs (für Hintergrundabfragen und den Testdruck).</summary>
+    private PrinterSettings SnapshotPrinter(int copies) => new()
+    {
+        PrinterName = _draft.Printer.PrinterName,
+        PaperSizeName = _draft.Printer.PaperSizeName,
+        PaperWidthMm = _draft.Printer.PaperWidthMm,
+        PaperHeightMm = _draft.Printer.PaperHeightMm,
+        Orientation = _draft.Printer.Orientation,
+        Copies = copies,
+        TimeoutSeconds = _draft.Printer.TimeoutSeconds,
+    };
+
+    /// <summary>Startet <see cref="RefreshPageSpecAsync"/> ohne zu warten.</summary>
+    private void RequestPageSpec() => _ = RefreshPageSpecAsync();
 
     private void ChooseOverlay()
     {
@@ -647,7 +908,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             _selectedPrinter = value;
             OnPropertyChanged();
             if (!_loading)
-                _ = SelectPrinterAsync(value);
+                Forget(SelectPrinterAsync(value));
         }
     }
 
@@ -665,7 +926,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
 
         await LoadPaperSizesAsync();
-        OnPropertyChanged(nameof(OverlayHint));
+        RequestPageSpec();
     }
 
     public PaperOption? SelectedPaper
@@ -682,7 +943,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             _draft.Printer.PaperSizeName = value.Info?.Name;
             _draft.Printer.PaperWidthMm = value.Info?.WidthMm;
             _draft.Printer.PaperHeightMm = value.Info?.HeightMm;
-            OnPropertyChanged(nameof(OverlayHint));
+            RequestPageSpec();
         }
     }
 
@@ -696,7 +957,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             _selectedOrientation = value;
             _draft.Printer.Orientation = value.Orientation;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(OverlayHint));
+            RequestPageSpec();
         }
     }
 
@@ -709,7 +970,11 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     public int PrintTimeoutSeconds
     {
         get => _draft.Printer.TimeoutSeconds;
-        set => SetProperty(_draft.Printer.TimeoutSeconds, value, v => _draft.Printer.TimeoutSeconds = v);
+        set
+        {
+            if (SetProperty(_draft.Printer.TimeoutSeconds, value, v => _draft.Printer.TimeoutSeconds = v))
+                RaisePrintTimeoutHint();
+        }
     }
 
     public bool IsTestPrinting
@@ -820,17 +1085,10 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         try
         {
             // Eine Kopie genügt; Entwurf bleibt unverändert.
-            var printer = new PrinterSettings
-            {
-                PrinterName = _draft.Printer.PrinterName,
-                PaperSizeName = _draft.Printer.PaperSizeName,
-                PaperWidthMm = _draft.Printer.PaperWidthMm,
-                PaperHeightMm = _draft.Printer.PaperHeightMm,
-                Orientation = _draft.Printer.Orientation,
-                Copies = 1,
-                TimeoutSeconds = _draft.Printer.TimeoutSeconds,
-            };
-            var page = _print.GetPageSpec(printer, _draft.Layout.Kind);
+            var printer = SnapshotPrinter(copies: 1);
+            // Nicht auf dem UI-Thread: Bei einem Offline-Drucker kann die Abfrage mehrere Sekunden dauern.
+            var page = await GetPageSpecAsync(printer, _draft.Layout.Kind, ct);
+            // Rendern muss auf dem UI-Thread laufen; die Fortsetzung nach dem await kommt dorthin zurück.
             var bitmap = _ui.RenderTestPage(page);
             var progress = new Progress<string>(s => TestPrintStatus = s);
             // Hartes Limit wie beim Druck im Fotobetrieb: Druck-Timeout plus Reserve; ein blockierendes Write
@@ -997,6 +1255,170 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ---------------------------------------------------------------- Tasten
+
+    /// <summary>Foto auslösen, Admin-Ansicht öffnen, Countdown abbrechen (in dieser Reihenfolge).</summary>
+    public IReadOnlyList<KeyActionEditor> KeyEditors { get; }
+
+    private KeyActionEditor Editor(KeyAction action) => KeyEditors.First(e => e.Action == action);
+
+    /// <summary>Aktion, für die gerade eine Taste aufgenommen wird; null = kein Aufnahmemodus.</summary>
+    public KeyActionEditor? CapturingEditor
+    {
+        get => _capturingEditor;
+        private set
+        {
+            if (!SetProperty(ref _capturingEditor, value))
+                return;
+            OnPropertyChanged(nameof(IsKeyCaptureActive));
+            OnPropertyChanged(nameof(ShowKeyMessageBelow));
+            OnPropertyChanged(nameof(KeyCaptureHint));
+            foreach (var editor in KeyEditors)
+            {
+                editor.IsCapturing = ReferenceEquals(editor, value);
+                editor.RefreshCommands();
+            }
+        }
+    }
+
+    public bool IsKeyCaptureActive => _capturingEditor is not null;
+
+    public string KeyCaptureHint => _capturingEditor is null
+        ? string.Empty
+        : $"Drücken Sie jetzt die gewünschte Taste für „{_capturingEditor.Title}“ (auch mit Strg/Alt/Umschalt) …";
+
+    /// <summary>Meldung zur letzten Tastenaufnahme (Fehler oder Hinweis); leer = keine.</summary>
+    public string KeyMessage
+    {
+        get => _keyMessage;
+        private set
+        {
+            if (SetProperty(ref _keyMessage, value))
+            {
+                OnPropertyChanged(nameof(HasKeyMessage));
+                OnPropertyChanged(nameof(ShowKeyMessageBelow));
+            }
+        }
+    }
+
+    public bool HasKeyMessage => _keyMessage.Length > 0;
+
+    /// <summary>Meldung unter der Liste; im Aufnahmemodus steht sie stattdessen im Aufnahmehinweis der Aktion.</summary>
+    public bool ShowKeyMessageBelow => HasKeyMessage && !IsKeyCaptureActive;
+
+    /// <summary>Taste der Admin-Ansicht für Hinweistexte, z. B. „Strg+Alt+A“ (mehrere: „… oder …“).</summary>
+    public string AdminKeysDisplay => string.Join(" oder ", Editor(KeyAction.Admin).Keys.Select(k => k.DisplayName));
+
+    private void LoadKeysFromDraft()
+    {
+        // Wie beim Laden aus der Datei: ungültige, gesperrte und doppelte Einträge fallen weg, Pflicht-Aktionen behalten eine Taste.
+        SettingsNormalizer.NormalizeKeys(_draft.Input);
+        Fill(Editor(KeyAction.Trigger), _draft.Input.TriggerKeys);
+        Fill(Editor(KeyAction.Admin), _draft.Input.AdminKeys);
+        Fill(Editor(KeyAction.CancelCountdown), _draft.Input.CancelCountdownKeys);
+
+        static void Fill(KeyActionEditor editor, IEnumerable<string> entries)
+        {
+            editor.Keys.Clear();
+            foreach (var entry in entries)
+            {
+                if (KeyChord.TryParse(entry, out var chord))
+                    editor.Add(chord);
+            }
+        }
+    }
+
+    /// <summary>Schreibt die Tasten als kanonische Strings in den Entwurf.</summary>
+    private void SyncKeysToDraft()
+    {
+        static List<string> Texts(KeyActionEditor e) => e.Keys.Select(k => k.Chord.ToString()).ToList();
+
+        _draft.Input.TriggerKeys = Texts(Editor(KeyAction.Trigger));
+        _draft.Input.AdminKeys = Texts(Editor(KeyAction.Admin));
+        _draft.Input.CancelCountdownKeys = Texts(Editor(KeyAction.CancelCountdown));
+        OnPropertyChanged(nameof(AdminKeysDisplay));
+    }
+
+    /// <summary>Startet den Aufnahmemodus für eine Aktion (die nächste Taste im Fenster wird übernommen).</summary>
+    public void BeginKeyCapture(KeyActionEditor editor)
+    {
+        if (!editor.CanAddKey)
+            return;
+        KeyMessage = string.Empty;
+        CapturingEditor = editor;
+    }
+
+    public void BeginKeyCapture(KeyAction action) => BeginKeyCapture(Editor(action));
+
+    /// <summary>Beendet den Aufnahmemodus ohne Änderung.</summary>
+    public void CancelKeyCapture()
+    {
+        KeyMessage = string.Empty;
+        CapturingEditor = null;
+    }
+
+    /// <summary>
+    /// Nimmt die gedrückte Taste für die Aktion im Aufnahmemodus auf. Bei Erfolg endet der Aufnahmemodus;
+    /// bei Ablehnung bleibt er aktiv (Meldung in <see cref="KeyMessage"/>), damit eine andere Taste gewählt werden kann.
+    /// </summary>
+    public bool CaptureKey(KeyChord chord)
+    {
+        var target = _capturingEditor;
+        if (target is null)
+            return false;
+
+        if (!chord.IsAllowed)
+        {
+            KeyMessage = "Diese Tastenkombination ist vom System belegt und kann nicht verwendet werden.";
+            return false;
+        }
+
+        if (target.Contains(chord))
+        {
+            KeyMessage = $"Diese Taste ist bereits bei „{target.Title}“ vorhanden.";
+            return false;
+        }
+
+        var other = KeyEditors.FirstOrDefault(e => !ReferenceEquals(e, target) && e.Contains(chord));
+        if (other is not null)
+        {
+            KeyMessage = $"Diese Taste ist bereits ‚{other.Title}‘ zugeordnet.";
+            return false;
+        }
+
+        if (target.Keys.Count >= SettingsLimits.KeysPerActionMax)
+        {
+            KeyMessage = $"Für „{target.Title}“ sind höchstens {SettingsLimits.KeysPerActionMax} Tasten möglich.";
+            return false;
+        }
+
+        target.Add(chord);
+        SyncKeysToDraft();
+        KeyMessage = string.Empty;
+        CapturingEditor = null;
+        return true;
+    }
+
+    internal void RemoveKey(KeyChordItem item)
+    {
+        var editor = KeyEditors.FirstOrDefault(e => e.Keys.Contains(item));
+        if (editor is null || !editor.CanRemoveKey())
+            return;
+
+        editor.Keys.Remove(item);
+        SyncKeysToDraft();
+        KeyMessage = string.Empty;
+    }
+
+    private void ResetKeys()
+    {
+        CapturingEditor = null;
+        _draft.Input = new InputSettings();
+        LoadKeysFromDraft();
+        SyncKeysToDraft();
+        KeyMessage = "Die Tasten wurden auf die Standardbelegung zurückgesetzt. Sie gilt nach „Speichern“.";
+    }
+
     // ---------------------------------------------------------------- Validierung / Speichern
 
     /// <summary>Prüft den Entwurf (und ggf. eine begonnene PIN-Änderung). Leer = alles in Ordnung.</summary>
@@ -1008,6 +1430,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         CheckRange(_draft.Flow.PreviewSeconds, SettingsLimits.PreviewMin, SettingsLimits.PreviewMax, "Die Vorschau-Dauer", errors);
         CheckRange(_draft.Flow.PauseBetweenShotsSeconds, SettingsLimits.PauseMin, SettingsLimits.PauseMax, "Die Pause zwischen den Fotos", errors);
         CheckRange(_draft.Flow.ErrorDisplaySeconds, SettingsLimits.ErrorDisplayMin, SettingsLimits.ErrorDisplayMax, "Die Fehleranzeige-Dauer", errors);
+        CheckRange(_draft.Flow.ExpectedPrintSeconds, SettingsLimits.ExpectedPrintMin, SettingsLimits.ExpectedPrintMax, "Die erwartete Druckdauer", errors);
 
         if (_draft.Layout.Kind == LayoutKind.Strip && _draft.Layout.StripPhotoCount is < SettingsLimits.StripPhotosMin or > SettingsLimits.StripPhotosMax)
             errors.Add("Ein Fotostreifen besteht aus 2 bis 4 Fotos.");
@@ -1028,6 +1451,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             errors.Add($"Die Anzahl der Kopien muss zwischen {SettingsLimits.CopiesMin} und {SettingsLimits.CopiesMax} liegen.");
         if (_draft.Printer.TimeoutSeconds is < SettingsLimits.PrintTimeoutMin or > SettingsLimits.PrintTimeoutMax)
             errors.Add($"Das Druck-Timeout muss zwischen {SettingsLimits.PrintTimeoutMin} und {SettingsLimits.PrintTimeoutMax} Sekunden liegen.");
+
+        foreach (var editor in KeyEditors.Where(e => e.IsRequired && e.Keys.Count == 0))
+            errors.Add($"Tasten: Für „{editor.Title}“ muss mindestens eine Taste festgelegt sein.");
 
         if (_draft.Storage.JpegQuality is < SettingsLimits.JpegQualityMin or > SettingsLimits.JpegQualityMax)
             errors.Add("Die JPEG-Qualität muss zwischen 50 und 100 Prozent liegen.");
@@ -1078,7 +1504,22 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
     private void Save()
     {
-        var errors = Validate();
+        // Kein Fehler darf als unbehandelte Ausnahme aus dem Befehl in den Dispatcher laufen (globaler Handler, Absturz).
+        if (_disposed || SettingsSaved)
+            return;
+
+        IReadOnlyList<string> errors;
+        try
+        {
+            errors = Validate();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Einstellungen konnten nicht geprüft werden.", ex);
+            ValidationMessage = "Die Einstellungen konnten nicht geprüft werden: " + ex.Message;
+            return;
+        }
+
         if (errors.Count > 0)
         {
             ValidationMessage = string.Join(Environment.NewLine, errors);
@@ -1115,6 +1556,11 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
         SettingsSaved = true;
         ValidationMessage = string.Empty;
+
+        // Gespeichert: Aufnahmemodus beenden und wartende Entwurfs-Neustarts der Kamera verwerfen. Sonst startete die Kamera
+        // noch mit Entwurfswerten, während das Hauptfenster sie schon mit den gespeicherten Werten neu startet.
+        _capturingEditor = null;
+        Interlocked.Increment(ref _cameraRestartVersion);
         CloseRequested?.Invoke(true);
     }
 

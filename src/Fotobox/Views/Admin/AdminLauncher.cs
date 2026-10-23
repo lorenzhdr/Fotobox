@@ -82,6 +82,9 @@ public sealed class AdminLauncher : IAdminLauncher
 
         AppLog.Info("Admin-Ansicht geöffnet.");
 
+        // Stand vor dem Öffnen: Daran erkennt das Hauptfenster, ob nach dem Speichern ein Kamera-Neustart nötig ist.
+        var cameraBefore = CloneCamera(_settings.Current.Camera);
+
         var ui = new WpfAdminUi();
         using var viewModel = new AdminViewModel(_settings, _pinService, _camera, _print, ui);
         var window = new AdminWindow(viewModel);
@@ -95,20 +98,30 @@ public sealed class AdminLauncher : IAdminLauncher
         // (Bei Speichern oder Beenden übernimmt das Hauptfenster bzw. die Anwendung.)
         if (!viewModel.SettingsSaved && !viewModel.ExitRequested && viewModel.CameraTouched)
         {
-            var saved = _settings.Current.Camera;
-            _ = viewModel.RestoreCameraAsync(new CameraSettings
-            {
-                DeviceId = saved.DeviceId,
-                ResolutionWidth = saved.ResolutionWidth,
-                ResolutionHeight = saved.ResolutionHeight,
-                MirrorPreview = saved.MirrorPreview,
-                MirrorPhoto = saved.MirrorPhoto,
-            });
+            _ = viewModel.RestoreCameraAsync(CloneCamera(_settings.Current.Camera));
         }
 
-        AppLog.Info($"Admin-Ansicht geschlossen (gespeichert: {viewModel.SettingsSaved}, beenden: {viewModel.ExitRequested}).");
-        return new AdminResult(true, viewModel.SettingsSaved, viewModel.ExitRequested);
+        var cameraChanged = viewModel.SettingsSaved && CameraSettingsDiffer(cameraBefore, _settings.Current.Camera);
+        AppLog.Info($"Admin-Ansicht geschlossen (gespeichert: {viewModel.SettingsSaved}, Kamera geändert: {cameraChanged}, beenden: {viewModel.ExitRequested}).");
+        return new AdminResult(true, viewModel.SettingsSaved, viewModel.ExitRequested, cameraChanged);
     }
+
+    private static CameraSettings CloneCamera(CameraSettings c) => new()
+    {
+        DeviceId = c.DeviceId,
+        ResolutionWidth = c.ResolutionWidth,
+        ResolutionHeight = c.ResolutionHeight,
+        MirrorPreview = c.MirrorPreview,
+        MirrorPhoto = c.MirrorPhoto,
+    };
+
+    /// <summary>Unterscheiden sich die Kameraeinstellungen so, dass die Kamera neu gestartet werden muss?</summary>
+    public static bool CameraSettingsDiffer(CameraSettings a, CameraSettings b) =>
+        a.DeviceId != b.DeviceId
+        || a.ResolutionWidth != b.ResolutionWidth
+        || a.ResolutionHeight != b.ResolutionHeight
+        || a.MirrorPreview != b.MirrorPreview
+        || a.MirrorPhoto != b.MirrorPhoto;
 
     private static bool ShowRetry(Window? owner, string message)
     {

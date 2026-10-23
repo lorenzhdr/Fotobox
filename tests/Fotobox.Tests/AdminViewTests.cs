@@ -81,6 +81,106 @@ public class AdminViewTests
         }
     }
 
+    [StaFact]
+    public void AdminWindow_HasKeysTab()
+    {
+        WithWindow((window, _) =>
+        {
+            var tabs = FindTabControl(window)!;
+            var headers = tabs.Items.OfType<System.Windows.Controls.TabItem>().Select(t => t.Header as string).ToList();
+
+            Assert.Contains("Tasten", headers);
+            Assert.Contains("Layout", headers);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_KeyCapture_TakesKeyAndSwallowsIt()
+    {
+        WithWindow((window, vm) =>
+        {
+            using var source = new System.Windows.Interop.HwndSource(new System.Windows.Interop.HwndSourceParameters());
+            vm.BeginKeyCapture(KeyAction.Trigger);
+
+            // Reine Modifikatortaste: abwarten, nichts übernehmen, aber verschlucken.
+            var modifier = RaiseKeyDown(window, source, System.Windows.Input.Key.LeftCtrl);
+            Assert.True(modifier.Handled);
+            Assert.True(vm.IsKeyCaptureActive);
+
+            // Normale Taste: übernommen (Handled, damit kein fokussierter Button ausgelöst wird).
+            var key = RaiseKeyDown(window, source, System.Windows.Input.Key.F9);
+            Assert.True(key.Handled);
+            Assert.False(vm.IsKeyCaptureActive);
+            Assert.Contains("F9", vm.Draft.Input.TriggerKeys);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_KeyDown_WithoutCapture_IsNotHandled()
+    {
+        WithWindow((window, vm) =>
+        {
+            using var source = new System.Windows.Interop.HwndSource(new System.Windows.Interop.HwndSourceParameters());
+
+            var args = RaiseKeyDown(window, source, System.Windows.Input.Key.Space);
+
+            Assert.False(args.Handled);
+            Assert.Equal(["Space"], vm.Draft.Input.TriggerKeys);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_KeyCapture_RejectsSystemCombination_AndKeepsCapturing()
+    {
+        WithWindow((window, vm) =>
+        {
+            using var source = new System.Windows.Interop.HwndSource(new System.Windows.Interop.HwndSourceParameters());
+            vm.BeginKeyCapture(KeyAction.Trigger);
+
+            // Win-Taste ist reiner Modifikator; Escape wird dagegen wie jede andere Taste geprüft (hier: gehört zu „Abbrechen“).
+            RaiseKeyDown(window, source, System.Windows.Input.Key.Escape);
+
+            Assert.True(vm.IsKeyCaptureActive);
+            Assert.Contains("Countdown abbrechen", vm.KeyMessage);
+        });
+    }
+
+    private static System.Windows.Input.KeyEventArgs RaiseKeyDown(
+        AdminWindow window, System.Windows.PresentationSource source, System.Windows.Input.Key key)
+    {
+        var args = new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, 0, key)
+        {
+            RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent,
+        };
+        window.RaiseEvent(args);
+        return args;
+    }
+
+    private static void WithWindow(Action<AdminWindow, AdminViewModel> body)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "fotobox-admin-view-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var store = new AdminViewModelTests.FakeStore(dir);
+            var vm = new AdminViewModel(store, new AdminViewModelTests.FakePinService(store),
+                new AdminViewModelTests.FakeCamera(), new AdminViewModelTests.FakePrint(), new AdminViewModelTests.FakeUi());
+            var window = new AdminWindow(vm);
+            try
+            {
+                body(window, vm);
+            }
+            finally
+            {
+                vm.Dispose();
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     private static System.Windows.Controls.TabControl? FindTabControl(System.Windows.DependencyObject parent)
     {
         if (parent is System.Windows.Controls.TabControl tabs)
