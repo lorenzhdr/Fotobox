@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -154,7 +156,7 @@ public class BoothControllerTests
     }
 
     [Fact]
-    public async Task Printing_RunsParallelToPreview_ThenShowsPrintingStateUntilDone()
+    public void Printing_RunsParallelToPreview_ThenShowsPrintingStateUntilDone()
     {
         var h = new Harness();
 
@@ -167,10 +169,10 @@ public class BoothControllerTests
         Assert.Equal(BoothState.Printing, h.Controller.State);
 
         h.Printer.Status?.Report("Warte auf den Drucker …");
-        await WaitUntilAsync(() => h.Controller.StatusMessage == "Warte auf den Drucker …");
+        h.WaitUntil(() => h.Controller.StatusMessage == "Warte auf den Drucker …");
 
         h.Printer.Complete(new PrintResult(PrintOutcome.Completed));
-        await WaitUntilAsync(() => h.Controller.State == BoothState.Idle);
+        h.WaitUntil(() => h.Controller.State == BoothState.Idle);
         Assert.Null(h.Controller.ErrorMessage);
     }
 
@@ -256,6 +258,83 @@ public class BoothControllerTests
     }
 
     [Fact]
+    public void SaveNeverReturns_TimeoutShowsErrorWithoutPrinting_ThenIdle()
+    {
+        var h = new Harness();
+        h.Storage.Hang = true;
+        var states = h.RecordStates();
+        var start = h.Time.GetUtcNow();
+
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Error);
+
+        Assert.True(h.Time.GetUtcNow() - start >= TimeSpan.FromSeconds(30), "Zeitlimit zu früh ausgelöst.");
+        Assert.Equal(
+            "Das Foto konnte nicht gespeichert werden. Bitte wende dich an das Personal.",
+            h.Controller.ErrorMessage);
+        Assert.Null(h.Controller.LastSaved);
+        Assert.Equal(0, h.Printer.PrintCalls);
+
+        h.RunToIdle();
+        Assert.Equal(BoothState.Idle, h.Controller.State);
+        Assert.DoesNotContain(BoothState.Preview, states);
+    }
+
+    [Fact]
+    public void PageSpecNeverReturns_FallsBackToDefault_AndSessionReachesIdle()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PrintingEnabled = false;
+        h.Printer.PageSpecHang = true;
+        var states = h.RecordStates();
+        var start = h.Time.GetUtcNow();
+        try
+        {
+            h.Controller.TryTrigger();
+            h.AdvanceUntil(() => h.Controller.State == BoothState.Preview);
+
+            Assert.True(h.Time.GetUtcNow() - start >= TimeSpan.FromSeconds(5), "Zeitlimit zu früh ausgelöst.");
+            Assert.Same(PageSpec.Default, h.Composer.LastPage);
+
+            h.RunToIdle();
+            Assert.DoesNotContain(BoothState.Error, states);
+            Assert.Single(h.Storage.Saved);
+        }
+        finally
+        {
+            h.Printer.ReleasePageSpec();
+        }
+    }
+
+    [Fact]
+    public void PageSpecThrows_FallsBackToDefault_AndSessionReachesIdle()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PrintingEnabled = false;
+        h.Printer.PageSpecFailure = new InvalidOperationException("Druckserver nicht erreichbar");
+        var states = h.RecordStates();
+
+        h.Controller.TryTrigger();
+        h.RunToIdle();
+
+        Assert.Same(PageSpec.Default, h.Composer.LastPage);
+        Assert.DoesNotContain(BoothState.Error, states);
+        Assert.Single(h.Storage.Saved);
+    }
+
+    [Fact]
+    public void PageSpec_FromPrinterIsUsedForLayout()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PrintingEnabled = false;
+
+        h.Controller.TryTrigger();
+        h.RunToIdle();
+
+        Assert.Same(FakePrinter.Spec, h.Composer.LastPage);
+    }
+
+    [Fact]
     public void CaptureFailure_ShowsError_ThenIdle()
     {
         var h = new Harness();
@@ -301,7 +380,7 @@ public class BoothControllerTests
     }
 
     [Fact]
-    public async Task Cancel_DuringCountdown_ReturnsToIdleWithoutError()
+    public void Cancel_DuringCountdown_ReturnsToIdleWithoutError()
     {
         var h = new Harness();
         h.Controller.TryTrigger();
@@ -309,7 +388,7 @@ public class BoothControllerTests
 
         h.Controller.Cancel();
 
-        await WaitUntilAsync(() => h.Controller.State == BoothState.Idle);
+        h.WaitUntil(() => h.Controller.State == BoothState.Idle);
         Assert.Null(h.Controller.ErrorMessage);
         Assert.Equal(0, h.Camera.CaptureCount);
     }
@@ -354,15 +433,38 @@ public class BoothControllerTests
         return pixels[0];
     }
 
-    private static async Task WaitUntilAsync(Func<bool> condition)
+    /// <summary>
+    /// Ersatz für den UI-Thread: Fortsetzungen, die von anderen Threads kommen (Task.Run, Progress), landen in
+    /// einer Warteschlange und laufen erst, wenn der Test sie auf seinem Thread abarbeitet. Fortsetzungen, die
+    /// der Test-Thread selbst auslöst (Fake-Zeit, Complete, Cancel), laufen wie beim Dispatcher direkt inline.
+    /// </summary>
+    private sealed class PumpContext : SynchronizationContext
     {
-        for (var i = 0; i < 500 && !condition(); i++)
-            await Task.Delay(10);
-        Assert.True(condition(), "Bedingung wurde nicht rechtzeitig erfüllt.");
+        private readonly BlockingCollection<(SendOrPostCallback Callback, object? State)> _queue = new();
+
+        public override void Post(SendOrPostCallback d, object? state) => _queue.Add((d, state));
+        public override void Send(SendOrPostCallback d, object? state) => d(state);
+        public override SynchronizationContext CreateCopy() => this;
+
+        /// <summary>Führt eine wartende Fortsetzung aus (bei Bedarf bis zum Zeitlimit warten).</summary>
+        public bool RunOne(TimeSpan wait)
+        {
+            if (!_queue.TryTake(out var item, wait))
+                return false;
+            item.Callback(item.State);
+            return true;
+        }
     }
 
     private sealed class Harness
     {
+        private readonly PumpContext _pump = new();
+
+        // Nach der letzten Aufnahme holt der Controller die Seitengröße per Task.Run; seine Fortsetzung
+        // landet danach im Pump-Kontext. Bis dahin darf die Fake-Zeit nicht weiterlaufen, sonst hinge der
+        // Testverlauf vom Thread-Scheduling ab.
+        private volatile bool _hopPending;
+
         public FakeTimeProvider Time { get; } = new();
         public FakeCamera Camera { get; } = new();
         public FakeComposer Composer { get; } = new();
@@ -373,14 +475,22 @@ public class BoothControllerTests
 
         public Harness(bool markReady = true)
         {
-            // Ohne SynchronizationContext laufen die Fortsetzungen des Controllers deterministisch
-            // synchron im Thread, der die Fake-Zeit vorstellt (xunit installiert sonst einen Kontext).
-            SynchronizationContext.SetSynchronizationContext(null);
+            // Eigener Kontext statt dem von xunit: Der Test-Thread ist der "UI-Thread" des Controllers und
+            // führt dessen Fortsetzungen deterministisch aus (siehe PumpContext).
+            SynchronizationContext.SetSynchronizationContext(_pump);
             Settings.Current.Flow.CountdownSeconds = 3;
             Settings.Current.Flow.PreviewSeconds = 2;
             Settings.Current.Flow.PauseBetweenShotsSeconds = 1;
             Settings.Current.Flow.ErrorDisplaySeconds = 4;
             Controller = new BoothController(Camera, Composer, Printer, Storage, Settings, Time);
+            Camera.Captured = () => _hopPending = Camera.CaptureCount % Composer.RequiredPhotoCount == 0;
+            Composer.Composing = () => _hopPending = false; // Der Sprung ist beendet, sobald der Controller zusammensetzt.
+            Printer.Parked = () => _hopPending = false; // hängende Abfrage: es folgt keine Fortsetzung
+            Controller.StateChanged += (_, _) =>
+            {
+                if (Controller.State is BoothState.Error or BoothState.Idle)
+                    _hopPending = false;
+            };
             if (markReady)
                 Controller.MarkReady();
         }
@@ -398,9 +508,33 @@ public class BoothControllerTests
             for (var i = 0; i < maxSeconds && !condition(); i++)
             {
                 Time.Advance(Second);
-                Thread.Sleep(2); // Threadpool-Fortsetzungen (z. B. Druck-Task) abwarten
+                Settle();
             }
             Assert.True(condition(), "Bedingung wurde in der Fake-Zeit nicht erreicht.");
+        }
+
+        /// <summary>Wartet in echter Zeit (Fortsetzungen werden dabei ausgeführt), bis die Bedingung gilt.</summary>
+        public void WaitUntil(Func<bool> condition)
+        {
+            var watch = Stopwatch.StartNew();
+            while (!condition() && watch.Elapsed < TimeSpan.FromSeconds(30))
+                _pump.RunOne(TimeSpan.FromMilliseconds(10));
+            Assert.True(condition(), "Bedingung wurde nicht rechtzeitig erfüllt.");
+        }
+
+        /// <summary>Arbeitet eingegangene Fortsetzungen ab; wartet, solange der Task.Run-Sprung aussteht.</summary>
+        private void Settle()
+        {
+            var watch = Stopwatch.StartNew();
+            while (true)
+            {
+                if (_pump.RunOne(TimeSpan.Zero))
+                    continue;
+                if (!_hopPending)
+                    return;
+                Assert.True(watch.Elapsed < TimeSpan.FromSeconds(30), "Threadpool-Fortsetzung des Controllers blieb aus.");
+                _pump.RunOne(TimeSpan.FromMilliseconds(10));
+            }
         }
 
         public void RunToIdle() =>
@@ -415,6 +549,8 @@ public class BoothControllerTests
         public BitmapSource Photo { get; } = CreatePhoto();
         public int CaptureCount { get; private set; }
         public Exception? CaptureFailure { get; set; }
+        /// <summary>Wird synchron nach jeder erfolgreichen Aufnahme aufgerufen.</summary>
+        public Action? Captured { get; set; }
 
         public CameraStatus Status { get; set; } = CameraStatus.Running;
         public string? StatusMessage => null;
@@ -435,9 +571,10 @@ public class BoothControllerTests
         {
             ct.ThrowIfCancellationRequested();
             CaptureCount++;
-            return CaptureFailure is null
-                ? Task.FromResult(Photo)
-                : Task.FromException<BitmapSource>(CaptureFailure);
+            if (CaptureFailure is not null)
+                return Task.FromException<BitmapSource>(CaptureFailure);
+            Captured?.Invoke();
+            return Task.FromResult(Photo);
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -457,6 +594,9 @@ public class BoothControllerTests
         public int RequiredPhotoCount { get; set; } = 1;
         public Exception? Failure { get; set; }
         public IReadOnlyList<BitmapSource>? LastPhotos { get; private set; }
+        public PageSpec? LastPage { get; private set; }
+        /// <summary>Wird bei jedem Compose-Aufruf zuerst aufgerufen.</summary>
+        public Action? Composing { get; set; }
         public BitmapSource Result { get; } = CreateResult();
 
         public int GetRequiredPhotoCount(LayoutSettings layout) => RequiredPhotoCount;
@@ -464,8 +604,10 @@ public class BoothControllerTests
         public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page,
             string overlayDirectory, DateTime timestamp)
         {
+            Composing?.Invoke();
             if (Failure is not null) throw Failure;
             LastPhotos = photos.ToList();
+            LastPage = page;
             return Result;
         }
 
@@ -479,7 +621,20 @@ public class BoothControllerTests
 
     private sealed class FakePrinter : IPrintService
     {
-        private readonly TaskCompletionSource<PrintResult> _result = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Absichtlich ohne RunContinuationsAsynchronously: Complete() setzt die Fortsetzungen des Controllers
+        // synchron fort, sodass der Druck beim Rückgabewert von Complete() sicher als beendet gilt.
+        private readonly TaskCompletionSource<PrintResult> _result = new();
+        private readonly ManualResetEventSlim _pageSpecGate = new(false);
+
+        /// <summary>Von GetPageSpec geliefert; bewusst ungleich <see cref="PageSpec.Default"/>.</summary>
+        public static PageSpec Spec { get; } = new(148, 100);
+
+        public bool PageSpecHang { get; set; }
+        public Exception? PageSpecFailure { get; set; }
+        /// <summary>Wird aufgerufen, sobald GetPageSpec absichtlich hängt.</summary>
+        public Action? Parked { get; set; }
+
+        public void ReleasePageSpec() => _pageSpecGate.Set();
 
         public int PrintCalls { get; private set; }
         public bool ThrowOnPrint { get; set; }
@@ -490,7 +645,16 @@ public class BoothControllerTests
 
         public IReadOnlyList<PrinterInfo> GetPrinters() => [];
         public IReadOnlyList<PaperSizeInfo> GetPaperSizes(string? printerName) => [];
-        public PageSpec GetPageSpec(PrinterSettings printer, LayoutKind layout) => PageSpec.Default;
+        public PageSpec GetPageSpec(PrinterSettings printer, LayoutKind layout)
+        {
+            if (PageSpecFailure is not null) throw PageSpecFailure;
+            if (PageSpecHang)
+            {
+                Parked?.Invoke();
+                _pageSpecGate.Wait(TimeSpan.FromSeconds(60)); // Obergrenze, damit nie ein Thread dauerhaft hängt
+            }
+            return Spec;
+        }
 
         public Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer,
             IProgress<string>? status = null, CancellationToken ct = default)
@@ -507,6 +671,8 @@ public class BoothControllerTests
     {
         public List<(BitmapSource Layout, IReadOnlyList<BitmapSource> Originals)> Saved { get; } = [];
         public Exception? Failure { get; set; }
+        /// <summary>SaveAsync liefert eine Aufgabe, die nie endet (hängende Netzwerkfreigabe).</summary>
+        public bool Hang { get; set; }
 
         public string ResolveTargetFolder(StorageSettings storage, DateTime timestamp) => "fake";
 
@@ -514,6 +680,7 @@ public class BoothControllerTests
             StorageSettings storage, DateTime timestamp, CancellationToken ct = default)
         {
             if (Failure is not null) return Task.FromException<SavedPhotoSet>(Failure);
+            if (Hang) return new TaskCompletionSource<SavedPhotoSet>().Task;
             Saved.Add((layout, originals.ToList()));
             return Task.FromResult(new SavedPhotoSet("fake/layout.jpg", ["fake/orig1.jpg"]));
         }

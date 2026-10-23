@@ -20,6 +20,10 @@ public sealed class BoothController(
     TimeProvider time)
 {
     private static readonly TimeSpan Second = TimeSpan.FromSeconds(1);
+    /// <summary>Obergrenze für die (blockierende) Seitengrößen-Abfrage des Druckers.</summary>
+    private static readonly TimeSpan PageSpecTimeout = TimeSpan.FromSeconds(5);
+    /// <summary>Obergrenze für das Speichern (z. B. hängende Netzwerkfreigabe, abgezogener USB-Stick).</summary>
+    private static readonly TimeSpan SaveTimeout = TimeSpan.FromSeconds(30);
 
     private volatile BoothState _state = BoothState.Starting;
     private int _busy;
@@ -198,10 +202,23 @@ public sealed class BoothController(
 
         var timestamp = time.GetLocalNow().DateTime;
 
+        // Die Abfrage blockiert intern (Druckserver/Treiber) und läuft deshalb abseits des UI-Threads mit Timeout.
+        // Die Seitengröße bestimmt auch bei deaktiviertem Druck die Auflösung des Layouts.
         PageSpec page;
         try
         {
-            page = print.GetPageSpec(cfg.Printer, cfg.Layout.Kind);
+            var pageTask = Task.Run(() => print.GetPageSpec(cfg.Printer, cfg.Layout.Kind));
+            ObserveFault(pageTask);
+            page = await pageTask.WaitAsync(PageSpecTimeout, time, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (TimeoutException)
+        {
+            AppLog.Warn("Seitengröße wurde nicht rechtzeitig ermittelt, verwende Standard.");
+            page = PageSpec.Default;
         }
         catch (Exception ex)
         {
@@ -222,11 +239,18 @@ public sealed class BoothController(
 
         try
         {
-            LastSaved = await storage.SaveAsync(layout, photos, cfg.Storage, timestamp, ct);
+            var saveTask = storage.SaveAsync(layout, photos, cfg.Storage, timestamp, ct);
+            ObserveFault(saveTask);
+            LastSaved = await saveTask.WaitAsync(SaveTimeout, time, ct);
         }
         catch (OperationCanceledException)
         {
             throw;
+        }
+        catch (TimeoutException)
+        {
+            AppLog.Error("Speichern hat das Zeitlimit überschritten.");
+            return "Das Foto konnte nicht gespeichert werden. Bitte wende dich an das Personal.";
         }
         catch (Exception ex)
         {
@@ -296,6 +320,10 @@ public sealed class BoothController(
             return new PrintResult(PrintOutcome.Failed, ex.Message);
         }
     }
+
+    /// <summary>Beobachtet eine ggf. verwaiste Aufgabe, damit ihre Ausnahme nie als UnobservedTaskException endet.</summary>
+    private static void ObserveFault(Task task) =>
+        _ = task.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
 
     private Task DelayAsync(int seconds, CancellationToken ct) =>
         seconds > 0 ? Task.Delay(TimeSpan.FromSeconds(seconds), time, ct) : Task.CompletedTask;
