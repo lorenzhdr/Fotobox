@@ -56,7 +56,7 @@ pwsh build/publish.ps1 -Version 1.2.3 [-Arch x64|arm64] [-SkipInstaller] [-Requi
 
 ## Projektstand und Weiterarbeit
 
-- Veröffentlicht: `v0.0.0-beta` (Prerelease), `v0.0.1` und `v1.0.0` (Tag folgt auf dem Merge-Commit in `main`). Arbeitsbranch: `feature/fotobox-app`. Neue Arbeit auf einem Branch, per CI (`build.yml`) prüfen, nach `main` mergen, dann Tag `v*` pushen.
+- Veröffentlicht: `v0.0.0-beta` (Prerelease), `v0.0.1` und `v1.0.0` (Tag auf dem `main`-Stand des Releases). Arbeitsbranch: `feature/fotobox-app`. Neue Arbeit auf einem Branch, per CI (`build.yml`) prüfen, nach `main` mergen, dann Tag `v*` pushen.
 - Lokal ist nur das SDK 10.0.100-rc.1 installiert, die CI nutzt das finale .NET 10. Der Entwicklungsrechner ist ARM64, x64 läuft dort unter Emulation.
 - Tests: `dotnet test --filter "Category!=Hardware"` (475 Tests). Hardware-Tests (echte Kamera, z. B. Kamera-Neustart) laufen nur lokal. Die Tests schreiben ins echte App-Log (`%LOCALAPPDATA%\Fotobox\logs`).
 - Manuelle E2E-Prüfung (Erststart, Alt+F4-Sperre, Foto speichern, PIN-Sperre, Kamerawechsel) erfolgte mit einem isolierten Benutzerprofil (Umgebungsvariablen `USERPROFILE`/`LOCALAPPDATA` umbiegen) per UI Automation. Es gab bewusst keinen Testdruck auf einem echten Drucker; der Druck muss mit beliebigen Druckern funktionieren (herstellerneutral).
@@ -64,9 +64,10 @@ pwsh build/publish.ps1 -Version 1.2.3 [-Arch x64|arm64] [-SkipInstaller] [-Requi
 
 ## Offene Punkte
 
-Erledigt bis v1.0.0: Kamerawechsel-Fehler, Bild-Watchdog, Sichtprüfung der Gast-/Admin-Ansicht, Seitengrößen-Cache, Init-Timeout, Versionierung.
+Erledigt bis v1.0.0: Kamerawechsel-Fehler, Bild-Watchdog (fehlende Frames), Sichtprüfung der Gast-/Admin-Ansicht, Seitengrößen-Cache, Init-Timeout, Versionierung.
 
 1. **Druck auf echten Fotodruckern ungetestet:** Randloser Druck, Papiergrößen, Druckende-Erkennung (IPP/WSD) und die 5-mm-Sicherheitszone gegen echten Overscan sind nur per Unit-Tests und gegen Mock-Zustände abgedeckt. Rückmeldungen von echten Geräten einarbeiten.
 2. **Installer unsigniert:** SmartScreen warnt. Code-Signing braucht ein gekauftes Zertifikat.
 3. **Reconnect-Pfad „Kamera ohne Bild“:** Nur per Unit-Test geprüft, nicht mit echter Hardware.
 4. **Tests schreiben ins echte App-Log** (`%LOCALAPPDATA%\Fotobox\logs`) statt in ein isoliertes Verzeichnis.
+5. **Virtuelle Kamera mit Platzhalterbild:** Eine virtuelle Kamera ohne verbundene Quelle liefert Frames mit einem einfarbigen Platzhalterbild. Der Watchdog erkennt nur ausbleibende Frames, nicht einfarbige Bilder, daher steht „Kamera läuft“. Ohne gespeicherte Kamera wird einfach das erste Gerät der Liste gewählt (das kann eine virtuelle Kamera sein). Abhilfe bisher: Kamera im Admin explizit wählen.

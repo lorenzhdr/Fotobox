@@ -245,6 +245,8 @@
                 </TextBlock>
                 <TextBlock Text="Bitte nimm dein Foto aus dem Drucker." Foreground="White" FontSize="56"
                            FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center" Margin="0,36,0,0" />
+                <!-- Druck fertig: Balken springt auf 100 % -->
+                <ProgressBar Style="{StaticResource PrintProgressBar}" Value="1" Width="1100" Margin="0,48,0,0" />
             </StackPanel>
         </Grid>
 
