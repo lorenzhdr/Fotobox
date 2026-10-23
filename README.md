@@ -1,8 +1,8 @@
 # Fotobox
 
-Fotobox ist eine Windows-App für Fotoboxen auf Veranstaltungen. Sie zeigt das Live-Bild einer Webcam im Vollbild. Per Leertaste startet ein Gast den Ablauf:
+Fotobox ist eine Windows-App für Fotoboxen auf Veranstaltungen. Sie zeigt das Live-Bild einer Webcam im Vollbild. Per Tastendruck (Standard: Leertaste) startet ein Gast den Ablauf:
 
-**Leertaste → Countdown → Foto(s) → Speichern im Ordner → Druck auf einem USB-/Fotodrucker → Warten aufs Druckende → bereit für das nächste Foto**
+**Taste → Countdown → Foto(s) → Speichern im Ordner → Druck auf einem USB-/Fotodrucker → Warten aufs Druckende → bereit für das nächste Foto**
 
 Es gibt eine Gastansicht und eine PIN-geschützte Admin-Ansicht für alle Einstellungen.
 
@@ -35,16 +35,17 @@ Beim ersten Start legst du eine Admin-PIN fest (4 bis 12 Ziffern, mit Wiederholu
 
 ## Bedienung
 
-**Gast:** Leertaste drücken. Es läuft ein Countdown, dann wird fotografiert. Beim Fotostreifen folgen mehrere Aufnahmen. Danach erscheint kurz die Vorschau, das Foto wird gespeichert und gedruckt. Erst wenn der Druck fertig ist (oder ein Fehler angezeigt wurde), ist die Fotobox wieder bereit. Alt+F4 ist in der Gastansicht wirkungslos.
+**Gast:** Auslösetaste drücken (Standard: Leertaste). Es läuft ein Countdown, dann wird fotografiert. Mit der Abbruchtaste (Standard: `Esc`) lässt sich der Countdown abbrechen. Beim Fotostreifen folgen mehrere Aufnahmen. Danach erscheint kurz die Vorschau, das Foto wird gespeichert und gedruckt. Während des Drucks zeigt die Gastansicht einen Fortschrittsbalken. Ist der Drucker langsam, steht dort „Der Drucker ist etwas langsam – dein Foto kommt in ca. X Minuten“. Nach dem Druck erscheint 5 Sekunden lang „Fertig! Bitte nimm dein Foto aus dem Drucker“, danach ist die Fotobox wieder bereit (ebenso nach einer Fehlermeldung). Alt+F4 ist in der Gastansicht wirkungslos.
 
-**Admin:** `Strg` + `Alt` + `A` drücken und die PIN eingeben. Nach 5 falschen Eingaben ist die PIN-Eingabe für 30 Sekunden gesperrt. Jeder weitere Fehlversuch verlängert die Sperre (60 s, 2 min, 5 min, höchstens 15 min). Eine richtige PIN setzt den Zähler zurück.
+**Admin:** Standardmäßig `Strg` + `Alt` + `A` drücken (änderbar, siehe *Tasten*) und die PIN eingeben. Nach 5 falschen Eingaben ist die PIN-Eingabe für 30 Sekunden gesperrt. Jeder weitere Fehlversuch verlängert die Sperre (60 s, 2 min, 5 min, höchstens 15 min). Eine richtige PIN setzt den Zähler zurück.
 
 Die Admin-Ansicht hat diese Bereiche. Änderungen gelten erst nach „Speichern“, „Abbrechen“ verwirft sie.
 
-- **Kamera:** Kamera und Auflösung wählen (Automatisch = höchste verfügbare), Live-Vorschau und/oder Foto spiegeln, Live-Vorschau zur Kontrolle.
-- **Ablauf:** Countdown (1–30 s, Standard 5), Dauer der Vorschau (1–60 s, Standard 4), Pause zwischen mehreren Fotos (0–30 s, Standard 2), Dauer der Fehleranzeige (2–60 s, Standard 6), Drucken ein/aus (bei „aus“ werden die Fotos nur gespeichert).
-- **Layout:** Einzelfoto randlos, Fotostreifen (2–4 Fotos untereinander, Standard 3) oder Foto mit Overlay (eigene PNG-Grafik darüber). Optional Bildunterschrift (max. 80 Zeichen) und Datum auf dem Ausdruck.
-- **Drucker:** Drucker (Standard: Windows-Standarddrucker), Papiergröße (für randlosen Druck die randlose Größe des Fotodruckers wählen, z. B. „10 x 15 cm randlos“), Ausrichtung, Kopien (1–20), Zeitlimit für den Druck (10–600 s, Standard 120), Testseite drucken (mit den aktuellen, noch nicht gespeicherten Einstellungen).
+- **Kamera:** Kamera und Auflösung wählen (Automatisch = höchste verfügbare), Live-Vorschau und/oder Foto spiegeln, Live-Vorschau zur Kontrolle (zeigt das ganze Bild).
+- **Ablauf:** Countdown (1–30 s, Standard 5), Dauer der Vorschau (1–60 s, Standard 4), Pause zwischen mehreren Fotos (0–30 s, Standard 2), Dauer der Fehleranzeige (2–60 s, Standard 6), Drucken ein/aus (bei „aus“ werden die Fotos nur gespeichert), erwartete Druckdauer (30–600 s, Standard 120): Nach dieser Zeit ist der Fortschrittsbalken in der Gastansicht voll. Stelle sie auf die tatsächliche Druckzeit deines Druckers ein.
+- **Layout:** Einzelfoto randlos, Fotostreifen (2–4 Fotos, Standard 3) oder Foto mit Overlay (eigene PNG-Grafik darüber). Beim Fotostreifen gibt es zwei Varianten: „2 Streifen nebeneinander (zum Teilen)“ oder „1 Streifen – Fotos untereinander“ (ganze Fotos im Kameraformat, mittig). Optional Bildunterschrift (max. 80 Zeichen, bis zu 2 Zeilen) und Datum auf dem Ausdruck. Die Schriftart der Bildunterschrift ist aus allen installierten Schriften wählbar (Standard Segoe UI). Unten bleibt 5 mm Sicherheitsabstand, damit nichts abgeschnitten wird.
+- **Drucker:** Drucker (Standard: Windows-Standarddrucker), Papiergröße (für randlosen Druck die randlose Größe des Fotodruckers wählen, z. B. „10 x 15 cm randlos“), Ausrichtung, Kopien (1–20), Zeitlimit für den Druck (10–900 s, Standard 180; automatisch mindestens erwartete Druckdauer + 60 s), Testseite drucken (mit den aktuellen, noch nicht gespeicherten Einstellungen).
+- **Tasten:** Belegung der Tasten für „Foto auslösen“ (Standard Leertaste), „Admin-Ansicht öffnen“ (Standard `Strg` + `Alt` + `A`) und „Countdown abbrechen“ (Standard `Esc`). Pro Aktion sind mehrere Tasten möglich (bis zu 8). Systemkombinationen wie Alt+F4, Alt+Tab oder die Windows-Taste sind nicht erlaubt. Merke dir die Admin-Taste, sonst kommst du nicht mehr in die Einstellungen.
 - **Speicher:** Speicherordner (ändern, öffnen, Standardordner), Unterordner pro Tag, Originalfotos zusätzlich speichern, JPEG-Qualität (50–100, Standard 92), Dateipräfix (Standard „Fotobox“).
 - **Sicherheit:** PIN ändern (4–12 Ziffern).
 - **Fotobox beenden:** Button unten links in der Admin-Ansicht.
@@ -57,6 +58,7 @@ Die Admin-Ansicht hat diese Bereiche. Änderungen gelten erst nach „Speichern�
 
 ## Problemlösung
 
+- **„Die Kamera liefert kein Bild“:** Die Kamera ist erkannt, liefert aber kein Bild (z. B. virtuelle Kamera, die noch nicht aktiv ist, oder von einer anderen App belegt). Die Fotobox versucht es automatisch erneut. Hilft das nicht, die andere App schließen, Kamera neu anstecken oder in der Admin-Ansicht eine andere Kamera bzw. Auflösung wählen.
 - **Kamera wird nicht erkannt:** Kamera anschließen, die Fotobox zeigt „Keine Kamera gefunden“. In der Admin-Ansicht unter *Kamera* prüfen, ob sie erscheint.
 - **„Kein Zugriff auf die Kamera“:** In den Windows-Einstellungen unter *Datenschutz und Sicherheit → Kamera* den Zugriff für Desktop-Apps erlauben.
 - **Drucker fragt nach einem Dateinamen** (z. B. „Microsoft Print to PDF“): Solche Drucker sind nicht geeignet und werden abgelehnt. Bitte einen echten Drucker wählen.
