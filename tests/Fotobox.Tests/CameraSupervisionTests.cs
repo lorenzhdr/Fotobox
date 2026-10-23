@@ -155,3 +155,78 @@ public sealed class CameraMessagesTests
     public void CameraTimeoutException_IsATimeoutException() =>
         Assert.IsAssignableFrom<TimeoutException>(new CameraTimeoutException("Start"));
 }
+
+public sealed class FrameWatchdogFirstFrameTests
+{
+    private static readonly TimeSpan First = TimeSpan.FromSeconds(8);
+
+    private static (FrameWatchdog Dog, FakeTimeProvider Time) Create()
+    {
+        var time = new FakeTimeProvider();
+        return (new FrameWatchdog(time, First, TimeSpan.FromSeconds(5)), time);
+    }
+
+    [Fact]
+    public async Task WaitForFirstFrame_ReturnsTrue_WhenFrameArrivesInTime()
+    {
+        var (dog, time) = Create();
+        var wait = dog.WaitForFirstFrameAsync();
+        time.Advance(TimeSpan.FromSeconds(3));
+        Assert.False(wait.IsCompleted);
+
+        dog.NotifyFrame();
+        Assert.True(await wait.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task WaitForFirstFrame_ReturnsFalse_AfterFirstFrameTimeout()
+    {
+        var (dog, time) = Create();
+        var wait = dog.WaitForFirstFrameAsync();
+        time.Advance(First - TimeSpan.FromMilliseconds(1));
+        Assert.False(wait.IsCompleted);
+
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.False(await wait.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.False(dog.HasFrame);
+    }
+
+    [Fact]
+    public async Task WaitForFirstFrame_ReturnsTrue_WhenFrameAlreadyThere()
+    {
+        var (dog, _) = Create();
+        dog.NotifyFrame();
+        Assert.True(await dog.WaitForFirstFrameAsync());
+    }
+
+    [Fact]
+    public async Task WaitForFirstFrame_Cancels()
+    {
+        var (dog, _) = Create();
+        using var cts = new CancellationTokenSource();
+        var wait = dog.WaitForFirstFrameAsync(cts.Token);
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => wait.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public void RepeatedFrames_DoNotThrow()
+    {
+        var (dog, _) = Create();
+        for (var i = 0; i < 10; i++)
+            dog.NotifyFrame();
+        Assert.True(dog.HasFrame);
+    }
+}
+
+public sealed class CameraReconnectBackoffTests
+{
+    [Theory]
+    [InlineData(0, 5)]
+    [InlineData(1, 5)]
+    [InlineData(2, 5)]
+    [InlineData(3, 15)]
+    [InlineData(10, 15)]
+    public void Interval_GrowsAfterRepeatedNoImageAttempts(int attempts, int expectedSeconds) =>
+        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), CameraReconnectBackoff.GetInterval(attempts));
+}

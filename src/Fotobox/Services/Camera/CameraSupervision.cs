@@ -16,6 +16,7 @@ public sealed class FrameWatchdog
     private readonly TimeProvider _time;
     private readonly TimeSpan _firstFrameTimeout;
     private readonly TimeSpan _stallTimeout;
+    private readonly TaskCompletionSource _firstFrame = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private long _lastTimestamp;
     private int _hasFrame;
 
@@ -33,8 +34,26 @@ public sealed class FrameWatchdog
     /// <summary>Wird bei jedem tatsächlich gelieferten Bild aufgerufen (auch aus dem Frame-Handler).</summary>
     public void NotifyFrame()
     {
-        Volatile.Write(ref _hasFrame, 1);
         Interlocked.Exchange(ref _lastTimestamp, _time.GetTimestamp());
+        if (Interlocked.Exchange(ref _hasFrame, 1) == 0)
+            _firstFrame.TrySetResult();
+    }
+
+    /// <summary>
+    /// Wartet bis zu <c>FirstFrameTimeout</c> auf das erste Bild. true = Bild ist da, false = Frist ohne Bild abgelaufen.
+    /// Wirft <see cref="OperationCanceledException"/>, wenn <paramref name="ct"/> abgebrochen wird.
+    /// </summary>
+    public async Task<bool> WaitForFirstFrameAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await _firstFrame.Task.WaitAsync(_firstFrameTimeout, _time, ct).ConfigureAwait(false);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Startet die Frist für das erste Bild neu (z. B. beim Übergang zu „Running“); nach dem ersten Bild wirkungslos.</summary>
@@ -88,6 +107,22 @@ public static class CameraStartRetry
         delay = next;
         return true;
     }
+}
+
+/// <summary>
+/// Wartezeit der Reconnect-Schleife: Liefert die Kamera bei Wiederverbindungsversuchen wiederholt kein Bild,
+/// wird das Intervall gedämpft, damit nicht dauernd neue MediaCapture-Objekte entstehen.
+/// </summary>
+public static class CameraReconnectBackoff
+{
+    public static readonly TimeSpan BaseInterval = TimeSpan.FromSeconds(5);
+    public static readonly TimeSpan SlowInterval = TimeSpan.FromSeconds(15);
+
+    /// <summary>Anzahl aufeinanderfolgender Versuche ohne Bild, ab der das lange Intervall gilt.</summary>
+    public const int SlowAfterNoImageAttempts = 3;
+
+    public static TimeSpan GetInterval(int consecutiveNoImageAttempts) =>
+        consecutiveNoImageAttempts >= SlowAfterNoImageAttempts ? SlowInterval : BaseInterval;
 }
 
 /// <summary>Ein Kameraschritt (Initialisierung, Formatwahl, Start …) hat seine Frist überschritten.</summary>
