@@ -22,6 +22,11 @@ public partial class CameraPreview : UserControl
         DependencyProperty.Register(nameof(Stretch), typeof(Stretch), typeof(CameraPreview),
             new PropertyMetadata(Stretch.UniformToFill));
 
+    /// <summary>Zeigt den Statushinweis über dem Bild (die Booth blendet ihn aus und zeigt eigene Meldungen).</summary>
+    public static readonly DependencyProperty ShowStatusOverlayProperty =
+        DependencyProperty.Register(nameof(ShowStatusOverlay), typeof(bool), typeof(CameraPreview),
+            new PropertyMetadata(true, (d, _) => ((CameraPreview)d).UpdateStatus()));
+
     private readonly object _bufferLock = new();
     private readonly Action _renderAction;
     private ICameraService? _subscribed;
@@ -59,6 +64,12 @@ public partial class CameraPreview : UserControl
         set => SetValue(StretchProperty, value);
     }
 
+    public bool ShowStatusOverlay
+    {
+        get => (bool)GetValue(ShowStatusOverlayProperty);
+        set => SetValue(ShowStatusOverlayProperty, value);
+    }
+
     private void OnCameraChanged(ICameraService? camera)
     {
         if (IsLoaded)
@@ -66,7 +77,7 @@ public partial class CameraPreview : UserControl
     }
 
     private void ApplyMirror(bool mirror) =>
-        PreviewImage.RenderTransform = mirror ? new ScaleTransform(-1, 1) : Transform.Identity;
+        MirrorHost.RenderTransform = mirror ? new ScaleTransform(-1, 1) : Transform.Identity;
 
     private void Attach(ICameraService? camera)
     {
@@ -169,6 +180,6 @@ public partial class CameraPreview : UserControl
                 CameraStatus.Error => "Die Kamera ist nicht verfügbar.",
                 _ => "Kamera nicht aktiv.",
             };
-        StatusOverlay.Visibility = Visibility.Visible;
+        StatusOverlay.Visibility = ShowStatusOverlay ? Visibility.Visible : Visibility.Collapsed;
     }
 }

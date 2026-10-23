@@ -1,6 +1,8 @@
+using System.Windows;
 using Xunit;
 using Fotobox.Core;
 using Fotobox.Services.Camera;
+using Fotobox.Views.Controls;
 
 namespace Fotobox.Tests;
 
@@ -173,6 +175,122 @@ public sealed class CameraHardwareTests
         var before = Volatile.Read(ref frames);
         await Task.Delay(TimeSpan.FromSeconds(2));
         Assert.True(Volatile.Read(ref frames) - before >= 5, "Nach dem Neustart kommen kaum Frames an.");
+    }
+
+    private const int StressIterations = 20;
+    private static readonly TimeSpan StressStartTimeout = TimeSpan.FromSeconds(60);
+    // Nach einem Gerätewechsel braucht z. B. eine Frontkamera mitunter einige Sekunden; der Wiederholmechanismus (5 s) fängt das auf.
+    private static readonly TimeSpan StressFrameTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Bildet die Admin-Ansicht nach: Die Tests laufen auf einem Dispatcher-Thread (wie die ViewModels), die Vorschau hängt
+    /// am Dienst, und der Neustart passiert mit neuen Einstellungen während der laufenden Session.
+    /// </summary>
+    private sealed class RestartHarness : IAsyncDisposable
+    {
+        private readonly Window _window;
+        private readonly Random _random = new(42);
+        private int _frames;
+
+        public RestartHarness(WinRtCameraService camera)
+        {
+            Camera = camera;
+            _window = new Window { Width = 640, Height = 360, Content = new CameraPreview { Camera = camera, Mirror = true } };
+            _window.Show();
+            camera.FrameArrived += (_, _) => Interlocked.Increment(ref _frames);
+        }
+
+        public WinRtCameraService Camera { get; }
+
+        public async Task RestartAsync(CameraSettings settings, string label)
+        {
+            var before = Volatile.Read(ref _frames);
+            await Camera.StartAsync(settings).WaitAsync(StressStartTimeout);
+
+            var deadline = DateTime.UtcNow + StressFrameTimeout;
+            while (Volatile.Read(ref _frames) <= before)
+            {
+                Assert.True(DateTime.UtcNow < deadline, $"{label}: Nach dem Neustart kam kein Bild an.");
+                await Task.Delay(20);
+            }
+
+            // Unterschiedlich lange Laufzeit, bevor der nächste Neustart kommt (der Nutzer „speichert“ zu beliebiger Zeit).
+            await Task.Delay(_random.Next(100, 1500));
+        }
+
+        public async Task StopAsync()
+        {
+            await Camera.StopAsync().WaitAsync(StressStartTimeout);
+            Assert.Equal(CameraStatus.Stopped, Camera.Status);
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            _window.Close();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    [WpfFact]
+    [Trait("Category", "Hardware")]
+    public async Task RestartWhileRunning_Repeatedly_PerDevice_DoesNotCrashOrHang()
+    {
+        await using var camera = new WinRtCameraService();
+        var devices = await camera.GetDevicesAsync();
+        if (devices.Count == 0)
+            return; // Keine Kamera angeschlossen: nichts zu prüfen.
+
+        await using var harness = new RestartHarness(camera);
+        foreach (var device in devices)
+        {
+            for (var i = 1; i <= StressIterations; i++)
+            {
+                // Neue Einstellungs-Instanz je Durchlauf, wie beim Speichern in der Admin-Ansicht.
+                var settings = new CameraSettings { DeviceId = device.Id, MirrorPreview = i % 2 == 0 };
+                await harness.RestartAsync(settings, $"Gerät {device.Name} #{i}");
+            }
+
+            await harness.StopAsync();
+        }
+    }
+
+    [WpfFact]
+    [Trait("Category", "Hardware")]
+    public async Task RestartWhileRunning_AlternatingDevices_DoesNotCrashOrHang()
+    {
+        await using var camera = new WinRtCameraService();
+        var devices = await camera.GetDevicesAsync();
+        if (devices.Count < 2)
+            return; // Für den Gerätewechsel sind mindestens zwei Kameras nötig.
+
+        await using var harness = new RestartHarness(camera);
+        for (var i = 1; i <= StressIterations; i++)
+        {
+            var device = devices[i % devices.Count];
+            await harness.RestartAsync(new CameraSettings { DeviceId = device.Id }, $"Wechsel auf {device.Name} #{i}");
+        }
+
+        await harness.StopAsync();
+    }
+
+    [WpfFact]
+    [Trait("Category", "Hardware")]
+    public async Task StartStop_Repeatedly_DoesNotCrashOrHang()
+    {
+        await using var camera = new WinRtCameraService();
+        var devices = await camera.GetDevicesAsync();
+        if (devices.Count == 0)
+            return; // Keine Kamera angeschlossen: nichts zu prüfen.
+
+        await using var harness = new RestartHarness(camera);
+        foreach (var device in devices)
+        {
+            for (var i = 1; i <= StressIterations; i++)
+            {
+                await harness.RestartAsync(new CameraSettings { DeviceId = device.Id }, $"Gerät {device.Name} #{i}");
+                await harness.StopAsync();
+            }
+        }
     }
 
     [Fact]

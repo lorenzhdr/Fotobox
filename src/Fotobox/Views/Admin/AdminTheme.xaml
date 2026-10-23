@@ -240,7 +240,7 @@
                                 Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
                             <StackPanel IsItemsHost="True" Width="190" />
                         </Border>
-                        <ContentPresenter Grid.Column="1" ContentSource="SelectedContent" />
+                        <ContentPresenter x:Name="PART_SelectedContentHost" Grid.Column="1" ContentSource="SelectedContent" />
                     </Grid>
                 </ControlTemplate>
             </Setter.Value>

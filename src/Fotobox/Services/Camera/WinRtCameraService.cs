@@ -16,6 +16,8 @@ public sealed class WinRtCameraService : ICameraService
 {
     private static readonly TimeSpan ReconnectInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(2);
+    // Obergrenze je Abbauschritt: Ein hängender Treiber darf Neustart und Beenden nicht unbegrenzt blockieren.
+    private static readonly TimeSpan TeardownTimeout = TimeSpan.FromSeconds(3);
 
     // Start/Stop/Resolutions sind serialisiert; alle Felder der Session werden nur unter _gate geändert.
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -60,7 +62,11 @@ public sealed class WinRtCameraService : ICameraService
         }
     }
 
-    public async Task<IReadOnlyList<CameraResolution>> GetResolutionsAsync(string deviceId)
+    // Wie alle MediaCapture-Zugriffe auf dem Threadpool (MTA), nie im Kontext des aufrufenden UI-Threads.
+    public Task<IReadOnlyList<CameraResolution>> GetResolutionsAsync(string deviceId) =>
+        Task.Run(() => GetResolutionsCoreAsync(deviceId));
+
+    private async Task<IReadOnlyList<CameraResolution>> GetResolutionsCoreAsync(string deviceId)
     {
         await _gate.WaitAsync().ConfigureAwait(false);
         try
@@ -92,15 +98,23 @@ public sealed class WinRtCameraService : ICameraService
         }
     }
 
-    public async Task StartAsync(CameraSettings settings, CancellationToken ct = default)
+    public Task StartAsync(CameraSettings settings, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
         if (Volatile.Read(ref _disposed) != 0)
-            return;
+            return Task.CompletedTask;
 
         CancelReconnect();
         var generation = Interlocked.Increment(ref _generation);
 
+        // Auf- und Abbau einer Session laufen immer auf dem Threadpool (MTA), nie im Kontext des aufrufenden
+        // UI-Threads (STA): Wird ein WinRT-Ereignis in einem anderen Apartment abgemeldet als angemeldet,
+        // scheitert CsWinRT mit OutOfMemoryException bzw. stürzt mit einer Zugriffsverletzung ab.
+        return Task.Run(() => StartSerializedAsync(settings, generation, ct));
+    }
+
+    private async Task StartSerializedAsync(CameraSettings settings, int generation, CancellationToken ct)
+    {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -124,11 +138,15 @@ public sealed class WinRtCameraService : ICameraService
     private static bool IsRetryable(CameraStatus status) =>
         status is CameraStatus.NoDevice or CameraStatus.AccessDenied or CameraStatus.Error;
 
-    public async Task StopAsync()
+    public Task StopAsync()
     {
         CancelReconnect();
         Interlocked.Increment(ref _generation);
+        return Task.Run(StopSerializedAsync);
+    }
 
+    private async Task StopSerializedAsync()
+    {
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -180,24 +198,14 @@ public sealed class WinRtCameraService : ICameraService
         return bitmap;
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
+            return ValueTask.CompletedTask;
 
         CancelReconnect();
         Interlocked.Increment(ref _generation);
-
-        await _gate.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            await StopCoreAsync().ConfigureAwait(false);
-            SetStatus(CameraStatus.Stopped, null);
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        return new ValueTask(Task.Run(StopSerializedAsync));
     }
 
     // ---- Session-Aufbau (unter _gate) ----
@@ -243,13 +251,14 @@ public sealed class WinRtCameraService : ICameraService
 
             reader = await CreateReaderAsync(capture, source).ConfigureAwait(false);
             reader.AcquisitionMode = MediaFrameReaderAcquisitionMode.Realtime;
-            reader.FrameArrived += OnFrameArrived;
-            capture.Failed += OnCaptureFailed;
-
+            // Erst eintragen, dann anmelden: Die Handler verwerfen Ereignisse fremder (alter) Objekte per ReferenceEquals.
+            // Abgemeldet wird bewusst nie (siehe DisposeSessionObjectsAsync).
             _capture = capture;
             _reader = reader;
             _source = source;
             _activeDeviceId = device.Id;
+            reader.FrameArrived += OnFrameArrived;
+            capture.Failed += OnCaptureFailed;
 
             var startStatus = await reader.StartAsync();
             if (startStatus != MediaFrameReaderStartStatus.Success)
@@ -418,25 +427,39 @@ public sealed class WinRtCameraService : ICameraService
         await DisposeSessionObjectsAsync(capture, reader).ConfigureAwait(false);
     }
 
+    // Die Ereignisse (FrameArrived, Failed) werden NICHT abgemeldet: Das explizite „-=“ auf WinRT-Ereignissen
+    // scheitert in CsWinRT (UnsubscribeFromNative) mit OutOfMemoryException bzw. stürzt mit 0xC0000005 ab.
+    // Dispose gibt die Handler mit dem Objekt frei; Nachzügler-Ereignisse verwerfen die Handler selbst, weil
+    // der Sender nicht mehr dem aktuellen _reader/_capture entspricht.
     private async Task DisposeSessionObjectsAsync(MediaCapture? capture, MediaFrameReader? reader)
     {
         if (reader is not null)
         {
-            reader.FrameArrived -= OnFrameArrived;
-            try { await reader.StopAsync(); }
+            try { await reader.StopAsync().AsTask().WaitAsync(TeardownTimeout).ConfigureAwait(false); }
+            catch (TimeoutException) { AppLog.Warn("Frame-Reader reagiert beim Stoppen nicht, er wird trotzdem freigegeben."); }
             catch (Exception ex) { AppLog.Warn("Frame-Reader konnte nicht gestoppt werden.", ex); }
-            try { reader.Dispose(); }
-            catch (Exception ex) { AppLog.Warn("Frame-Reader konnte nicht freigegeben werden.", ex); }
+            await DisposeWithTimeoutAsync(reader, "Frame-Reader").ConfigureAwait(false);
         }
 
         if (capture is not null)
+            await DisposeWithTimeoutAsync(capture, "MediaCapture").ConfigureAwait(false);
+    }
+
+    // Dispose läuft auf dem Threadpool; hängt der Treiber, wird nach der Frist weitergemacht (mit Log),
+    // damit der Neustart die Sperre nicht unbegrenzt hält.
+    private static async Task DisposeWithTimeoutAsync(IDisposable instance, string name)
+    {
+        try
         {
-            try
-            {
-                capture.Failed -= OnCaptureFailed;
-                capture.Dispose();
-            }
-            catch (Exception ex) { AppLog.Warn("MediaCapture konnte nicht freigegeben werden.", ex); }
+            await Task.Run(instance.Dispose).WaitAsync(TeardownTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            AppLog.Warn($"{name} wurde nicht rechtzeitig freigegeben, der Abbau läuft im Hintergrund weiter.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"{name} konnte nicht freigegeben werden.", ex);
         }
     }
 
@@ -522,6 +545,10 @@ public sealed class WinRtCameraService : ICameraService
 
     private void OnCaptureFailed(MediaCapture sender, MediaCaptureFailedEventArgs e)
     {
+        // Ereignisse beim Abbau oder von einer bereits ersetzten Session sind nicht mehr relevant.
+        if (!ReferenceEquals(sender, _capture))
+            return;
+
         AppLog.Error($"Kamera meldet Fehler: {e.Message} (Code {e.Code})");
         _ = Task.Run(() => HandleFailureAsync(sender));
     }

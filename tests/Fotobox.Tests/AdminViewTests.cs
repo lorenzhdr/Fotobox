@@ -54,4 +54,42 @@ public class AdminViewTests
         Assert.Equal(page.PixelHeight, bitmap.PixelHeight);
         Assert.True(bitmap.IsFrozen);
     }
+
+
+    [StaFact]
+    public void AdminWindow_TabControlTemplate_ExposesSelectedContentHost()
+    {
+        // Ohne PART_SelectedContentHost sind die Tab-Inhalte für UI Automation (Screenreader) unsichtbar.
+        var dir = Path.Combine(Path.GetTempPath(), "fotobox-admin-view-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var store = new AdminViewModelTests.FakeStore(dir);
+            var vm = new AdminViewModel(store, new AdminViewModelTests.FakePinService(store),
+                new AdminViewModelTests.FakeCamera(), new AdminViewModelTests.FakePrint(), new AdminViewModelTests.FakeUi());
+            var window = new AdminWindow(vm);
+
+            var tabs = FindTabControl(window)!;
+            tabs.ApplyTemplate();
+
+            Assert.IsType<System.Windows.Controls.ContentPresenter>(tabs.Template.FindName("PART_SelectedContentHost", tabs));
+            vm.Dispose();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    private static System.Windows.Controls.TabControl? FindTabControl(System.Windows.DependencyObject parent)
+    {
+        if (parent is System.Windows.Controls.TabControl tabs)
+            return tabs;
+        foreach (var child in System.Windows.LogicalTreeHelper.GetChildren(parent).OfType<System.Windows.DependencyObject>())
+        {
+            if (FindTabControl(child) is { } found)
+                return found;
+        }
+        return null;
+    }
 }

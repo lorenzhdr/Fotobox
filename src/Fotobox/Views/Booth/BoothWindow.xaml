@@ -42,7 +42,7 @@
 
     <Grid>
         <!-- Live-Bild -->
-        <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}" />
+        <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}" ShowStatusOverlay="False" />
 
         <!-- Dezenter Verlauf unten für die Lesbarkeit des Hinweises -->
         <Border VerticalAlignment="Bottom" Height="320" IsHitTestVisible="False">
