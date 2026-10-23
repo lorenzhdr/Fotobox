@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -11,11 +12,16 @@ public sealed class PhotoStorageTests : IDisposable
 {
     private static readonly DateTime Stamp = new(2025, 6, 14, 15, 30, 45);
     private readonly string _root = Path.Combine(Path.GetTempPath(), "FotoboxTests_" + Guid.NewGuid().ToString("N"));
-    private readonly PhotoStorage _storage = new();
+    private readonly string _fallback = Path.Combine(Path.GetTempPath(), "FotoboxTests_" + Guid.NewGuid().ToString("N") + "_fallback");
+    private readonly PhotoStorage _storage;
+
+    public PhotoStorageTests() => _storage = new PhotoStorage(_fallback);
 
     public void Dispose()
     {
         try { Directory.Delete(_root, recursive: true); }
+        catch { /* best effort */ }
+        try { Directory.Delete(_fallback, recursive: true); }
         catch { /* best effort */ }
     }
 
@@ -55,7 +61,7 @@ public sealed class PhotoStorageTests : IDisposable
     [Fact]
     public void ResolveTargetFolder_Defaults_ToPicturesFotobox()
     {
-        var folder = _storage.ResolveTargetFolder(new StorageSettings { DateSubfolder = false }, Stamp);
+        var folder = new PhotoStorage().ResolveTargetFolder(new StorageSettings { DateSubfolder = false }, Stamp);
 
         Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Fotobox"), folder);
     }
@@ -156,10 +162,74 @@ public sealed class PhotoStorageTests : IDisposable
         File.WriteAllText(blocker, "ich bin eine Datei, kein Ordner");
         var s = Settings();
         s.PhotoFolder = Path.Combine(blocker, "unterordner");
+        // Auch der Ausweichordner ist nicht nutzbar → Fehler wie bisher.
+        var storage = new PhotoStorage(Path.Combine(blocker, "ausweich"));
 
-        var ex = await Assert.ThrowsAsync<IOException>(() => _storage.SaveAsync(MakeImage(20, 20), [], s, Stamp));
+        var ex = await Assert.ThrowsAsync<IOException>(() => storage.SaveAsync(MakeImage(20, 20), [], s, Stamp));
 
         Assert.StartsWith("Fotos können nicht gespeichert werden:", ex.Message);
+    }
+
+    [Fact]
+    public async Task SaveAsync_UnwritableConfiguredFolder_FallsBackToDefaultFolder()
+    {
+        Directory.CreateDirectory(_root);
+        var blocker = Path.Combine(_root, "blockiert");
+        File.WriteAllText(blocker, "ich bin eine Datei, kein Ordner");
+        var s = Settings(dateSub: true);
+        s.PhotoFolder = Path.Combine(blocker, "unterordner");
+
+        var result = await _storage.SaveAsync(MakeImage(20, 20), [MakeImage(10, 10)], s, Stamp);
+
+        var folder = Path.Combine(_fallback, "2025-06-14");
+        Assert.Equal(Path.Combine(folder, "Party_20250614_153045.jpg"), result.LayoutPath);
+        Assert.Equal([Path.Combine(folder, "Party_20250614_153045_orig1.jpg")], result.OriginalPaths);
+        Assert.True(File.Exists(result.LayoutPath));
+        Assert.Equal((20, 20), ReadSize(result.LayoutPath));
+    }
+
+    [Fact]
+    public async Task SaveAsync_ThaiCulture_UsesInvariantNames()
+    {
+        var previous = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("th-TH"); // buddhistischer Kalender (2568)
+        try
+        {
+            var s = Settings(dateSub: true);
+
+            var folder = _storage.ResolveTargetFolder(s, Stamp);
+            var result = await _storage.SaveAsync(MakeImage(20, 20), [MakeImage(10, 10)], s, Stamp);
+
+            Assert.Equal(Path.Combine(_root, "2025-06-14"), folder);
+            Assert.Equal(Path.Combine(folder, "Party_20250614_153045.jpg"), result.LayoutPath);
+            Assert.Equal(Path.Combine(folder, "Party_20250614_153045_orig1.jpg"), result.OriginalPaths[0]);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
+    }
+
+    [Fact]
+    public void FolderProbe_WritableFolder_SucceedsWithoutLeftovers()
+    {
+        var folder = Path.Combine(_root, "probe");
+
+        Assert.True(FolderProbe.TryEnsureWritable(folder, out var error));
+
+        Assert.Null(error);
+        Assert.Empty(Directory.GetFileSystemEntries(folder));
+    }
+
+    [Fact]
+    public void FolderProbe_FolderBlockedByFile_FailsWithMessage()
+    {
+        Directory.CreateDirectory(_root);
+        var blocker = Path.Combine(_root, "blockiert");
+        File.WriteAllText(blocker, "Datei");
+
+        Assert.False(FolderProbe.TryEnsureWritable(Path.Combine(blocker, "x"), out var error));
+        Assert.False(string.IsNullOrWhiteSpace(error));
     }
 
     [Fact]

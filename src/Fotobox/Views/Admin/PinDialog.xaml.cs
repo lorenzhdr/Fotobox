@@ -108,8 +108,10 @@ public partial class PinDialog : Window
         if (locked)
         {
             var seconds = (int)Math.Ceiling(remaining.TotalSeconds);
-            MessageText.Text = string.Format(CultureInfo.CurrentCulture,
-                "Zu viele Fehlversuche. Bitte in {0} s erneut versuchen.", seconds);
+            var wait = seconds >= 60
+                ? string.Format(CultureInfo.CurrentCulture, "{0}:{1:00} min", seconds / 60, seconds % 60)
+                : string.Format(CultureInfo.CurrentCulture, "{0} s", seconds);
+            MessageText.Text = $"Zu viele Fehlversuche. Bitte in {wait} erneut versuchen.";
             if (!_lockTimer.IsEnabled)
                 _lockTimer.Start();
         }

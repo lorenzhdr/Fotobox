@@ -1,22 +1,36 @@
+using System.Globalization;
 using System.IO;
+using System.Security;
 using System.Windows.Media.Imaging;
 using Fotobox.Core;
 
 namespace Fotobox.Services.Storage;
 
-/// <summary>Speichert Layout und Originale als JPEG (zuerst temporäre Datei, dann Umbenennen).</summary>
+/// <summary>
+/// Speichert Layout und Originale als JPEG (zuerst temporäre Datei, dann Umbenennen). Ist der konfigurierte Ordner
+/// nicht beschreibbar oder nicht vorhanden, wird auf den Standardordner (Bilder\Fotobox) ausgewichen; die Pfade im
+/// Ergebnis nennen den tatsächlich verwendeten Ordner. Ordner- und Dateinamen sind kulturunabhängig.
+/// </summary>
 public sealed class PhotoStorage : IPhotoStorage
 {
     // Verhindert Namenskollisionen zwischen parallelen Speichervorgängen im Prozess.
     private static readonly object NamingGate = new();
 
-    public string ResolveTargetFolder(StorageSettings storage, DateTime timestamp)
+    private readonly string _defaultRoot;
+
+    /// <param name="defaultRoot">Standard- bzw. Ausweichordner (null = Bilder\Fotobox); nur für Tests gedacht.</param>
+    public PhotoStorage(string? defaultRoot = null)
     {
-        var root = string.IsNullOrWhiteSpace(storage.PhotoFolder)
+        _defaultRoot = string.IsNullOrWhiteSpace(defaultRoot)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Fotobox")
-            : storage.PhotoFolder;
-        return storage.DateSubfolder ? Path.Combine(root, timestamp.ToString("yyyy-MM-dd")) : root;
+            : defaultRoot;
     }
+
+    public string ResolveTargetFolder(StorageSettings storage, DateTime timestamp) =>
+        WithDateSubfolder(storage, string.IsNullOrWhiteSpace(storage.PhotoFolder) ? _defaultRoot : storage.PhotoFolder, timestamp);
+
+    private static string WithDateSubfolder(StorageSettings storage, string root, DateTime timestamp) =>
+        storage.DateSubfolder ? Path.Combine(root, timestamp.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)) : root;
 
     public async Task<SavedPhotoSet> SaveAsync(BitmapSource layout, IReadOnlyList<BitmapSource> originals,
         StorageSettings storage, DateTime timestamp, CancellationToken ct = default)
@@ -37,16 +51,49 @@ public sealed class PhotoStorage : IPhotoStorage
 
         try
         {
-            return await Task.Run(() => SaveCore(layout, sources, folder, prefix, quality, timestamp, ct), ct)
-                .ConfigureAwait(false);
+            return await SaveToFolderAsync(layout, sources, folder, prefix, quality, timestamp, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or NotSupportedException
-                                       or ArgumentException or System.Security.SecurityException)
+        catch (Exception ex) when (IsStorageError(ex))
         {
-            AppLog.Error($"Fotos konnten nicht in '{folder}' gespeichert werden.", ex);
-            throw new IOException($"Fotos können nicht gespeichert werden: {ex.Message}", ex);
+            // Konfigurierter Ordner nicht beschreibbar bzw. nicht vorhanden → Ausweichen auf den Standardordner.
+            var fallback = WithDateSubfolder(storage, _defaultRoot, timestamp);
+            if (SamePath(fallback, folder))
+            {
+                AppLog.Error($"Fotos konnten nicht in '{folder}' gespeichert werden.", ex);
+                throw new IOException($"Fotos können nicht gespeichert werden: {ex.Message}", ex);
+            }
+
+            AppLog.Warn($"Fotos konnten nicht in '{folder}' gespeichert werden – Ausweichordner '{fallback}' wird verwendet.", ex);
+            try
+            {
+                return await SaveToFolderAsync(layout, sources, fallback, prefix, quality, timestamp, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex2) when (IsStorageError(ex2))
+            {
+                AppLog.Error($"Fotos konnten auch nicht im Ausweichordner '{fallback}' gespeichert werden.", ex2);
+                throw new IOException($"Fotos können nicht gespeichert werden: {ex.Message}", ex);
+            }
         }
     }
+
+    private static Task<SavedPhotoSet> SaveToFolderAsync(BitmapSource layout, List<BitmapSource> sources, string folder,
+        string prefix, int quality, DateTime timestamp, CancellationToken ct) =>
+        Task.Run(() => SaveCore(layout, sources, folder, prefix, quality, timestamp, ct), ct);
+
+    private static bool SamePath(string a, string b)
+    {
+        try
+        {
+            return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (IsStorageError(ex))
+        {
+            return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static bool IsStorageError(Exception ex) =>
+        ex is UnauthorizedAccessException or IOException or NotSupportedException or ArgumentException or SecurityException;
 
     private static SavedPhotoSet SaveCore(BitmapSource layout, List<BitmapSource> originals, string folder,
         string prefix, int quality, DateTime timestamp, CancellationToken ct)
@@ -69,7 +116,7 @@ public sealed class PhotoStorage : IPhotoStorage
             }
 
             ct.ThrowIfCancellationRequested();
-            var baseName = $"{prefix}_{timestamp:yyyyMMdd_HHmmss}";
+            var baseName = string.Create(CultureInfo.InvariantCulture, $"{prefix}_{timestamp:yyyyMMdd_HHmmss}");
 
             lock (NamingGate)
             {

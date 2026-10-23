@@ -101,6 +101,84 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public void MissingFile_IsFirstRun_NotLoadFailed()
+    {
+        var store = new JsonSettingsStore(_dir, TimeSpan.Zero);
+
+        Assert.False(store.LoadFailed);
+        Assert.True(string.IsNullOrEmpty(store.Current.Security.PinHash));
+        store.Save(new AppSettings());
+        Assert.True(File.Exists(SettingsPath));
+    }
+
+    [Fact]
+    public void BrokenFile_IsNotLoadFailed_ButBackedUp()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, "{ kaputt");
+
+        var store = new JsonSettingsStore(_dir, TimeSpan.Zero);
+
+        Assert.False(store.LoadFailed);
+        Assert.Single(Directory.GetFiles(_dir, "settings.json.bak-*"));
+    }
+
+    [Fact]
+    public void LockedFile_FailsClosed_SaveDoesNotOverwrite_AndReloadRecovers()
+    {
+        var withPin = new AppSettings();
+        withPin.Security.PinHash = "hash";
+        withPin.Security.PinSalt = "salt";
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, System.Text.Json.JsonSerializer.Serialize(withPin, AppSettings.JsonOptions));
+        var before = File.ReadAllText(SettingsPath);
+
+        JsonSettingsStore store;
+        using (new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            store = new JsonSettingsStore(_dir, TimeSpan.Zero);
+
+            Assert.True(store.LoadFailed);
+            Assert.Throws<IOException>(() => store.Save(new AppSettings()));
+            Assert.False(store.TryReload()); // weiterhin gesperrt
+            Assert.True(store.LoadFailed);
+        }
+
+        Assert.Equal(before, File.ReadAllText(SettingsPath));
+        Assert.Empty(Directory.GetFiles(_dir, "*.tmp"));
+
+        var changed = 0;
+        store.SettingsChanged += (_, _) => changed++;
+        Assert.True(store.TryReload());
+        Assert.False(store.LoadFailed);
+        Assert.Equal("hash", store.Current.Security.PinHash);
+        Assert.Equal(1, changed);
+        store.Save(store.Current.Clone()); // wieder schreibbar
+    }
+
+    [Fact]
+    public async Task ShortLock_IsRetried_AndLoadsNormally()
+    {
+        var withPin = new AppSettings();
+        withPin.Security.PinHash = "hash";
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, System.Text.Json.JsonSerializer.Serialize(withPin, AppSettings.JsonOptions));
+
+        var locked = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.None);
+        var release = Task.Run(async () =>
+        {
+            await Task.Delay(80);
+            locked.Dispose();
+        });
+
+        var store = new JsonSettingsStore(_dir, TimeSpan.FromMilliseconds(200));
+        await release;
+
+        Assert.False(store.LoadFailed);
+        Assert.Equal("hash", store.Current.Security.PinHash);
+    }
+
+    [Fact]
     public void UnknownEnumValue_IsTreatedAsBrokenFile()
     {
         Directory.CreateDirectory(_dir);
