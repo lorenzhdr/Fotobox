@@ -929,12 +929,12 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     {
         var errors = new List<string>();
 
-        CheckRange(_draft.Flow.CountdownSeconds, 1, 30, "Der Countdown", errors);
-        CheckRange(_draft.Flow.PreviewSeconds, 1, 60, "Die Vorschau-Dauer", errors);
-        CheckRange(_draft.Flow.PauseBetweenShotsSeconds, 0, 30, "Die Pause zwischen den Fotos", errors);
-        CheckRange(_draft.Flow.ErrorDisplaySeconds, 1, 60, "Die Fehleranzeige-Dauer", errors);
+        CheckRange(_draft.Flow.CountdownSeconds, SettingsLimits.CountdownMin, SettingsLimits.CountdownMax, "Der Countdown", errors);
+        CheckRange(_draft.Flow.PreviewSeconds, SettingsLimits.PreviewMin, SettingsLimits.PreviewMax, "Die Vorschau-Dauer", errors);
+        CheckRange(_draft.Flow.PauseBetweenShotsSeconds, SettingsLimits.PauseMin, SettingsLimits.PauseMax, "Die Pause zwischen den Fotos", errors);
+        CheckRange(_draft.Flow.ErrorDisplaySeconds, SettingsLimits.ErrorDisplayMin, SettingsLimits.ErrorDisplayMax, "Die Fehleranzeige-Dauer", errors);
 
-        if (_draft.Layout.Kind == LayoutKind.Strip && _draft.Layout.StripPhotoCount is < 2 or > 4)
+        if (_draft.Layout.Kind == LayoutKind.Strip && _draft.Layout.StripPhotoCount is < SettingsLimits.StripPhotosMin or > SettingsLimits.StripPhotosMax)
             errors.Add("Ein Fotostreifen besteht aus 2 bis 4 Fotos.");
 
         if (_draft.Layout.Kind == LayoutKind.Overlay)
@@ -949,12 +949,12 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         if ((_draft.Layout.CaptionText?.Length ?? 0) > 80)
             errors.Add("Die Bildunterschrift darf höchstens 80 Zeichen lang sein.");
 
-        if (_draft.Printer.Copies is < 1 or > 20)
-            errors.Add("Die Anzahl der Kopien muss zwischen 1 und 20 liegen.");
-        if (_draft.Printer.TimeoutSeconds is < 10 or > 600)
-            errors.Add("Das Druck-Timeout muss zwischen 10 und 600 Sekunden liegen.");
+        if (_draft.Printer.Copies is < SettingsLimits.CopiesMin or > SettingsLimits.CopiesMax)
+            errors.Add($"Die Anzahl der Kopien muss zwischen {SettingsLimits.CopiesMin} und {SettingsLimits.CopiesMax} liegen.");
+        if (_draft.Printer.TimeoutSeconds is < SettingsLimits.PrintTimeoutMin or > SettingsLimits.PrintTimeoutMax)
+            errors.Add($"Das Druck-Timeout muss zwischen {SettingsLimits.PrintTimeoutMin} und {SettingsLimits.PrintTimeoutMax} Sekunden liegen.");
 
-        if (_draft.Storage.JpegQuality is < 50 or > 100)
+        if (_draft.Storage.JpegQuality is < SettingsLimits.JpegQualityMin or > SettingsLimits.JpegQualityMax)
             errors.Add("Die JPEG-Qualität muss zwischen 50 und 100 Prozent liegen.");
 
         var prefix = _draft.Storage.FilePrefix;

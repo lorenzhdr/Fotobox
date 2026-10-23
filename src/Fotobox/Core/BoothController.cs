@@ -271,7 +271,7 @@ public sealed class BoothController(
     /// <summary>Druckt mit hartem Timeout (Druckerzeitlimit + Reserve); wirft nie.</summary>
     private async Task<PrintResult> PrintGuardedAsync(BitmapSource page, PrinterSettings printer, CancellationToken ct)
     {
-        var limit = TimeSpan.FromSeconds(Math.Max(10, printer.TimeoutSeconds) + 30);
+        var limit = TimeSpan.FromSeconds(Math.Max(SettingsLimits.PrintTimeoutMin, printer.TimeoutSeconds) + 30);
         using var printCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var progress = new Progress<string>(message => StatusMessage = message);
         Task<PrintResult>? task = null;

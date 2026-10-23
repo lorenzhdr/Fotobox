@@ -19,21 +19,21 @@ internal static class SettingsNormalizer
         s.Storage ??= new StorageSettings();
         s.Security ??= new SecuritySettings();
 
-        s.Flow.CountdownSeconds = Math.Clamp(s.Flow.CountdownSeconds, 1, 30);
-        s.Flow.PreviewSeconds = Math.Clamp(s.Flow.PreviewSeconds, 1, 30);
-        s.Flow.PauseBetweenShotsSeconds = Math.Clamp(s.Flow.PauseBetweenShotsSeconds, 0, 10);
-        s.Flow.ErrorDisplaySeconds = Math.Clamp(s.Flow.ErrorDisplaySeconds, 2, 30);
+        s.Flow.CountdownSeconds = Math.Clamp(s.Flow.CountdownSeconds, SettingsLimits.CountdownMin, SettingsLimits.CountdownMax);
+        s.Flow.PreviewSeconds = Math.Clamp(s.Flow.PreviewSeconds, SettingsLimits.PreviewMin, SettingsLimits.PreviewMax);
+        s.Flow.PauseBetweenShotsSeconds = Math.Clamp(s.Flow.PauseBetweenShotsSeconds, SettingsLimits.PauseMin, SettingsLimits.PauseMax);
+        s.Flow.ErrorDisplaySeconds = Math.Clamp(s.Flow.ErrorDisplaySeconds, SettingsLimits.ErrorDisplayMin, SettingsLimits.ErrorDisplayMax);
 
         if (!Enum.IsDefined(s.Layout.Kind))
             s.Layout.Kind = LayoutKind.SingleBorderless;
-        s.Layout.StripPhotoCount = Math.Clamp(s.Layout.StripPhotoCount, 2, 4);
+        s.Layout.StripPhotoCount = Math.Clamp(s.Layout.StripPhotoCount, SettingsLimits.StripPhotosMin, SettingsLimits.StripPhotosMax);
 
         if (!Enum.IsDefined(s.Printer.Orientation))
             s.Printer.Orientation = PageOrientation.Auto;
-        s.Printer.Copies = Math.Clamp(s.Printer.Copies, 1, 10);
-        s.Printer.TimeoutSeconds = Math.Clamp(s.Printer.TimeoutSeconds, 15, 600);
+        s.Printer.Copies = Math.Clamp(s.Printer.Copies, SettingsLimits.CopiesMin, SettingsLimits.CopiesMax);
+        s.Printer.TimeoutSeconds = Math.Clamp(s.Printer.TimeoutSeconds, SettingsLimits.PrintTimeoutMin, SettingsLimits.PrintTimeoutMax);
 
-        s.Storage.JpegQuality = Math.Clamp(s.Storage.JpegQuality, 50, 100);
+        s.Storage.JpegQuality = Math.Clamp(s.Storage.JpegQuality, SettingsLimits.JpegQualityMin, SettingsLimits.JpegQualityMax);
         s.Storage.FilePrefix = SanitizePrefix(s.Storage.FilePrefix);
 
         if (s.Security.PinIterations < MinPinIterations)

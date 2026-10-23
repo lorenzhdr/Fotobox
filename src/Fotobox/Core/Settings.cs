@@ -7,6 +7,19 @@ public enum LayoutKind { SingleBorderless, Strip, Overlay }
 /// <summary>Auto: Strip → Hochformat, sonst Querformat.</summary>
 public enum PageOrientation { Auto, Portrait, Landscape }
 
+/// <summary>Gemeinsame Wertebereiche für Admin-UI, Validierung und Normalisierung.</summary>
+public static class SettingsLimits
+{
+    public const int CountdownMin = 1, CountdownMax = 30;
+    public const int PreviewMin = 1, PreviewMax = 60;
+    public const int PauseMin = 0, PauseMax = 30;
+    public const int ErrorDisplayMin = 2, ErrorDisplayMax = 60;
+    public const int StripPhotosMin = 2, StripPhotosMax = 4;
+    public const int CopiesMin = 1, CopiesMax = 20;
+    public const int PrintTimeoutMin = 10, PrintTimeoutMax = 600;
+    public const int JpegQualityMin = 50, JpegQualityMax = 100;
+}
+
 public sealed class AppSettings
 {
     /// <summary>Gemeinsame Serializer-Optionen für Store und <see cref="Clone"/> (Enums als Strings).</summary>

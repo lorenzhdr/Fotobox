@@ -134,7 +134,7 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(2, s.Flow.ErrorDisplaySeconds);
         Assert.Equal(4, s.Layout.StripPhotoCount);
         Assert.Equal(1, s.Printer.Copies);
-        Assert.Equal(15, s.Printer.TimeoutSeconds);
+        Assert.Equal(SettingsLimits.PrintTimeoutMin, s.Printer.TimeoutSeconds);
         Assert.Equal(50, s.Storage.JpegQuality);
         Assert.Equal("abcd", s.Storage.FilePrefix);
         Assert.Equal(10_000, s.Security.PinIterations);
@@ -160,23 +160,23 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(2, store.Current.Flow.ErrorDisplaySeconds);
         Assert.Equal(2, store.Current.Layout.StripPhotoCount);
         Assert.Equal(1, store.Current.Printer.Copies);
-        Assert.Equal(15, store.Current.Printer.TimeoutSeconds);
+        Assert.Equal(SettingsLimits.PrintTimeoutMin, store.Current.Printer.TimeoutSeconds);
         Assert.Equal(50, store.Current.Storage.JpegQuality);
         Assert.Equal(10_000, store.Current.Security.PinIterations);
 
         var high = new AppSettings();
-        high.Flow.CountdownSeconds = 31;
-        high.Flow.PauseBetweenShotsSeconds = 11;
-        high.Flow.ErrorDisplaySeconds = 31;
-        high.Printer.Copies = 11;
+        high.Flow.CountdownSeconds = SettingsLimits.CountdownMax + 1;
+        high.Flow.PauseBetweenShotsSeconds = SettingsLimits.PauseMax + 1;
+        high.Flow.ErrorDisplaySeconds = SettingsLimits.ErrorDisplayMax + 1;
+        high.Printer.Copies = SettingsLimits.CopiesMax + 1;
         high.Printer.TimeoutSeconds = 601;
         high.Storage.JpegQuality = 101;
         store.Save(high);
 
-        Assert.Equal(30, store.Current.Flow.CountdownSeconds);
-        Assert.Equal(10, store.Current.Flow.PauseBetweenShotsSeconds);
-        Assert.Equal(30, store.Current.Flow.ErrorDisplaySeconds);
-        Assert.Equal(10, store.Current.Printer.Copies);
+        Assert.Equal(SettingsLimits.CountdownMax, store.Current.Flow.CountdownSeconds);
+        Assert.Equal(SettingsLimits.PauseMax, store.Current.Flow.PauseBetweenShotsSeconds);
+        Assert.Equal(SettingsLimits.ErrorDisplayMax, store.Current.Flow.ErrorDisplaySeconds);
+        Assert.Equal(SettingsLimits.CopiesMax, store.Current.Printer.Copies);
         Assert.Equal(600, store.Current.Printer.TimeoutSeconds);
         Assert.Equal(100, store.Current.Storage.JpegQuality);
     }

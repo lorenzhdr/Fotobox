@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Fotobox.Views.Admin"
+        xmlns:core="clr-namespace:Fotobox.Core"
         xmlns:controls="clr-namespace:Fotobox.Views.Controls"
         Title="Fotobox – Einstellungen"
         Width="1100" Height="750" MinWidth="900" MinHeight="620"
@@ -72,17 +73,17 @@
                             <TextBlock Text="Ablauf" Style="{StaticResource SectionTitle}" />
 
                             <TextBlock Text="Countdown vor jedem Foto" Style="{StaticResource FieldLabel}" />
-                            <local:NumberStepper Value="{Binding CountdownSeconds}" Minimum="1" Maximum="30" Suffix=" s" />
+                            <local:NumberStepper Value="{Binding CountdownSeconds}" Minimum="{x:Static core:SettingsLimits.CountdownMin}" Maximum="{x:Static core:SettingsLimits.CountdownMax}" Suffix=" s" />
 
                             <TextBlock Text="Dauer der Vorschau nach dem Foto" Style="{StaticResource FieldLabel}" />
-                            <local:NumberStepper Value="{Binding PreviewSeconds}" Minimum="1" Maximum="60" Suffix=" s" />
+                            <local:NumberStepper Value="{Binding PreviewSeconds}" Minimum="{x:Static core:SettingsLimits.PreviewMin}" Maximum="{x:Static core:SettingsLimits.PreviewMax}" Suffix=" s" />
 
                             <TextBlock Text="Pause zwischen mehreren Fotos" Style="{StaticResource FieldLabel}" />
-                            <local:NumberStepper Value="{Binding PauseBetweenShotsSeconds}" Minimum="0" Maximum="30" Suffix=" s" />
+                            <local:NumberStepper Value="{Binding PauseBetweenShotsSeconds}" Minimum="{x:Static core:SettingsLimits.PauseMin}" Maximum="{x:Static core:SettingsLimits.PauseMax}" Suffix=" s" />
                             <TextBlock Text="Gilt beim Fotostreifen mit mehreren Aufnahmen." Style="{StaticResource Hint}" />
 
                             <TextBlock Text="Dauer der Fehleranzeige" Style="{StaticResource FieldLabel}" />
-                            <local:NumberStepper Value="{Binding ErrorDisplaySeconds}" Minimum="1" Maximum="60" Suffix=" s" />
+                            <local:NumberStepper Value="{Binding ErrorDisplaySeconds}" Minimum="{x:Static core:SettingsLimits.ErrorDisplayMin}" Maximum="{x:Static core:SettingsLimits.ErrorDisplayMax}" Suffix=" s" />
 
                             <TextBlock Text="Drucken" Style="{StaticResource FieldLabel}" Margin="0,26,0,6" />
                             <CheckBox Content="Fotos nach der Aufnahme drucken" IsChecked="{Binding PrintingEnabled}" />
@@ -143,7 +144,7 @@
 
                             <StackPanel Visibility="{Binding IsStripLayout, Converter={StaticResource BoolToVis}}">
                                 <TextBlock Text="Anzahl der Fotos im Streifen" Style="{StaticResource FieldLabel}" />
-                                <local:NumberStepper Value="{Binding StripPhotoCount}" Minimum="2" Maximum="4" Suffix=" Fotos" />
+                                <local:NumberStepper Value="{Binding StripPhotoCount}" Minimum="{x:Static core:SettingsLimits.StripPhotosMin}" Maximum="{x:Static core:SettingsLimits.StripPhotosMax}" Suffix=" Fotos" />
                             </StackPanel>
 
                             <StackPanel Visibility="{Binding IsOverlayLayout, Converter={StaticResource BoolToVis}}">
@@ -199,10 +200,10 @@
                                       DisplayMemberPath="Display" />
 
                             <TextBlock Text="Anzahl der Kopien" Style="{StaticResource FieldLabel}" />
-                            <local:NumberStepper Value="{Binding Copies}" Minimum="1" Maximum="20" Suffix=" ×" />
+                            <local:NumberStepper Value="{Binding Copies}" Minimum="{x:Static core:SettingsLimits.CopiesMin}" Maximum="{x:Static core:SettingsLimits.CopiesMax}" Suffix=" ×" />
 
                             <TextBlock Text="Zeitlimit für den Druck" Style="{StaticResource FieldLabel}" />
-                            <local:NumberStepper Value="{Binding PrintTimeoutSeconds}" Minimum="10" Maximum="600" Step="10" Suffix=" s" />
+                            <local:NumberStepper Value="{Binding PrintTimeoutSeconds}" Minimum="{x:Static core:SettingsLimits.PrintTimeoutMin}" Maximum="{x:Static core:SettingsLimits.PrintTimeoutMax}" Step="10" Suffix=" s" />
                             <TextBlock Text="Nach dieser Zeit meldet die Fotobox einen Druckfehler und ist wieder bereit."
                                        Style="{StaticResource Hint}" />
 

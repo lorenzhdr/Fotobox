@@ -19,10 +19,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: .NET einrichten
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
 
@@ -69,7 +69,7 @@ jobs:
         run: ./build/publish.ps1 -Version '${{ steps.ver.outputs.version }}' -RequireInstaller
 
       - name: Artefakte hochladen
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: fotobox-${{ steps.ver.outputs.version }}
           path: |
@@ -99,7 +99,7 @@ jobs:
             '--notes-file', "$env:RUNNER_TEMP/release-notes.md",
             '--verify-tag'
           )
-          if ($env:VERSION -match '-') { $ghArgs += '--prerelease' }
+          if (($env:VERSION -split '\+', 2)[0] -match '-') { $ghArgs += '--prerelease' }
           $files = @(Get-ChildItem artifacts -File | Where-Object { $_.Extension -in '.exe', '.zip' } | ForEach-Object { $_.FullName })
           gh @ghArgs @files
           if ($LASTEXITCODE -ne 0) { throw "gh release create fehlgeschlagen ($LASTEXITCODE)." }

@@ -3,6 +3,7 @@
 *.user
 *.suo
 *.userosscache
+*.binlog
 *.sln.docstates
 *.rsuser
 [Bb]in/
