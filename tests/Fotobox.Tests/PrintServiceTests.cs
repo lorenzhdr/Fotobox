@@ -454,3 +454,87 @@ public class PrintServiceHardwareTests
         Assert.Equal(297, spec.HeightMm, 0);
     }
 }
+
+public class PageSpecCacheTests
+{
+    private static PageSpecKey Key(string? printer = "Drucker A", LayoutKind kind = LayoutKind.SingleBorderless) =>
+        PageSpecKey.From(new PrinterSettings { PrinterName = printer }, kind);
+
+    [Fact]
+    public void Store_ThenFreshWithinLifetime_ReturnsValue()
+    {
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var cache = new PageSpecCache(time);
+        var spec = new PageSpec(148, 100);
+
+        Assert.False(cache.TryGetFresh(Key(), out _));
+        cache.Store(Key(), spec);
+
+        time.Advance(TimeSpan.FromMinutes(9));
+        Assert.True(cache.TryGetFresh(Key(), out var cached));
+        Assert.Same(spec, cached);
+    }
+
+    [Fact]
+    public void Expired_IsNotFresh_ButStaysAvailableAsLastGood()
+    {
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var cache = new PageSpecCache(time);
+        var spec = new PageSpec(148, 100);
+        cache.Store(Key(), spec);
+
+        time.Advance(PageSpecCache.DefaultLifetime + TimeSpan.FromSeconds(1));
+
+        Assert.False(cache.TryGetFresh(Key(), out _));
+        Assert.True(cache.TryGetLastGood(Key(), out var lastGood));
+        Assert.Same(spec, lastGood);
+    }
+
+    [Fact]
+    public void Entries_AreSeparatePerPrinterSettingsAndLayoutKind()
+    {
+        var cache = new PageSpecCache(new Microsoft.Extensions.Time.Testing.FakeTimeProvider());
+        cache.Store(Key("Drucker A"), new PageSpec(148, 100));
+
+        Assert.False(cache.TryGetFresh(Key("Drucker B"), out _));
+        Assert.False(cache.TryGetFresh(Key("Drucker A", LayoutKind.Strip), out _));
+        Assert.False(cache.TryGetLastGood(Key("Drucker B"), out _));
+        Assert.True(cache.TryGetFresh(Key("Drucker A"), out _));
+    }
+
+    [Fact]
+    public void Key_CoversAllValuesThatInfluenceThePageSize()
+    {
+        var baseline = new PrinterSettings { PrinterName = "A", PaperSizeName = "P", PaperWidthMm = 100, PaperHeightMm = 150 };
+        var key = PageSpecKey.From(baseline, LayoutKind.SingleBorderless);
+
+        // Kopien und Zeitlimit beeinflussen die Seitengröße nicht.
+        Assert.Equal(key, PageSpecKey.From(
+            new PrinterSettings { PrinterName = "A", PaperSizeName = "P", PaperWidthMm = 100, PaperHeightMm = 150, Copies = 3, TimeoutSeconds = 99 },
+            LayoutKind.SingleBorderless));
+        Assert.NotEqual(key, PageSpecKey.From(
+            new PrinterSettings { PrinterName = "A", PaperSizeName = "Q", PaperWidthMm = 100, PaperHeightMm = 150 }, LayoutKind.SingleBorderless));
+        Assert.NotEqual(key, PageSpecKey.From(
+            new PrinterSettings { PrinterName = "A", PaperSizeName = "P", PaperWidthMm = 101, PaperHeightMm = 150 }, LayoutKind.SingleBorderless));
+        Assert.NotEqual(key, PageSpecKey.From(
+            new PrinterSettings { PrinterName = "A", PaperSizeName = "P", PaperWidthMm = 100, PaperHeightMm = 150, Orientation = PageOrientation.Landscape },
+            LayoutKind.SingleBorderless));
+    }
+
+    [Fact]
+    public async Task ParallelAccess_IsThreadSafe()
+    {
+        var cache = new PageSpecCache(new Microsoft.Extensions.Time.Testing.FakeTimeProvider());
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(i => Task.Run(() =>
+        {
+            for (var n = 0; n < 500; n++)
+            {
+                cache.Store(Key($"Drucker {n % 5}"), new PageSpec(100 + i, 150));
+                cache.TryGetFresh(Key($"Drucker {n % 5}"), out _);
+                cache.TryGetLastGood(Key($"Drucker {(n + 1) % 5}"), out _);
+            }
+        })));
+
+        Assert.True(cache.TryGetFresh(Key("Drucker 0"), out _));
+    }
+}

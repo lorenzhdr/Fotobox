@@ -172,24 +172,120 @@ public class BoothControllerTests
         h.WaitUntil(() => h.Controller.StatusMessage == "Warte auf den Drucker …");
 
         h.Printer.Complete(new PrintResult(PrintOutcome.Completed));
-        h.WaitUntil(() => h.Controller.State == BoothState.Idle);
+        h.WaitUntil(() => h.Controller.State == BoothState.Printed);
+        h.RunToIdle();
         Assert.Null(h.Controller.ErrorMessage);
     }
 
     [Fact]
-    public void PrintFinishedDuringPreview_SkipsPrintingState()
+    public void PrintTakesLongerThanPreview_ProgressRisesThenOverdueThenPrintedThenIdle()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.ExpectedPrintSeconds = 120;
+        var states = h.RecordStates();
+        var changed = 0;
+        h.Controller.Changed += (_, _) => changed++;
+
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Preview);
+        Assert.Equal(120, h.Controller.ExpectedPrintSeconds);
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printing);
+        var start = h.Controller.PrintProgress;
+        Assert.InRange(start, 0, 0.1);
+        Assert.False(h.Controller.PrintOverdue);
+
+        // Der Takt meldet den Fortschritt laufend, ohne dass sich sonst etwas ändert.
+        var before = changed;
+        h.AdvanceBy(TimeSpan.FromSeconds(60), TimeSpan.FromMilliseconds(250));
+        Assert.InRange(changed - before, 100, 400);
+        Assert.Equal(start + 0.5, h.Controller.PrintProgress, 2);
+        Assert.False(h.Controller.PrintOverdue);
+        Assert.Equal(BoothState.Printing, h.Controller.State);
+
+        h.AdvanceBy(TimeSpan.FromSeconds(60), Second);
+        Assert.Equal(1, h.Controller.PrintProgress);
+        Assert.True(h.Controller.PrintOverdue);
+        Assert.Equal(BoothState.Printing, h.Controller.State);
+
+        // Nach Ablauf der Zeit ist der Takt weiter aktiv und der Druck noch nicht fertig.
+        h.Printer.Complete(new PrintResult(PrintOutcome.Completed));
+        h.WaitUntil(() => h.Controller.State == BoothState.Printed);
+        Assert.Equal(1, h.Controller.PrintProgress);
+        Assert.False(h.Controller.PrintOverdue);
+
+        // „Fertig“ bleibt 5 Sekunden stehen.
+        h.Time.Advance(BoothController.PrintedDisplay - Second);
+        Assert.Equal(BoothState.Printed, h.Controller.State);
+        h.Time.Advance(Second);
+        h.WaitUntil(() => h.Controller.State == BoothState.Idle);
+
+        Assert.Equal(0, h.Controller.PrintProgress);
+        Assert.Equal(
+            [BoothState.Countdown, BoothState.Capturing, BoothState.Preview, BoothState.Printing, BoothState.Printed, BoothState.Idle],
+            states);
+        var afterIdle = changed;
+        h.Time.Advance(TimeSpan.FromSeconds(30));
+        Assert.Equal(afterIdle, changed);   // kein Takt mehr im Leerlauf
+    }
+
+    [Fact]
+    public void PrintFinishedDuringPreview_GoesToPrintedAfterPreview_ThenIdle()
     {
         var h = new Harness();
         h.Settings.Current.Flow.PreviewSeconds = 6;
         var states = h.RecordStates();
+        var progressWhenPrinted = -1.0;
+        h.Controller.StateChanged += (_, _) =>
+        {
+            if (h.Controller.State == BoothState.Printed)
+                progressWhenPrinted = h.Controller.PrintProgress;
+        };
 
         h.Controller.TryTrigger();
         h.AdvanceUntil(() => h.Controller.State == BoothState.Preview);
         h.Printer.Complete(new PrintResult(PrintOutcome.Completed));
+        Assert.Equal(BoothState.Preview, h.Controller.State);   // Vorschau läuft zu Ende
+        var previewStart = h.Time.GetUtcNow();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printed);
+        var printedAt = h.Time.GetUtcNow();
         h.RunToIdle();
 
+        Assert.Equal(
+            [BoothState.Countdown, BoothState.Capturing, BoothState.Preview, BoothState.Printed, BoothState.Idle],
+            states);
+        Assert.Equal(1, progressWhenPrinted);
+        Assert.True(printedAt - previewStart >= TimeSpan.FromSeconds(5));   // Rest der Vorschau
+        Assert.True(h.Time.GetUtcNow() - printedAt >= BoothController.PrintedDisplay);
+    }
+
+    [Fact]
+    public void PrintFailure_NeverShowsPrinted()
+    {
+        var h = new Harness();
+        var states = h.RecordStates();
+
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printing);
+        h.Printer.Complete(new PrintResult(PrintOutcome.Failed, "Papier leer"));
+        h.RunToIdle();
+
+        Assert.Contains(BoothState.Error, states);
+        Assert.DoesNotContain(BoothState.Printed, states);
+        Assert.Equal(0, h.Controller.PrintProgress);
+    }
+
+    [Fact]
+    public void PrintingDisabled_NeverShowsPrinted()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PrintingEnabled = false;
+        var states = h.RecordStates();
+
+        h.Controller.TryTrigger();
+        h.RunToIdle();
+
+        Assert.DoesNotContain(BoothState.Printed, states);
         Assert.DoesNotContain(BoothState.Printing, states);
-        Assert.DoesNotContain(BoothState.Error, states);
     }
 
     [Fact]
@@ -394,6 +490,181 @@ public class BoothControllerTests
     }
 
     [Fact]
+    public void TryCancelCountdown_DuringCountdown_ReturnsToIdleWithoutPhotoOrError()
+    {
+        var h = new Harness();
+        var states = h.RecordStates();
+        h.Controller.TryTrigger();
+        h.Time.Advance(Second);
+
+        Assert.True(h.Controller.TryCancelCountdown());
+
+        h.WaitUntil(() => h.Controller.State == BoothState.Idle);
+        Assert.Null(h.Controller.ErrorMessage);
+        Assert.Equal(0, h.Controller.CountdownValue);
+        Assert.Equal(0, h.Camera.CaptureCount);
+        Assert.Empty(h.Storage.Saved);
+        Assert.Equal(0, h.Printer.PrintCalls);
+        Assert.DoesNotContain(BoothState.Error, states);
+        Assert.True(h.Controller.TryTrigger());   // danach ist ein neuer Durchgang möglich
+    }
+
+    [Fact]
+    public void TryCancelCountdown_InPauseBetweenStripPhotos_DiscardsPhotos()
+    {
+        var h = new Harness();
+        h.Settings.Current.Layout.Kind = LayoutKind.Strip;
+        h.Composer.RequiredPhotoCount = 3;
+        h.Settings.Current.Flow.PauseBetweenShotsSeconds = 5;
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Camera.CaptureCount == 1 && h.Controller.State == BoothState.Countdown);
+        Assert.Equal(0, h.Controller.CountdownValue);   // Pause zwischen zwei Fotos
+
+        Assert.True(h.Controller.TryCancelCountdown());
+
+        h.WaitUntil(() => h.Controller.State == BoothState.Idle);
+        Assert.Null(h.Controller.ErrorMessage);
+        Assert.Equal(1, h.Camera.CaptureCount);
+        Assert.Empty(h.Storage.Saved);
+        Assert.Null(h.Composer.LastPhotos);
+    }
+
+    [Fact]
+    public void TryCancelCountdown_OutsideCountdown_IsIgnored()
+    {
+        var h = new Harness();
+        Assert.False(h.Controller.TryCancelCountdown());   // Idle
+
+        h.Settings.Current.Flow.PrintingEnabled = false;
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Preview);
+
+        Assert.False(h.Controller.TryCancelCountdown());   // Vorschau
+        Assert.Equal(BoothState.Preview, h.Controller.State);
+        h.RunToIdle();
+        Assert.Single(h.Storage.Saved);
+    }
+
+    [Fact]
+    public void TryCancelCountdown_WhilePrinting_IsIgnored()
+    {
+        var h = new Harness();
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printing);
+
+        Assert.False(h.Controller.TryCancelCountdown());
+
+        Assert.Equal(BoothState.Printing, h.Controller.State);
+        h.Printer.Complete(new PrintResult(PrintOutcome.Completed));
+        h.RunToIdle();
+    }
+
+    [Fact]
+    public void PageSpecTimeout_UsesLastGoodValueInsteadOfDefault()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PrintingEnabled = false;
+
+        h.Controller.TryTrigger();
+        h.RunToIdle();
+        Assert.Same(FakePrinter.Spec, h.Composer.LastPage);   // erster Durchgang: ermittelt und gemerkt
+
+        h.Printer.PageSpecHang = true;
+        try
+        {
+            h.Controller.TryTrigger();
+            h.AdvanceUntil(() => h.Controller.State == BoothState.Preview);
+
+            Assert.Same(FakePrinter.Spec, h.Composer.LastPage);
+            Assert.NotSame(PageSpec.Default, h.Composer.LastPage);
+            h.RunToIdle();
+        }
+        finally
+        {
+            h.Printer.ReleasePageSpec();
+        }
+    }
+
+    [Fact]
+    public void PageSpecTimeout_AfterPrinterSettingsChanged_FallsBackToDefault()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PrintingEnabled = false;
+        h.Controller.TryTrigger();
+        h.RunToIdle();
+
+        // Anderer Drucker = anderer Schlüssel: der gemerkte Wert des alten Druckers passt nicht.
+        h.Settings.Current.Printer.PrinterName = "Anderer Drucker";
+        h.Printer.PageSpecHang = true;
+        try
+        {
+            h.Controller.TryTrigger();
+            h.AdvanceUntil(() => h.Controller.State == BoothState.Preview);
+
+            Assert.Same(PageSpec.Default, h.Composer.LastPage);
+            h.RunToIdle();
+        }
+        finally
+        {
+            h.Printer.ReleasePageSpec();
+        }
+    }
+
+    [Fact]
+    public void MarkReady_PrefetchesPageSpecInBackground()
+    {
+        var h = new Harness(prefetch: true);
+
+        h.WaitUntil(() => h.Printer.PageSpecCalls >= 1);
+    }
+
+    [Fact]
+    public void SettingsChanged_PrefetchesPageSpecAgain()
+    {
+        var h = new Harness(prefetch: true);
+        h.WaitUntil(() => h.Printer.PageSpecCalls >= 1);
+
+        // Läuft noch ein Vorabruf, wird kein zweiter gestapelt – daher wiederholt melden.
+        h.WaitUntil(() =>
+        {
+            h.Settings.RaiseSettingsChanged();
+            return h.Printer.PageSpecCalls >= 2;
+        });
+    }
+
+    [Fact]
+    public void TryTrigger_PrefetchesPageSpecForCurrentSettingsDuringCountdown()
+    {
+        var h = new Harness(prefetch: true);
+        h.WaitUntil(() => h.Printer.PageSpecCalls >= 1);
+        h.Settings.Current.Printer.PrinterName = "Anderer Drucker";   // neuer Schlüssel, nichts läuft dafür
+
+        Assert.True(h.Controller.TryTrigger());
+
+        h.WaitUntil(() => h.Printer.PageSpecCalls >= 2);
+        Assert.Equal(BoothState.Countdown, h.Controller.State);   // noch vor der Komposition
+        Assert.Contains("Anderer Drucker", h.Printer.PageSpecPrinters);
+    }
+
+    [Fact]
+    public void Prefetch_Failure_DoesNotBreakSession()
+    {
+        var h = new Harness(prefetch: true);
+        h.Printer.PageSpecFailure = new InvalidOperationException("Druckserver nicht erreichbar");
+        h.Settings.Current.Flow.PrintingEnabled = false;
+        h.WaitUntil(() => h.Printer.PageSpecCalls >= 1);
+        var states = h.RecordStates();
+
+        h.Controller.TryTrigger();
+        h.RunToIdle();
+
+        // Je nach Reihenfolge hat der erste Vorabruf noch Erfolg gehabt (dann gilt dessen Wert), sonst Standard.
+        Assert.NotNull(h.Composer.LastPage);
+        Assert.DoesNotContain(BoothState.Error, states);
+        Assert.Single(h.Storage.Saved);
+    }
+
+    [Fact]
     public void MirrorPhoto_FlipsPhotoHorizontally()
     {
         var h = new Harness();
@@ -473,7 +744,11 @@ public class BoothControllerTests
         public FakeSettingsStore Settings { get; } = new();
         public BoothController Controller { get; }
 
-        public Harness(bool markReady = true)
+        /// <param name="prefetch">
+        /// Vorabruf der Seitengröße im Hintergrund. Aus, damit der Task.Run-Sprung genau einmal pro Durchgang
+        /// stattfindet (siehe <c>_hopPending</c>); die Tests zum Vorabruf schalten ihn ein.
+        /// </param>
+        public Harness(bool markReady = true, bool prefetch = false)
         {
             // Eigener Kontext statt dem von xunit: Der Test-Thread ist der "UI-Thread" des Controllers und
             // führt dessen Fortsetzungen deterministisch aus (siehe PumpContext).
@@ -482,7 +757,7 @@ public class BoothControllerTests
             Settings.Current.Flow.PreviewSeconds = 2;
             Settings.Current.Flow.PauseBetweenShotsSeconds = 1;
             Settings.Current.Flow.ErrorDisplaySeconds = 4;
-            Controller = new BoothController(Camera, Composer, Printer, Storage, Settings, Time);
+            Controller = new BoothController(Camera, Composer, Printer, Storage, Settings, Time) { PrefetchPageSpec = prefetch };
             Camera.Captured = () => _hopPending = Camera.CaptureCount % Composer.RequiredPhotoCount == 0;
             Composer.Composing = () => _hopPending = false; // Der Sprung ist beendet, sobald der Controller zusammensetzt.
             Printer.Parked = () => _hopPending = false; // hängende Abfrage: es folgt keine Fortsetzung
@@ -511,6 +786,16 @@ public class BoothControllerTests
                 Settle();
             }
             Assert.True(condition(), "Bedingung wurde in der Fake-Zeit nicht erreicht.");
+        }
+
+        /// <summary>Lässt die Fake-Zeit in kleinen Schritten um <paramref name="total"/> weiterlaufen (Zeitgeber feuern je Schritt einmal).</summary>
+        public void AdvanceBy(TimeSpan total, TimeSpan step)
+        {
+            for (var elapsed = TimeSpan.Zero; elapsed < total; elapsed += step)
+            {
+                Time.Advance(step);
+                Settle();
+            }
         }
 
         /// <summary>Wartet in echter Zeit (Fortsetzungen werden dabei ausgeführt), bis die Bedingung gilt.</summary>
@@ -645,8 +930,17 @@ public class BoothControllerTests
 
         public IReadOnlyList<PrinterInfo> GetPrinters() => [];
         public IReadOnlyList<PaperSizeInfo> GetPaperSizes(string? printerName) => [];
+        private int _pageSpecCalls;
+        private readonly ConcurrentQueue<string?> _pageSpecPrinters = new();
+
+        /// <summary>Anzahl der GetPageSpec-Aufrufe (auch aus dem Vorabruf, daher thread-sicher).</summary>
+        public int PageSpecCalls => Volatile.Read(ref _pageSpecCalls);
+        public IReadOnlyCollection<string?> PageSpecPrinters => _pageSpecPrinters;
+
         public PageSpec GetPageSpec(PrinterSettings printer, LayoutKind layout)
         {
+            _pageSpecPrinters.Enqueue(printer.PrinterName);
+            Interlocked.Increment(ref _pageSpecCalls);
             if (PageSpecFailure is not null) throw PageSpecFailure;
             if (PageSpecHang)
             {
@@ -691,7 +985,8 @@ public class BoothControllerTests
         public string ConfigDirectory => "fake";
         public string OverlayDirectory => "fake/overlays";
         public AppSettings Current { get; } = new();
-        public event EventHandler? SettingsChanged { add { } remove { } }
+        public event EventHandler? SettingsChanged;
         public void Save(AppSettings settings) { }
+        public void RaiseSettingsChanged() => SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 }

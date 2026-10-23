@@ -7,7 +7,7 @@ using Fotobox.ViewModels.Booth;
 
 namespace Fotobox.Views.Booth;
 
-/// <summary>Vollbild-Gastansicht: Leertaste löst ein Foto aus, Strg+Alt+A öffnet die Admin-Ansicht.</summary>
+/// <summary>Vollbild-Gastansicht: Die eingestellten Tasten lösen ein Foto aus, brechen den Countdown ab bzw. öffnen die Admin-Ansicht.</summary>
 public sealed partial class BoothWindow : Window
 {
     private static readonly TimeSpan FocusReclaimDelay = TimeSpan.FromMilliseconds(400);
@@ -69,7 +69,7 @@ public sealed partial class BoothWindow : Window
 
     /// <summary>
     /// Holt den Fokus zurück, wenn ihn ein anderes Programm (Druckdialog, Statusmonitor, Benachrichtigung) übernommen hat –
-    /// sonst reagiert die Leertaste nicht mehr. Verzögert und nur, wenn kein eigener Dialog offen ist.
+    /// sonst reagieren die Tasten nicht mehr. Verzögert und nur, wenn kein eigener Dialog offen ist.
     /// </summary>
     private async void OnDeactivated(object? sender, EventArgs e)
     {
@@ -116,7 +116,6 @@ public sealed partial class BoothWindow : Window
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
-        var alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0;
 
         // Alt+F4 und Alt+Leertaste (Systemmenü) wirkungslos machen.
         if (e.Key == Key.System && (key == Key.F4 || key == Key.Space))
@@ -125,19 +124,28 @@ public sealed partial class BoothWindow : Window
             return;
         }
 
-        if (key == Key.Space)
-        {
-            e.Handled = true;
-            if (!e.IsRepeat && !alt)
-                _viewModel.TryTrigger();
+        // Belegung (Auslösen, Countdown abbrechen, Admin) kommt aus den Einstellungen.
+        var chord = KeyChord.FromKeyEvent(e.Key, e.SystemKey, Keyboard.Modifiers);
+        var action = _viewModel.HandleKey(chord);
+        if (action == BoothKeyAction.None)
             return;
-        }
 
-        if (key == Key.A && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt))
+        e.Handled = true;
+        if (e.IsRepeat)
+            return;
+
+        switch (action)
         {
-            e.Handled = true;
-            if (!e.IsRepeat && _viewModel.CanOpenAdmin)
-                Dispatcher.BeginInvoke(OpenAdmin);
+            case BoothKeyAction.OpenAdmin:
+                if (_viewModel.CanOpenAdmin)
+                    Dispatcher.BeginInvoke(OpenAdmin);
+                break;
+            case BoothKeyAction.CancelCountdown:
+                _viewModel.TryCancelCountdown();
+                break;
+            case BoothKeyAction.Trigger:
+                _viewModel.TryTrigger();
+                break;
         }
     }
 
@@ -171,7 +179,9 @@ public sealed partial class BoothWindow : Window
             return;
         }
 
-        if (result.SettingsChanged)
+        // Kamera nur neu starten, wenn sich ihre Einstellungen geändert haben oder sie nicht läuft –
+        // ein unnötiger Neustart war früher die Ursache für Abstürze nach dem Speichern.
+        if (result.SettingsChanged && (result.CameraChanged || _viewModel.Camera.Status != CameraStatus.Running))
         {
             try { await _viewModel.RestartCameraAsync(); }
             catch (Exception ex) { AppLog.Error("Kamera-Neustart nach Einstellungsänderung fehlgeschlagen.", ex); }

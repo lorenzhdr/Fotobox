@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Printing;
 using System.Windows;
@@ -12,6 +13,12 @@ public sealed class PrintService : IPrintService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     private const int DefaultTimeoutSeconds = 120;
+
+    private readonly PageSpecCache _pageSpecs;
+
+    public PrintService() : this(TimeProvider.System) { }
+
+    public PrintService(TimeProvider time) => _pageSpecs = new PageSpecCache(time);
 
     /// <summary>Port von Druckern, die beim Drucken nach einem Dateinamen fragen (z. B. „Microsoft Print to PDF“).</summary>
     private const string FilePromptPort = "PORTPROMPT";
@@ -81,23 +88,43 @@ public sealed class PrintService : IPrintService
 
     public PageSpec GetPageSpec(PrinterSettings printer, LayoutKind layout)
     {
+        var key = PageSpecKey.From(printer, layout);
+        if (_pageSpecs.TryGetFresh(key, out var cached))
+            return cached;
+
         IReadOnlyList<PaperSizeInfo> sizes = [];
         PaperSizeInfo? driverDefault = null;
+        var queueRead = false;
         try
         {
-            (sizes, driverDefault) = RunSta(() =>
+            (sizes, driverDefault, queueRead) = RunSta(() =>
             {
                 using var server = new LocalPrintServer();
                 using var queue = OpenQueue(server, printer.PrinterName);
                 if (queue is null)
-                    return ((IReadOnlyList<PaperSizeInfo>)[], (PaperSizeInfo?)null);
+                    return ((IReadOnlyList<PaperSizeInfo>)[], (PaperSizeInfo?)null, false);
                 var entries = ReadPaperEntries(queue);
-                return ((IReadOnlyList<PaperSizeInfo>)entries.Select(e => e.Info).ToList(), ReadDefaultPaper(queue));
+                return ((IReadOnlyList<PaperSizeInfo>)entries.Select(e => e.Info).ToList(), ReadDefaultPaper(queue), true);
             }).GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {
             AppLog.Warn("Seitengröße des Druckers nicht lesbar – Standardgröße wird verwendet.", ex);
+        }
+
+        // Nur echte Treiberabfragen zwischenspeichern; ein Rückfall (Drucker offline/nicht gefunden) darf nicht
+        // für Minuten festgeschrieben werden. Stattdessen gilt dann der zuletzt gute Wert, falls vorhanden.
+        if (queueRead)
+        {
+            var spec = PrintLayoutResolver.ResolvePageSpec(printer, layout, sizes, driverDefault);
+            _pageSpecs.Store(key, spec);
+            return spec;
+        }
+
+        if (_pageSpecs.TryGetLastGood(key, out var lastGood))
+        {
+            AppLog.Warn("Seitengröße des Druckers nicht lesbar – letzter bekannter Wert wird verwendet.");
+            return lastGood;
         }
 
         return PrintLayoutResolver.ResolvePageSpec(printer, layout, sizes, driverDefault);
@@ -548,4 +575,50 @@ public sealed class PrintService : IPrintService
         thread.Start();
         return tcs.Task;
     }
+}
+
+/// <summary>
+/// Thread-sicherer Zwischenspeicher für ermittelte Seitengrößen je Druckereinstellung. Einträge gelten
+/// <see cref="Lifetime"/> lang als frisch; danach bleibt der Wert als „letzter guter“ für den Notfall erhalten
+/// (Drucker offline), wird aber nicht mehr ohne neue Abfrage geliefert.
+/// </summary>
+public sealed class PageSpecCache(TimeProvider time, TimeSpan? lifetime = null)
+{
+    /// <summary>Standard-Gültigkeit eines Eintrags.</summary>
+    public static readonly TimeSpan DefaultLifetime = TimeSpan.FromMinutes(10);
+
+    private readonly ConcurrentDictionary<PageSpecKey, Entry> _entries = new();
+
+    private sealed record Entry(PageSpec Spec, long Timestamp);
+
+    public TimeSpan Lifetime { get; } = lifetime ?? DefaultLifetime;
+
+    /// <summary>Wert, der jünger als <see cref="Lifetime"/> ist.</summary>
+    public bool TryGetFresh(PageSpecKey key, out PageSpec spec)
+    {
+        if (_entries.TryGetValue(key, out var entry) && time.GetElapsedTime(entry.Timestamp) < Lifetime)
+        {
+            spec = entry.Spec;
+            return true;
+        }
+
+        spec = PageSpec.Default;
+        return false;
+    }
+
+    /// <summary>Zuletzt gespeicherter Wert, egal wie alt.</summary>
+    public bool TryGetLastGood(PageSpecKey key, out PageSpec spec)
+    {
+        if (_entries.TryGetValue(key, out var entry))
+        {
+            spec = entry.Spec;
+            return true;
+        }
+
+        spec = PageSpec.Default;
+        return false;
+    }
+
+    public void Store(PageSpecKey key, PageSpec spec) =>
+        _entries[key] = new Entry(spec, time.GetTimestamp());
 }
