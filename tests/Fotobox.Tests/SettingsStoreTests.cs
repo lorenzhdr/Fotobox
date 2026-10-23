@@ -214,8 +214,8 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(2, s.Flow.ErrorDisplaySeconds);
         Assert.Equal(4, s.Layout.StripPhotoCount);
         Assert.Equal(1, s.Printer.Copies);
-        // Untergrenze ist die erwartete Druckdauer (Standard 120 s) plus Reserve.
-        Assert.Equal(120 + SettingsLimits.PrintTimeoutReserveSeconds, s.Printer.TimeoutSeconds);
+        // Untergrenze ist die erwartete Druckdauer (Standard 240 s) plus Reserve.
+        Assert.Equal(240 + SettingsLimits.PrintTimeoutReserveSeconds, s.Printer.TimeoutSeconds);
         Assert.Equal(50, s.Storage.JpegQuality);
         Assert.Equal("abcd", s.Storage.FilePrefix);
         Assert.Equal(10_000, s.Security.PinIterations);
@@ -241,7 +241,7 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(2, store.Current.Flow.ErrorDisplaySeconds);
         Assert.Equal(2, store.Current.Layout.StripPhotoCount);
         Assert.Equal(1, store.Current.Printer.Copies);
-        Assert.Equal(120 + SettingsLimits.PrintTimeoutReserveSeconds, store.Current.Printer.TimeoutSeconds);
+        Assert.Equal(240 + SettingsLimits.PrintTimeoutReserveSeconds, store.Current.Printer.TimeoutSeconds);
         Assert.Equal(50, store.Current.Storage.JpegQuality);
         Assert.Equal(10_000, store.Current.Security.PinIterations);
 
@@ -332,7 +332,7 @@ public sealed class SettingsStoreTests : IDisposable
 
         Assert.Equal(StripStyle.DoubleCut, s.Layout.StripStyle);
         Assert.Equal("Segoe UI", s.Layout.CaptionFontFamily);
-        Assert.Equal(120, s.Flow.ExpectedPrintSeconds);
+        Assert.Equal(240, s.Flow.ExpectedPrintSeconds);
         Assert.Equal(["Space"], s.Input.TriggerKeys);
         Assert.Equal(["Ctrl+Alt+A"], s.Input.AdminKeys);
         Assert.Equal(["Escape"], s.Input.CancelCountdownKeys);

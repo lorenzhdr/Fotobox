@@ -886,7 +886,7 @@ public sealed class AdminViewModelTests : IDisposable
     public void ExpectedPrintSeconds_IsSaved()
     {
         var vm = CreateViewModel();
-        Assert.Equal(120, vm.ExpectedPrintSeconds);
+        Assert.Equal(240, vm.ExpectedPrintSeconds);
 
         vm.ExpectedPrintSeconds = 200;
         vm.SaveCommand.Execute(null);
@@ -1340,6 +1340,204 @@ public sealed class AdminViewModelTests : IDisposable
         encoder.Frames.Add(BitmapFrame.Create(source));
         using var stream = File.Create(path);
         encoder.Save(stream);
+    }
+
+    // ------------------------------------------------------------------ Auswahl für Gäste / Maus
+
+    [Fact]
+    public void GuestChoices_DefaultIsCheckedAndLocked_OthersAreOff()
+    {
+        var vm = CreateViewModel();
+
+        Assert.True(vm.IsGuestSingle);
+        Assert.False(vm.IsGuestSingleEnabled);
+        Assert.False(vm.IsGuestStripDouble);
+        Assert.False(vm.IsGuestStripSingle);
+        Assert.False(vm.IsGuestOverlay);
+        Assert.True(vm.IsGuestStripDoubleEnabled);
+        Assert.Empty(vm.Draft.Layout.GuestChoices);
+    }
+
+    [Fact]
+    public void GuestChoices_Roundtrip_KeepsCanonicalOrder_AndAddsStandard()
+    {
+        var vm = CreateViewModel();
+
+        vm.IsGuestStripSingle = true;
+        vm.IsGuestStripDouble = true;
+
+        Assert.Equal([GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.StripSingle], vm.Draft.Layout.GuestChoices);
+        Assert.True(vm.IsGuestSingle);
+
+        vm.IsGuestStripDouble = false;
+        Assert.Equal([GuestLayout.Single, GuestLayout.StripSingle], vm.Draft.Layout.GuestChoices);
+        Assert.False(vm.IsGuestStripDouble);
+        Assert.True(vm.IsGuestStripSingle);
+    }
+
+    [Fact]
+    public void GuestChoices_OnlyStandardLeft_ClearsList()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        Assert.Equal(2, vm.Draft.Layout.GuestChoices.Count);
+
+        vm.IsGuestStripDouble = false;
+
+        Assert.Empty(vm.Draft.Layout.GuestChoices);
+        Assert.True(vm.IsGuestSingle);
+    }
+
+    [Fact]
+    public void GuestChoices_StandardCannotBeUnchecked()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.IsGuestSingle = false;
+
+        Assert.True(vm.IsGuestSingle);
+        Assert.Contains(GuestLayout.Single, vm.Draft.Layout.GuestChoices);
+        Assert.Contains(nameof(AdminViewModel.IsGuestSingle), raised);   // Kästchen springt zurück auf „angehakt“
+    }
+
+    [Fact]
+    public void GuestChoices_ChangingStandard_AddsNewStandardToActiveList()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;   // Liste: Einzelfoto + 2 Streifen
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.IsOverlayLayout = true;
+
+        Assert.Equal([GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.Overlay], vm.Draft.Layout.GuestChoices);
+        Assert.False(vm.IsGuestOverlayEnabled);
+        Assert.True(vm.IsGuestSingleEnabled);
+        Assert.Contains(nameof(AdminViewModel.IsGuestOverlay), raised);
+        Assert.Contains(nameof(AdminViewModel.IsGuestOverlayEnabled), raised);
+        Assert.Contains(nameof(AdminViewModel.ShowOverlayOptions), raised);
+
+        vm.IsStripLayout = true;
+        vm.IsStripSingle = true;
+        Assert.Contains(GuestLayout.StripSingle, vm.Draft.Layout.GuestChoices);
+        Assert.False(vm.IsGuestStripSingleEnabled);
+        Assert.True(vm.IsGuestStripDoubleEnabled);
+    }
+
+    [Fact]
+    public void GuestChoices_ChangingStandard_WithEmptyList_KeepsListEmpty()
+    {
+        var vm = CreateViewModel();
+
+        vm.IsOverlayLayout = true;
+
+        Assert.Empty(vm.Draft.Layout.GuestChoices);
+        Assert.True(vm.IsGuestOverlay);
+        Assert.False(vm.IsGuestSingle);
+    }
+
+    [Fact]
+    public void ShowOptions_FollowStandardAndGuestChoices()
+    {
+        var vm = CreateViewModel();
+        Assert.False(vm.ShowStripOptions);
+        Assert.False(vm.ShowOverlayOptions);
+
+        vm.IsGuestStripSingle = true;
+        Assert.True(vm.ShowStripOptions);
+        Assert.False(vm.ShowOverlayOptions);
+
+        vm.IsGuestStripSingle = false;
+        vm.IsGuestOverlay = true;
+        Assert.False(vm.ShowStripOptions);
+        Assert.True(vm.ShowOverlayOptions);
+
+        vm.IsGuestOverlay = false;
+        vm.IsStripLayout = true;
+        Assert.True(vm.ShowStripOptions);
+        Assert.False(vm.ShowOverlayOptions);
+    }
+
+    [Fact]
+    public void Save_OverlayOnlyAsGuestChoice_WithoutFile_IsRejected()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestOverlay = true;
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(0, _store.SaveCount);
+        Assert.Contains("Gastauswahl", vm.ValidationMessage);
+        Assert.Contains("Foto mit Overlay", vm.ValidationMessage);
+    }
+
+    [Fact]
+    public void Save_OverlayAsGuestChoice_WithFile_IsSaved()
+    {
+        var vm = CreateViewModel();
+        File.WriteAllBytes(Path.Combine(_store.OverlayDirectory, "rahmen.png"), [1]);
+        vm.Draft.Layout.OverlayFileName = "rahmen.png";
+        vm.IsGuestOverlay = true;
+        vm.IsGuestStripDouble = true;
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(1, _store.SaveCount);
+        Assert.Equal([GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.Overlay], _store.Current.Layout.GuestChoices);
+    }
+
+    [Fact]
+    public void Validate_StripChoiceWithInvalidPhotoCount_IsRejected()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        vm.Draft.Layout.StripPhotoCount = SettingsLimits.StripPhotosMax + 1;
+
+        Assert.Contains(vm.Validate(), e => e.Contains("Fotostreifen"));
+
+        // Ohne Streifen unter den Wahlmöglichkeiten spielt die Fotozahl keine Rolle.
+        vm.IsGuestStripDouble = false;
+        Assert.DoesNotContain(vm.Validate(), e => e.Contains("Fotostreifen"));
+    }
+
+    [Fact]
+    public void MouseTrigger_DefaultsOn_AndRoundtripsIntoSettings()
+    {
+        var vm = CreateViewModel();
+        Assert.True(vm.TriggerOnLeftClick);
+        Assert.True(vm.TriggerOnRightClick);
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.TriggerOnLeftClick = false;
+        vm.TriggerOnRightClick = false;
+        Assert.Contains(nameof(AdminViewModel.TriggerOnLeftClick), raised);
+        Assert.Contains(nameof(AdminViewModel.TriggerOnRightClick), raised);
+        Assert.True(_store.Current.Input.TriggerOnLeftClick);   // Entwurf, noch nicht gespeichert
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.False(_store.Current.Input.TriggerOnLeftClick);
+        Assert.False(_store.Current.Input.TriggerOnRightClick);
+    }
+
+    [Fact]
+    public void ResetKeys_AlsoRestoresMouseTriggers()
+    {
+        var vm = CreateViewModel();
+        vm.TriggerOnLeftClick = false;
+        vm.TriggerOnRightClick = false;
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.ResetKeysCommand.Execute(null);
+
+        Assert.True(vm.TriggerOnLeftClick);
+        Assert.True(vm.TriggerOnRightClick);
+        Assert.Contains(nameof(AdminViewModel.TriggerOnLeftClick), raised);
     }
 
     // ------------------------------------------------------------------ Fakes

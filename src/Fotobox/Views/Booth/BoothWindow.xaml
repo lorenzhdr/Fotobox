@@ -77,6 +77,144 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+
+        <!--
+            Layout-Vorschauliste: kurz eingeblendet (150 ms), nach dem Mausrad-Schritt langsam wieder aus (300 ms).
+            Bewusst nur Opacity (keine Visibility-Animation); der Container ist nie klickbar (IsHitTestVisible="False").
+        -->
+        <Style x:Key="LayoutListFade" TargetType="Border">
+            <Setter Property="Opacity" Value="0" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsLayoutPreviewVisible}" Value="True">
+                    <DataTrigger.EnterActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.15" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.EnterActions>
+                    <DataTrigger.ExitActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.3" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.ExitActions>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Schematische Skizzen der Layouts: weiße Umrisse auf dunklem Grund. -->
+        <Style x:Key="SketchFrame" TargetType="Border">
+            <Setter Property="BorderBrush" Value="White" />
+            <Setter Property="BorderThickness" Value="2.5" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Background" Value="#1AFFFFFF" />
+        </Style>
+
+        <!-- Fotofelder eines Streifens: eine Spalte, so viele Felder wie Fotos im Streifen (DataContext = LayoutOption). -->
+        <Style x:Key="SketchSlots" TargetType="ItemsControl">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="ItemsSource" Value="{Binding StripSlots}" />
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Columns="1" />
+                    </ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="ItemTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <Border Style="{StaticResource SketchFrame}" BorderThickness="2" Margin="2.5" />
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <DataTemplate x:Key="SketchSingle">
+            <Border Style="{StaticResource SketchFrame}" Width="150" Height="100" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="SketchStripDouble">
+            <Border Style="{StaticResource SketchFrame}" Width="84" Height="100" Padding="4">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ItemsControl Grid.Column="0" Style="{StaticResource SketchSlots}" />
+                    <!-- Schnittlinie zwischen den beiden Streifen -->
+                    <Line Grid.Column="1" X1="0" X2="0" Y1="0" Y2="1" Stretch="Fill" Margin="1,0"
+                          Stroke="White" StrokeThickness="1.5" StrokeDashArray="2 2" Opacity="0.7" />
+                    <ItemsControl Grid.Column="2" Style="{StaticResource SketchSlots}" />
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="SketchStripSingle">
+            <Border Style="{StaticResource SketchFrame}" Width="62" Height="100" Padding="4">
+                <ItemsControl Style="{StaticResource SketchSlots}" />
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="SketchOverlay">
+            <Grid Width="150" Height="100">
+                <Border Style="{StaticResource SketchFrame}" />
+                <Border Margin="14" BorderBrush="White" BorderThickness="2" CornerRadius="3" Opacity="0.85" />
+                <Ellipse Width="8" Height="8" Fill="White" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5" />
+                <Ellipse Width="8" Height="8" Fill="White" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="5" />
+                <Ellipse Width="8" Height="8" Fill="White" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="5" />
+                <Ellipse Width="8" Height="8" Fill="White" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="5" />
+            </Grid>
+        </DataTemplate>
+
+        <!-- Wählt die Skizze passend zum Layout des Eintrags (Content = LayoutOption; Standard: ein Foto). -->
+        <Style x:Key="LayoutSketch" TargetType="ContentControl">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="ContentTemplate" Value="{StaticResource SketchSingle}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Layout}" Value="StripDouble">
+                    <Setter Property="ContentTemplate" Value="{StaticResource SketchStripDouble}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Layout}" Value="StripSingle">
+                    <Setter Property="ContentTemplate" Value="{StaticResource SketchStripSingle}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Layout}" Value="Overlay">
+                    <Setter Property="ContentTemplate" Value="{StaticResource SketchOverlay}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Ein Eintrag der Liste: Skizze und Name; der gewählte ist golden umrahmt, voll sichtbar und etwas größer. -->
+        <DataTemplate x:Key="LayoutOptionTemplate">
+            <Border x:Name="Row" Margin="0,5" Padding="22,8" CornerRadius="22" BorderThickness="3"
+                    BorderBrush="Transparent" Background="Transparent" Opacity="0.4" RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <ScaleTransform ScaleX="1" ScaleY="1" />
+                </Border.RenderTransform>
+                <StackPanel Orientation="Horizontal">
+                    <ContentControl Content="{Binding}" Style="{StaticResource LayoutSketch}"
+                                    Width="160" Height="104" VerticalAlignment="Center"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                    <TextBlock Text="{Binding Name}" Foreground="White" FontSize="40" FontWeight="SemiBold"
+                               VerticalAlignment="Center" Margin="30,0,0,0" />
+                </StackPanel>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter TargetName="Row" Property="Opacity" Value="1" />
+                    <Setter TargetName="Row" Property="BorderBrush" Value="{StaticResource GoldBorder}" />
+                    <Setter TargetName="Row" Property="Background" Value="#33F5C26B" />
+                    <Setter TargetName="Row" Property="RenderTransform">
+                        <Setter.Value>
+                            <ScaleTransform ScaleX="1.06" ScaleY="1.06" />
+                        </Setter.Value>
+                    </Setter>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid>
@@ -129,6 +267,21 @@
             </Border.Triggers>
             <TextBlock Text="{Binding HintText}" Foreground="White"
                        FontSize="38" FontWeight="SemiBold" />
+        </Border>
+
+        <!-- Dezenter Zusatzhinweis: Layout per Mausrad wechseln (nur mit mehreren Wahlmöglichkeiten) -->
+        <TextBlock Text="{Binding LayoutHintText}" Foreground="#D9FFFFFF" FontSize="26"
+                   HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,30"
+                   IsHitTestVisible="False"
+                   Visibility="{Binding ShowLayoutHint, Converter={StaticResource BoolToVis}}" />
+
+        <!-- Layout-Vorschauliste: erscheint kurz beim Drehen des Mausrads, alle Layouts untereinander, das gewählte hervorgehoben -->
+        <Border x:Name="LayoutCard" Style="{StaticResource LayoutListFade}"
+                HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,120" Padding="40,22" CornerRadius="36"
+                Background="#E6101420" BorderBrush="#66FFFFFF" BorderThickness="2"
+                IsHitTestVisible="False" AutomationProperties.Name="Layout-Auswahl">
+            <ItemsControl x:Name="LayoutList" ItemsSource="{Binding LayoutOptions}" ItemTemplate="{StaticResource LayoutOptionTemplate}"
+                          Focusable="False" IsHitTestVisible="False" />
         </Border>
 
         <!-- Countdown -->

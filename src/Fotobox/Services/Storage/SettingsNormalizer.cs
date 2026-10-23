@@ -32,6 +32,7 @@ internal static class SettingsNormalizer
         if (!Enum.IsDefined(s.Layout.StripStyle))
             s.Layout.StripStyle = StripStyle.DoubleCut;
         s.Layout.CaptionFontFamily = SanitizeFontName(s.Layout.CaptionFontFamily);
+        s.Layout.GuestChoices = NormalizeGuestChoices(s.Layout);
 
         if (!Enum.IsDefined(s.Printer.Orientation))
             s.Printer.Orientation = PageOrientation.Auto;
@@ -50,6 +51,21 @@ internal static class SettingsNormalizer
         NormalizeKeys(s.Input);
 
         return s;
+    }
+
+    /// <summary>
+    /// Wahlliste der Gäste: undefinierte Werte und Duplikate raus, Overlay nur mit gesetzter Rahmendatei, kanonische
+    /// Reihenfolge. Ist die Liste danach nicht leer, enthält sie immer auch den Standard (unabhängig von der Overlay-Regel;
+    /// ein Standard-Overlay ohne Datei fängt die Admin-Validierung ab). Eine Liste mit nur einem Eintrag bedeutet: kein Wechsel.
+    /// </summary>
+    private static List<GuestLayout> NormalizeGuestChoices(LayoutSettings layout)
+    {
+        var hasOverlayFile = !string.IsNullOrWhiteSpace(layout.OverlayFileName);
+        var set = new HashSet<GuestLayout>(
+            (layout.GuestChoices ?? []).Where(g => Enum.IsDefined(g) && (g != GuestLayout.Overlay || hasOverlayFile)));
+        if (set.Count > 0)
+            set.Add(GuestLayouts.From(layout));
+        return set.Order().ToList();
     }
 
     /// <summary>Leer → Segoe UI; Steuerzeichen raus, Länge begrenzt.</summary>

@@ -665,6 +665,68 @@ public class BoothControllerTests
     }
 
     [Fact]
+    public void Default_UsesSettingsLayout_Single()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PrintingEnabled = false;
+
+        Assert.Equal(GuestLayout.Single, GuestLayouts.From(h.Settings.Current.Layout));
+        h.Controller.TryTrigger();
+        h.RunToIdle();
+
+        Assert.Equal(LayoutKind.SingleBorderless, h.Composer.LastLayout!.Kind);
+        Assert.Equal(1, h.Camera.CaptureCount);
+    }
+
+    [Fact]
+    public void TryTrigger_WithGuestLayoutStripSingle_UsesStripWithoutChangingSettings()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PrintingEnabled = false;
+        h.Settings.Current.Layout.StripPhotoCount = 3;
+        h.Composer.RequiredPhotoCount = 3;
+        h.Composer.CountFor = l => l.Kind == LayoutKind.Strip ? l.StripPhotoCount : 1;
+        var settingsLayout = h.Settings.Current.Layout;
+
+        Assert.True(h.Controller.TryTrigger(GuestLayout.StripSingle));
+        Assert.Equal(3, h.Controller.ShotCount);
+        h.RunToIdle();
+
+        Assert.Equal(3, h.Camera.CaptureCount);
+        Assert.Equal(LayoutKind.Strip, h.Composer.LastLayout!.Kind);
+        Assert.Equal(StripStyle.Single, h.Composer.LastLayout.StripStyle);
+        Assert.NotSame(settingsLayout, h.Composer.LastLayout);
+        Assert.Same(settingsLayout, h.Settings.Current.Layout);
+        Assert.Equal(LayoutKind.SingleBorderless, h.Settings.Current.Layout.Kind);
+        Assert.Equal(StripStyle.DoubleCut, h.Settings.Current.Layout.StripStyle);
+    }
+
+    [Fact]
+    public void TryTrigger_WithGuestLayoutEqualToDefault_UsesSettingsUnchanged()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PrintingEnabled = false;
+
+        h.Controller.TryTrigger(GuestLayout.Single);
+        h.RunToIdle();
+
+        Assert.Same(h.Settings.Current.Layout, h.Composer.LastLayout);
+    }
+
+    [Fact]
+    public void Prefetch_CoversLayoutKindsOfGuestChoices()
+    {
+        var h = new Harness(markReady: false, prefetch: true);
+        h.Settings.Current.Layout.GuestChoices = [GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.StripSingle];
+
+        h.Controller.MarkReady();
+
+        h.WaitUntil(() => h.Printer.PageSpecKinds.Contains(LayoutKind.Strip)
+            && h.Printer.PageSpecKinds.Contains(LayoutKind.SingleBorderless));
+        Assert.DoesNotContain(LayoutKind.Overlay, h.Printer.PageSpecKinds);
+    }
+
+    [Fact]
     public void MirrorPhoto_FlipsPhotoHorizontally()
     {
         var h = new Harness();
@@ -880,11 +942,15 @@ public class BoothControllerTests
         public Exception? Failure { get; set; }
         public IReadOnlyList<BitmapSource>? LastPhotos { get; private set; }
         public PageSpec? LastPage { get; private set; }
+        /// <summary>Layout des letzten Compose-Aufrufs (zum Prüfen, womit der Controller gearbeitet hat).</summary>
+        public LayoutSettings? LastLayout { get; private set; }
+        /// <summary>Optional: Fotozahl abhängig vom Layout (sonst <see cref="RequiredPhotoCount"/>).</summary>
+        public Func<LayoutSettings, int>? CountFor { get; set; }
         /// <summary>Wird bei jedem Compose-Aufruf zuerst aufgerufen.</summary>
         public Action? Composing { get; set; }
         public BitmapSource Result { get; } = CreateResult();
 
-        public int GetRequiredPhotoCount(LayoutSettings layout) => RequiredPhotoCount;
+        public int GetRequiredPhotoCount(LayoutSettings layout) => CountFor?.Invoke(layout) ?? RequiredPhotoCount;
 
         public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page,
             string overlayDirectory, DateTime timestamp)
@@ -893,6 +959,7 @@ public class BoothControllerTests
             if (Failure is not null) throw Failure;
             LastPhotos = photos.ToList();
             LastPage = page;
+            LastLayout = layout;
             return Result;
         }
 
@@ -932,14 +999,17 @@ public class BoothControllerTests
         public IReadOnlyList<PaperSizeInfo> GetPaperSizes(string? printerName) => [];
         private int _pageSpecCalls;
         private readonly ConcurrentQueue<string?> _pageSpecPrinters = new();
+        private readonly ConcurrentQueue<LayoutKind> _pageSpecKinds = new();
 
         /// <summary>Anzahl der GetPageSpec-Aufrufe (auch aus dem Vorabruf, daher thread-sicher).</summary>
         public int PageSpecCalls => Volatile.Read(ref _pageSpecCalls);
         public IReadOnlyCollection<string?> PageSpecPrinters => _pageSpecPrinters;
+        public IReadOnlyCollection<LayoutKind> PageSpecKinds => _pageSpecKinds;
 
         public PageSpec GetPageSpec(PrinterSettings printer, LayoutKind layout)
         {
             _pageSpecPrinters.Enqueue(printer.PrinterName);
+            _pageSpecKinds.Enqueue(layout);
             Interlocked.Increment(ref _pageSpecCalls);
             if (PageSpecFailure is not null) throw PageSpecFailure;
             if (PageSpecHang)

@@ -17,6 +17,8 @@ public sealed partial class BoothWindow : Window
     // Schließen ist nur über „Fotobox beenden“ in der Admin-Ansicht (oder Abmeldung/App-Shutdown) erlaubt.
     private bool _allowClose;
     private bool _focusReclaimPending;
+    // Noch nicht verbrauchte Mausrad-Deltas (kleiner als eine Stufe).
+    private int _wheelRemainder;
 
     public BoothWindow(BoothViewModel viewModel, ICameraService camera, IAdminLauncher adminLauncher, ISettingsStore settings)
     {
@@ -33,6 +35,8 @@ public sealed partial class BoothWindow : Window
         Activated += (_, _) => Focus();
         Deactivated += OnDeactivated;
         PreviewKeyDown += OnPreviewKeyDown;
+        PreviewMouseDown += OnPreviewMouseDown;
+        PreviewMouseWheel += OnPreviewMouseWheel;
 
         // Windows-Abmeldung/Herunterfahren darf nie blockiert werden.
         if (Application.Current is { } app)
@@ -146,6 +150,44 @@ public sealed partial class BoothWindow : Window
             case BoothKeyAction.Trigger:
                 _viewModel.TryTrigger();
                 break;
+        }
+    }
+
+    /// <summary>Linke/rechte Maustaste löst (je nach Einstellung) ein Foto aus; Doppelklicks zählen nicht doppelt.</summary>
+    private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton is not (MouseButton.Left or MouseButton.Right))
+            return;
+
+        // Der Klick gehört der Gastansicht, nie einem darunterliegenden Element.
+        e.Handled = true;
+        if (e.ClickCount > 1)
+            return;
+
+        if (_viewModel.HandleMouseButton(e.ChangedButton) == BoothKeyAction.Trigger)
+            _viewModel.TryTrigger();
+    }
+
+    /// <summary>
+    /// Mausrad wechselt das Layout: je volle Raster-Stufe (120) ein Schritt, nach oben = vorheriges Layout.
+    /// Feine Wheel-Deltas (z. B. Touchpads) werden gesammelt; ein Richtungswechsel verwirft den Rest.
+    /// </summary>
+    private void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        e.Handled = true;
+        if (e.Delta == 0)
+            return;
+
+        if (Math.Sign(_wheelRemainder) == -Math.Sign(e.Delta))
+            _wheelRemainder = 0;
+        _wheelRemainder += e.Delta;
+
+        const int step = 120;   // Mouse.MouseWheelDeltaForOneLine
+        while (Math.Abs(_wheelRemainder) >= step)
+        {
+            var up = _wheelRemainder > 0;
+            _viewModel.CycleLayout(up ? -1 : 1);
+            _wheelRemainder += up ? -step : step;
         }
     }
 

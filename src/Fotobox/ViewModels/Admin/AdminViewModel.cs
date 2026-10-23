@@ -543,7 +543,103 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsSingleLayout));
         OnPropertyChanged(nameof(IsStripLayout));
         OnPropertyChanged(nameof(IsOverlayLayout));
+        EnsureDefaultInGuestChoices();
     }
+
+    // ---- Auswahl für Gäste (Mausrad)
+    // Die Wahlmöglichkeiten stehen im Entwurf als kanonisch sortierte Liste. Leer = kein Wechsel. Ist sie nicht leer, enthält
+    // sie immer das Standard-Layout (Art + Streifenvariante); dessen Kästchen ist angehakt und nicht abwählbar.
+
+    /// <summary>Standard-Layout des Entwurfs (aus Art und Streifenvariante).</summary>
+    private GuestLayout DefaultGuestLayout => GuestLayouts.From(_draft.Layout);
+
+    private bool IsGuestChoice(GuestLayout layout) =>
+        layout == DefaultGuestLayout || (_draft.Layout.GuestChoices?.Contains(layout) ?? false);
+
+    private void SetGuestChoice(GuestLayout layout, bool selected)
+    {
+        var standard = DefaultGuestLayout;
+        if (layout != standard)
+        {
+            var set = new HashSet<GuestLayout>(_draft.Layout.GuestChoices ?? []);
+            if (selected)
+            {
+                set.Add(layout);
+                set.Add(standard);
+            }
+            else
+            {
+                set.Remove(layout);
+            }
+
+            // Nur der Standard übrig: kein Wechsel möglich → Liste leer.
+            _draft.Layout.GuestChoices = set.Count <= 1 ? [] : set.Order().ToList();
+        }
+
+        // Auch bei abgelehntem Abwählen des Standards: das Kästchen springt auf „angehakt“ zurück.
+        RaiseGuestChoices();
+    }
+
+    /// <summary>Nach einem Wechsel des Standards: Ist ein Wechsel für Gäste aktiv, gehört der neue Standard dazu.</summary>
+    private void EnsureDefaultInGuestChoices()
+    {
+        var choices = _draft.Layout.GuestChoices ?? [];
+        if (choices.Count > 0 && !choices.Contains(DefaultGuestLayout))
+            _draft.Layout.GuestChoices = choices.Append(DefaultGuestLayout).Order().ToList();
+        RaiseGuestChoices();
+    }
+
+    private void RaiseGuestChoices()
+    {
+        OnPropertyChanged(nameof(IsGuestSingle));
+        OnPropertyChanged(nameof(IsGuestStripDouble));
+        OnPropertyChanged(nameof(IsGuestStripSingle));
+        OnPropertyChanged(nameof(IsGuestOverlay));
+        OnPropertyChanged(nameof(IsGuestSingleEnabled));
+        OnPropertyChanged(nameof(IsGuestStripDoubleEnabled));
+        OnPropertyChanged(nameof(IsGuestStripSingleEnabled));
+        OnPropertyChanged(nameof(IsGuestOverlayEnabled));
+        OnPropertyChanged(nameof(ShowStripOptions));
+        OnPropertyChanged(nameof(ShowOverlayOptions));
+    }
+
+    public bool IsGuestSingle
+    {
+        get => IsGuestChoice(GuestLayout.Single);
+        set => SetGuestChoice(GuestLayout.Single, value);
+    }
+
+    public bool IsGuestStripDouble
+    {
+        get => IsGuestChoice(GuestLayout.StripDouble);
+        set => SetGuestChoice(GuestLayout.StripDouble, value);
+    }
+
+    public bool IsGuestStripSingle
+    {
+        get => IsGuestChoice(GuestLayout.StripSingle);
+        set => SetGuestChoice(GuestLayout.StripSingle, value);
+    }
+
+    public bool IsGuestOverlay
+    {
+        get => IsGuestChoice(GuestLayout.Overlay);
+        set => SetGuestChoice(GuestLayout.Overlay, value);
+    }
+
+    // Das Kästchen des Standard-Layouts ist angehakt, aber nicht änderbar.
+    public bool IsGuestSingleEnabled => DefaultGuestLayout != GuestLayout.Single;
+    public bool IsGuestStripDoubleEnabled => DefaultGuestLayout != GuestLayout.StripDouble;
+    public bool IsGuestStripSingleEnabled => DefaultGuestLayout != GuestLayout.StripSingle;
+    public bool IsGuestOverlayEnabled => DefaultGuestLayout != GuestLayout.Overlay;
+
+    /// <summary>Fotoanzahl des Streifens ist relevant: Standard ist ein Streifen oder Gäste können einen Streifen wählen.</summary>
+    public bool ShowStripOptions =>
+        _draft.Layout.Kind == LayoutKind.Strip || IsGuestStripDouble || IsGuestStripSingle;
+
+    /// <summary>Overlay-Datei ist relevant: Standard ist Overlay oder Gäste können es wählen.</summary>
+    public bool ShowOverlayOptions =>
+        _draft.Layout.Kind == LayoutKind.Overlay || IsGuestOverlay;
 
     public int StripPhotoCount
     {
@@ -572,6 +668,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _draft.Layout.StripStyle = style;
         OnPropertyChanged(nameof(IsStripDoubleCut));
         OnPropertyChanged(nameof(IsStripSingle));
+        EnsureDefaultInGuestChoices();
     }
 
     public string CaptionText
@@ -1321,6 +1418,20 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     /// <summary>Taste der Admin-Ansicht für Hinweistexte, z. B. „Strg+Alt+A“ (mehrere: „… oder …“).</summary>
     public string AdminKeysDisplay => string.Join(" oder ", Editor(KeyAction.Admin).Keys.Select(k => k.DisplayName));
 
+    /// <summary>Die linke Maustaste löst ein Foto aus.</summary>
+    public bool TriggerOnLeftClick
+    {
+        get => _draft.Input.TriggerOnLeftClick;
+        set => SetProperty(_draft.Input.TriggerOnLeftClick, value, v => _draft.Input.TriggerOnLeftClick = v);
+    }
+
+    /// <summary>Die rechte Maustaste löst ein Foto aus.</summary>
+    public bool TriggerOnRightClick
+    {
+        get => _draft.Input.TriggerOnRightClick;
+        set => SetProperty(_draft.Input.TriggerOnRightClick, value, v => _draft.Input.TriggerOnRightClick = v);
+    }
+
     private void LoadKeysFromDraft()
     {
         // Wie beim Laden aus der Datei: ungültige, gesperrte und doppelte Einträge fallen weg, Pflicht-Aktionen behalten eine Taste.
@@ -1428,6 +1539,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _draft.Input = new InputSettings();
         LoadKeysFromDraft();
         SyncKeysToDraft();
+        OnPropertyChanged(nameof(TriggerOnLeftClick));
+        OnPropertyChanged(nameof(TriggerOnRightClick));
         KeyMessage = "Die Tasten wurden auf die Standardbelegung zurückgesetzt. Sie gilt nach „Speichern“.";
     }
 
@@ -1444,14 +1557,17 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         CheckRange(_draft.Flow.ErrorDisplaySeconds, SettingsLimits.ErrorDisplayMin, SettingsLimits.ErrorDisplayMax, "Die Fehleranzeige-Dauer", errors);
         CheckRange(_draft.Flow.ExpectedPrintSeconds, SettingsLimits.ExpectedPrintMin, SettingsLimits.ExpectedPrintMax, "Die erwartete Druckdauer", errors);
 
-        if (_draft.Layout.Kind == LayoutKind.Strip && _draft.Layout.StripPhotoCount is < SettingsLimits.StripPhotosMin or > SettingsLimits.StripPhotosMax)
+        // Streifen und Overlay zählen auch, wenn sie nur zur Auswahl für Gäste gehören.
+        if (ShowStripOptions && _draft.Layout.StripPhotoCount is < SettingsLimits.StripPhotosMin or > SettingsLimits.StripPhotosMax)
             errors.Add("Ein Fotostreifen besteht aus 2 bis 4 Fotos.");
 
-        if (_draft.Layout.Kind == LayoutKind.Overlay)
+        if (ShowOverlayOptions)
         {
             var name = _draft.Layout.OverlayFileName;
             if (string.IsNullOrEmpty(name))
-                errors.Add("Bitte wählen Sie für das Layout „Foto mit Overlay“ eine PNG-Datei aus.");
+                errors.Add(_draft.Layout.Kind == LayoutKind.Overlay
+                    ? "Bitte wählen Sie für das Layout „Foto mit Overlay“ eine PNG-Datei aus."
+                    : "Bitte wählen Sie für „Foto mit Overlay“ eine PNG-Datei aus oder entfernen Sie es aus der Gastauswahl.");
             else if (!File.Exists(Path.Combine(_store.OverlayDirectory, name)))
                 errors.Add("Die gewählte Overlay-Datei wurde nicht gefunden. Bitte wählen Sie sie erneut aus.");
         }
