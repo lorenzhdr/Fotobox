@@ -165,14 +165,16 @@ public sealed class SettingsStoreTests : IDisposable
         File.WriteAllText(SettingsPath, System.Text.Json.JsonSerializer.Serialize(withPin, AppSettings.JsonOptions));
 
         var locked = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.None);
-        var release = Task.Run(async () =>
+        // Eigener Thread statt Task.Run: Bei ausgelastetem Threadpool (parallele Tests auf CI) startete die Freigabe sonst zu spät.
+        var release = new Thread(() =>
         {
-            await Task.Delay(80);
+            Thread.Sleep(80);
             locked.Dispose();
-        });
+        }) { IsBackground = true };
+        release.Start();
 
         var store = new JsonSettingsStore(_dir, TimeSpan.FromSeconds(1)); // großzügig: Freigabe nach 80 ms, Puffer für langsame CI-Runner
-        await release;
+        await Task.Run(release.Join);
 
         Assert.False(store.LoadFailed);
         Assert.Equal("hash", store.Current.Security.PinHash);
