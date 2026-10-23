@@ -226,9 +226,13 @@ public sealed class PrintService : IPrintService
             if (total.Elapsed >= timeout)
             {
                 AppLog.Warn($"Zeitüberschreitung beim Druckauftrag „{jobName}“ (letzter Status: {lastStatus}).");
+                // Vollständig an den Drucker gesendet, aber kein Druckende gemeldet (manche IPP/WSD-Treiber):
+                // Das Foto kommt in aller Regel trotzdem heraus – dem Gast keinen Fehler melden.
                 if (lastJobCompleted && lastStatus == PrintJobStateEvaluator.StatusPrinting)
-                    return new PrintResult(PrintOutcome.TimedOut,
-                        "Der Auftrag wurde an den Drucker gesendet, der Drucker meldet aber kein Ende des Drucks. Der Auftrag bleibt in der Warteschlange.");
+                {
+                    AppLog.Warn($"Druckauftrag „{jobName}“ wurde gesendet, der Drucker meldet aber kein Druckende – gilt als fertig.");
+                    return new PrintResult(PrintOutcome.Completed);
+                }
                 var detail = lastStatus == PrintJobStateEvaluator.StatusPrinting ? string.Empty : $" ({lastStatus})";
                 return new PrintResult(PrintOutcome.TimedOut,
                     $"Der Druck wurde nicht rechtzeitig fertig{detail}. Der Auftrag bleibt in der Warteschlange.");
