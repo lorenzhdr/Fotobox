@@ -18,6 +18,9 @@ public sealed class WinRtCameraService : ICameraService
     private static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(2);
     // Obergrenze je Abbauschritt: Ein hängender Treiber darf Neustart und Beenden nicht unbegrenzt blockieren.
     private static readonly TimeSpan TeardownTimeout = TimeSpan.FromSeconds(3);
+    // Obergrenzen für Aufbauschritte: Ein hängender Treiber darf den Start nicht unbegrenzt blockieren.
+    private static readonly TimeSpan InitTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan StepTimeout = TimeSpan.FromSeconds(5);
 
     // Start/Stop/Resolutions sind serialisiert; alle Felder der Session werden nur unter _gate geändert.
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -29,6 +32,11 @@ public sealed class WinRtCameraService : ICameraService
     private CancellationTokenSource? _reconnectCts;
     private int _generation;
     private int _disposed;
+    private readonly TimeProvider _time;
+
+    // Bild-Watchdog der laufenden Session (siehe FrameWatchdog); Abbruch über _watchdogCts beim Abbau.
+    private volatile FrameWatchdog? _watchdog;
+    private CancellationTokenSource? _watchdogCts;
 
     private readonly object _stateLock = new();
     private CameraStatus _status = CameraStatus.Stopped;
@@ -40,6 +48,11 @@ public sealed class WinRtCameraService : ICameraService
     private byte[]? _pixels;
     private CameraFrame? _frame;
     private List<TaskCompletionSource<CameraFrame>> _waiters = [];
+
+    public WinRtCameraService(TimeProvider? time = null)
+    {
+        _time = time ?? TimeProvider.System;
+    }
 
     public CameraStatus Status { get { lock (_stateLock) return _status; } }
     public string? StatusMessage { get { lock (_stateLock) return _statusMessage; } }
@@ -74,18 +87,22 @@ public sealed class WinRtCameraService : ICameraService
             if (_source is not null && _activeDeviceId == deviceId)
                 return CameraFormatSelector.DistinctResolutions(ToCandidates(_source.SupportedFormats));
 
-            using var capture = new MediaCapture();
-            await capture.InitializeAsync(new MediaCaptureInitializationSettings
+            // Das temporäre Probe-MediaCapture wird vollständig (mit Frist) freigegeben, bevor das Gate fällt und
+            // ein Start desselben Geräts beginnt. Fehler hier setzen den Kamerastatus bewusst nicht.
+            MediaCapture? capture = null;
+            try
             {
-                VideoDeviceId = deviceId,
-                StreamingCaptureMode = StreamingCaptureMode.Video,
-                MemoryPreference = MediaCaptureMemoryPreference.Cpu,
-                SharingMode = MediaCaptureSharingMode.SharedReadOnly,
-            });
-            var source = PickColorSource(capture);
-            return source is null
-                ? []
-                : CameraFormatSelector.DistinctResolutions(ToCandidates(source.SupportedFormats));
+                capture = await InitializeOnceAsync(deviceId, MediaCaptureSharingMode.SharedReadOnly).ConfigureAwait(false);
+                var source = PickColorSource(capture);
+                return source is null
+                    ? []
+                    : CameraFormatSelector.DistinctResolutions(ToCandidates(source.SupportedFormats));
+            }
+            finally
+            {
+                if (capture is not null)
+                    await DisposeWithTimeoutAsync(capture, "MediaCapture (Auflösungsabfrage)").ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
@@ -121,7 +138,28 @@ public sealed class WinRtCameraService : ICameraService
             if (Volatile.Read(ref _disposed) != 0)
                 return;
             _lastSettings = CopyOf(settings);
-            await StartCoreAsync(_lastSettings, background: false, ct).ConfigureAwait(false);
+
+            // Direkt nach einem Kamerawechsel meldet Media Foundation oft kurz einen Ressourcenfehler, solange die
+            // alte Session noch freigegeben wird. Solche Fehler zuerst still (Status bleibt „Starting“) wiederholen.
+            var started = _time.GetTimestamp();
+            var retries = 0;
+            while (true)
+            {
+                var quiet = CameraStartRetry.TryGetDelay(retries, _time.GetElapsedTime(started), out _);
+                var outcome = await StartCoreAsync(_lastSettings, background: false, quiet, ct).ConfigureAwait(false);
+                if (outcome != StartOutcome.Transient)
+                    break;
+
+                if (generation != Volatile.Read(ref _generation))
+                    return; // Ein neuerer Start/Stopp hat übernommen und setzt den Status selbst.
+
+                // Ist die Frist inzwischen ausgeschöpft, ist die Wartezeit 0 und der nächste Versuch meldet Fehler offen.
+                CameraStartRetry.TryGetDelay(retries, _time.GetElapsedTime(started), out var delay);
+                retries++;
+                AppLog.Info($"Kamerastart fehlgeschlagen, stille Wiederholung {retries} in {delay.TotalMilliseconds:0} ms.");
+                if (delay > TimeSpan.Zero)
+                    await Task.Delay(delay, _time, ct).ConfigureAwait(false);
+            }
 
             // Einziger Wiederholmechanismus: Scheitert der Start (kein Gerät, Zugriff verweigert, Fehler),
             // versucht die Schleife es mit denselben Einstellungen erneut, bis ein neuer Start/Stopp sie ablöst.
@@ -210,9 +248,19 @@ public sealed class WinRtCameraService : ICameraService
 
     // ---- Session-Aufbau (unter _gate) ----
 
+    private enum StartOutcome
+    {
+        Started,
+        Failed,
+        /// <summary>Vorübergehender Fehler, der im Vordergrund still (ohne Fehlerstatus) wiederholt werden soll.</summary>
+        Transient,
+    }
+
     // background = Wiederholversuch aus einem Fehlerzustand: Der Status bleibt unverändert (kein Starting),
     // damit Problemanzeige und Vorschau-Overlay nicht alle paar Sekunden flackern.
-    private async Task StartCoreAsync(CameraSettings settings, bool background, CancellationToken ct)
+    // quietTransient = vorübergehende Fehler (z. B. Ressourcenfehler direkt nach einem Kamerawechsel) nicht als
+    // Fehler melden, sondern Transient zurückgeben (Status bleibt „Starting“); der Aufrufer wiederholt den Start.
+    private async Task<StartOutcome> StartCoreAsync(CameraSettings settings, bool background, bool quietTransient, CancellationToken ct)
     {
         // Starting vor dem Abbau melden, damit während des Abbaus kein Foto mehr angenommen wird.
         if (!background)
@@ -228,7 +276,7 @@ public sealed class WinRtCameraService : ICameraService
             if (devices.Count == 0)
             {
                 SetStatus(CameraStatus.NoDevice, CameraMessages.NoDevice);
-                return;
+                return StartOutcome.Failed;
             }
 
             var device = devices.FirstOrDefault(d => d.Id == settings.DeviceId) ?? devices[0];
@@ -240,10 +288,10 @@ public sealed class WinRtCameraService : ICameraService
             var source = PickColorSource(capture);
             if (source is null)
             {
-                capture.Dispose();
+                await DisposeWithTimeoutAsync(capture, "MediaCapture").ConfigureAwait(false);
                 capture = null;
                 SetStatus(CameraStatus.Error, "Die Kamera liefert kein Farbbild.");
-                return;
+                return StartOutcome.Failed;
             }
 
             await ApplyFormatAsync(source, settings).ConfigureAwait(false);
@@ -253,24 +301,29 @@ public sealed class WinRtCameraService : ICameraService
             reader.AcquisitionMode = MediaFrameReaderAcquisitionMode.Realtime;
             // Erst eintragen, dann anmelden: Die Handler verwerfen Ereignisse fremder (alter) Objekte per ReferenceEquals.
             // Abgemeldet wird bewusst nie (siehe DisposeSessionObjectsAsync).
+            var watchdog = new FrameWatchdog(_time);
             _capture = capture;
             _reader = reader;
             _source = source;
             _activeDeviceId = device.Id;
+            _watchdog = watchdog;
             reader.FrameArrived += OnFrameArrived;
             capture.Failed += OnCaptureFailed;
 
-            var startStatus = await reader.StartAsync();
+            var startStatus = await AwaitStepAsync(reader.StartAsync().AsTask(), "Start").ConfigureAwait(false);
             if (startStatus != MediaFrameReaderStartStatus.Success)
             {
                 await StopCoreAsync().ConfigureAwait(false);
                 capture = null;
                 reader = null;
+                AppLog.Warn($"Frame-Reader konnte nicht gestartet werden: {startStatus}.");
+                if (quietTransient)
+                    return StartOutcome.Transient;
                 if (startStatus == MediaFrameReaderStartStatus.ExclusiveControlNotAvailable)
                     SetStatus(CameraStatus.Error, "Die Kamera wird bereits von einer anderen Anwendung verwendet.");
                 else
                     SetStatus(CameraStatus.Error, $"Die Kamera konnte nicht gestartet werden ({startStatus}).");
-                return;
+                return StartOutcome.Failed;
             }
 
             var format = source.CurrentFormat?.VideoFormat;
@@ -281,12 +334,15 @@ public sealed class WinRtCameraService : ICameraService
                 _activeResolution = resolution;
             AppLog.Info($"Kamera läuft: {resolution}");
             SetStatus(CameraStatus.Running, null);
+            StartWatchdog(reader, watchdog);
+            return StartOutcome.Started;
         }
         catch (UnauthorizedAccessException ex)
         {
             AppLog.Error("Kamerazugriff verweigert.", ex);
             await CleanupAsync(capture, reader).ConfigureAwait(false);
             SetStatus(CameraStatus.AccessDenied, CameraMessages.AccessDenied);
+            return StartOutcome.Failed;
         }
         catch (OperationCanceledException)
         {
@@ -294,11 +350,26 @@ public sealed class WinRtCameraService : ICameraService
             SetStatus(CameraStatus.Stopped, null);
             throw;
         }
+        catch (CameraTimeoutException ex)
+        {
+            // Hängender Treiber: nicht still wiederholen (jeder Versuch kostet die volle Frist), sondern melden.
+            AppLog.Error("Kamera reagiert nicht.", ex);
+            await CleanupAsync(capture, reader).ConfigureAwait(false);
+            SetStatus(CameraStatus.Error, CameraMessages.NotResponding);
+            return StartOutcome.Failed;
+        }
         catch (Exception ex)
         {
-            AppLog.Error("Kamera konnte nicht gestartet werden.", ex);
             await CleanupAsync(capture, reader).ConfigureAwait(false);
+            if (quietTransient)
+            {
+                AppLog.Warn("Kamera konnte nicht gestartet werden (wird wiederholt).", ex);
+                return StartOutcome.Transient;
+            }
+
+            AppLog.Error("Kamera konnte nicht gestartet werden.", ex);
             SetStatus(CameraStatus.Error, $"Die Kamera konnte nicht gestartet werden: {ex.Message}");
+            return StartOutcome.Failed;
         }
     }
 
@@ -313,33 +384,116 @@ public sealed class WinRtCameraService : ICameraService
 
     private static async Task<MediaCapture> InitializeCaptureAsync(string deviceId)
     {
-        var capture = new MediaCapture();
         try
         {
-            await capture.InitializeAsync(CreateInitSettings(deviceId, MediaCaptureSharingMode.ExclusiveControl));
-            return capture;
+            return await InitializeOnceAsync(deviceId, MediaCaptureSharingMode.ExclusiveControl).ConfigureAwait(false);
         }
         catch (UnauthorizedAccessException)
         {
-            capture.Dispose();
+            throw;
+        }
+        catch (CameraTimeoutException)
+        {
             throw;
         }
         catch (Exception ex)
         {
             AppLog.Warn("Exklusiver Kamerazugriff nicht möglich, versuche gemeinsamen Zugriff.", ex);
-            capture.Dispose();
         }
 
-        capture = new MediaCapture();
+        return await InitializeOnceAsync(deviceId, MediaCaptureSharingMode.SharedReadOnly).ConfigureAwait(false);
+    }
+
+    // Initialisiert ein MediaCapture mit Frist. Bei Zeitüberschreitung läuft die Initialisierung noch: Das Objekt
+    // wird erst nach deren Abschluss freigegeben (nie währenddessen), im Hintergrund auf dem Threadpool.
+    private static async Task<MediaCapture> InitializeOnceAsync(string deviceId, MediaCaptureSharingMode mode)
+    {
+        var capture = new MediaCapture();
+        Task init;
         try
         {
-            await capture.InitializeAsync(CreateInitSettings(deviceId, MediaCaptureSharingMode.SharedReadOnly));
-            return capture;
+            init = capture.InitializeAsync(CreateInitSettings(deviceId, mode)).AsTask();
         }
         catch
         {
-            capture.Dispose();
+            await DisposeWithTimeoutAsync(capture, "MediaCapture").ConfigureAwait(false);
             throw;
+        }
+
+        try
+        {
+            await init.WaitAsync(InitTimeout).ConfigureAwait(false);
+            return capture;
+        }
+        catch (TimeoutException) when (!init.IsCompleted)
+        {
+            DisposeAfterCompletion(capture, init);
+            throw new CameraTimeoutException("Initialisierung");
+        }
+        catch
+        {
+            await DisposeWithTimeoutAsync(capture, "MediaCapture").ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private static void DisposeAfterCompletion(MediaCapture capture, Task init)
+    {
+        AppLog.Warn("Kamera-Initialisierung hängt, das MediaCapture wird nach deren Abschluss im Hintergrund freigegeben.");
+        _ = init.ContinueWith(t =>
+        {
+            if (t.IsFaulted)
+                AppLog.Warn("Hängende Kamera-Initialisierung ist fehlgeschlagen.", t.Exception?.GetBaseException());
+            try
+            {
+                capture.Dispose();
+                AppLog.Info("Verwaistes MediaCapture wurde freigegeben.");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Verwaistes MediaCapture konnte nicht freigegeben werden.", ex);
+            }
+        }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+    }
+
+    // Wartet mit Frist auf einen Aufbauschritt. Bei Zeitüberschreitung läuft der Schritt weiter: Ausnahmen werden
+    // beobachtet, ein später gelieferter Wert wird freigegeben.
+    private static async Task<T> AwaitStepAsync<T>(Task<T> task, string step)
+    {
+        try
+        {
+            return await task.WaitAsync(StepTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException) when (!task.IsCompleted)
+        {
+            _ = task.ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                    AppLog.Warn($"Kameraschritt „{step}“ ist nach der Frist fehlgeschlagen.", t.Exception?.GetBaseException());
+                else if (t.IsCompletedSuccessfully && t.Result is IDisposable late)
+                {
+                    try { late.Dispose(); }
+                    catch (Exception ex) { AppLog.Warn($"Später gelieferter Wert von „{step}“ konnte nicht freigegeben werden.", ex); }
+                }
+            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            throw new CameraTimeoutException(step);
+        }
+    }
+
+    private static async Task AwaitStepAsync(Task task, string step)
+    {
+        try
+        {
+            await task.WaitAsync(StepTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException) when (!task.IsCompleted)
+        {
+            _ = task.ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                    AppLog.Warn($"Kameraschritt „{step}“ ist nach der Frist fehlgeschlagen.", t.Exception?.GetBaseException());
+            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            throw new CameraTimeoutException(step);
         }
     }
 
@@ -377,7 +531,11 @@ public sealed class WinRtCameraService : ICameraService
             var formats = source.SupportedFormats.ToList();
             var index = CameraFormatSelector.SelectIndex(ToCandidates(formats), settings.ResolutionWidth, settings.ResolutionHeight);
             if (index >= 0)
-                await source.SetFormatAsync(formats[index]);
+                await AwaitStepAsync(source.SetFormatAsync(formats[index]).AsTask(), "Format").ConfigureAwait(false);
+        }
+        catch (CameraTimeoutException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -390,12 +548,17 @@ public sealed class WinRtCameraService : ICameraService
     {
         try
         {
-            return await capture.CreateFrameReaderAsync(source, MediaEncodingSubtypes.Bgra8);
+            return await AwaitStepAsync(capture.CreateFrameReaderAsync(source, MediaEncodingSubtypes.Bgra8).AsTask(), "Frame-Reader")
+                .ConfigureAwait(false);
+        }
+        catch (CameraTimeoutException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             AppLog.Warn("Frame-Reader mit Bgra8-Ausgabe nicht möglich, verwende Originalformat.", ex);
-            return await capture.CreateFrameReaderAsync(source);
+            return await AwaitStepAsync(capture.CreateFrameReaderAsync(source).AsTask(), "Frame-Reader").ConfigureAwait(false);
         }
     }
 
@@ -409,6 +572,8 @@ public sealed class WinRtCameraService : ICameraService
         _reader = null;
         _source = null;
         _activeDeviceId = null;
+        _watchdog = null;
+        CancelAndDispose(Interlocked.Exchange(ref _watchdogCts, null));
 
         List<TaskCompletionSource<CameraFrame>> waiters;
         lock (_frameLock)
@@ -476,6 +641,7 @@ public sealed class WinRtCameraService : ICameraService
             var source = reference?.VideoMediaFrame?.SoftwareBitmap;
             if (source is null)
                 return;
+            _watchdog?.NotifyFrame();
 
             SoftwareBitmap? converted = null;
             try
@@ -550,10 +716,59 @@ public sealed class WinRtCameraService : ICameraService
             return;
 
         AppLog.Error($"Kamera meldet Fehler: {e.Message} (Code {e.Code})");
-        _ = Task.Run(() => HandleFailureAsync(sender));
+        _ = Task.Run(() => HandleFailureAsync(() => ReferenceEquals(_capture, sender), CameraMessages.ConnectionLost, null));
     }
 
-    private async Task HandleFailureAsync(MediaCapture failed)
+    // ---- Bild-Watchdog ----
+
+    private void StartWatchdog(MediaFrameReader reader, FrameWatchdog watchdog)
+    {
+        // Frist für das erste Bild beginnt mit dem Übergang zu Running.
+        watchdog.Arm();
+        var generation = Volatile.Read(ref _generation);
+        var cts = new CancellationTokenSource();
+        CancelAndDispose(Interlocked.Exchange(ref _watchdogCts, cts));
+        var ct = cts.Token;
+        _ = Task.Run(() => WatchdogLoopAsync(reader, watchdog, generation, ct));
+    }
+
+    // Gebunden an Reader und Generation: Nach Stopp, Neustart oder Dispose bricht die Schleife ab bzw. tut nichts.
+    private async Task WatchdogLoopAsync(MediaFrameReader reader, FrameWatchdog watchdog, int generation, CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                var wait = watchdog.TimeUntilStall;
+                if (wait > TimeSpan.Zero)
+                {
+                    await Task.Delay(wait, _time, ct).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (Volatile.Read(ref _disposed) != 0 || generation != Volatile.Read(ref _generation)
+                    || !ReferenceEquals(_reader, reader))
+                    return;
+
+                AppLog.Warn(watchdog.HasFrame
+                    ? "Kamera liefert keine Bilder mehr, Neustart."
+                    : "Kamera liefert nach dem Start kein Bild, Neustart.");
+                await HandleFailureAsync(() => ReferenceEquals(_reader, reader), CameraMessages.NoImage, generation)
+                    .ConfigureAwait(false);
+                return;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Durch Stopp/Neustart/Dispose abgebrochen.
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Bild-Überwachung der Kamera fehlgeschlagen.", ex);
+        }
+    }
+
+    private async Task HandleFailureAsync(Func<bool> isCurrentSession, string message, int? expectedGeneration)
     {
         try
         {
@@ -561,11 +776,13 @@ public sealed class WinRtCameraService : ICameraService
             await _gate.WaitAsync().ConfigureAwait(false);
             try
             {
-                if (Volatile.Read(ref _disposed) != 0 || !ReferenceEquals(_capture, failed))
+                if (Volatile.Read(ref _disposed) != 0 || !isCurrentSession())
                     return;
                 generation = Volatile.Read(ref _generation);
+                if (expectedGeneration is { } expected && expected != generation)
+                    return;
                 // Status zuerst ändern, damit während des Abbaus kein Foto mehr angenommen wird.
-                SetStatus(CameraStatus.Error, CameraMessages.ConnectionLost);
+                SetStatus(CameraStatus.Error, message);
                 await StopCoreAsync().ConfigureAwait(false);
             }
             finally
@@ -607,7 +824,7 @@ public sealed class WinRtCameraService : ICameraService
                         return;
 
                     AppLog.Info("Kamera: Wiederverbindungsversuch.");
-                    await StartCoreAsync(settings, background: true, ct).ConfigureAwait(false);
+                    await StartCoreAsync(settings, background: true, quietTransient: false, ct).ConfigureAwait(false);
                     if (Status == CameraStatus.Running)
                         return;
                 }

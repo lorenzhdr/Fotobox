@@ -14,4 +14,6 @@ public static class CameraMessages
     public const string NoDevice = NoDeviceTitle + ". " + NoDeviceHint;
     public const string AccessDenied = AccessDeniedTitle + ". " + AccessDeniedHint;
     public const string ConnectionLost = "Die Verbindung zur Kamera wurde unterbrochen.";
+    public const string NoImage = "Die Kamera liefert kein Bild. Bitte prüfe die Kamera.";
+    public const string NotResponding = "Die Kamera reagiert nicht. Bitte prüfe die Kamera.";
 }
