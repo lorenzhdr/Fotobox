@@ -1,0 +1,46 @@
+## Visual Studio / .NET
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+ARM64/
+bld/
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.cobertura.xml
+.idea/
+*.pdb
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+project.lock.json
+launchSettings.json
+*.log
+
+## Build-Ausgaben
+publish/
+artifacts/
+out/
+dist/
+
+## Zertifikate / Secrets
+*.pfx
+*.snk
+*.p12
+*.key
+.env
+
+## OS
+Thumbs.db
+.DS_Store

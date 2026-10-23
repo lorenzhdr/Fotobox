@@ -1,0 +1,10 @@
+<Window x:Class="Fotobox.Views.Booth.BoothWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Fotobox" Width="1280" Height="720" Background="#101218">
+    <!-- Stub – wird von Stream E implementiert -->
+    <Grid>
+        <TextBlock Text="Fotobox" Foreground="White" FontSize="48"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Grid>
+</Window>
