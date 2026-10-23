@@ -3,7 +3,8 @@ using System.Windows.Media.Imaging;
 
 namespace Fotobox.Core;
 
-public enum BoothState { Starting, Idle, Countdown, Capturing, Preview, Printing, Error }
+/// <summary>Printed: Druck fertig, Gast wird kurz aufgefordert, das Foto aus dem Drucker zu nehmen.</summary>
+public enum BoothState { Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error }
 
 /// <summary>
 /// Ablaufsteuerung eines Foto-Durchgangs (Countdown → Aufnahme → Layout → Speichern → Vorschau/Druck).

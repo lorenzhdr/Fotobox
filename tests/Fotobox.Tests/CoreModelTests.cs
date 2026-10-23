@@ -99,7 +99,7 @@ public class AppSettingsTests
         Assert.Null(s.Printer.PaperHeightMm);
         Assert.Equal(PageOrientation.Auto, s.Printer.Orientation);
         Assert.Equal(1, s.Printer.Copies);
-        Assert.Equal(120, s.Printer.TimeoutSeconds);
+        Assert.Equal(180, s.Printer.TimeoutSeconds);
 
         Assert.Null(s.Storage.PhotoFolder);
         Assert.True(s.Storage.DateSubfolder);

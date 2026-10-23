@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 namespace Fotobox.Core;
 
 public enum LayoutKind { SingleBorderless, Strip, Overlay }
+/// <summary>DoubleCut: zwei gleiche Streifen nebeneinander (zum Teilen); Single: ein Streifen über die ganze Seite.</summary>
+public enum StripStyle { DoubleCut, Single }
 /// <summary>Auto: Strip → Hochformat, sonst Querformat.</summary>
 public enum PageOrientation { Auto, Portrait, Landscape }
 
@@ -16,7 +18,13 @@ public static class SettingsLimits
     public const int ErrorDisplayMin = 2, ErrorDisplayMax = 60;
     public const int StripPhotosMin = 2, StripPhotosMax = 4;
     public const int CopiesMin = 1, CopiesMax = 20;
-    public const int PrintTimeoutMin = 10, PrintTimeoutMax = 600;
+    public const int PrintTimeoutMin = 10, PrintTimeoutMax = 900;
+    /// <summary>Erwartete Druckdauer (Fortschrittsbalken in der Gastansicht).</summary>
+    public const int ExpectedPrintMin = 30, ExpectedPrintMax = 600;
+    /// <summary>Das Druck-Timeout liegt immer mindestens so weit über der erwarteten Druckdauer.</summary>
+    public const int PrintTimeoutReserveSeconds = 60;
+    public const int KeysPerActionMax = 8;
+    public const int FontNameMaxLength = 100;
     public const int JpegQualityMin = 50, JpegQualityMax = 100;
 }
 
@@ -39,6 +47,7 @@ public sealed class AppSettings
     public PrinterSettings Printer { get; set; } = new();
     public StorageSettings Storage { get; set; } = new();
     public SecuritySettings Security { get; set; } = new();
+    public InputSettings Input { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -61,15 +70,22 @@ public sealed class FlowSettings
     public int PauseBetweenShotsSeconds { get; set; } = 2;
     public int ErrorDisplaySeconds { get; set; } = 6;
     public bool PrintingEnabled { get; set; } = true;
+    /// <summary>So lange braucht der Drucker etwa; danach ist der Fortschrittsbalken voll.</summary>
+    public int ExpectedPrintSeconds { get; set; } = 120;
 }
 
 public sealed class LayoutSettings
 {
     public LayoutKind Kind { get; set; } = LayoutKind.SingleBorderless;
     public int StripPhotoCount { get; set; } = 3;
+    public StripStyle StripStyle { get; set; } = StripStyle.DoubleCut;
     public string? OverlayFileName { get; set; }
     public string? CaptionText { get; set; }
     public bool ShowDate { get; set; } = false;
+    /// <summary>Schriftfamilie der Bildunterschrift (<c>FontFamily.Source</c>); fehlt sie, wird Segoe UI verwendet.</summary>
+    public string CaptionFontFamily { get; set; } = DefaultCaptionFont;
+
+    public const string DefaultCaptionFont = "Segoe UI";
 }
 
 public sealed class PrinterSettings
@@ -81,7 +97,7 @@ public sealed class PrinterSettings
     public double? PaperHeightMm { get; set; }
     public PageOrientation Orientation { get; set; } = PageOrientation.Auto;
     public int Copies { get; set; } = 1;
-    public int TimeoutSeconds { get; set; } = 120;
+    public int TimeoutSeconds { get; set; } = 180;
 }
 
 public sealed class StorageSettings
@@ -99,4 +115,16 @@ public sealed class SecuritySettings
     public string? PinHash { get; set; }
     public string? PinSalt { get; set; }
     public int PinIterations { get; set; } = 100_000;
+}
+
+/// <summary>Tastenbelegung je Aktion; Einträge im Format von <see cref="KeyChord"/> (z. B. "Space", "Ctrl+Alt+A").</summary>
+public sealed class InputSettings
+{
+    public List<string> TriggerKeys { get; set; } = [DefaultTriggerKey];
+    public List<string> AdminKeys { get; set; } = [DefaultAdminKey];
+    public List<string> CancelCountdownKeys { get; set; } = [DefaultCancelKey];
+
+    public const string DefaultTriggerKey = "Space";
+    public const string DefaultAdminKey = "Ctrl+Alt+A";
+    public const string DefaultCancelKey = "Escape";
 }

@@ -212,7 +212,8 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(2, s.Flow.ErrorDisplaySeconds);
         Assert.Equal(4, s.Layout.StripPhotoCount);
         Assert.Equal(1, s.Printer.Copies);
-        Assert.Equal(SettingsLimits.PrintTimeoutMin, s.Printer.TimeoutSeconds);
+        // Untergrenze ist die erwartete Druckdauer (Standard 120 s) plus Reserve.
+        Assert.Equal(120 + SettingsLimits.PrintTimeoutReserveSeconds, s.Printer.TimeoutSeconds);
         Assert.Equal(50, s.Storage.JpegQuality);
         Assert.Equal("abcd", s.Storage.FilePrefix);
         Assert.Equal(10_000, s.Security.PinIterations);
@@ -238,7 +239,7 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(2, store.Current.Flow.ErrorDisplaySeconds);
         Assert.Equal(2, store.Current.Layout.StripPhotoCount);
         Assert.Equal(1, store.Current.Printer.Copies);
-        Assert.Equal(SettingsLimits.PrintTimeoutMin, store.Current.Printer.TimeoutSeconds);
+        Assert.Equal(120 + SettingsLimits.PrintTimeoutReserveSeconds, store.Current.Printer.TimeoutSeconds);
         Assert.Equal(50, store.Current.Storage.JpegQuality);
         Assert.Equal(10_000, store.Current.Security.PinIterations);
 
@@ -247,7 +248,7 @@ public sealed class SettingsStoreTests : IDisposable
         high.Flow.PauseBetweenShotsSeconds = SettingsLimits.PauseMax + 1;
         high.Flow.ErrorDisplaySeconds = SettingsLimits.ErrorDisplayMax + 1;
         high.Printer.Copies = SettingsLimits.CopiesMax + 1;
-        high.Printer.TimeoutSeconds = 601;
+        high.Printer.TimeoutSeconds = SettingsLimits.PrintTimeoutMax + 1;
         high.Storage.JpegQuality = 101;
         store.Save(high);
 
@@ -255,7 +256,7 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(SettingsLimits.PauseMax, store.Current.Flow.PauseBetweenShotsSeconds);
         Assert.Equal(SettingsLimits.ErrorDisplayMax, store.Current.Flow.ErrorDisplaySeconds);
         Assert.Equal(SettingsLimits.CopiesMax, store.Current.Printer.Copies);
-        Assert.Equal(600, store.Current.Printer.TimeoutSeconds);
+        Assert.Equal(SettingsLimits.PrintTimeoutMax, store.Current.Printer.TimeoutSeconds);
         Assert.Equal(100, store.Current.Storage.JpegQuality);
     }
 
@@ -317,5 +318,137 @@ public sealed class SettingsStoreTests : IDisposable
         using var doc = JsonDocument.Parse(File.ReadAllText(SettingsPath));
         Assert.Equal(JsonValueKind.Object, doc.RootElement.ValueKind);
         Assert.Single(Directory.GetFiles(_dir));
+    }
+
+    [Fact]
+    public void NewFields_HaveDefaults_WhenMissingInFile()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, """{ "Layout": { "Kind": "Strip" } }""");
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.Equal(StripStyle.DoubleCut, s.Layout.StripStyle);
+        Assert.Equal("Segoe UI", s.Layout.CaptionFontFamily);
+        Assert.Equal(120, s.Flow.ExpectedPrintSeconds);
+        Assert.Equal(["Space"], s.Input.TriggerKeys);
+        Assert.Equal(["Ctrl+Alt+A"], s.Input.AdminKeys);
+        Assert.Equal(["Escape"], s.Input.CancelCountdownKeys);
+    }
+
+    [Fact]
+    public void NewFields_Roundtrip()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = store.Current.Clone();
+        s.Layout.StripStyle = StripStyle.Single;
+        s.Layout.CaptionFontFamily = "Comic Sans MS";
+        s.Flow.ExpectedPrintSeconds = 90;
+        s.Input.TriggerKeys = ["Space", "Enter", "PageDown"];
+        s.Input.CancelCountdownKeys = ["Escape", "Back"];
+        store.Save(s);
+
+        var r = new JsonSettingsStore(_dir).Current;
+
+        Assert.Equal(StripStyle.Single, r.Layout.StripStyle);
+        Assert.Equal("Comic Sans MS", r.Layout.CaptionFontFamily);
+        Assert.Equal(90, r.Flow.ExpectedPrintSeconds);
+        Assert.Equal(3, r.Input.TriggerKeys.Count);
+        Assert.Contains("PageDown", r.Input.TriggerKeys);
+        Assert.Equal(2, r.Input.CancelCountdownKeys.Count);
+    }
+
+    [Fact]
+    public void Keys_InvalidEntriesAreDroppedIndividually_NotWholeFile()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, """
+        {
+          "Flow": { "CountdownSeconds": 7 },
+          "Input": {
+            "TriggerKeys": [ "Space", "Quatsch", "Alt+F4", "LeftCtrl", "space", "", "Ctrl+Ctrl+A", "5" ],
+            "AdminKeys": [ "Alt+Tab" ],
+            "CancelCountdownKeys": [ "Space", "Escape" ]
+          }
+        }
+        """);
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.Equal(7, s.Flow.CountdownSeconds);
+        Assert.Equal(["Space"], s.Input.TriggerKeys);
+        Assert.Equal(["Ctrl+Alt+A"], s.Input.AdminKeys);
+        Assert.Equal(["Escape"], s.Input.CancelCountdownKeys);
+        Assert.Empty(Directory.GetFiles(_dir, "settings.json.bak-*"));
+    }
+
+    [Fact]
+    public void Keys_TriggerAndAdminNeverEmpty_CancelMayBeEmpty()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Input.TriggerKeys = [];
+        s.Input.AdminKeys = [];
+        s.Input.CancelCountdownKeys = [];
+        store.Save(s);
+
+        Assert.Equal(["Space"], store.Current.Input.TriggerKeys);
+        Assert.Equal(["Ctrl+Alt+A"], store.Current.Input.AdminKeys);
+        Assert.Empty(store.Current.Input.CancelCountdownKeys);
+    }
+
+    [Fact]
+    public void Keys_DefaultSpaceTakenByAdmin_MovesToTrigger()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Input.AdminKeys = ["Space", "Ctrl+Alt+A"];
+        s.Input.TriggerKeys = ["Space"];
+        store.Save(s);
+
+        Assert.Equal(["Space"], store.Current.Input.TriggerKeys);
+        Assert.Equal(["Ctrl+Alt+A"], store.Current.Input.AdminKeys);
+    }
+
+    [Fact]
+    public void Keys_LimitedPerAction()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Input.TriggerKeys = Enumerable.Range(0, 12).Select(i => "F" + (i + 1)).ToList();
+        store.Save(s);
+
+        Assert.Equal(SettingsLimits.KeysPerActionMax, store.Current.Input.TriggerKeys.Count);
+    }
+
+    [Fact]
+    public void Font_BlankFallsBackToSegoe_StripStyleInvalidFallsBack()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Layout.CaptionFontFamily = "   ";
+        s.Layout.StripStyle = (StripStyle)42;
+        store.Save(s);
+
+        Assert.Equal("Segoe UI", store.Current.Layout.CaptionFontFamily);
+        Assert.Equal(StripStyle.DoubleCut, store.Current.Layout.StripStyle);
+    }
+
+    [Fact]
+    public void PrintTimeout_RaisedToExpectedDurationPlusReserve()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Flow.ExpectedPrintSeconds = 300;
+        s.Printer.TimeoutSeconds = 120;
+        store.Save(s);
+
+        Assert.Equal(300 + SettingsLimits.PrintTimeoutReserveSeconds, store.Current.Printer.TimeoutSeconds);
+
+        s.Flow.ExpectedPrintSeconds = 1;
+        s.Printer.TimeoutSeconds = 500;
+        store.Save(s);
+        Assert.Equal(SettingsLimits.ExpectedPrintMin, store.Current.Flow.ExpectedPrintSeconds);
+        Assert.Equal(500, store.Current.Printer.TimeoutSeconds);
     }
 }

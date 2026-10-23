@@ -34,4 +34,5 @@ public sealed record PrintResult(PrintOutcome Outcome, string? Message = null)
 { public bool Success => Outcome == PrintOutcome.Completed; }
 
 public sealed record SavedPhotoSet(string LayoutPath, IReadOnlyList<string> OriginalPaths);
-public sealed record AdminResult(bool Opened, bool SettingsChanged, bool ExitRequested);
+/// <summary>CameraChanged: Die gespeicherten Kameraeinstellungen weichen vom Stand vor dem Öffnen ab.</summary>
+public sealed record AdminResult(bool Opened, bool SettingsChanged, bool ExitRequested, bool CameraChanged = false);
