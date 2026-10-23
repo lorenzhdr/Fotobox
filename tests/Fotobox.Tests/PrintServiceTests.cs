@@ -24,12 +24,63 @@ public class PrintJobStateEvaluatorTests
         Assert.False(d.GenericError);
     }
 
+    [Fact]
+    public void PrintedFlag_MeansCompleted()
+    {
+        Assert.Equal(PrintJobPhase.Completed, Eval(new PrintJobFlags(IsPrinted: true)).Phase);
+    }
+
+    [Fact]
+    public void CompletedWithoutPrinted_StaysInProgress_BecausePrinterMayStillBePrinting()
+    {
+        var d = Eval(new PrintJobFlags(IsCompleted: true));
+
+        Assert.Equal(PrintJobPhase.InProgress, d.Phase);
+        Assert.Equal("Wird gedruckt…", d.Message);
+    }
+
+    [Fact]
+    public void CompletedWithoutPrinted_StillReportsPaperOutAndOffline()
+    {
+        var paper = Eval(new PrintJobFlags(IsCompleted: true, IsPaperOut: true));
+        var offline = Eval(new PrintJobFlags(IsCompleted: true), new PrintQueueFlags(IsOffline: true));
+
+        Assert.Equal(PrintJobPhase.InProgress, paper.Phase);
+        Assert.Equal("Papier leer – bitte nachlegen", paper.Message);
+        Assert.Equal(PrintJobPhase.InProgress, offline.Phase);
+        Assert.Equal("Drucker offline", offline.Message);
+    }
+
+    [Fact]
+    public void CompletedAndRetained_MeansCompleted()
+    {
+        Assert.Equal(PrintJobPhase.Completed, Eval(new PrintJobFlags(IsCompleted: true, IsRetained: true)).Phase);
+    }
+
+    [Fact]
+    public void RetainedWithoutCompleted_IsNotCompleted()
+    {
+        Assert.Equal(PrintJobPhase.InProgress, Eval(new PrintJobFlags(IsRetained: true, IsPrinting: true)).Phase);
+    }
+
+    [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    public void PrintedJob_IsCompleted_EvenWhenAlsoDeletingOrDeleted(bool deleting, bool deleted, bool completed)
+    {
+        var d = Eval(new PrintJobFlags(IsPrinted: true, IsDeleting: deleting, IsDeleted: deleted, IsCompleted: completed));
+
+        Assert.Equal(PrintJobPhase.Completed, d.Phase);
+    }
+
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
-    public void CompletedOrPrintedFlag_MeansCompleted(bool completed, bool printed)
+    public void CompletedJob_BeingDeleted_IsCompleted_NotCancelled(bool deleting, bool deleted)
     {
-        var d = Eval(new PrintJobFlags(IsCompleted: completed, IsPrinted: printed));
+        var d = Eval(new PrintJobFlags(IsCompleted: true, IsDeleting: deleting, IsDeleted: deleted));
 
         Assert.Equal(PrintJobPhase.Completed, d.Phase);
     }
@@ -155,6 +206,19 @@ public class PrintJobStateEvaluatorTests
         var d = Eval(new PrintJobFlags(IsPrinted: true), new PrintQueueFlags(IsOffline: true));
 
         Assert.Equal(PrintJobPhase.Completed, d.Phase);
+    }
+
+    [Theory]
+    [InlineData("PORTPROMPT:", true)]
+    [InlineData("portprompt:", true)]
+    [InlineData(" PORTPROMPT: ", true)]
+    [InlineData("USB001", false)]
+    [InlineData("WSD-1234", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsFilePromptPort_DetectsPortPrompt(string? port, bool expected)
+    {
+        Assert.Equal(expected, PrintService.IsFilePromptPort(port));
     }
 }
 

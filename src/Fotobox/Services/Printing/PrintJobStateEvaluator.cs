@@ -11,7 +11,8 @@ public readonly record struct PrintJobFlags(
     bool IsPaperOut = false,
     bool IsOffline = false,
     bool IsBlocked = false,
-    bool IsUserInterventionRequired = false);
+    bool IsUserInterventionRequired = false,
+    bool IsRetained = false);
 
 /// <summary>Statusflags der Druckwarteschlange (Abbild von PrintQueue).</summary>
 public readonly record struct PrintQueueFlags(
@@ -65,9 +66,18 @@ public static class PrintJobStateEvaluator
     {
         if (job is { } j)
         {
+            // Gedruckt zählt vor allem anderen: ein normal fertiger Job trägt oft noch Deleting/Deleted.
+            if (j.IsPrinted)
+                return new PrintJobDecision(PrintJobPhase.Completed, string.Empty);
+            // Abgebrochen = gelöscht, ohne dass der Spooler ihn vollständig an den Drucker gesendet hat.
             if (j.IsDeleted || j.IsDeleting)
-                return new PrintJobDecision(PrintJobPhase.Failed, FailedDeleted);
-            if (j.IsCompleted || j.IsPrinted)
+                return j.IsCompleted
+                    ? new PrintJobDecision(PrintJobPhase.Completed, string.Empty)
+                    : new PrintJobDecision(PrintJobPhase.Failed, FailedDeleted);
+            // IsCompleted heißt nur "an den Drucker gesendet" – bei IPP/WSD-Druckern läuft der Druck da oft noch.
+            // Fertig ist der Job erst, wenn er gedruckt ist oder (nach dem Sehen) aus der Queue verschwindet;
+            // nur bei aufbewahrten Jobs (bleiben absichtlich in der Queue) genügt IsCompleted.
+            if (j.IsCompleted && j.IsRetained)
                 return new PrintJobDecision(PrintJobPhase.Completed, string.Empty);
         }
         else if (jobSeenBefore || sinceSubmitted >= NeverSeenCompletedAfter)
