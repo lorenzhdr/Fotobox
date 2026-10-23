@@ -6,7 +6,11 @@ using Fotobox.Core;
 namespace Fotobox.ViewModels.Admin;
 
 /// <summary>Eintrag der Schriftauswahl. <c>Source</c> ist der gespeicherte Name (<c>FontFamily.Source</c>).</summary>
-public sealed record FontOption(string Source, string Display, FontFamily Family, bool IsInstalled = true);
+public sealed record FontOption(string Source, string Display, FontFamily Family, bool IsInstalled = true)
+{
+    /// <summary>Anzeigename (auch für UI Automation in ComboBox-Einträgen).</summary>
+    public override string ToString() => Display;
+}
 
 /// <summary>
 /// Alle Systemschriften, einmal pro Prozess im Hintergrund geladen und sortiert (die Aufzählung ist auf PCs mit

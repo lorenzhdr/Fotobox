@@ -63,8 +63,8 @@ public sealed class BoothViewModel : ObservableObject
     public bool ShowShotInfo => Controller.ShotCount > 1 && Controller.State is BoothState.Countdown or BoothState.Capturing;
     public string ShotInfoText => ShowShotInfo ? $"Foto {Controller.ShotIndex} von {Controller.ShotCount}" : "";
 
-    /// <summary>Layout-Vorschau bzw. Druck-/Fertig-Anzeige sichtbar.</summary>
-    public bool ShowResult => IsPreview || IsPrinting || IsPrinted;
+    /// <summary>Foto-Ansicht (Layout-Vorschau bzw. Druckfortschritt) sichtbar; „Fertig“ hat einen eigenen Bildschirm.</summary>
+    public bool ShowResult => IsPreview || IsPrinting;
     public bool IsPreview => Controller.State == BoothState.Preview;
     public BitmapSource? PreviewImage => Controller.PreviewImage;
 
@@ -80,10 +80,13 @@ public sealed class BoothViewModel : ObservableObject
     public bool ShowStatusBanner => IsPrinting || IsProcessing;
     public bool ShowProcessingBanner => IsProcessing;
 
-    /// <summary>Bereich mit Fortschrittsbalken (Druck läuft bzw. „Fertig“).</summary>
-    public bool ShowPrintInfo => IsPrinting || IsPrinted;
+    /// <summary>Bereich mit Fortschrittsbalken (Druck läuft).</summary>
+    public bool ShowPrintInfo => IsPrinting;
 
-    /// <summary>Druckfortschritt 0..1 für den Balken (während „Fertig“ voll).</summary>
+    /// <summary>Eigener „Fertig“-Bildschirm (Gast soll das Foto aus dem Drucker nehmen).</summary>
+    public bool ShowDone => IsPrinted;
+
+    /// <summary>Druckfortschritt 0..1 für den Balken.</summary>
     public double PrintProgress => Controller.PrintProgress;
     /// <summary>Erwartete Zeit ist um, der Druck läuft noch.</summary>
     public bool IsPrintOverdue => IsPrinting && Controller.PrintOverdue;

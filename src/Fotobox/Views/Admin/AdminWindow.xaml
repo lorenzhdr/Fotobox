@@ -112,7 +112,8 @@
 
                             <UniformGrid Columns="3" Margin="0,0,-14,0">
                                 <RadioButton GroupName="LayoutKind" Style="{StaticResource CardRadio}"
-                                             IsChecked="{Binding IsSingleLayout}">
+                                             IsChecked="{Binding IsSingleLayout}"
+                                             AutomationProperties.Name="Einzelfoto randlos">
                                     <StackPanel>
                                         <Border Width="64" Height="92" Background="White" BorderBrush="#9AA5B5" BorderThickness="1.5" CornerRadius="3">
                                             <Border Background="#7CA2E8" Margin="0" />
@@ -122,7 +123,8 @@
                                     </StackPanel>
                                 </RadioButton>
                                 <RadioButton GroupName="LayoutKind" Style="{StaticResource CardRadio}"
-                                             IsChecked="{Binding IsStripLayout}">
+                                             IsChecked="{Binding IsStripLayout}"
+                                             AutomationProperties.Name="Fotostreifen">
                                     <StackPanel>
                                         <Border Width="64" Height="92" Background="White" BorderBrush="#9AA5B5" BorderThickness="1.5" CornerRadius="3" Padding="7">
                                             <UniformGrid Rows="3">
@@ -136,7 +138,8 @@
                                     </StackPanel>
                                 </RadioButton>
                                 <RadioButton GroupName="LayoutKind" Style="{StaticResource CardRadio}"
-                                             IsChecked="{Binding IsOverlayLayout}">
+                                             IsChecked="{Binding IsOverlayLayout}"
+                                             AutomationProperties.Name="Foto mit Overlay">
                                     <StackPanel>
                                         <Border Width="64" Height="92" Background="White" BorderBrush="#9AA5B5" BorderThickness="1.5" CornerRadius="3" Padding="0">
                                             <Grid>
@@ -157,7 +160,8 @@
                                 <TextBlock Text="Variante des Fotostreifens" Style="{StaticResource FieldLabel}" />
                                 <StackPanel Orientation="Horizontal">
                                     <RadioButton GroupName="StripStyle" Style="{StaticResource CardRadio}" Width="250"
-                                                 IsChecked="{Binding IsStripDoubleCut}">
+                                                 IsChecked="{Binding IsStripDoubleCut}"
+                                                 AutomationProperties.Name="2 Streifen nebeneinander">
                                         <StackPanel>
                                             <Border Width="64" Height="92" Background="White" BorderBrush="#9AA5B5" BorderThickness="1.5" CornerRadius="3" Padding="7">
                                                 <UniformGrid Columns="2">
@@ -178,7 +182,8 @@
                                         </StackPanel>
                                     </RadioButton>
                                     <RadioButton GroupName="StripStyle" Style="{StaticResource CardRadio}" Width="250"
-                                                 IsChecked="{Binding IsStripSingle}">
+                                                 IsChecked="{Binding IsStripSingle}"
+                                                 AutomationProperties.Name="1 Streifen">
                                         <StackPanel>
                                             <Border Width="64" Height="92" Background="White" BorderBrush="#9AA5B5" BorderThickness="1.5" CornerRadius="3" Padding="7">
                                                 <UniformGrid Rows="3">

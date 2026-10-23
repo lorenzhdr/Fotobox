@@ -1,6 +1,10 @@
 namespace Fotobox.Core;
 
-public sealed record CameraDevice(string Id, string Name);
+public sealed record CameraDevice(string Id, string Name)
+{
+    /// <summary>Anzeigename (auch für UI Automation in ComboBox-Einträgen).</summary>
+    public override string ToString() => Name;
+}
 public sealed record CameraResolution(int Width, int Height)
 { public override string ToString() => $"{Width} × {Height}"; }
 public enum CameraStatus { Stopped, Starting, Running, NoDevice, AccessDenied, Error }

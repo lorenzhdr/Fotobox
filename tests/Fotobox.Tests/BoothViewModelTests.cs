@@ -265,6 +265,7 @@ public class BoothViewModelTests
         Assert.True(h.ViewModel.ShowResult);
         Assert.True(h.ViewModel.ShowPrintInfo);
         Assert.False(h.ViewModel.IsPrinted);
+        Assert.False(h.ViewModel.ShowDone);
         Assert.False(h.ViewModel.CanOpenAdmin);
         Assert.False(h.ViewModel.IsPrintOverdue);
         Assert.Equal("Der Drucker ist etwas langsam – dein Foto kommt in ca. 2 Minuten.", h.ViewModel.PrintWaitText);
@@ -279,9 +280,11 @@ public class BoothViewModelTests
         h.Printer.Pending.SetResult(new PrintResult(PrintOutcome.Completed));
         Assert.True(SpinWait.SpinUntil(() => h.Controller.State == BoothState.Printed, TimeSpan.FromSeconds(10)));
 
+        // Eigener Fertig-Bildschirm: Foto-Ansicht und Druckbereich sind ausgeblendet.
         Assert.True(h.ViewModel.IsPrinted);
-        Assert.True(h.ViewModel.ShowResult);
-        Assert.True(h.ViewModel.ShowPrintInfo);
+        Assert.True(h.ViewModel.ShowDone);
+        Assert.False(h.ViewModel.ShowResult);
+        Assert.False(h.ViewModel.ShowPrintInfo);
         Assert.False(h.ViewModel.IsPrinting);
         Assert.False(h.ViewModel.IsPrintOverdue);
         Assert.False(h.ViewModel.CanOpenAdmin);
@@ -291,6 +294,7 @@ public class BoothViewModelTests
         Assert.True(SpinUntil(h, () => h.Controller.State == BoothState.Idle, advanceInPreview: false, advanceInPrinted: true));
         Assert.False(h.ViewModel.ShowPrintInfo);
         Assert.False(h.ViewModel.ShowResult);
+        Assert.False(h.ViewModel.ShowDone);
         Assert.True(h.ViewModel.CanOpenAdmin);
     }
 

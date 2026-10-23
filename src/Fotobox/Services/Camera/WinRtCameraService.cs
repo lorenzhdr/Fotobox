@@ -373,7 +373,8 @@ public sealed class WinRtCameraService : ICameraService
             await CleanupAsync(capture, reader).ConfigureAwait(false);
             if (quietTransient)
             {
-                AppLog.Warn("Kamera konnte nicht gestartet werden (wird wiederholt).", ex);
+                // Stille Wiederholung: nur Meldung und HResult, kein Stacktrace (erst der endgültige Fehler loggt ihn).
+                AppLog.Warn($"Kamera konnte nicht gestartet werden (wird wiederholt): {ex.Message.Trim()} (HResult 0x{ex.HResult:X8})");
                 return StartOutcome.Transient;
             }
 
@@ -723,9 +724,17 @@ public sealed class WinRtCameraService : ICameraService
     {
         // Ereignisse beim Abbau oder von einer bereits ersetzten Session sind nicht mehr relevant.
         if (!ReferenceEquals(sender, _capture))
+        {
+            AppLog.Warn($"Kamera meldet Fehler einer veralteten Sitzung (ignoriert): {e.Message} (Code {e.Code})");
             return;
+        }
 
-        AppLog.Error($"Kamera meldet Fehler: {e.Message} (Code {e.Code})");
+        // Während eines Starts (auch einer stillen Wiederholung, z. B. direkt nach einem Kamerawechsel) ist das noch
+        // kein Verbindungsverlust im Betrieb; der Start behandelt den Fehler selbst.
+        if (Status == CameraStatus.Starting)
+            AppLog.Warn($"Kamera meldet Fehler während des Starts: {e.Message} (Code {e.Code})");
+        else
+            AppLog.Error($"Kamera meldet Fehler: {e.Message} (Code {e.Code})");
         _ = Task.Run(() => HandleFailureAsync(() => ReferenceEquals(_capture, sender), CameraMessages.ConnectionLost, null));
     }
 

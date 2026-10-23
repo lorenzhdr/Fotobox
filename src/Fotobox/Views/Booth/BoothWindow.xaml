@@ -191,7 +191,7 @@
                 <Image Source="{Binding PreviewImage}" Stretch="Uniform" />
             </Border>
 
-            <!-- Druck: Hinweis und Fortschrittsbalken; danach „Fertig“ -->
+            <!-- Druck: Hinweis und Fortschrittsbalken -->
             <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Stretch" MaxWidth="1400"
                         Margin="120,0,120,30"
                         Visibility="{Binding ShowPrintInfo, Converter={StaticResource BoolToVis}}">
@@ -221,15 +221,30 @@
                                Foreground="{StaticResource Gold}" FontSize="34" FontWeight="SemiBold"
                                TextWrapping="Wrap" TextAlignment="Center" Margin="0,14,0,0" />
                 </StackPanel>
-                <TextBlock Text="Fertig! 🎉 Bitte nimm dein Foto aus dem Drucker." Foreground="White"
-                           FontSize="52" FontWeight="Bold" TextWrapping="Wrap" TextAlignment="Center"
-                           Visibility="{Binding IsPrinted, Converter={StaticResource BoolToVis}}">
-                    <TextBlock.Effect>
-                        <DropShadowEffect BlurRadius="40" ShadowDepth="0" Color="#F5C26B" Opacity="0.7" />
-                    </TextBlock.Effect>
-                </TextBlock>
                 <ProgressBar Style="{StaticResource PrintProgressBar}" Value="{Binding PrintProgress, Mode=OneWay}"
                              Margin="0,26,0,0" />
+            </StackPanel>
+        </Grid>
+
+        <!-- „Fertig“: eigener Bildschirm, sobald der Druck abgeschlossen ist -->
+        <Grid x:Name="DoneOverlay" Style="{StaticResource FadeInOverlay}"
+              Visibility="{Binding ShowDone, Converter={StaticResource BoolToVis}}">
+            <Grid.Background>
+                <RadialGradientBrush>
+                    <GradientStop Color="#F21B1633" Offset="0" />
+                    <GradientStop Color="#FA0B0D14" Offset="1" />
+                </RadialGradientBrush>
+            </Grid.Background>
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="1400">
+                <TextBlock Text="🖨️" FontSize="200" HorizontalAlignment="Center" />
+                <TextBlock Text="Fertig! 🎉" Foreground="{StaticResource Gold}" FontSize="140" FontWeight="Bold"
+                           HorizontalAlignment="Center" Margin="0,16,0,0">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="50" ShadowDepth="0" Color="#F5C26B" Opacity="0.7" />
+                    </TextBlock.Effect>
+                </TextBlock>
+                <TextBlock Text="Bitte nimm dein Foto aus dem Drucker." Foreground="White" FontSize="56"
+                           FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center" Margin="0,36,0,0" />
             </StackPanel>
         </Grid>
 

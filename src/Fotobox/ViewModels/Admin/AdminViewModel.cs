@@ -12,15 +12,27 @@ using Fotobox.Services.Storage;
 namespace Fotobox.ViewModels.Admin;
 
 /// <summary>Eintrag der Auflösungs-Auswahl; <c>Resolution == null</c> bedeutet „Automatisch“.</summary>
-public sealed record ResolutionOption(CameraResolution? Resolution, string Display);
+public sealed record ResolutionOption(CameraResolution? Resolution, string Display)
+{
+    public override string ToString() => Display;
+}
 
 /// <summary>Eintrag der Drucker-Auswahl; <c>Name == null</c> bedeutet Windows-Standarddrucker.</summary>
-public sealed record PrinterOption(string? Name, string Display);
+public sealed record PrinterOption(string? Name, string Display)
+{
+    public override string ToString() => Display;
+}
 
 /// <summary>Eintrag der Papiergrößen-Auswahl; <c>Info == null</c> bedeutet Standard des Druckers.</summary>
-public sealed record PaperOption(PaperSizeInfo? Info, string Display);
+public sealed record PaperOption(PaperSizeInfo? Info, string Display)
+{
+    public override string ToString() => Display;
+}
 
-public sealed record OrientationOption(PageOrientation Orientation, string Display);
+public sealed record OrientationOption(PageOrientation Orientation, string Display)
+{
+    public override string ToString() => Display;
+}
 
 /// <summary>
 /// Admin-Ansicht: bearbeitet einen Entwurf (Clone) der Einstellungen. Gespeichert wird erst über
