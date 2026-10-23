@@ -44,3 +44,6 @@ dist/
 ## OS
 Thumbs.db
 .DS_Store
+
+# Claude Code (lokale Worktrees/Einstellungen)
+.claude/
