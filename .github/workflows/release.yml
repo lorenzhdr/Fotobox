@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (ohne führendes v)'
+        required: false
+        default: '0.0.0-test'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: .NET einrichten
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Version bestimmen
+        id: ver
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TAG_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if ($env:EVENT_NAME -eq 'push') {
+            $version = $env:TAG_NAME -replace '^v', ''
+          }
+          else {
+            $version = $env:INPUT_VERSION
+            if ([string]::IsNullOrWhiteSpace($version)) { $version = '0.0.0-test' }
+            $version = $version -replace '^v', ''
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+([-+][0-9A-Za-z.\-+]+)?$') {
+            throw "Ungültige Version '$version'."
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Version: $version"
+
+      - name: Tests (ohne Hardware)
+        run: dotnet test Fotobox.sln -c Release --filter "Category!=Hardware"
+
+      - name: Inno Setup sicherstellen
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          )
+          $found = (Get-Command ISCC.exe -ErrorAction SilentlyContinue) -or ($candidates | Where-Object { Test-Path $_ })
+          if (-not $found) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "choco install innosetup fehlgeschlagen ($LASTEXITCODE)." }
+          }
+
+      - name: Publish, ZIPs und Installer erstellen
+        shell: pwsh
+        run: ./build/publish.ps1 -Version '${{ steps.ver.outputs.version }}' -RequireInstaller
+
+      - name: Artefakte hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: fotobox-${{ steps.ver.outputs.version }}
+          path: |
+            artifacts/*.exe
+            artifacts/*.zip
+          if-no-files-found: error
+
+      - name: Release-Notes erzeugen
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $notes = Get-Content -LiteralPath build/release-notes.template.md -Raw -Encoding UTF8
+          $notes = $notes.Replace('{{VERSION}}', '${{ steps.ver.outputs.version }}')
+          [System.IO.File]::WriteAllText("$env:RUNNER_TEMP/release-notes.md", $notes, (New-Object System.Text.UTF8Encoding($false)))
+
+      - name: GitHub-Release erstellen
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          $ghArgs = @(
+            'release', 'create', $env:TAG_NAME,
+            '--title', "Fotobox $env:VERSION",
+            '--notes-file', "$env:RUNNER_TEMP/release-notes.md",
+            '--verify-tag'
+          )
+          if ($env:VERSION -match '-') { $ghArgs += '--prerelease' }
+          $files = @(Get-ChildItem artifacts -File | Where-Object { $_.Extension -in '.exe', '.zip' } | ForEach-Object { $_.FullName })
+          gh @ghArgs @files
+          if ($LASTEXITCODE -ne 0) { throw "gh release create fehlgeschlagen ($LASTEXITCODE)." }
