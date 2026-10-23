@@ -51,3 +51,22 @@ pwsh build/publish.ps1 -Version 1.2.3 [-Arch x64|arm64] [-SkipInstaller] [-Requi
 - Bei nicht erreichbarem Drucker kostet die Seitengrößen-Abfrage bis zu 5 s pro Durchgang (danach Fallback `PageSpec.Default`, 10 × 15 cm).
 - Druckende-Erkennung bei IPP/WSD-Treibern: Ein vollständig gesendeter Auftrag ohne gemeldetes Druckende gilt nach dem Druck-Timeout als fertig.
 - Eine kaputte `settings.json` wird gesichert (`.bak-…`) und führt zum Erststart, die Einstellungen müssen neu gesetzt werden.
+
+## Projektstand und Weiterarbeit
+
+- Veröffentlicht: `v0.0.0-beta` (Prerelease) und `v0.0.1` (Tag auf `1e384f1`, `main` = `1e384f1`). Arbeitsbranch: `feature/fotobox-app`. Neue Arbeit auf einem Branch, per CI (`build.yml`) prüfen, nach `main` mergen, dann Tag `v*` pushen.
+- Lokal ist nur das SDK 10.0.100-rc.1 installiert, die CI nutzt das finale .NET 10. Der Entwicklungsrechner ist ARM64, x64 läuft dort unter Emulation.
+- Tests: `dotnet test --filter "Category!=Hardware"` (274 Tests). Hardware-Tests (echte Kamera, z. B. Kamera-Neustart) laufen nur lokal.
+- Manuelle E2E-Prüfung (Erststart, Alt+F4-Sperre, Foto speichern, PIN-Sperre, Kamerawechsel) erfolgte mit einem isolierten Benutzerprofil (Umgebungsvariablen `USERPROFILE`/`LOCALAPPDATA` umbiegen) per UI Automation. Es gab bewusst keinen Testdruck auf einem echten Drucker; der Druck muss mit beliebigen Druckern funktionieren (herstellerneutral).
+- Das Repo ist öffentlich: keine persönlichen Daten oder Gerätenamen committen (siehe oben).
+
+## Offene Punkte (noch zu fixen)
+
+1. **Kamerawechsel im Admin:** Direkt nach dem Wechsel der Kamera (z. B. virtuelle Kamera → eingebaute Kamera) erscheint kurz eine Fehlermeldung in der Admin-Vorschau (Media-Foundation-Ressourcenfehler), bis die Retry-Schleife in `WinRtCameraService` die Kamera startet. Kosmetisch; Ziel: Fehler während des Wechsels unterdrücken oder vor dem Neustart kurz warten.
+2. **Virtuelle Kamera ohne Bild:** Eine virtuelle Kamera (Camo) meldete „Kamera läuft“, lieferte aber kein Bild. Ursache nicht untersucht (evtl. Treiber/Format). Mögliche Abhilfe: Watchdog „kein Frame innerhalb X s“ mit Fehlermeldung statt stiller Schwarzfläche.
+3. **Nicht am echten Bildschirm verifiziert:** (a) Der doppelte „Kamera wird gestartet“-Text in der Gastansicht ist laut Code weg, (b) die Admin-Vorschau zeigt das ganze Livebild. Bitte einmal visuell prüfen.
+4. **Seitengröße bei Offline-Drucker:** `GetPageSpec` kostet bis zu 5 s pro Durchgang. Idee: Ergebnis zwischenspeichern oder asynchron vorab holen.
+5. **`InitializeAsync` der Kamera hat kein eigenes Timeout** (Start/Stop/Dispose haben eines). Absichern, damit ein hängender Treiber den Start nicht blockiert.
+6. **Druck auf echten Fotodruckern ungetestet:** Randloser Druck, Papiergrößen und Druckende-Erkennung (IPP/WSD) sind nur per Unit-Tests und gegen Mock-Zustände abgedeckt. Rückmeldungen von echten Geräten einarbeiten.
+7. **Installer unsigniert:** SmartScreen warnt. Code-Signing wäre eine spätere Verbesserung.
+8. **Versionierung:** Der nächste Release kann `v0.0.2` sein; `v1.0.0` erst nach Test mit echtem Drucker und Kamera.
