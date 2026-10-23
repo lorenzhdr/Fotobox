@@ -143,6 +143,39 @@ public sealed class CameraHardwareTests
     }
 
     [Fact]
+    [Trait("Category", "Hardware")]
+    public async Task Restart_ReportsStartingBeforeTeardown_AndFramesKeepFlowing()
+    {
+        await using var camera = new WinRtCameraService();
+        var devices = await camera.GetDevicesAsync();
+        if (devices.Count == 0)
+            return; // Keine Kamera angeschlossen: nichts zu prüfen.
+
+        var settings = new CameraSettings { DeviceId = devices[0].Id };
+        var frames = 0;
+        camera.FrameArrived += (_, _) => Interlocked.Increment(ref frames);
+
+        await camera.StartAsync(settings);
+        Assert.True(camera.Status == CameraStatus.Running, $"Status {camera.Status}: {camera.StatusMessage}");
+
+        var statuses = new List<CameraStatus>();
+        camera.StatusChanged += (_, _) => { lock (statuses) statuses.Add(camera.Status); };
+        await camera.StartAsync(settings);
+
+        // Der erste gemeldete Status des Neustarts ist Starting (nicht mehr Running während des Abbaus).
+        lock (statuses)
+        {
+            Assert.NotEmpty(statuses);
+            Assert.Equal(CameraStatus.Starting, statuses[0]);
+        }
+        Assert.Equal(CameraStatus.Running, camera.Status);
+
+        var before = Volatile.Read(ref frames);
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        Assert.True(Volatile.Read(ref frames) - before >= 5, "Nach dem Neustart kommen kaum Frames an.");
+    }
+
+    [Fact]
     public async Task CapturePhoto_WhenNotStarted_Throws()
     {
         await using var camera = new WinRtCameraService();

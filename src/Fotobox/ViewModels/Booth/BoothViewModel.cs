@@ -2,18 +2,17 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Fotobox.Core;
+using Fotobox.Services.Camera;
 
 namespace Fotobox.ViewModels.Booth;
 
 /// <summary>Bindbare Sicht auf <see cref="BoothController"/> und Kamera für die Gastansicht.</summary>
 public sealed class BoothViewModel : ObservableObject
 {
-    private static readonly TimeSpan CameraRetryInterval = TimeSpan.FromSeconds(5);
-
     private readonly Dispatcher _dispatcher;
-    private readonly DispatcherTimer _retryTimer;
     private readonly SemaphoreSlim _cameraGate = new(1, 1);
     private int _lastCountdown;
+    private bool _isAdminOpen;
 
     public BoothViewModel(BoothController controller, ICameraService camera, ISettingsStore settings)
     {
@@ -27,9 +26,6 @@ public sealed class BoothViewModel : ObservableObject
         controller.FlashRequested += (_, _) => OnUi(() => FlashRequested?.Invoke(this, EventArgs.Empty));
         camera.StatusChanged += (_, _) => OnUi(Refresh);
         settings.SettingsChanged += (_, _) => OnUi(Refresh);
-
-        _retryTimer = new DispatcherTimer(CameraRetryInterval, DispatcherPriority.Background, OnRetryTick, _dispatcher);
-        _retryTimer.Stop();
     }
 
     public BoothController Controller { get; }
@@ -77,51 +73,66 @@ public sealed class BoothViewModel : ObservableObject
 
     public string CameraProblemTitle => Camera.Status switch
     {
-        CameraStatus.AccessDenied => "Kein Zugriff auf die Kamera",
-        CameraStatus.NoDevice => "Keine Kamera gefunden",
-        _ => "Die Kamera ist nicht verfügbar",
+        CameraStatus.AccessDenied => CameraMessages.AccessDeniedTitle,
+        CameraStatus.NoDevice => CameraMessages.NoDeviceTitle,
+        _ => CameraMessages.UnavailableTitle,
     };
 
+    /// <summary>
+    /// Handlungsorientierter Text unter dem Titel: die Dienstmeldung, soweit sie mehr sagt als der Titel,
+    /// sonst ein fester Hinweis. Der Wiederhol-Hinweis steht nur im XAML.
+    /// </summary>
     public string CameraProblemText
     {
         get
         {
-            var message = Camera.StatusMessage;
-            switch (Camera.Status)
+            var detail = DetailBeyondTitle(Camera.StatusMessage, CameraProblemTitle);
+            if (detail is not null)
+                return detail;
+
+            return Camera.Status switch
             {
-                case CameraStatus.AccessDenied:
-                    const string hint = "Einstellungen → Datenschutz → Kamera → Desktop-Apps Zugriff erlauben";
-                    var text = string.IsNullOrWhiteSpace(message)
-                        ? "Die Fotobox darf nicht auf die Kamera zugreifen."
-                        : message;
-                    return text.Contains("Datenschutz", StringComparison.OrdinalIgnoreCase)
-                        ? text
-                        : $"{text}\n{hint}";
-                case CameraStatus.NoDevice:
-                    return string.IsNullOrWhiteSpace(message)
-                        ? "Bitte die Kamera anschließen. Die Verbindung wird automatisch erneut versucht."
-                        : message;
-                case CameraStatus.Error:
-                    return string.IsNullOrWhiteSpace(message)
-                        ? "Beim Starten der Kamera ist ein Fehler aufgetreten. Es wird automatisch erneut versucht."
-                        : message;
-                default:
-                    return "";
-            }
+                CameraStatus.AccessDenied => CameraMessages.AccessDeniedHint,
+                CameraStatus.NoDevice => CameraMessages.NoDeviceHint,
+                CameraStatus.Error => CameraMessages.UnavailableHint,
+                _ => "",
+            };
         }
     }
 
     /// <summary>Hinweis „Drücke die Leertaste“ – nur wenn ein Foto auch wirklich möglich ist.</summary>
     public bool ShowHint => IsIdle && Camera.Status == CameraStatus.Running;
 
-    /// <summary>Admin-Ansicht darf geöffnet werden (kein Ablauf läuft).</summary>
-    public bool CanOpenAdmin => Controller.State is BoothState.Idle or BoothState.Starting;
+    /// <summary>Die modale Admin-Ansicht (inklusive PIN-Abfrage) ist offen; das Hauptfenster setzt das Flag.</summary>
+    public bool IsAdminOpen
+    {
+        get => _isAdminOpen;
+        set
+        {
+            if (_isAdminOpen == value) return;
+            _isAdminOpen = value;
+            OnPropertyChanged(nameof(IsAdminOpen));
+            OnPropertyChanged(nameof(CanOpenAdmin));
+        }
+    }
 
-    /// <summary>Beim Laden des Fensters: Controller freigeben, Kamera starten, Wiederholversuche aktivieren.</summary>
+    /// <summary>Admin-Ansicht darf geöffnet werden: im Leerlauf, beim Start und im Fehlerzustand, nicht mitten im Ablauf.</summary>
+    public bool CanOpenAdmin =>
+        !IsAdminOpen && Controller.State is BoothState.Idle or BoothState.Starting or BoothState.Error;
+
+    /// <summary>Ein Kamerastart/-neustart dieser Ansicht läuft gerade.</summary>
+    public bool IsCameraBusy => _cameraGate.CurrentCount == 0;
+
+    /// <summary>
+    /// Löst einen Durchgang aus. Gesperrt, solange die Admin-Ansicht offen ist oder die Kamera gerade (neu) startet;
+    /// alles Weitere (Idle, Kamera läuft) prüft der <see cref="BoothController"/>.
+    /// </summary>
+    public bool TryTrigger() => !IsAdminOpen && !IsCameraBusy && Controller.TryTrigger();
+
+    /// <summary>Beim Laden des Fensters: Controller freigeben und Kamera starten.</summary>
     public async Task InitializeAsync()
     {
         Controller.MarkReady();
-        _retryTimer.Start();
         Refresh();
         await StartCameraAsync();
     }
@@ -129,10 +140,9 @@ public sealed class BoothViewModel : ObservableObject
     /// <summary>Startet die Kamera mit den aktuellen Einstellungen neu (z. B. nach Admin-Änderungen).</summary>
     public Task RestartCameraAsync() => StartCameraAsync();
 
-    /// <summary>Stoppt Wiederholversuche, bricht einen Ablauf ab und stoppt die Kamera (blockiert max. 3 s).</summary>
+    /// <summary>Bricht einen Ablauf ab und stoppt die Kamera (blockiert max. 3 s).</summary>
     public void Shutdown()
     {
-        _retryTimer.Stop();
         Controller.Cancel();
         try
         {
@@ -164,16 +174,18 @@ public sealed class BoothViewModel : ObservableObject
         }
     }
 
-    private async void OnRetryTick(object? sender, EventArgs e)
+    /// <summary>Dienstmeldung ohne den (ggf. vorangestellten) Titel; null, wenn nichts darüber hinaus gesagt wird.</summary>
+    private static string? DetailBeyondTitle(string? message, string title)
     {
-        if (Camera.Status is not (CameraStatus.NoDevice or CameraStatus.Error or CameraStatus.AccessDenied))
-            return;
-        if (!CanOpenAdmin || _cameraGate.CurrentCount == 0)
-            return;
+        if (string.IsNullOrWhiteSpace(message))
+            return null;
 
-        AppLog.Info($"Kamera-Neustartversuch (Status {Camera.Status}).");
-        try { await StartCameraAsync(); }
-        catch (Exception ex) { AppLog.Error("Kamera-Neustartversuch fehlgeschlagen.", ex); }
+        var text = message.Trim();
+        var heading = title.TrimEnd('.', ' ');
+        if (text.StartsWith(heading, StringComparison.OrdinalIgnoreCase))
+            text = text[heading.Length..].TrimStart('.', ':', ' ');
+
+        return text.Length == 0 ? null : text;
     }
 
     private void Refresh()

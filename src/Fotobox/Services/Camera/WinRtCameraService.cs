@@ -14,8 +14,6 @@ namespace Fotobox.Services.Camera;
 /// <summary>Kamera-Dienst auf Basis von Windows.Media.Capture (MediaCapture + MediaFrameReader).</summary>
 public sealed class WinRtCameraService : ICameraService
 {
-    private const string AccessDeniedMessage =
-        "Kein Zugriff auf die Kamera. Bitte unter Windows-Einstellungen → Datenschutz und Sicherheit → Kamera den Zugriff für Desktop-Apps erlauben.";
     private static readonly TimeSpan ReconnectInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(2);
 
@@ -101,7 +99,7 @@ public sealed class WinRtCameraService : ICameraService
             return;
 
         CancelReconnect();
-        Interlocked.Increment(ref _generation);
+        var generation = Interlocked.Increment(ref _generation);
 
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -109,13 +107,22 @@ public sealed class WinRtCameraService : ICameraService
             if (Volatile.Read(ref _disposed) != 0)
                 return;
             _lastSettings = CopyOf(settings);
-            await StartCoreAsync(_lastSettings, ct).ConfigureAwait(false);
+            await StartCoreAsync(_lastSettings, background: false, ct).ConfigureAwait(false);
+
+            // Einziger Wiederholmechanismus: Scheitert der Start (kein Gerät, Zugriff verweigert, Fehler),
+            // versucht die Schleife es mit denselben Einstellungen erneut, bis ein neuer Start/Stopp sie ablöst.
+            // Unter dem Gate gestartet, damit ein paralleler Start die Schleife nicht versehentlich abbricht.
+            if (IsRetryable(Status))
+                StartReconnectLoop(generation);
         }
         finally
         {
             _gate.Release();
         }
     }
+
+    private static bool IsRetryable(CameraStatus status) =>
+        status is CameraStatus.NoDevice or CameraStatus.AccessDenied or CameraStatus.Error;
 
     public async Task StopAsync()
     {
@@ -195,10 +202,14 @@ public sealed class WinRtCameraService : ICameraService
 
     // ---- Session-Aufbau (unter _gate) ----
 
-    private async Task StartCoreAsync(CameraSettings settings, CancellationToken ct)
+    // background = Wiederholversuch aus einem Fehlerzustand: Der Status bleibt unverändert (kein Starting),
+    // damit Problemanzeige und Vorschau-Overlay nicht alle paar Sekunden flackern.
+    private async Task StartCoreAsync(CameraSettings settings, bool background, CancellationToken ct)
     {
+        // Starting vor dem Abbau melden, damit während des Abbaus kein Foto mehr angenommen wird.
+        if (!background)
+            SetStatus(CameraStatus.Starting, "Kamera wird gestartet …");
         await StopCoreAsync().ConfigureAwait(false);
-        SetStatus(CameraStatus.Starting, "Kamera wird gestartet …");
 
         MediaCapture? capture = null;
         MediaFrameReader? reader = null;
@@ -208,7 +219,7 @@ public sealed class WinRtCameraService : ICameraService
             var devices = await GetDevicesAsync().ConfigureAwait(false);
             if (devices.Count == 0)
             {
-                SetStatus(CameraStatus.NoDevice, "Keine Kamera gefunden.");
+                SetStatus(CameraStatus.NoDevice, CameraMessages.NoDevice);
                 return;
             }
 
@@ -266,7 +277,7 @@ public sealed class WinRtCameraService : ICameraService
         {
             AppLog.Error("Kamerazugriff verweigert.", ex);
             await CleanupAsync(capture, reader).ConfigureAwait(false);
-            SetStatus(CameraStatus.AccessDenied, AccessDeniedMessage);
+            SetStatus(CameraStatus.AccessDenied, CameraMessages.AccessDenied);
         }
         catch (OperationCanceledException)
         {
@@ -447,7 +458,8 @@ public sealed class WinRtCameraService : ICameraService
             try
             {
                 var bitmap = source;
-                if (bitmap.BitmapPixelFormat != BitmapPixelFormat.Bgra8 || bitmap.BitmapAlphaMode != BitmapAlphaMode.Premultiplied)
+                // Nur fremde Pixelformate umwandeln; der Alphamodus ist egal (Vorschau ignoriert Alpha, das Foto wird deckend gesetzt).
+                if (bitmap.BitmapPixelFormat != BitmapPixelFormat.Bgra8)
                 {
                     converted = SoftwareBitmap.Convert(source, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
                     bitmap = converted;
@@ -497,6 +509,7 @@ public sealed class WinRtCameraService : ICameraService
             finally
             {
                 converted?.Dispose();
+                source.Dispose(); // gehört uns: pro Frame freigeben, sonst hängt der native Puffer bis zur GC
             }
         }
         catch (Exception ex)
@@ -524,8 +537,9 @@ public sealed class WinRtCameraService : ICameraService
                 if (Volatile.Read(ref _disposed) != 0 || !ReferenceEquals(_capture, failed))
                     return;
                 generation = Volatile.Read(ref _generation);
+                // Status zuerst ändern, damit während des Abbaus kein Foto mehr angenommen wird.
+                SetStatus(CameraStatus.Error, CameraMessages.ConnectionLost);
                 await StopCoreAsync().ConfigureAwait(false);
-                SetStatus(CameraStatus.Error, "Die Verbindung zur Kamera wurde unterbrochen. Es wird versucht, sie wiederherzustellen.");
             }
             finally
             {
@@ -566,7 +580,7 @@ public sealed class WinRtCameraService : ICameraService
                         return;
 
                     AppLog.Info("Kamera: Wiederverbindungsversuch.");
-                    await StartCoreAsync(settings, ct).ConfigureAwait(false);
+                    await StartCoreAsync(settings, background: true, ct).ConfigureAwait(false);
                     if (Status == CameraStatus.Running)
                         return;
                 }
@@ -603,6 +617,8 @@ public sealed class WinRtCameraService : ICameraService
     {
         lock (_stateLock)
         {
+            if (_status == status && _statusMessage == message)
+                return;
             _status = status;
             _statusMessage = message;
         }
