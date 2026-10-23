@@ -1,10 +1,11 @@
-// Stub – wird von Stream D implementiert
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using Fotobox.Core;
 
 namespace Fotobox.Services.Storage;
 
+/// <summary>Einstellungen als settings.json in %LOCALAPPDATA%\Fotobox (atomar geschrieben, thread-sicher).</summary>
 public sealed class JsonSettingsStore : ISettingsStore
 {
     private readonly object _gate = new();
@@ -35,28 +36,79 @@ public sealed class JsonSettingsStore : ISettingsStore
 
     public void Save(AppSettings settings)
     {
-        var copy = settings.Clone();
+        ArgumentNullException.ThrowIfNull(settings);
+        var copy = SettingsNormalizer.Normalize(settings.Clone());
+        var json = JsonSerializer.Serialize(copy, AppSettings.JsonOptions);
+
         lock (_gate)
         {
-            var tmp = _settingsPath + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(copy, AppSettings.JsonOptions));
-            File.Move(tmp, _settingsPath, overwrite: true);
+            var tmp = Path.Combine(ConfigDirectory, $"settings.json.{Guid.NewGuid():N}.tmp");
+            try
+            {
+                using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    using (var writer = new StreamWriter(fs, new UTF8Encoding(false), leaveOpen: true))
+                        writer.Write(json);
+                    fs.Flush(true);
+                }
+
+                if (File.Exists(_settingsPath))
+                    File.Replace(tmp, _settingsPath, null);
+                else
+                    File.Move(tmp, _settingsPath);
+            }
+            catch
+            {
+                TryDelete(tmp);
+                throw;
+            }
             _current = copy;
         }
+
         SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private AppSettings Load()
     {
+        if (!File.Exists(_settingsPath))
+            return SettingsNormalizer.Normalize(new AppSettings());
+
         try
         {
-            if (File.Exists(_settingsPath))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath), AppSettings.JsonOptions) ?? new AppSettings();
+            var json = File.ReadAllText(_settingsPath);
+            var loaded = JsonSerializer.Deserialize<AppSettings>(json, AppSettings.JsonOptions)
+                         ?? throw new JsonException("settings.json enthält keinen Inhalt.");
+            return SettingsNormalizer.Normalize(loaded);
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException)
+        {
+            BackupBrokenFile();
+            AppLog.Warn("settings.json ist defekt – Standardwerte werden verwendet.", ex);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Warn("settings.json konnte nicht gelesen werden – Standardwerte werden verwendet.", ex);
+        }
+        return SettingsNormalizer.Normalize(new AppSettings());
+    }
+
+    private void BackupBrokenFile()
+    {
+        try
+        {
+            var backup = $"{_settingsPath}.bak-{DateTime.Now:yyyyMMddHHmmss}";
+            File.Move(_settingsPath, backup, overwrite: true);
+            AppLog.Info($"Defekte Einstellungsdatei gesichert als {Path.GetFileName(backup)}.");
         }
         catch (Exception ex)
         {
-            AppLog.Error("settings.json konnte nicht gelesen werden – Standardwerte werden verwendet.", ex);
+            AppLog.Warn("Defekte settings.json konnte nicht gesichert werden.", ex);
         }
-        return new AppSettings();
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); }
+        catch { /* best effort */ }
     }
 }
