@@ -32,6 +32,21 @@ public sealed class AdminLauncher : IAdminLauncher
 
     public bool EnsurePinConfigured(Window? owner)
     {
+        // Fail-closed: Ist settings.json vorhanden, aber nicht lesbar, wäre HasPin fälschlich false –
+        // dann dürfte jeder Gast eine neue PIN festlegen. Stattdessen Fehlermeldung mit Erneut-versuchen/Beenden.
+        while (_settings.LoadFailed)
+        {
+            var retry = ShowRetry(owner,
+                "Die Einstellungsdatei (settings.json) konnte nicht gelesen werden.\n\n" +
+                "Vermutlich greift gerade ein anderes Programm darauf zu (z. B. Virenscanner oder Datensicherung). " +
+                "Die gespeicherten Einstellungen und die PIN bleiben unverändert erhalten.\n\n" +
+                "Klicken Sie auf „OK“, um es erneut zu versuchen, oder auf „Abbrechen“, um die Fotobox zu beenden.");
+            if (!retry)
+                return false;
+            if (_settings.TryReload())
+                break;
+        }
+
         if (_pinService.HasPin)
             return true;
 
@@ -57,7 +72,8 @@ public sealed class AdminLauncher : IAdminLauncher
 
     public AdminResult OpenAdmin(Window owner)
     {
-        if (!_pinService.HasPin && !EnsurePinConfigured(owner))
+        // Auch hier prüfen: bei nicht lesbarer Einstellungsdatei bleibt die Admin-Ansicht gesperrt.
+        if ((_settings.LoadFailed || !_pinService.HasPin) && !EnsurePinConfigured(owner))
             return new AdminResult(false, false, false);
 
         var pinDialog = new PinDialog(_pinService.Verify, _limiter, owner);
@@ -92,6 +108,14 @@ public sealed class AdminLauncher : IAdminLauncher
 
         AppLog.Info($"Admin-Ansicht geschlossen (gespeichert: {viewModel.SettingsSaved}, beenden: {viewModel.ExitRequested}).");
         return new AdminResult(true, viewModel.SettingsSaved, viewModel.ExitRequested);
+    }
+
+    private static bool ShowRetry(Window? owner, string message)
+    {
+        var result = owner is { IsLoaded: true }
+            ? MessageBox.Show(owner, message, "Fotobox", MessageBoxButton.OKCancel, MessageBoxImage.Error)
+            : MessageBox.Show(message, "Fotobox", MessageBoxButton.OKCancel, MessageBoxImage.Error);
+        return result == MessageBoxResult.OK;
     }
 
     private static void ShowError(Window? owner, string message)

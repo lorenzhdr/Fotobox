@@ -1,11 +1,13 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Security.Cryptography;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Fotobox.Core;
+using Fotobox.Services.Storage;
 
 namespace Fotobox.ViewModels.Admin;
 
@@ -34,7 +36,10 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private readonly IPrintService _print;
     private readonly IAdminUi _ui;
     private readonly SynchronizationContext? _sync = SynchronizationContext.Current;
+    private readonly TimeProvider _time;
     private readonly SemaphoreSlim _cameraGate = new(1, 1);
+    // Wird beim Schließen der Admin-Ansicht (Dispose) abgebrochen, damit ein hängender Testdruck sie nicht überdauert.
+    private readonly CancellationTokenSource _lifetime = new();
     private readonly AppSettings _draft;
 
     private bool _loading;
@@ -56,8 +61,10 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private string _overlayInfo = string.Empty;
     private ImageSource? _overlayThumbnail;
 
-    public AdminViewModel(ISettingsStore store, IPinService pin, ICameraService camera, IPrintService print, IAdminUi ui)
+    public AdminViewModel(ISettingsStore store, IPinService pin, ICameraService camera, IPrintService print, IAdminUi ui,
+        TimeProvider? time = null)
     {
+        _time = time ?? TimeProvider.System;
         _store = store;
         _pin = pin;
         Camera = camera;
@@ -509,11 +516,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             // Vorab prüfen, ob die Datei ein gültiges Bild ist.
             _ = LoadBitmap(sourcePath);
 
-            Directory.CreateDirectory(_store.OverlayDirectory);
-            var fileName = Path.GetFileName(sourcePath);
-            var target = Path.Combine(_store.OverlayDirectory, fileName);
-            if (!string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
-                File.Copy(sourcePath, target, overwrite: true);
+            // Eine vorhandene Overlay-Datei (ggf. das aktive Overlay) wird nie überschrieben: „Abbrechen“ in der
+            // Admin-Ansicht könnte das nicht rückgängig machen. Stattdessen eindeutiger Name bzw. identische Datei wiederverwenden.
+            var fileName = CopyOverlayToStore(sourcePath);
 
             _draft.Layout.OverlayFileName = fileName;
             ValidationMessage = string.Empty;
@@ -526,6 +531,59 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             ValidationMessage = "Das Overlay konnte nicht übernommen werden. Ist es eine gültige PNG-Datei?";
             return false;
         }
+    }
+
+    /// <summary>Legt die Datei im Overlay-Ordner ab, ohne Vorhandenes zu überschreiben, und liefert den Dateinamen.</summary>
+    private string CopyOverlayToStore(string sourcePath)
+    {
+        var directory = _store.OverlayDirectory;
+        Directory.CreateDirectory(directory);
+
+        var original = Path.GetFileName(sourcePath);
+        var stem = Path.GetFileNameWithoutExtension(original);
+        var extension = Path.GetExtension(original);
+        var sourceFull = Path.GetFullPath(sourcePath);
+
+        for (var attempt = 1; attempt <= 1000; attempt++)
+        {
+            var name = attempt == 1 ? original : $"{stem}_{attempt}{extension}";
+            var target = Path.Combine(directory, name);
+
+            // Die Datei liegt bereits im Overlay-Ordner (z. B. erneut ausgewählt) → direkt verwenden.
+            if (string.Equals(sourceFull, Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+                return name;
+
+            if (File.Exists(target))
+            {
+                if (SameContent(sourcePath, target))
+                    return name;
+                continue;
+            }
+
+            try
+            {
+                File.Copy(sourcePath, target, overwrite: false);
+                return name;
+            }
+            catch (IOException) when (File.Exists(target))
+            {
+                // Zwischenzeitlich angelegt → nächsten Namen versuchen (bzw. identische Datei erkennen).
+                if (SameContent(sourcePath, target))
+                    return name;
+            }
+        }
+
+        throw new IOException("Für das Overlay konnte kein freier Dateiname gefunden werden.");
+    }
+
+    private static bool SameContent(string a, string b)
+    {
+        if (new FileInfo(a).Length != new FileInfo(b).Length)
+            return false;
+
+        using var fa = File.OpenRead(a);
+        using var fb = File.OpenRead(b);
+        return SHA256.HashData(fa).AsSpan().SequenceEqual(SHA256.HashData(fb));
     }
 
     private void RemoveOverlay()
@@ -753,6 +811,10 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
     private async Task TestPrintAsync()
     {
+        if (_disposed)
+            return;
+
+        var ct = _lifetime.Token;
         IsTestPrinting = true;
         TestPrintStatus = "Testseite wird vorbereitet …";
         try
@@ -771,7 +833,11 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             var page = _print.GetPageSpec(printer, _draft.Layout.Kind);
             var bitmap = _ui.RenderTestPage(page);
             var progress = new Progress<string>(s => TestPrintStatus = s);
-            var result = await _print.PrintAsync(bitmap, printer, progress);
+            // Hartes Limit wie beim Druck im Fotobetrieb: Druck-Timeout plus Reserve; ein blockierendes Write
+            // soll weder den Button dauerhaft sperren noch das Schließen der Admin-Ansicht überdauern.
+            var printTask = _print.PrintAsync(bitmap, printer, progress, ct);
+            _ = printTask.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+            var result = await printTask.WaitAsync(TimeSpan.FromSeconds(printer.TimeoutSeconds + 30), _time, ct);
             TestPrintStatus = result.Outcome switch
             {
                 PrintOutcome.Completed => "Testdruck abgeschlossen.",
@@ -780,6 +846,15 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 _ => "Testdruck fehlgeschlagen. " + (result.Message ?? string.Empty),
             };
             TestPrintStatus = TestPrintStatus.TrimEnd();
+        }
+        catch (TimeoutException)
+        {
+            AppLog.Warn("Testdruck: keine Antwort des Druckers innerhalb des Zeitlimits.");
+            TestPrintStatus = "Testdruck: Zeitüberschreitung. Der Drucker hat nicht geantwortet. Bitte prüfen Sie Drucker und Verbindung.";
+        }
+        catch (OperationCanceledException)
+        {
+            TestPrintStatus = "Testdruck abgebrochen.";
         }
         catch (Exception ex)
         {
@@ -964,8 +1039,14 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             errors.Add("Das Dateipräfix darf höchstens 40 Zeichen lang sein und keine Zeichen wie \\ / : * ? \" < > | enthalten.");
 
         var folder = _draft.Storage.PhotoFolder;
-        if (!string.IsNullOrWhiteSpace(folder) && !IsUsablePath(folder))
-            errors.Add("Der Speicherordner ist kein gültiger Pfad. Bitte wählen Sie einen Ordner aus.");
+        if (!string.IsNullOrWhiteSpace(folder))
+        {
+            // Echter Schreibtest, damit ein Fehler nicht erst bei der ersten Session auffällt (und dann nicht gedruckt wird).
+            if (!IsUsablePath(folder))
+                errors.Add("Der Speicherordner ist kein gültiger Pfad. Bitte wählen Sie einen Ordner aus.");
+            else if (!FolderProbe.TryEnsureWritable(folder, out var folderError))
+                errors.Add($"In den Speicherordner kann nicht geschrieben werden ({folderError}). Bitte wählen Sie einen anderen Ordner aus.");
+        }
 
         if (_newPin.Length > 0 || _repeatPin.Length > 0)
         {
@@ -1055,5 +1136,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             return;
         _disposed = true;
         Camera.StatusChanged -= OnCameraStatusChanged;
+        _lifetime.Cancel();
+        _lifetime.Dispose();
     }
 }

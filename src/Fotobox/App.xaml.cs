@@ -52,7 +52,7 @@ public partial class App : Application
         var adminLauncher = _services.GetRequiredService<IAdminLauncher>();
         if (!adminLauncher.EnsurePinConfigured(null))
         {
-            AppLog.Info("Erststart-PIN-Dialog abgebrochen – Fotobox wird beendet.");
+            AppLog.Info("PIN-Einrichtung bzw. Laden der Einstellungen abgebrochen – Fotobox wird beendet.");
             Shutdown();
             return;
         }

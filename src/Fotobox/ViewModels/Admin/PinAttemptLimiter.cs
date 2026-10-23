@@ -2,10 +2,15 @@ namespace Fotobox.ViewModels.Admin;
 
 /// <summary>
 /// Begrenzt PIN-Fehlversuche: nach <see cref="MaxAttempts"/> Fehlversuchen ist die Eingabe für
-/// <see cref="LockoutDuration"/> gesperrt. Zeit kommt über <see cref="TimeProvider"/> (testbar).
+/// <see cref="LockoutDuration"/> gesperrt. Jeder weitere Fehlversuch (der Zähler wird erst durch eine richtige
+/// PIN zurückgesetzt, nicht durch Ablauf der Sperre) verlängert die Sperre stufenweise (30 s, 60 s, 2 min,
+/// 5 min, höchstens 15 min). Zeit kommt über <see cref="TimeProvider"/> (testbar).
 /// </summary>
 public sealed class PinAttemptLimiter
 {
+    // Faktoren auf die Grunddauer: 30 s, 60 s, 2 min, 5 min, 15 min (letzte Stufe gilt dauerhaft).
+    private static readonly int[] LockoutFactors = [1, 2, 4, 10, 30];
+
     private readonly TimeProvider _time;
     private readonly object _gate = new();
     private int _failures;
@@ -22,7 +27,11 @@ public sealed class PinAttemptLimiter
 
     public int MaxAttempts { get; }
 
+    /// <summary>Grunddauer der ersten Sperre.</summary>
     public TimeSpan LockoutDuration { get; }
+
+    /// <summary>Längste Sperrdauer (letzte Eskalationsstufe).</summary>
+    public TimeSpan MaxLockoutDuration => LockoutDuration * LockoutFactors[^1];
 
     public bool IsLockedOut => RemainingLockout > TimeSpan.Zero;
 
@@ -40,15 +49,15 @@ public sealed class PinAttemptLimiter
                 if (remaining > TimeSpan.Zero)
                     return remaining;
 
-                // Sperre abgelaufen → neue Versuche erlaubt.
+                // Sperre abgelaufen → neuer Versuch erlaubt. Der Fehlerzähler bleibt bewusst stehen:
+                // Ein weiterer Fehlversuch löst sofort die nächsthöhere Sperrstufe aus.
                 _lockedUntil = null;
-                _failures = 0;
                 return TimeSpan.Zero;
             }
         }
     }
 
-    /// <summary>Verbleibende Versuche bis zur nächsten Sperre.</summary>
+    /// <summary>Verbleibende Versuche bis zur nächsten Sperre (nach einer ersten Sperre immer 1).</summary>
     public int RemainingAttempts
     {
         get
@@ -56,7 +65,7 @@ public sealed class PinAttemptLimiter
             if (IsLockedOut)
                 return 0;
             lock (_gate)
-                return Math.Max(0, MaxAttempts - _failures);
+                return Math.Max(1, MaxAttempts - _failures);
         }
     }
 
@@ -70,7 +79,10 @@ public sealed class PinAttemptLimiter
         {
             _failures++;
             if (_failures >= MaxAttempts)
-                _lockedUntil = _time.GetUtcNow() + LockoutDuration;
+            {
+                var level = Math.Min(_failures - MaxAttempts, LockoutFactors.Length - 1);
+                _lockedUntil = _time.GetUtcNow() + LockoutDuration * LockoutFactors[level];
+            }
         }
     }
 

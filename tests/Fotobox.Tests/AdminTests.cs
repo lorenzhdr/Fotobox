@@ -45,7 +45,7 @@ public class PinAttemptLimiterTests
 
         time.Advance(TimeSpan.FromSeconds(1));
         Assert.False(limiter.IsLockedOut);
-        Assert.Equal(5, limiter.RemainingAttempts);
+        Assert.Equal(1, limiter.RemainingAttempts); // Zähler bleibt: ein weiterer Fehlversuch löst die nächste Stufe aus
     }
 
     [Fact]
@@ -62,18 +62,61 @@ public class PinAttemptLimiterTests
     }
 
     [Fact]
-    public void AfterLockout_AllowsAFreshSetOfAttempts()
+    public void Lockout_EscalatesWithEachFurtherFailure_UpToFifteenMinutes()
+    {
+        var (limiter, time) = Create();
+        TimeSpan[] expected =
+        [
+            TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60), TimeSpan.FromMinutes(2),
+            TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(15),
+        ];
+
+        for (var i = 0; i < 5; i++)
+            limiter.RegisterFailure();
+        Assert.Equal(expected[0], limiter.RemainingLockout);
+
+        for (var level = 1; level < expected.Length; level++)
+        {
+            // Nach Ablauf der Sperre genügt ein einziger weiterer Fehlversuch für die nächste Stufe.
+            time.Advance(expected[level - 1]);
+            Assert.False(limiter.IsLockedOut);
+            Assert.Equal(1, limiter.RemainingAttempts);
+
+            limiter.RegisterFailure();
+            Assert.Equal(expected[level], limiter.RemainingLockout);
+        }
+    }
+
+    [Fact]
+    public void ExpiredLockout_DoesNotResetFailureCounter()
     {
         var (limiter, time) = Create();
         for (var i = 0; i < 5; i++)
             limiter.RegisterFailure();
         time.Advance(TimeSpan.FromSeconds(31));
+        Assert.False(limiter.IsLockedOut);
 
-        for (var i = 0; i < 4; i++)
+        limiter.RegisterFailure();
+
+        Assert.True(limiter.IsLockedOut);
+        Assert.Equal(TimeSpan.FromSeconds(60), limiter.RemainingLockout);
+    }
+
+    [Fact]
+    public void Success_AfterEscalation_StartsOverAtThirtySeconds()
+    {
+        var (limiter, time) = Create();
+        for (var i = 0; i < 6; i++)
+        {
+            limiter.RegisterFailure();
+            time.Advance(TimeSpan.FromMinutes(20));
+        }
+
+        limiter.RegisterSuccess();
+        for (var i = 0; i < 5; i++)
             limiter.RegisterFailure();
 
-        Assert.False(limiter.IsLockedOut);
-        Assert.Equal(1, limiter.RemainingAttempts);
+        Assert.Equal(TimeSpan.FromSeconds(30), limiter.RemainingLockout);
     }
 
     [Fact]
@@ -140,7 +183,7 @@ public sealed class AdminViewModelTests : IDisposable
         }
     }
 
-    private AdminViewModel CreateViewModel() => new(_store, _pin, _camera, _print, _ui);
+    private AdminViewModel CreateViewModel(TimeProvider? time = null) => new(_store, _pin, _camera, _print, _ui, time);
 
     [Fact]
     public void EditsApplyToClone_NotToStoreSettings()
@@ -450,6 +493,40 @@ public sealed class AdminViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task TestPrint_HangingPrint_TimesOut_AndReEnablesButton()
+    {
+        var time = new FakeTimeProvider();
+        _print.Gate = new TaskCompletionSource<PrintResult>();
+        var vm = CreateViewModel(time);
+
+        var running = vm.TestPrintCommand.ExecuteAsync(null);
+        Assert.True(vm.IsTestPrinting);
+        Assert.False(vm.TestPrintCommand.CanExecute(null));
+
+        time.Advance(TimeSpan.FromSeconds(vm.Draft.Printer.TimeoutSeconds + 30));
+        await running.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Contains("Zeitüberschreitung", vm.TestPrintStatus);
+        Assert.False(vm.IsTestPrinting);
+        Assert.True(vm.TestPrintCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task TestPrint_ClosingAdminView_CancelsHangingPrint()
+    {
+        _print.Gate = new TaskCompletionSource<PrintResult>();
+        var vm = CreateViewModel(new FakeTimeProvider());
+
+        var running = vm.TestPrintCommand.ExecuteAsync(null);
+        vm.Dispose();
+        await running.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(_print.LastToken.IsCancellationRequested);
+        Assert.Equal("Testdruck abgebrochen.", vm.TestPrintStatus);
+        Assert.False(vm.IsTestPrinting);
+    }
+
+    [Fact]
     public void OverlayHint_NamesRecommendedPixelSize()
     {
         var vm = CreateViewModel();
@@ -472,6 +549,50 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.NotNull(vm.OverlayThumbnail);
         Assert.Contains("40 × 60", vm.OverlayInfo);
         Assert.Null(_store.Current.Layout.OverlayFileName);
+    }
+
+    [StaFact]
+    public void ImportOverlay_SameNameDifferentContent_KeepsExistingFile_AndUsesNewName()
+    {
+        var existing = Path.Combine(_store.OverlayDirectory, "rahmen.png");
+        WritePng(existing, 10, 10);
+        var existingBytes = File.ReadAllBytes(existing);
+        var source = Path.Combine(_dir, "rahmen.png");
+        WritePng(source, 40, 60);
+        var vm = CreateViewModel();
+        vm.Draft.Layout.OverlayFileName = "rahmen.png"; // aktives Overlay
+
+        Assert.True(vm.ImportOverlay(source));
+
+        Assert.Equal(existingBytes, File.ReadAllBytes(existing));
+        Assert.Equal("rahmen_2.png", vm.Draft.Layout.OverlayFileName);
+        Assert.True(File.Exists(Path.Combine(_store.OverlayDirectory, "rahmen_2.png")));
+
+        // Eine dritte, wieder andere Datei bekommt den nächsten freien Namen.
+        var third = Path.Combine(_dir, "andere", "rahmen.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(third)!);
+        WritePng(third, 20, 30);
+        Assert.True(vm.ImportOverlay(third));
+        Assert.Equal("rahmen_3.png", vm.Draft.Layout.OverlayFileName);
+        Assert.Equal(existingBytes, File.ReadAllBytes(existing));
+    }
+
+    [StaFact]
+    public void ImportOverlay_IdenticalFile_IsReused()
+    {
+        var source = Path.Combine(_dir, "rahmen.png");
+        WritePng(source, 40, 60);
+        var vm = CreateViewModel();
+        Assert.True(vm.ImportOverlay(source));
+
+        // Gleicher Inhalt aus anderem Ordner → vorhandene Datei wiederverwenden, nichts Neues anlegen.
+        var copy = Path.Combine(_dir, "kopie", "rahmen.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+        File.Copy(source, copy);
+        Assert.True(vm.ImportOverlay(copy));
+
+        Assert.Equal("rahmen.png", vm.Draft.Layout.OverlayFileName);
+        Assert.Single(Directory.GetFiles(_store.OverlayDirectory));
     }
 
     [StaFact]
@@ -514,6 +635,35 @@ public sealed class AdminViewModelTests : IDisposable
         vm.ResetFolderCommand.Execute(null);
         Assert.Null(vm.Draft.Storage.PhotoFolder);
         Assert.True(vm.IsDefaultPhotoFolder);
+    }
+
+    [Fact]
+    public void Validate_WritableCustomFolder_PassesAndLeavesNoFiles()
+    {
+        var vm = CreateViewModel();
+        var folder = Path.Combine(_dir, "Fotos", "Neu");
+        vm.Draft.Storage.PhotoFolder = folder;
+
+        Assert.Empty(vm.Validate());
+        Assert.True(Directory.Exists(folder));
+        Assert.Empty(Directory.GetFileSystemEntries(folder));
+    }
+
+    [Fact]
+    public void Validate_UnwritableFolder_ReportsGermanError_AndSaveIsRefused()
+    {
+        var blocker = Path.Combine(_dir, "blockiert");
+        File.WriteAllText(blocker, "Datei statt Ordner");
+        var vm = CreateViewModel();
+        vm.Draft.Storage.PhotoFolder = Path.Combine(blocker, "unterordner");
+
+        var errors = vm.Validate();
+
+        Assert.Contains(errors, e => e.StartsWith("In den Speicherordner kann nicht geschrieben werden"));
+
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(0, _store.SaveCount);
+        Assert.True(vm.HasValidationMessage);
     }
 
     [Fact]
@@ -626,6 +776,9 @@ public sealed class AdminViewModelTests : IDisposable
         public BitmapSource? PrintedPage { get; private set; }
         public PrinterSettings? PrintedSettings { get; private set; }
         public PrintResult Result { get; set; } = new(PrintOutcome.Completed);
+        /// <summary>Gesetzt: PrintAsync hängt, bis das Ergebnis gesetzt wird (ignoriert den Abbruch-Token, wie ein blockierendes Write).</summary>
+        public TaskCompletionSource<PrintResult>? Gate { get; set; }
+        public CancellationToken LastToken { get; private set; }
 
         public IReadOnlyList<PrinterInfo> GetPrinters() =>
             [new PrinterInfo("Fotodrucker", true), new PrinterInfo("Bürodrucker", false)];
@@ -642,7 +795,8 @@ public sealed class AdminViewModelTests : IDisposable
         {
             PrintedPage = page;
             PrintedSettings = printer;
-            return Task.FromResult(Result);
+            LastToken = ct;
+            return Gate?.Task ?? Task.FromResult(Result);
         }
     }
 

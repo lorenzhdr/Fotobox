@@ -8,7 +8,11 @@ public interface ISettingsStore
     string OverlayDirectory { get; }     // ConfigDirectory\overlays (existiert nach ctor)
     AppSettings Current { get; }         // nie null; bei fehlender/defekter Datei Defaults (defekte Datei → .bak sichern + loggen)
     event EventHandler? SettingsChanged;
-    void Save(AppSettings settings);     // speichert Clone, atomar (tmp + File.Replace/Move), ersetzt Current, feuert SettingsChanged
+    void Save(AppSettings settings);     // speichert Clone, atomar (tmp + File.Replace/Move), ersetzt Current, feuert SettingsChanged; wirft IOException, wenn LoadFailed
+    /// <summary>true = settings.json existiert, war aber nicht lesbar (fail-closed: Current sind nur Standardwerte, Save verweigert).</summary>
+    bool LoadFailed => false;
+    /// <summary>Liest die Datei nach einem Ladefehler erneut. true = einsatzbereit (LoadFailed dann false).</summary>
+    bool TryReload() => true;
 }
 
 public interface IPinService
