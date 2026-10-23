@@ -1,0 +1,33 @@
+<Window x:Class="Fotobox.Views.Admin.PinDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Fotobox.Views.Admin"
+        Title="Fotobox – PIN"
+        WindowStyle="None" ResizeMode="NoResize" SizeToContent="WidthAndHeight"
+        ShowInTaskbar="False" Background="{DynamicResource BgBrush}"
+        FontFamily="Segoe UI" TextOptions.TextFormattingMode="Display">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="AdminTheme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Border BorderBrush="#9AA5B5" BorderThickness="1" Padding="36,30,36,28">
+        <StackPanel Width="330">
+            <TextBlock Text="Einstellungen" Style="{StaticResource SectionTitle}" HorizontalAlignment="Center" />
+            <TextBlock Text="Bitte PIN eingeben" FontSize="16" Foreground="{StaticResource MutedBrush}"
+                       HorizontalAlignment="Center" Margin="0,0,0,18" />
+
+            <PasswordBox x:Name="PinBox" Style="{StaticResource PinBoxStyle}" />
+
+            <TextBlock x:Name="MessageText" Foreground="{StaticResource DangerBrush}" FontSize="14"
+                       TextWrapping="Wrap" TextAlignment="Center" MinHeight="40" Margin="0,10,0,6"
+                       VerticalAlignment="Center" />
+
+            <local:PinPad x:Name="Pad" HorizontalAlignment="Center" />
+
+            <Button x:Name="CancelButton" Content="Abbrechen" Margin="5,12,5,0" Click="OnCancel" />
+        </StackPanel>
+    </Border>
+</Window>
