@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Fotobox.Views.Admin"
         xmlns:core="clr-namespace:Fotobox.Core"
+        xmlns:vm="clr-namespace:Fotobox.ViewModels.Admin"
         xmlns:controls="clr-namespace:Fotobox.Views.Controls"
         Title="Fotobox – Einstellungen"
         Width="1100" Height="750" MinWidth="900" MinHeight="620"
@@ -23,7 +24,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TabControl Grid.Row="0">
+        <TabControl Grid.Row="0" SelectionChanged="OnTabSelectionChanged">
 
             <!-- ============================== Kamera ============================== -->
             <TabItem Header="Kamera" Tag="&#xE722;">
@@ -56,7 +57,7 @@
                             <StackPanel Grid.Column="2">
                                 <TextBlock Text="Live-Vorschau" Style="{StaticResource FieldLabel}" Margin="0,50,0,6" />
                                 <Border Background="Black" CornerRadius="10" Height="380" ClipToBounds="True">
-                                    <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}" />
+                                    <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}" Stretch="Uniform" />
                                 </Border>
                                 <TextBlock Text="{Binding CameraStatusText}" Style="{StaticResource Hint}" />
                             </StackPanel>
@@ -89,6 +90,13 @@
                             <CheckBox Content="Fotos nach der Aufnahme drucken" IsChecked="{Binding PrintingEnabled}" />
                             <TextBlock Text="Ist das Drucken ausgeschaltet, werden die Fotos nur gespeichert."
                                        Style="{StaticResource Hint}" />
+
+                            <TextBlock Text="Erwartete Druckdauer" Style="{StaticResource FieldLabel}" />
+                            <local:NumberStepper Value="{Binding ExpectedPrintSeconds}" Minimum="{x:Static core:SettingsLimits.ExpectedPrintMin}" Maximum="{x:Static core:SettingsLimits.ExpectedPrintMax}" Step="10" Suffix=" s" />
+                            <TextBlock Text="So lange läuft der Fortschrittsbalken in der Gastansicht. Das Druck-Timeout liegt automatisch mindestens 60 s darüber."
+                                       Style="{StaticResource Hint}" />
+                            <TextBlock Text="{Binding PrintTimeoutHint}" Style="{StaticResource Hint}" Foreground="{StaticResource AccentBrush}"
+                                       Visibility="{Binding HasPrintTimeoutHint, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>
@@ -145,6 +153,46 @@
                             <StackPanel Visibility="{Binding IsStripLayout, Converter={StaticResource BoolToVis}}">
                                 <TextBlock Text="Anzahl der Fotos im Streifen" Style="{StaticResource FieldLabel}" />
                                 <local:NumberStepper Value="{Binding StripPhotoCount}" Minimum="{x:Static core:SettingsLimits.StripPhotosMin}" Maximum="{x:Static core:SettingsLimits.StripPhotosMax}" Suffix=" Fotos" />
+
+                                <TextBlock Text="Variante des Fotostreifens" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton GroupName="StripStyle" Style="{StaticResource CardRadio}" Width="250"
+                                                 IsChecked="{Binding IsStripDoubleCut}">
+                                        <StackPanel>
+                                            <Border Width="64" Height="92" Background="White" BorderBrush="#9AA5B5" BorderThickness="1.5" CornerRadius="3" Padding="7">
+                                                <UniformGrid Columns="2">
+                                                    <UniformGrid Rows="3" Margin="0,0,3,0">
+                                                        <Border Background="#7CA2E8" Margin="0,0,0,3" />
+                                                        <Border Background="#7CA2E8" Margin="0,0,0,3" />
+                                                        <Border Background="#7CA2E8" />
+                                                    </UniformGrid>
+                                                    <UniformGrid Rows="3" Margin="3,0,0,0">
+                                                        <Border Background="#7CA2E8" Margin="0,0,0,3" />
+                                                        <Border Background="#7CA2E8" Margin="0,0,0,3" />
+                                                        <Border Background="#7CA2E8" />
+                                                    </UniformGrid>
+                                                </UniformGrid>
+                                            </Border>
+                                            <TextBlock Text="2 Streifen nebeneinander (zum Teilen)" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2"
+                                                       HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <RadioButton GroupName="StripStyle" Style="{StaticResource CardRadio}" Width="250"
+                                                 IsChecked="{Binding IsStripSingle}">
+                                        <StackPanel>
+                                            <Border Width="64" Height="92" Background="White" BorderBrush="#9AA5B5" BorderThickness="1.5" CornerRadius="3" Padding="7">
+                                                <UniformGrid Rows="3">
+                                                    <Border Background="#7CA2E8" Margin="0,0,0,3" />
+                                                    <Border Background="#7CA2E8" Margin="0,0,0,3" />
+                                                    <Border Background="#7CA2E8" />
+                                                </UniformGrid>
+                                            </Border>
+                                            <TextBlock Text="1 Streifen – Fotos untereinander, ganze Seite" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2"
+                                                       HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                </StackPanel>
+                                <TextBlock Text="Fotostreifen werden immer im Hochformat gedruckt." Style="{StaticResource Hint}" />
                             </StackPanel>
 
                             <StackPanel Visibility="{Binding IsOverlayLayout, Converter={StaticResource BoolToVis}}">
@@ -169,6 +217,36 @@
                             <TextBox Text="{Binding CaptionText, UpdateSourceTrigger=PropertyChanged}" MaxLength="80" Width="520"
                                      HorizontalAlignment="Left" />
                             <TextBlock Text="Optionaler Text auf dem Ausdruck, zum Beispiel „Hochzeit Anna &amp; Ben“." Style="{StaticResource Hint}" />
+
+                            <TextBlock Text="Schriftart der Bildunterschrift" Style="{StaticResource FieldLabel}" />
+                            <!-- Virtualisiert: Systeme haben Hunderte Schriften; nur die sichtbaren Einträge werden erzeugt.
+                                 Tippen springt zum Eintrag (TextSearch über den Anzeigenamen). -->
+                            <ComboBox ItemsSource="{Binding CaptionFonts}" SelectedItem="{Binding SelectedCaptionFont}"
+                                      Width="520" HorizontalAlignment="Left" MaxDropDownHeight="360"
+                                      IsTextSearchEnabled="True" TextSearch.TextPath="Display"
+                                      ScrollViewer.CanContentScroll="True"
+                                      VirtualizingStackPanel.IsVirtualizing="True"
+                                      VirtualizingStackPanel.VirtualizationMode="Recycling"
+                                      AutomationProperties.Name="Schriftart der Bildunterschrift">
+                                <ComboBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel IsVirtualizing="True" VirtualizationMode="Recycling" />
+                                    </ItemsPanelTemplate>
+                                </ComboBox.ItemsPanel>
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Display}" FontFamily="{Binding Family}" FontSize="18" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Text="{x:Static vm:AdminViewModel.CaptionFontMissingHint}" Style="{StaticResource Hint}"
+                                       Foreground="{StaticResource DangerBrush}"
+                                       Visibility="{Binding IsCaptionFontMissing, Converter={StaticResource BoolToVis}}" />
+                            <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="16,12"
+                                    Margin="0,10,0,0" Width="520" HorizontalAlignment="Left" Background="#FAFBFD">
+                                <TextBlock Text="{Binding CaptionPreviewText}" FontFamily="{Binding CaptionPreviewFont}" FontSize="26"
+                                           TextTrimming="CharacterEllipsis" Foreground="{StaticResource TextBrush}" />
+                            </Border>
 
                             <CheckBox Content="Datum auf dem Ausdruck anzeigen" IsChecked="{Binding ShowDate}" Margin="0,18,0,0" />
                         </StackPanel>
@@ -206,6 +284,8 @@
                             <local:NumberStepper Value="{Binding PrintTimeoutSeconds}" Minimum="{x:Static core:SettingsLimits.PrintTimeoutMin}" Maximum="{x:Static core:SettingsLimits.PrintTimeoutMax}" Step="10" Suffix=" s" />
                             <TextBlock Text="Nach dieser Zeit meldet die Fotobox einen Druckfehler und ist wieder bereit."
                                        Style="{StaticResource Hint}" />
+                            <TextBlock Text="{Binding PrintTimeoutHint}" Style="{StaticResource Hint}" Foreground="{StaticResource AccentBrush}"
+                                       Visibility="{Binding HasPrintTimeoutHint, Converter={StaticResource BoolToVis}}" />
 
                             <TextBlock Text="Testdruck" Style="{StaticResource FieldLabel}" Margin="0,26,0,6" />
                             <StackPanel Orientation="Horizontal">
@@ -215,6 +295,78 @@
                             </StackPanel>
                             <TextBlock Text="Druckt eine Testseite mit Rahmen und Raster in der gewählten Papiergröße (mit den aktuellen, noch nicht gespeicherten Einstellungen)."
                                        Style="{StaticResource Hint}" />
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ============================== Tasten ============================== -->
+            <TabItem Header="Tasten" Tag="&#xE765;">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                            <TextBlock Text="Tasten" Style="{StaticResource SectionTitle}" />
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Legen Sie fest, mit welchen Tasten die Fotobox bedient wird. Jede Taste kann nur einer Aktion zugeordnet werden." />
+
+                            <ItemsControl ItemsSource="{Binding KeyEditors}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="12"
+                                                Padding="18,14" Margin="0,16,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource FieldLabel}" Margin="0" />
+                                                <TextBlock Text="{Binding Description}" Style="{StaticResource Hint}" />
+
+                                                <ItemsControl ItemsSource="{Binding Keys}" Margin="0,12,0,0" Focusable="False">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <WrapPanel />
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Background="{StaticResource AccentSoftBrush}" CornerRadius="10"
+                                                                    Padding="14,2,2,2" Margin="0,0,10,8">
+                                                                <StackPanel Orientation="Horizontal">
+                                                                    <TextBlock Text="{Binding DisplayName}" FontSize="15" FontWeight="SemiBold"
+                                                                               Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                                                                    <Button Content="&#xE711;" Command="{Binding RemoveCommand}"
+                                                                            Style="{StaticResource ChipRemoveButton}"
+                                                                            ToolTip="Taste entfernen" AutomationProperties.Name="Taste entfernen" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+
+                                                <Button Content="Taste hinzufügen" Command="{Binding AddKeyCommand}"
+                                                        HorizontalAlignment="Left" Margin="0,4,0,0" />
+
+                                                <Border Background="{StaticResource AccentSoftBrush}" CornerRadius="10" Padding="14,10" Margin="0,12,0,0"
+                                                        Visibility="{Binding IsCapturing, Converter={StaticResource BoolToVis}}">
+                                                    <StackPanel>
+                                                        <TextBlock FontSize="14" TextWrapping="Wrap" Foreground="{StaticResource AccentBrush}"
+                                                                   Text="Drücken Sie jetzt die gewünschte Taste (auch mit Strg/Alt/Umschalt) …" />
+                                                        <TextBlock FontSize="13.5" TextWrapping="Wrap" Foreground="{StaticResource DangerBrush}" Margin="0,6,0,0"
+                                                                   Text="{Binding DataContext.KeyMessage, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                                        <Button Content="Abbrechen" HorizontalAlignment="Left" Margin="0,10,0,0"
+                                                                Command="{Binding DataContext.CancelKeyCaptureCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="{Binding KeyMessage}" Style="{StaticResource Hint}" Margin="0,12,0,0"
+                                       Visibility="{Binding ShowKeyMessageBelow, Converter={StaticResource BoolToVis}}" />
+
+                            <Button Content="Standard wiederherstellen" Command="{Binding ResetKeysCommand}"
+                                    HorizontalAlignment="Left" Margin="0,18,0,0" />
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="„Foto auslösen“ und „Admin-Ansicht öffnen“ behalten immer mindestens eine Taste. Die Änderungen gelten nach „Speichern“." />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>
@@ -268,7 +420,7 @@
                     <Border Style="{StaticResource Card}">
                         <StackPanel MaxWidth="420" HorizontalAlignment="Left">
                             <TextBlock Text="Sicherheit" Style="{StaticResource SectionTitle}" />
-                            <TextBlock Text="Mit Strg+Alt+A öffnen Sie diese Einstellungen. Der Zugang ist durch eine PIN geschützt."
+                            <TextBlock Text="{Binding AdminKeysDisplay, StringFormat='Mit {0} öffnen Sie diese Einstellungen. Der Zugang ist durch eine PIN geschützt.'}"
                                        Style="{StaticResource Hint}" />
 
                             <TextBlock Text="Neue PIN (4 bis 12 Ziffern)" Style="{StaticResource FieldLabel}" />

@@ -92,6 +92,18 @@
         <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
     </Style>
 
+    <!-- Kleiner Entfernen-Button (✕) in den Tasten-Chips -->
+    <Style x:Key="ChipRemoveButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Width" Value="34" />
+        <Setter Property="Margin" Value="8,0,0,0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    </Style>
+
     <!-- Großer Ziffernblock-Button (nicht fokussierbar, damit das PIN-Feld den Fokus behält) -->
     <Style x:Key="PadButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="Focusable" Value="False" />
