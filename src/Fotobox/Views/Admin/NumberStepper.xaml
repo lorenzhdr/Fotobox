@@ -1,0 +1,14 @@
+<UserControl x:Class="Fotobox.Views.Admin.NumberStepper"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             HorizontalAlignment="Left">
+    <!-- Touch-taugliche Zahlenauswahl: − Wert + (gedrückt halten wiederholt) -->
+    <StackPanel Orientation="Horizontal">
+        <RepeatButton x:Name="DownButton" Style="{DynamicResource StepButton}" Content="−"
+                      Delay="400" Interval="90" Click="OnDown" AutomationProperties.Name="Verringern" />
+        <TextBlock x:Name="ValueText" MinWidth="96" Margin="6,0" FontSize="18" FontWeight="SemiBold"
+                   TextAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" />
+        <RepeatButton x:Name="UpButton" Style="{DynamicResource StepButton}" Content="+"
+                      Delay="400" Interval="90" Click="OnUp" AutomationProperties.Name="Erhöhen" />
+    </StackPanel>
+</UserControl>

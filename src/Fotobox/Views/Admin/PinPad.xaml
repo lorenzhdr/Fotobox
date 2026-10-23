@@ -1,0 +1,24 @@
+<UserControl x:Class="Fotobox.Views.Admin.PinPad"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Focusable="False">
+    <UserControl.Resources>
+        <ResourceDictionary Source="AdminTheme.xaml" />
+    </UserControl.Resources>
+    <!-- Ziffernblock: nicht fokussierbare Tasten, damit das PIN-Feld den Tastaturfokus behält -->
+    <UniformGrid Columns="3" Rows="4">
+        <Button Style="{StaticResource PadButton}" Content="1" Click="OnDigit" />
+        <Button Style="{StaticResource PadButton}" Content="2" Click="OnDigit" />
+        <Button Style="{StaticResource PadButton}" Content="3" Click="OnDigit" />
+        <Button Style="{StaticResource PadButton}" Content="4" Click="OnDigit" />
+        <Button Style="{StaticResource PadButton}" Content="5" Click="OnDigit" />
+        <Button Style="{StaticResource PadButton}" Content="6" Click="OnDigit" />
+        <Button Style="{StaticResource PadButton}" Content="7" Click="OnDigit" />
+        <Button Style="{StaticResource PadButton}" Content="8" Click="OnDigit" />
+        <Button Style="{StaticResource PadButton}" Content="9" Click="OnDigit" />
+        <Button Style="{StaticResource PadButton}" Content="Löschen" FontSize="16" Click="OnBackspace" />
+        <Button Style="{StaticResource PadButton}" Content="0" Click="OnDigit" />
+        <Button x:Name="OkButton" Style="{StaticResource PadButton}" Content="OK" Background="{StaticResource AccentBrush}"
+                Foreground="White" FontSize="22" Click="OnSubmit" />
+    </UniformGrid>
+</UserControl>
