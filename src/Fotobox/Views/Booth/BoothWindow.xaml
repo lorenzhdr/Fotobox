@@ -236,7 +236,7 @@
                 </RadialGradientBrush>
             </Grid.Background>
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="1400">
-                <TextBlock Text="🖨️" FontSize="200" HorizontalAlignment="Center" />
+                <TextBlock Text="🖨️" Foreground="White" FontSize="200" HorizontalAlignment="Center" />
                 <TextBlock Text="Fertig! 🎉" Foreground="{StaticResource Gold}" FontSize="140" FontWeight="Bold"
                            HorizontalAlignment="Center" Margin="0,16,0,0">
                     <TextBlock.Effect>
@@ -304,7 +304,7 @@
               Visibility="{Binding HasCameraProblem, Converter={StaticResource BoolToVis}}"
               Background="#F00B0D14">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="1100">
-                <TextBlock Text="📷" FontSize="120" HorizontalAlignment="Center" />
+                <TextBlock Text="📷" Foreground="White" FontSize="120" HorizontalAlignment="Center" />
                 <TextBlock Text="{Binding CameraProblemTitle}" Foreground="White" FontSize="60" FontWeight="Bold"
                            HorizontalAlignment="Center" Margin="0,16,0,0" />
                 <TextBlock Text="{Binding CameraProblemText}" Foreground="#FFD0D4E4" FontSize="32"
