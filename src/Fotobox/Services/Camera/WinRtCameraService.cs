@@ -14,7 +14,6 @@ namespace Fotobox.Services.Camera;
 /// <summary>Kamera-Dienst auf Basis von Windows.Media.Capture (MediaCapture + MediaFrameReader).</summary>
 public sealed class WinRtCameraService : ICameraService
 {
-    private static readonly TimeSpan ReconnectInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(2);
     // Obergrenze je Abbauschritt: Ein hängender Treiber darf Neustart und Beenden nicht unbegrenzt blockieren.
     private static readonly TimeSpan TeardownTimeout = TimeSpan.FromSeconds(3);
@@ -252,6 +251,8 @@ public sealed class WinRtCameraService : ICameraService
     {
         Started,
         Failed,
+        /// <summary>Wiederverbindungsversuch: Reader läuft, aber innerhalb der Frist kam kein Bild (Status unverändert).</summary>
+        NoImage,
         /// <summary>Vorübergehender Fehler, der im Vordergrund still (ohne Fehlerstatus) wiederholt werden soll.</summary>
         Transient,
     }
@@ -324,6 +325,15 @@ public sealed class WinRtCameraService : ICameraService
                 else
                     SetStatus(CameraStatus.Error, $"Die Kamera konnte nicht gestartet werden ({startStatus}).");
                 return StartOutcome.Failed;
+            }
+
+            // Wiederverbindungsversuche gelten erst mit dem ersten Bild als erfolgreich; bis dahin bleibt der Status
+            // unverändert (Fehlerzustand), damit die Anzeige nicht zwischen Schwarzbild und Fehlermeldung wechselt.
+            if (background && !await watchdog.WaitForFirstFrameAsync(ct).ConfigureAwait(false))
+            {
+                AppLog.Warn("Kamera liefert beim Wiederverbindungsversuch kein Bild.");
+                await CleanupAsync(capture, reader).ConfigureAwait(false);
+                return StartOutcome.NoImage;
             }
 
             var format = source.CurrentFormat?.VideoFormat;
@@ -811,9 +821,10 @@ public sealed class WinRtCameraService : ICameraService
     {
         try
         {
+            var noImageAttempts = 0;
             while (!ct.IsCancellationRequested)
             {
-                await Task.Delay(ReconnectInterval, ct).ConfigureAwait(false);
+                await Task.Delay(CameraReconnectBackoff.GetInterval(noImageAttempts), _time, ct).ConfigureAwait(false);
                 await _gate.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
@@ -824,7 +835,9 @@ public sealed class WinRtCameraService : ICameraService
                         return;
 
                     AppLog.Info("Kamera: Wiederverbindungsversuch.");
-                    await StartCoreAsync(settings, background: true, quietTransient: false, ct).ConfigureAwait(false);
+                    var outcome = await StartCoreAsync(settings, background: true, quietTransient: false, ct)
+                        .ConfigureAwait(false);
+                    noImageAttempts = outcome == StartOutcome.NoImage ? noImageAttempts + 1 : 0;
                     if (Status == CameraStatus.Running)
                         return;
                 }
