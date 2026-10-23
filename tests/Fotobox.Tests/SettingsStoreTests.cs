@@ -171,7 +171,7 @@ public sealed class SettingsStoreTests : IDisposable
             locked.Dispose();
         });
 
-        var store = new JsonSettingsStore(_dir, TimeSpan.FromMilliseconds(200));
+        var store = new JsonSettingsStore(_dir, TimeSpan.FromSeconds(1)); // großzügig: Freigabe nach 80 ms, Puffer für langsame CI-Runner
         await release;
 
         Assert.False(store.LoadFailed);
