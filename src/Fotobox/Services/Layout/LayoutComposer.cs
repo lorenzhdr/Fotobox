@@ -128,7 +128,8 @@ public sealed class LayoutComposer : ILayoutComposer
             texts = LayoutBandTexts(pw, ph, caption, date, face, page.Dpi);
         }
 
-        return texts[0].Truncated;
+        // Bei winzigen Seiten (Fußbereich unter 4 px) wird kein Text gesetzt – dann auch nichts gekürzt.
+        return texts.Count > 0 && texts[0].Truncated;
     }
 
     // ---------- Schrift ----------

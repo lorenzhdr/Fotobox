@@ -26,7 +26,10 @@ public sealed class PinService(ISettingsStore settings) : IPinService
             throw new ArgumentException($"Die PIN muss aus {MinLength} bis {MaxLength} Ziffern bestehen.", nameof(pin));
 
         var copy = settings.Current.Clone();
-        var iterations = Math.Max(copy.Security.PinIterations, SettingsNormalizer.MinPinIterations);
+        // Eine unplausibel hohe Zahl aus der Datei (z. B. bei fehlendem Hash) würde die Berechnung minutenlang blockieren.
+        var iterations = copy.Security.PinIterations > SettingsNormalizer.MaxPlausiblePinIterations
+            ? new SecuritySettings().PinIterations
+            : Math.Max(copy.Security.PinIterations, SettingsNormalizer.MinPinIterations);
         var salt = RandomNumberGenerator.GetBytes(SaltSize);
         var hash = Derive(pin, salt, iterations, HashSize);
 
@@ -44,14 +47,25 @@ public sealed class PinService(ISettingsStore settings) : IPinService
         var sec = settings.Current.Security;
         if (string.IsNullOrEmpty(sec.PinHash) || string.IsNullOrEmpty(sec.PinSalt) || sec.PinIterations < 1)
             return false;
+        // Eine manipulierte oder kaputte settings.json darf die Box nicht per riesiger Iterationszahl minutenlang rechnen lassen.
+        if (sec.PinIterations > SettingsNormalizer.MaxPlausiblePinIterations)
+        {
+            AppLog.Warn($"PIN-Prüfung abgelehnt: unplausible Iterationszahl ({sec.PinIterations}).");
+            return false;
+        }
 
         try
         {
             var salt = Convert.FromBase64String(sec.PinSalt);
             var expected = Convert.FromBase64String(sec.PinHash);
-            if (salt.Length == 0 || expected.Length == 0)
+            if (salt.Length == 0)
                 return false;
-            var actual = Derive(pin, salt, sec.PinIterations, expected.Length);
+            if (expected.Length != HashSize)
+            {
+                AppLog.Warn($"PIN-Prüfung abgelehnt: unerwartete Hashlänge ({expected.Length} Byte).");
+                return false;
+            }
+            var actual = Derive(pin, salt, sec.PinIterations, HashSize);
             return CryptographicOperations.FixedTimeEquals(actual, expected);
         }
         catch (FormatException)

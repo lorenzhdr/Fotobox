@@ -536,6 +536,21 @@ public class LayoutComposerTests : IDisposable
     }
 
     [StaTheory]
+    [InlineData(StripStyle.DoubleCut)]
+    [InlineData(StripStyle.Single)]
+    public void IsCaptionTruncated_TinyPageWithoutFooterText_DoesNotThrow(StripStyle style)
+    {
+        var layout = Settings(LayoutKind.Strip, 3);
+        layout.StripStyle = style;
+        layout.CaptionText = "Hochzeit";
+        layout.ShowDate = true;
+
+        // Winziger Fußbereich (< 4 px): es wird kein Text gesetzt, also auch nichts gekürzt.
+        Assert.False(LayoutComposer.IsCaptionTruncated(layout, new PageSpec(8, 8)));
+        Assert.False(LayoutComposer.IsCaptionTruncated(layout, new PageSpec(2, 2)));
+    }
+
+    [StaTheory]
     [InlineData(LayoutKind.Strip, StripStyle.DoubleCut, false)]
     [InlineData(LayoutKind.Strip, StripStyle.DoubleCut, true)]
     [InlineData(LayoutKind.Strip, StripStyle.Single, false)]

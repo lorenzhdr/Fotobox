@@ -262,7 +262,7 @@
                             </StackPanel>
 
                             <TextBlock Text="Bildunterschrift" Style="{StaticResource FieldLabel}" />
-                            <TextBox Text="{Binding CaptionText, UpdateSourceTrigger=PropertyChanged}" MaxLength="80" Width="520"
+                            <TextBox Text="{Binding CaptionText, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.CaptionMaxLength}" Width="520"
                                      HorizontalAlignment="Left" />
                             <TextBlock Text="Optionaler Text auf dem Ausdruck, zum Beispiel „Hochzeit Anna &amp; Ben“." Style="{StaticResource Hint}" />
 
@@ -472,7 +472,7 @@
                             </StackPanel>
 
                             <TextBlock Text="Dateipräfix" Style="{StaticResource FieldLabel}" />
-                            <TextBox Text="{Binding FilePrefix, UpdateSourceTrigger=PropertyChanged}" MaxLength="40" MaxWidth="320"
+                            <TextBox Text="{Binding FilePrefix, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.FilePrefixMaxLength}" MaxWidth="320"
                                      HorizontalAlignment="Left" Width="320" />
                             <TextBlock Text="Dateien heißen zum Beispiel „Fotobox_20250101_120000.jpg“." Style="{StaticResource Hint}" />
                         </StackPanel>

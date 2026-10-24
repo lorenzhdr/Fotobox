@@ -27,13 +27,18 @@ public partial class CameraPreview : UserControl
         DependencyProperty.Register(nameof(ShowStatusOverlay), typeof(bool), typeof(CameraPreview),
             new PropertyMetadata(true, (d, _) => ((CameraPreview)d).UpdateStatus()));
 
+    // Puffer-Tausch (Triple-Buffering): Jeder Puffer gehört zu jedem Zeitpunkt genau einer Stelle (Kamera-Thread beim
+    // Kopieren, _ready, UI-Thread beim WritePixels oder _spare). Unter _bufferLock werden nur Referenzen getauscht;
+    // die eigentlichen Kopien laufen außerhalb des Locks, so dass weder der UI-Thread die Kamera-Pipeline noch
+    // umgekehrt aufhält.
     private readonly object _bufferLock = new();
     private readonly Action _renderAction;
     private ICameraService? _subscribed;
-    private byte[]? _back;
-    private int _backWidth;
-    private int _backHeight;
-    private int _backStride;
+    private byte[]? _ready;
+    private byte[]? _spare;
+    private int _readyWidth;
+    private int _readyHeight;
+    private int _readyStride;
     private int _renderPending;
     private WriteableBitmap? _bitmap;
 
@@ -106,14 +111,37 @@ public partial class CameraPreview : UserControl
     private void OnFrameArrived(object? sender, CameraFrame frame)
     {
         var length = Math.Min(frame.Pixels.Length, frame.Stride * frame.Height);
+
+        // Freien Puffer übernehmen (gehört ab jetzt diesem Thread), außerhalb des Locks kopieren, dann veröffentlichen.
+        // Ist keiner frei (UI-Thread zeichnet noch), wird das noch nicht angezeigte Bild überholt und sein Puffer
+        // wiederverwendet; so bleibt es bei höchstens drei Puffern statt einer Neuanlage je Frame.
+        byte[]? buffer;
         lock (_bufferLock)
         {
-            if (_back is null || _back.Length != length)
-                _back = new byte[length];
-            Buffer.BlockCopy(frame.Pixels, 0, _back, 0, length);
-            _backWidth = frame.Width;
-            _backHeight = frame.Height;
-            _backStride = frame.Stride;
+            if (_spare is not null)
+            {
+                buffer = _spare;
+                _spare = null;
+            }
+            else
+            {
+                buffer = _ready;
+                _ready = null;
+            }
+        }
+        if (buffer is null || buffer.Length != length)
+            buffer = new byte[length];
+        Buffer.BlockCopy(frame.Pixels, 0, buffer, 0, length);
+
+        lock (_bufferLock)
+        {
+            // Ein noch nicht angezeigtes Bild wird überholt (Latest-frame-wins); sein Puffer wird wiederverwendet.
+            if (_ready is not null && _spare is null)
+                _spare = _ready;
+            _ready = buffer;
+            _readyWidth = frame.Width;
+            _readyHeight = frame.Height;
+            _readyStride = frame.Stride;
         }
 
         if (Interlocked.Exchange(ref _renderPending, 1) == 0)
@@ -129,26 +157,49 @@ public partial class CameraPreview : UserControl
         if (_subscribed is null)
             return;
 
+        // Fertigen Puffer übernehmen (gehört ab jetzt dem UI-Thread); die Kopie in die Bitmap läuft außerhalb des Locks.
+        byte[]? buffer;
+        int width, height, stride;
         lock (_bufferLock)
         {
-            if (_back is null || _backWidth <= 0 || _backHeight <= 0)
-                return;
+            buffer = _ready;
+            _ready = null;
+            width = _readyWidth;
+            height = _readyHeight;
+            stride = _readyStride;
+        }
 
-            if (_bitmap is null || _bitmap.PixelWidth != _backWidth || _bitmap.PixelHeight != _backHeight)
+        if (buffer is null || width <= 0 || height <= 0)
+            return;
+
+        if (_bitmap is null || _bitmap.PixelWidth != width || _bitmap.PixelHeight != height)
+        {
+            // Bgr32: Alpha der Kamera wird ignoriert (gleiches Speicherlayout wie Bgra32).
+            _bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgr32, null);
+            PreviewImage.Source = _bitmap;
+        }
+
+        try
+        {
+            _bitmap.WritePixels(new Int32Rect(0, 0, width, height), buffer, stride, 0);
+        }
+        finally
+        {
+            lock (_bufferLock)
             {
-                // Bgr32: Alpha der Kamera wird ignoriert (gleiches Speicherlayout wie Bgra32).
-                _bitmap = new WriteableBitmap(_backWidth, _backHeight, 96, 96, PixelFormats.Bgr32, null);
-                PreviewImage.Source = _bitmap;
+                if (_spare is null)
+                    _spare = buffer;
             }
-
-            _bitmap.WritePixels(new Int32Rect(0, 0, _backWidth, _backHeight), _back, _backStride, 0);
         }
     }
 
     private void ClearImage()
     {
         lock (_bufferLock)
-            _back = null;
+        {
+            _ready = null;
+            _spare = null;
+        }
         _bitmap = null;
         PreviewImage.Source = null;
     }

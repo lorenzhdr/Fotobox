@@ -377,6 +377,145 @@ public class BoothControllerTests
     }
 
     [Fact]
+    public void SaveNeverReturns_TimeoutCancelsTheSave()
+    {
+        var h = new Harness();
+        h.Storage.Hang = true;
+
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Error);
+
+        Assert.True(h.Storage.SaveCancelled, "Das Speichern muss bei Zeitüberschreitung über das Token abgebrochen werden.");
+        h.RunToIdle();
+    }
+
+    [Fact]
+    public void SaveFinishesLateAfterTimeout_StillEndsInErrorThenIdle()
+    {
+        var h = new Harness();
+        h.Storage.Hang = true;
+
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Error);
+        h.Storage.HangSource.TrySetResult(new SavedPhotoSet("spaet/layout.jpg", []));   // wird nur geloggt
+        h.Drain();
+
+        Assert.Null(h.Controller.LastSaved);
+        Assert.Equal(BoothState.Error, h.Controller.State);
+        h.RunToIdle();
+        Assert.Equal(0, h.Printer.PrintCalls);
+    }
+
+    [Fact]
+    public void SaveCompletes_DoesNotCancelTheSaveToken()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PrintingEnabled = false;
+
+        h.Controller.TryTrigger();
+        h.RunToIdle();
+
+        Assert.False(h.Storage.SaveCancelled);
+    }
+
+    [Fact]
+    public void LatePrintStatus_AfterHardTimeout_DoesNotOverwriteNextSessionStatus()
+    {
+        var h = new Harness();
+        h.Settings.Current.Printer.TimeoutSeconds = 10;
+
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Error, maxSeconds: 200);
+        var lateStatus = h.Printer.Status!;
+        h.RunToIdle();
+
+        // Neuer Durchgang; der verwaiste Druck meldet jetzt noch etwas.
+        Assert.True(h.Controller.TryTrigger());
+        lateStatus.Report("Verspätete Meldung");
+        h.Drain();
+
+        Assert.Null(h.Controller.StatusMessage);
+        h.Controller.Cancel();
+        h.WaitUntil(() => h.Controller.State == BoothState.Idle);
+    }
+
+    [Fact]
+    public void PageSpecHangs_TwoSessionsInARow_StartOnlyOneQuery()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PrintingEnabled = false;
+        h.Printer.PageSpecHang = true;
+        try
+        {
+            h.Controller.TryTrigger();
+            h.RunToIdle();
+            Assert.Same(PageSpec.Default, h.Composer.LastPage);
+            Assert.Equal(1, h.Printer.PageSpecCalls);
+
+            // Die erste Abfrage hängt noch: der nächste Gast wartet auf sie, statt einen weiteren Thread zu blockieren.
+            h.Controller.TryTrigger();
+            h.RunToIdle();
+
+            Assert.Same(PageSpec.Default, h.Composer.LastPage);
+            Assert.Equal(1, h.Printer.PageSpecCalls);
+            Assert.Equal(2, h.Storage.Saved.Count);
+        }
+        finally
+        {
+            h.Printer.ReleasePageSpec();
+        }
+    }
+
+    [Fact]
+    public void PageSpecPrefetchRunning_SessionWaitsForItInsteadOfStartingAnotherQuery()
+    {
+        var h = new Harness(markReady: false, prefetch: true);
+        h.Settings.Current.Flow.PrintingEnabled = false;
+        h.Printer.PageSpecHang = true;
+        try
+        {
+            h.Controller.MarkReady();
+            h.WaitUntil(() => h.Printer.IsParked);
+
+            h.Controller.TryTrigger();
+            h.RunToIdle();
+
+            Assert.Same(PageSpec.Default, h.Composer.LastPage);   // Wartezeit abgelaufen → Rückfall
+            Assert.Equal(1, h.Printer.PageSpecCalls);
+        }
+        finally
+        {
+            h.Printer.ReleasePageSpec();
+        }
+    }
+
+    [Fact]
+    public void PageSpecPrefetchRunning_SessionUsesItsResultWhenItFinishesInTime()
+    {
+        var h = new Harness(markReady: false, prefetch: true);
+        h.Settings.Current.Flow.PrintingEnabled = false;
+        h.Printer.PageSpecHang = true;
+        try
+        {
+            h.Controller.MarkReady();
+            h.WaitUntil(() => h.Printer.IsParked);
+
+            h.Controller.TryTrigger();
+            h.AdvanceUntil(() => h.Controller.State == BoothState.Capturing);
+            h.Printer.ReleasePageSpec();   // Vorabruf wird fertig, bevor die 5 s abgelaufen sind (Fake-Zeit steht still)
+            h.WaitUntil(() => h.Controller.State == BoothState.Preview);
+            h.RunToIdle();
+
+            Assert.Same(FakePrinter.Spec, h.Composer.LastPage);
+            Assert.Equal(1, h.Printer.PageSpecCalls);
+        }
+        finally
+        {
+            h.Printer.ReleasePageSpec();
+        }
+    }
+
+    [Fact]
     public void PageSpecNeverReturns_FallsBackToDefault_AndSessionReachesIdle()
     {
         var h = new Harness();
@@ -820,7 +959,8 @@ public class BoothControllerTests
             Settings.Current.Flow.PauseBetweenShotsSeconds = 1;
             Settings.Current.Flow.ErrorDisplaySeconds = 4;
             Controller = new BoothController(Camera, Composer, Printer, Storage, Settings, Time) { PrefetchPageSpec = prefetch };
-            Camera.Captured = () => _hopPending = Camera.CaptureCount % Composer.RequiredPhotoCount == 0;
+            // Hängt bereits eine Abfrage (wird wiederverwendet), gibt es keinen Task.Run-Sprung des Durchgangs mehr.
+            Camera.Captured = () => _hopPending = Camera.CaptureCount % Composer.RequiredPhotoCount == 0 && !Printer.IsParked;
             Composer.Composing = () => _hopPending = false; // Der Sprung ist beendet, sobald der Controller zusammensetzt.
             Printer.Parked = () => _hopPending = false; // hängende Abfrage: es folgt keine Fortsetzung
             Controller.StateChanged += (_, _) =>
@@ -882,6 +1022,12 @@ public class BoothControllerTests
                 Assert.True(watch.Elapsed < TimeSpan.FromSeconds(30), "Threadpool-Fortsetzung des Controllers blieb aus.");
                 _pump.RunOne(TimeSpan.FromMilliseconds(10));
             }
+        }
+
+        /// <summary>Arbeitet alle bereits eingegangenen Fortsetzungen ab (ohne zu warten).</summary>
+        public void Drain()
+        {
+            while (_pump.RunOne(TimeSpan.Zero)) { }
         }
 
         public void RunToIdle() =>
@@ -988,6 +1134,10 @@ public class BoothControllerTests
 
         public void ReleasePageSpec() => _pageSpecGate.Set();
 
+        private volatile bool _parked;
+        /// <summary>true, solange ein GetPageSpec-Aufruf absichtlich hängt.</summary>
+        public bool IsParked => _parked && !_pageSpecGate.IsSet;
+
         public int PrintCalls { get; private set; }
         public bool ThrowOnPrint { get; set; }
         public BitmapSource? LastPage { get; private set; }
@@ -1014,6 +1164,7 @@ public class BoothControllerTests
             if (PageSpecFailure is not null) throw PageSpecFailure;
             if (PageSpecHang)
             {
+                _parked = true;
                 Parked?.Invoke();
                 _pageSpecGate.Wait(TimeSpan.FromSeconds(60)); // Obergrenze, damit nie ein Thread dauerhaft hängt
             }
@@ -1037,6 +1188,11 @@ public class BoothControllerTests
         public Exception? Failure { get; set; }
         /// <summary>SaveAsync liefert eine Aufgabe, die nie endet (hängende Netzwerkfreigabe).</summary>
         public bool Hang { get; set; }
+        /// <summary>true, sobald das an SaveAsync übergebene Token abgebrochen wurde.</summary>
+        public bool SaveCancelled => _cancelled;
+        private volatile bool _cancelled;
+        /// <summary>Ergebnis des hängenden Speicherns; ein Test kann es "spät" fertigstellen.</summary>
+        public TaskCompletionSource<SavedPhotoSet> HangSource { get; } = new();
 
         public string ResolveTargetFolder(StorageSettings storage, DateTime timestamp) => "fake";
 
@@ -1044,7 +1200,8 @@ public class BoothControllerTests
             StorageSettings storage, DateTime timestamp, CancellationToken ct = default)
         {
             if (Failure is not null) return Task.FromException<SavedPhotoSet>(Failure);
-            if (Hang) return new TaskCompletionSource<SavedPhotoSet>().Task;
+            ct.Register(() => _cancelled = true);
+            if (Hang) return HangSource.Task;
             Saved.Add((layout, originals.ToList()));
             return Task.FromResult(new SavedPhotoSet("fake/layout.jpg", ["fake/orig1.jpg"]));
         }

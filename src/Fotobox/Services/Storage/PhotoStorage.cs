@@ -41,7 +41,7 @@ public sealed class PhotoStorage : IPhotoStorage
         ct.ThrowIfCancellationRequested();
 
         var folder = ResolveTargetFolder(storage, timestamp);
-        var quality = Math.Clamp(storage.JpegQuality, 50, 100);
+        var quality = Math.Clamp(storage.JpegQuality, SettingsLimits.JpegQualityMin, SettingsLimits.JpegQualityMax);
         var prefix = SettingsNormalizer.SanitizePrefix(storage.FilePrefix);
         var sources = storage.SaveOriginals ? originals.ToList() : [];
 

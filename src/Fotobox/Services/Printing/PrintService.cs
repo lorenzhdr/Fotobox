@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Printing;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Fotobox.Core;
 
 namespace Fotobox.Services.Printing;
@@ -13,6 +15,8 @@ public sealed class PrintService : IPrintService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     private const int DefaultTimeoutSeconds = 120;
+    /// <summary>Frist für Druckerliste und Papiergrößen (Admin): ein hängender Spooler darf die Ansicht nicht blockieren.</summary>
+    private static readonly TimeSpan QueryTimeout = TimeSpan.FromSeconds(10);
 
     private readonly PageSpecCache _pageSpecs;
 
@@ -57,7 +61,12 @@ public sealed class PrintService : IPrintService
                 }
 
                 return (IReadOnlyList<PrinterInfo>)result;
-            }).GetAwaiter().GetResult();
+            }).WaitAsync(QueryTimeout).GetAwaiter().GetResult();
+        }
+        catch (TimeoutException)
+        {
+            AppLog.Warn($"Druckerliste nicht rechtzeitig gelesen (Spooler antwortet nicht, {QueryTimeout.TotalSeconds:0} s).");
+            return [];
         }
         catch (Exception ex)
         {
@@ -77,7 +86,12 @@ public sealed class PrintService : IPrintService
                 if (queue is null)
                     return (IReadOnlyList<PaperSizeInfo>)[];
                 return ReadPaperEntries(queue).Select(e => e.Info).ToList();
-            }).GetAwaiter().GetResult();
+            }).WaitAsync(QueryTimeout).GetAwaiter().GetResult();
+        }
+        catch (TimeoutException)
+        {
+            AppLog.Warn($"Papiergrößen für „{printerName ?? "Standarddrucker"}“ nicht rechtzeitig gelesen (Spooler antwortet nicht, {QueryTimeout.TotalSeconds:0} s).");
+            return [];
         }
         catch (Exception ex)
         {
@@ -155,6 +169,9 @@ public sealed class PrintService : IPrintService
 
     private static PrintResult PrintCore(BitmapSource page, PrinterSettings settings, IProgress<string>? status, CancellationToken ct)
     {
+        // Die Frist läuft ab Beginn des Druckvorgangs (inkl. Ticket und Schreiben), damit sie vor dem äußeren Limit
+        // des Controllers (Frist + Reserve ab Aufruf) greift und die Kulanzregel unten überhaupt zum Zug kommt.
+        var total = Stopwatch.StartNew();
         var timeout = TimeSpan.FromSeconds(settings.TimeoutSeconds > 0 ? settings.TimeoutSeconds : DefaultTimeoutSeconds);
         var lastStatus = PrintJobStateEvaluator.StatusPrinting;
         status?.Report(lastStatus);
@@ -175,24 +192,31 @@ public sealed class PrintService : IPrintService
             return new PrintResult(PrintOutcome.Failed, FailedFilePrompt);
         }
 
-        var jobName = $"Fotobox {DateTime.Now:yyyyMMdd-HHmmss-fff}";
+        // Kulturunabhängig (kein anderer Kalender/andere Ziffern im Jobnamen), da der Name im Spooler gesucht wird.
+        var jobName = string.Create(CultureInfo.InvariantCulture, $"Fotobox {DateTime.Now:yyyyMMdd-HHmmss-fff}");
         var ticket = BuildTicket(queue, settings, out var media);
         var (mediaW, mediaH) = media;
+        WarnOnAspectMismatch(page, mediaW, mediaH);
 
         var visual = RenderVisual(page, mediaW, mediaH);
         var knownIds = SnapshotJobIds(queue);
 
-        AppLog.Info($"Sende Druckauftrag „{jobName}“ an „{queue.FullName}“ ({PrintLayoutResolver.DipToMm(mediaW):0.#} × {PrintLayoutResolver.DipToMm(mediaH):0.#} mm, {ticket.CopyCount} Kopie(n)).");
+        // Wurde während Ticket/Rendern abgebrochen (z. B. Timeout des Controllers), darf nichts mehr gesendet werden.
+        // Bereits gesendete Aufträge werden bei Abbruch dagegen nicht storniert (laufender Gastdruck soll fertig werden).
+        if (ct.IsCancellationRequested)
+            return new PrintResult(PrintOutcome.Cancelled);
+
+        AppLog.Info(string.Create(CultureInfo.InvariantCulture,
+            $"Sende Druckauftrag „{jobName}“ an „{queue.FullName}“ ({PrintLayoutResolver.DipToMm(mediaW):0.#} × {PrintLayoutResolver.DipToMm(mediaH):0.#} mm, {ticket.CopyCount} Kopie(n))."));
         queue.CurrentJobSettings.Description = jobName;
         PrintQueue.CreateXpsDocumentWriter(queue).Write(visual, ticket);
 
-        // Überwachung bis fertig – die Zeit läuft erst nach dem Schreiben (ein offener Dialog zählt nicht mit).
-        var total = Stopwatch.StartNew();
+        // Überwachung bis fertig (die Gesamtfrist läuft seit Beginn dieser Methode).
         var sinceSubmit = Stopwatch.StartNew();
         var lastJobCompleted = false;
         var seenBefore = false;
         int? trackedId = null;
-        DateTime? errorSince = null;
+        long? errorSince = null;   // Stopwatch-Zeitstempel (monotone Uhr, unabhängig von Zeitumstellung/Uhrensprung)
         var queryFailures = 0;
 
         while (true)
@@ -220,7 +244,7 @@ public sealed class PrintService : IPrintService
             {
                 seenBefore |= job is not null;
                 lastJobCompleted = job is { Flags.IsCompleted: true };
-                var errorFor = errorSince is { } since ? DateTime.UtcNow - since : TimeSpan.Zero;
+                var errorFor = errorSince is { } since ? Stopwatch.GetElapsedTime(since) : TimeSpan.Zero;
                 var decision = PrintJobStateEvaluator.Evaluate(job?.Flags, queueFlags, seenBefore, sinceSubmit.Elapsed, errorFor);
 
                 switch (decision.Phase)
@@ -242,7 +266,7 @@ public sealed class PrintService : IPrintService
                         return new PrintResult(PrintOutcome.Failed, message);
                 }
 
-                errorSince = decision.GenericError ? errorSince ?? DateTime.UtcNow : null;
+                errorSince = decision.GenericError ? errorSince ?? Stopwatch.GetTimestamp() : null;
                 if (decision.Message != lastStatus)
                 {
                     lastStatus = decision.Message;
@@ -285,6 +309,19 @@ public sealed class PrintService : IPrintService
         if (paper is not null)
         {
             var entry = entries.FirstOrDefault(e => e.Info.Name.Equals(paper.Name, StringComparison.OrdinalIgnoreCase));
+            if (entry is null)
+            {
+                // Eine eigene, namenlose Größe ersetzen viele Treiber still durch ihre Standardgröße. Deshalb zuerst
+                // ein Treiberpapier mit (fast) gleichem Maß suchen (±1 mm, beide Ausrichtungen).
+                var index = PrintLayoutResolver.FindPaperByDimensions(infos, paper.WidthMm, paper.HeightMm);
+                if (index >= 0)
+                {
+                    entry = entries[index];
+                    AppLog.Info(string.Create(CultureInfo.InvariantCulture,
+                        $"Papier „{paper.Name}“ nicht im Treiber – verwende Treiberpapier „{entry.Info.Name}“ mit gleichem Maß ({entry.Info.WidthMm:0.#} × {entry.Info.HeightMm:0.#} mm)."));
+                }
+            }
+
             ticket.PageMediaSize = entry?.Media
                 ?? new PageMediaSize(PrintLayoutResolver.MmToDip(paper.WidthMm), PrintLayoutResolver.MmToDip(paper.HeightMm));
         }
@@ -310,6 +347,28 @@ public sealed class PrintService : IPrintService
             mediaDip = (PrintLayoutResolver.MmToDip(PageSpec.Default.WidthMm), PrintLayoutResolver.MmToDip(PageSpec.Default.HeightMm));
 
         return validated;
+    }
+
+    /// <summary>
+    /// Warnt im Log, wenn das Seitenverhältnis der komponierten Seite um mehr als 1 % vom validierten Medium abweicht
+    /// (das Bild wird dann beim Druck beschnitten). Das Druckbild bleibt unverändert.
+    /// </summary>
+    private static void WarnOnAspectMismatch(BitmapSource page, double mediaWDip, double mediaHDip)
+    {
+        try
+        {
+            if (!PrintLayoutResolver.HasAspectMismatch(page.PixelWidth, page.PixelHeight, mediaWDip, mediaHDip))
+                return;
+
+            var pageW = PrintLayoutResolver.PixelsToMm(page.PixelWidth, page.DpiX);
+            var pageH = PrintLayoutResolver.PixelsToMm(page.PixelHeight, page.DpiY);
+            AppLog.Warn(string.Create(CultureInfo.InvariantCulture,
+                $"Seitenverhältnis der Seite ({pageW:0.#} × {pageH:0.#} mm) weicht vom Druckmedium ({PrintLayoutResolver.DipToMm(mediaWDip):0.#} × {PrintLayoutResolver.DipToMm(mediaHDip):0.#} mm) um mehr als 1 % ab – das Bild wird beschnitten."));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Seitenverhältnis konnte nicht geprüft werden.", ex);
+        }
     }
 
     /// <summary>Bild als DrawingVisual über die gesamte Mediengröße (crop-to-fill, ohne Rand, ohne Strecken).</summary>
@@ -513,17 +572,35 @@ public sealed class PrintService : IPrintService
         try
         {
             PrintQueue? found = null;
-            using var queues = server.GetPrintQueues([EnumeratedPrintQueueTypes.Local, EnumeratedPrintQueueTypes.Connections]);
-            foreach (var queue in queues)
+            try
             {
-                if (found is null && (queue.FullName.Equals(printerName, StringComparison.OrdinalIgnoreCase)
-                                      || queue.Name.Equals(printerName, StringComparison.OrdinalIgnoreCase)))
-                    found = queue;
-                else
-                    queue.Dispose();
-            }
+                using var queues = server.GetPrintQueues([EnumeratedPrintQueueTypes.Local, EnumeratedPrintQueueTypes.Connections]);
+                foreach (var queue in queues)
+                {
+                    // Auch wenn eine Eigenschaft wirft, wird die Queue freigegeben (bzw. als Treffer behalten).
+                    var keep = false;
+                    try
+                    {
+                        keep = found is null && (queue.FullName.Equals(printerName, StringComparison.OrdinalIgnoreCase)
+                                                 || queue.Name.Equals(printerName, StringComparison.OrdinalIgnoreCase));
+                    }
+                    finally
+                    {
+                        if (keep)
+                            found = queue;
+                        else
+                            queue.Dispose();
+                    }
+                }
 
-            return found;
+                return found;
+            }
+            catch
+            {
+                // Mitten in der Aufzählung abgebrochen: bereits gefundene Queue nicht auslaufen lassen.
+                found?.Dispose();
+                throw;
+            }
         }
         catch (Exception ex)
         {
@@ -562,10 +639,18 @@ public sealed class PrintService : IPrintService
     private static Task<T> RunSta<T>(Func<T> func)
     {
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Nach einer Zeitüberschreitung des Aufrufers wird das Ergebnis nicht mehr abgeholt: Fehler nicht unbeobachtet lassen.
+        _ = tcs.Task.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
         var thread = new Thread(() =>
         {
             try { tcs.SetResult(func()); }
             catch (Exception ex) { tcs.SetException(ex); }
+            finally
+            {
+                // WPF-Objekte (z. B. DrawingVisual) legen pro Thread einen Dispatcher an; ohne Shutdown bliebe er je Aufruf übrig.
+                try { Dispatcher.FromThread(Thread.CurrentThread)?.InvokeShutdown(); }
+                catch (Exception ex) { AppLog.Warn("Dispatcher des Druck-Threads konnte nicht beendet werden.", ex); }
+            }
         })
         {
             IsBackground = true,

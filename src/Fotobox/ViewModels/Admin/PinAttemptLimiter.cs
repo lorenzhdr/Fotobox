@@ -4,7 +4,7 @@ namespace Fotobox.ViewModels.Admin;
 /// Begrenzt PIN-Fehlversuche: nach <see cref="MaxAttempts"/> Fehlversuchen ist die Eingabe für
 /// <see cref="LockoutDuration"/> gesperrt. Jeder weitere Fehlversuch (der Zähler wird erst durch eine richtige
 /// PIN zurückgesetzt, nicht durch Ablauf der Sperre) verlängert die Sperre stufenweise (30 s, 60 s, 2 min,
-/// 5 min, höchstens 15 min). Zeit kommt über <see cref="TimeProvider"/> (testbar).
+/// 5 min, höchstens 15 min). Zeit kommt über <see cref="TimeProvider"/> (testbar) und ist monoton (Uhrsprünge ändern die Sperre nicht).
 /// </summary>
 public sealed class PinAttemptLimiter
 {
@@ -14,7 +14,9 @@ public sealed class PinAttemptLimiter
     private readonly TimeProvider _time;
     private readonly object _gate = new();
     private int _failures;
-    private DateTimeOffset? _lockedUntil;
+    // Monotone Zeit (Stopwatch-Ticks): ein Sprung der Systemuhr verlängert oder verkürzt die Sperre nicht.
+    private long? _lockStart;
+    private TimeSpan _lockLength;
 
     public PinAttemptLimiter(TimeProvider time, int maxAttempts = 5, TimeSpan? lockoutDuration = null)
     {
@@ -42,16 +44,16 @@ public sealed class PinAttemptLimiter
         {
             lock (_gate)
             {
-                if (_lockedUntil is not { } until)
+                if (_lockStart is not { } start)
                     return TimeSpan.Zero;
 
-                var remaining = until - _time.GetUtcNow();
+                var remaining = _lockLength - _time.GetElapsedTime(start);
                 if (remaining > TimeSpan.Zero)
                     return remaining;
 
                 // Sperre abgelaufen → neuer Versuch erlaubt. Der Fehlerzähler bleibt bewusst stehen:
                 // Ein weiterer Fehlversuch löst sofort die nächsthöhere Sperrstufe aus.
-                _lockedUntil = null;
+                _lockStart = null;
                 return TimeSpan.Zero;
             }
         }
@@ -81,7 +83,8 @@ public sealed class PinAttemptLimiter
             if (_failures >= MaxAttempts)
             {
                 var level = Math.Min(_failures - MaxAttempts, LockoutFactors.Length - 1);
-                _lockedUntil = _time.GetUtcNow() + LockoutDuration * LockoutFactors[level];
+                _lockStart = _time.GetTimestamp();
+                _lockLength = LockoutDuration * LockoutFactors[level];
             }
         }
     }
@@ -91,7 +94,7 @@ public sealed class PinAttemptLimiter
         lock (_gate)
         {
             _failures = 0;
-            _lockedUntil = null;
+            _lockStart = null;
         }
     }
 }
