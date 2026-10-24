@@ -133,6 +133,36 @@ public class PinAttemptLimiterTests
         Assert.False(limiter.IsLockedOut);
         Assert.Equal(4, limiter.RemainingAttempts);
     }
+
+    [Fact]
+    public void Lockout_IgnoresWallClockJumps_UsesMonotonicTime()
+    {
+        var time = new SplitClock();
+        var limiter = new PinAttemptLimiter(time);
+        for (var i = 0; i < 5; i++)
+            limiter.RegisterFailure();
+
+        // Die Wanduhr springt eine Stunde vor bzw. einen Tag zurück (nur UtcNow, nicht der monotone Zeitstempel): die Sperre bleibt gleich.
+        time.Wall += TimeSpan.FromHours(1);
+        Assert.True(limiter.IsLockedOut);
+        Assert.Equal(TimeSpan.FromSeconds(30), limiter.RemainingLockout);
+
+        time.Wall -= TimeSpan.FromDays(1);
+        Assert.Equal(TimeSpan.FromSeconds(30), limiter.RemainingLockout);
+
+        time.Monotonic += TimeSpan.FromSeconds(30);
+        Assert.False(limiter.IsLockedOut);
+    }
+
+    /// <summary>Wanduhr und monotone Zeit lassen sich getrennt bewegen (FakeTimeProvider koppelt beide).</summary>
+    private sealed class SplitClock : TimeProvider
+    {
+        public TimeSpan Wall { get; set; }
+        public TimeSpan Monotonic { get; set; }
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => Monotonic.Ticks;
+        public override DateTimeOffset GetUtcNow() => new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero) + Wall;
+    }
 }
 
 public class PinRulesTests
@@ -1846,7 +1876,7 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.True(vm.IsStripLayout);
         Assert.True(vm.HasOverlay);
         Assert.True(vm.HasGuestOrder);
-        var raised = new List<string?>();
+        var raised = new System.Collections.Concurrent.ConcurrentBag<string?>();
         vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
         _ui.ConfirmResult = true;
 
@@ -1934,6 +1964,208 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Equal(before + 1, _camera.StartCalls.Count);
     }
 
+    // ------------------------------------------------------------------ Stabilität (v1.1.2)
+
+    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 15000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "Bedingung wurde nicht rechtzeitig erfüllt.");
+            await Task.Delay(10);
+        }
+    }
+
+    [Fact]
+    public async Task LateResolutionsOfPreviousDevice_AreDiscarded()
+    {
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        var gate = new TaskCompletionSource();
+        _camera.ResolutionsFor = id => id == "cam2" ? [new CameraResolution(800, 600)] : [new CameraResolution(640, 480), new CameraResolution(1280, 720)];
+        _camera.ResolutionsGate = id => id == "cam2" ? gate.Task : Task.CompletedTask;
+
+        var slow = vm.SelectDeviceAsync(vm.Devices[1]);   // Antwort von cam2 verzögert sich
+        await vm.SelectDeviceAsync(vm.Devices[0]);         // inzwischen zurück auf cam1
+        gate.SetResult();
+        await slow;
+
+        Assert.Equal("cam1", vm.Draft.Camera.DeviceId);
+        Assert.DoesNotContain(vm.Resolutions, r => r.Resolution == new CameraResolution(800, 600));
+        Assert.Contains(vm.Resolutions, r => r.Resolution == new CameraResolution(1280, 720));
+    }
+
+    [Fact]
+    public async Task LatePaperSizesOfPreviousPrinter_AreDiscarded()
+    {
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        using var release = new ManualResetEventSlim();
+        _print.PaperSizesFor = name =>
+        {
+            if (name == "Fotodrucker")
+                release.Wait(TimeSpan.FromSeconds(20));
+            return [new PaperSizeInfo(name ?? "x", "Papier von " + name, 100, 150)];
+        };
+
+        var slow = vm.SelectPrinterAsync(vm.Printers.First(p => p.Name == "Fotodrucker"));
+        await vm.SelectPrinterAsync(vm.Printers.First(p => p.Name == "Bürodrucker"));
+        release.Set();
+        await slow;
+
+        Assert.Equal("Bürodrucker", vm.Draft.Printer.PrinterName);
+        Assert.DoesNotContain(vm.PaperSizes, p => p.Display.Contains("Fotodrucker"));
+        Assert.Contains(vm.PaperSizes, p => p.Display.Contains("Bürodrucker"));
+    }
+
+    [Fact]
+    public async Task Initialize_AppliesFontsWithoutWaitingForSlowPrinterList()
+    {
+        var vm = CreateViewModel();
+        using var release = new ManualResetEventSlim();
+        _print.PaperSizesFor = _ =>
+        {
+            release.Wait(TimeSpan.FromSeconds(20));
+            return [];
+        };
+
+        var init = vm.InitializeAsync();
+        try
+        {
+            await WaitUntilAsync(() => vm.CaptionFonts.Count > 1 && vm.Devices.Count == 2 && vm.Printers.Count > 1);
+            Assert.False(init.IsCompleted); // hängt noch an den Papiergrößen
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        await init;
+        Assert.Equal(2, vm.Devices.Count);
+    }
+
+    [Fact]
+    public void Validate_UnchangedFolder_IsNotProbed_ChangedFolderIs()
+    {
+        // Ein Pfad unterhalb einer Datei ist nie beschreibbar: Wäre er geprüft worden, gäbe es einen Fehler.
+        var blocker = Path.Combine(_dir, "datei");
+        File.WriteAllText(blocker, "x");
+        _store.Current.Storage.PhotoFolder = Path.Combine(blocker, "unter");
+        var vm = CreateViewModel();
+
+        Assert.Empty(vm.Validate());
+
+        vm.Draft.Storage.PhotoFolder = Path.Combine(blocker, "anders");
+        Assert.Contains(vm.Validate(), e => e.StartsWith("In den Speicherordner kann nicht geschrieben werden"));
+
+        vm.Draft.Storage.PhotoFolder = _store.Current.Storage.PhotoFolder;
+        Assert.Empty(vm.Validate());
+    }
+
+    [Theory]
+    [InlineData(@"C:fotos")]
+    [InlineData(@"\fotos")]
+    [InlineData(@"fotos\neu")]
+    public void Validate_NotFullyQualifiedFolder_IsRejected(string folder)
+    {
+        var vm = CreateViewModel();
+        vm.Draft.Storage.PhotoFolder = folder;
+
+        Assert.Contains(vm.Validate(), e => e.StartsWith("Der Speicherordner ist kein gültiger Pfad"));
+    }
+
+    [Fact]
+    public void Validate_PrefixAndCaption_UseSettingsLimits()
+    {
+        var vm = CreateViewModel();
+        vm.FilePrefix = new string('p', SettingsLimits.FilePrefixMaxLength);
+        vm.CaptionText = new string('c', SettingsLimits.CaptionMaxLength);
+        Assert.Empty(vm.Validate());
+
+        vm.FilePrefix = new string('p', SettingsLimits.FilePrefixMaxLength + 1);
+        vm.CaptionText = new string('c', SettingsLimits.CaptionMaxLength + 1);
+        var errors = vm.Validate();
+
+        Assert.Contains(errors, e => e.Contains($"höchstens {SettingsLimits.FilePrefixMaxLength} Zeichen"));
+        Assert.Contains(errors, e => e.Contains($"höchstens {SettingsLimits.CaptionMaxLength} Zeichen"));
+    }
+
+    [Fact]
+    public async Task ResetToDefaults_WhenSomethingThrows_ShowsMessageInsteadOfThrowing()
+    {
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        _ui.ConfirmException = new InvalidOperationException("kaputt");
+
+        await vm.ResetToDefaultsAsync();   // darf nicht werfen
+
+        Assert.True(vm.HasValidationMessage);
+        Assert.Contains("kaputt", vm.ValidationMessage);
+    }
+
+    [Fact]
+    public void OverlayPreview_IsDecodedSmall_ShowsRealPixelSize_AndDoesNotLockFile()
+    {
+        var path = Path.Combine(_store.OverlayDirectory, "gross.png");
+        WritePng(path, 1200, 1800);
+        _store.Current.Layout.OverlayFileName = "gross.png";
+
+        var vm = CreateViewModel();
+
+        Assert.Equal("gross.png (1200 × 1800 Pixel)", vm.OverlayInfo);
+        var thumbnail = Assert.IsAssignableFrom<BitmapSource>(vm.OverlayThumbnail);
+        Assert.True(thumbnail.PixelWidth <= 240);
+        File.Delete(path);   // wirft, wenn das Handle offen geblieben wäre
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void ImportOverlay_InvalidPng_IsRejected()
+    {
+        var vm = CreateViewModel();
+        var bad = Path.Combine(_dir, "kaputt.png");
+        File.WriteAllBytes(bad, [1, 2, 3]);
+
+        Assert.False(vm.ImportOverlay(bad));
+        Assert.True(vm.HasValidationMessage);
+    }
+
+    [Fact]
+    public async Task QuickSwitchBack_ThenSave_StillReportsCameraRestartNeeded()
+    {
+        UseSavedCamera("cam1", null, null);
+        var before = SnapshotCamera(_store.Current.Camera);
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        Assert.Null(vm.LastAppliedCamera);
+
+        var startGate = new TaskCompletionSource();
+        _camera.StartGate = s => s.DeviceId == "cam2" ? startGate.Task : Task.CompletedTask;
+        var toB = vm.SelectDeviceAsync(vm.Devices[1]);   // Neustart mit cam2 läuft (hängt im Start)
+        Assert.Equal("cam2", vm.LastAppliedCamera?.DeviceId);
+        var back = vm.SelectDeviceAsync(vm.Devices[0]);  // zurück auf cam1: dieser Neustart wartet auf den laufenden
+        vm.SaveCommand.Execute(null);                     // Speichern verwirft den wartenden Neustart
+        startGate.SetResult();
+        await toB;
+        await back;
+
+        Assert.Equal("cam2", _camera.StartCalls.Last().DeviceId);          // Kamera läuft mit der falschen Kamera
+        Assert.Equal("cam1", _store.Current.Camera.DeviceId);
+        Assert.False(Fotobox.Views.Admin.AdminLauncher.CameraSettingsDiffer(before, _store.Current.Camera)); // der alte Vergleich allein reicht nicht
+        Assert.True(Fotobox.Views.Admin.AdminLauncher.CameraNeedsRestart(before, vm.LastAppliedCamera, _store.Current.Camera));
+    }
+
+    [Fact]
+    public void CameraNeedsRestart_OnlyWhenSomethingDiffers()
+    {
+        static CameraSettings Cam(string id) => new() { DeviceId = id };
+
+        Assert.False(Fotobox.Views.Admin.AdminLauncher.CameraNeedsRestart(Cam("a"), null, Cam("a")));
+        Assert.False(Fotobox.Views.Admin.AdminLauncher.CameraNeedsRestart(Cam("a"), Cam("a"), Cam("a")));
+        Assert.True(Fotobox.Views.Admin.AdminLauncher.CameraNeedsRestart(Cam("a"), null, Cam("b")));
+        Assert.True(Fotobox.Views.Admin.AdminLauncher.CameraNeedsRestart(Cam("a"), Cam("b"), Cam("a")));
+    }
+
     // ------------------------------------------------------------------ Fakes
 
     internal sealed class FakeStore : ISettingsStore
@@ -1998,13 +2230,26 @@ public sealed class AdminViewModelTests : IDisposable
         /// <summary>Gesetzt: <see cref="GetResolutionsAsync"/> wirft (z. B. Kamera gerade belegt).</summary>
         public Exception? ResolutionsError { get; set; }
 
-        public Task<IReadOnlyList<CameraResolution>> GetResolutionsAsync(string deviceId) =>
-            ResolutionsError is not null
-                ? Task.FromException<IReadOnlyList<CameraResolution>>(ResolutionsError)
-                : Task.FromResult<IReadOnlyList<CameraResolution>>(
-                    [new CameraResolution(640, 480), new CameraResolution(1280, 720), new CameraResolution(1920, 1080)]);
+        /// <summary>Gesetzt: <see cref="GetResolutionsAsync"/> wartet vor der Antwort auf diese Aufgabe (je Gerät).</summary>
+        public Func<string, Task>? ResolutionsGate { get; set; }
 
-        public Task StartAsync(CameraSettings settings, CancellationToken ct = default)
+        /// <summary>Gesetzt: liefert die Auflösungen je Gerät statt der Standardliste.</summary>
+        public Func<string, IReadOnlyList<CameraResolution>>? ResolutionsFor { get; set; }
+
+        public async Task<IReadOnlyList<CameraResolution>> GetResolutionsAsync(string deviceId)
+        {
+            if (ResolutionsError is not null)
+                throw ResolutionsError;
+            if (ResolutionsGate is not null)
+                await ResolutionsGate(deviceId);
+            return ResolutionsFor?.Invoke(deviceId)
+                   ?? [new CameraResolution(640, 480), new CameraResolution(1280, 720), new CameraResolution(1920, 1080)];
+        }
+
+        /// <summary>Gesetzt: <see cref="StartAsync"/> wartet nach dem Aufzeichnen des Aufrufs auf diese Aufgabe (je Einstellungen).</summary>
+        public Func<CameraSettings, Task>? StartGate { get; set; }
+
+        public async Task StartAsync(CameraSettings settings, CancellationToken ct = default)
         {
             StartCalls.Add(new CameraSettings
             {
@@ -2015,7 +2260,8 @@ public sealed class AdminViewModelTests : IDisposable
                 MirrorPhoto = settings.MirrorPhoto,
             });
             Status = CameraStatus.Running;
-            return Task.CompletedTask;
+            if (StartGate is not null)
+                await StartGate(settings);
         }
 
         public Task StopAsync() => Task.CompletedTask;
@@ -2039,9 +2285,14 @@ public sealed class AdminViewModelTests : IDisposable
         public IReadOnlyList<PrinterInfo> GetPrinters() =>
             [new PrinterInfo("Fotodrucker", true), new PrinterInfo("Bürodrucker", false)];
 
+        /// <summary>Gesetzt: liefert die Papiergrößen je Drucker (darf blockieren) statt der Standardliste.</summary>
+        public Func<string?, IReadOnlyList<PaperSizeInfo>>? PaperSizesFor { get; set; }
+
         public IReadOnlyList<PaperSizeInfo> GetPaperSizes(string? printerName)
         {
             LastPaperQuery = printerName;
+            if (PaperSizesFor is not null)
+                return PaperSizesFor(printerName);
             return [new PaperSizeInfo("4x6", "10 x 15 cm randlos", 101.6, 152.4), new PaperSizeInfo("A4", "A4", 210, 297)];
         }
 
@@ -2077,8 +2328,12 @@ public sealed class AdminViewModelTests : IDisposable
 
         public string? PickOverlayFile() => null;
         public string? PickFolder(string? initialFolder) => FolderToPick;
+        /// <summary>Gesetzt: <see cref="Confirm"/> wirft diese Ausnahme.</summary>
+        public Exception? ConfirmException { get; set; }
         public bool Confirm(string title, string message)
         {
+            if (ConfirmException is not null)
+                throw ConfirmException;
             ConfirmCalls++;
             LastConfirmTitle = title;
             LastConfirmMessage = message;

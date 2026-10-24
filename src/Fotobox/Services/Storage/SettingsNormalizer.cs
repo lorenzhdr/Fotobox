@@ -8,7 +8,11 @@ internal static class SettingsNormalizer
 {
     public const string DefaultFilePrefix = "Fotobox";
     public const int MinPinIterations = 10_000;
-    private const int MaxPrefixLength = 60;
+    /// <summary>
+    /// Obergrenze, bis zu der gespeicherte PBKDF2-Iterationen als plausibel gelten (<see cref="PinService.Verify"/>).
+    /// Wird hier bewusst NICHT geklemmt: ein anderer Wert passte nicht mehr zum vorhandenen Hash und sperrte den Admin aus.
+    /// </summary>
+    public const int MaxPlausiblePinIterations = 10_000_000;
 
     public static AppSettings Normalize(AppSettings s)
     {
@@ -31,6 +35,7 @@ internal static class SettingsNormalizer
         s.Layout.StripPhotoCount = Math.Clamp(s.Layout.StripPhotoCount, SettingsLimits.StripPhotosMin, SettingsLimits.StripPhotosMax);
         if (!Enum.IsDefined(s.Layout.StripStyle))
             s.Layout.StripStyle = StripStyle.DoubleCut;
+        s.Layout.CaptionText = TrimCaption(s.Layout.CaptionText);
         s.Layout.CaptionFontFamily = SanitizeFontName(s.Layout.CaptionFontFamily);
         s.Layout.GuestChoices = NormalizeGuestChoices(s.Layout);
 
@@ -73,6 +78,18 @@ internal static class SettingsNormalizer
         if (result.Count > 0 && !result.Contains(standard))
             result.Add(standard);
         return result;
+    }
+
+    /// <summary>Kürzt zu lange Bildunterschriften auf <see cref="SettingsLimits.CaptionMaxLength"/> (statt das Speichern im Admin zu blockieren).</summary>
+    private static string? TrimCaption(string? caption)
+    {
+        if (caption is null || caption.Length <= SettingsLimits.CaptionMaxLength)
+            return caption;
+
+        var length = SettingsLimits.CaptionMaxLength;
+        if (char.IsHighSurrogate(caption[length - 1]))
+            length--; // kein Surrogatpaar zerschneiden
+        return caption[..length];
     }
 
     /// <summary>Leer → Segoe UI; Steuerzeichen raus, Länge begrenzt.</summary>
@@ -140,8 +157,8 @@ internal static class SettingsNormalizer
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(prefix.Where(c => !char.IsControl(c) && Array.IndexOf(invalid, c) < 0).ToArray())
             .Trim().TrimEnd('.');
-        if (cleaned.Length > MaxPrefixLength)
-            cleaned = cleaned[..MaxPrefixLength].TrimEnd();
+        if (cleaned.Length > SettingsLimits.FilePrefixMaxLength)
+            cleaned = cleaned[..SettingsLimits.FilePrefixMaxLength].TrimEnd();
         return cleaned.Length == 0 ? DefaultFilePrefix : cleaned;
     }
 }

@@ -28,18 +28,80 @@ public static class SettingsLimits
     public const int KeysPerActionMax = 8;
     public const int FontNameMaxLength = 100;
     public const int JpegQualityMin = 50, JpegQualityMax = 100;
+    /// <summary>Längster Dateinamen-Präfix; längere Werte aus der settings.json werden beim Laden gekürzt.</summary>
+    public const int FilePrefixMaxLength = 40;
+    /// <summary>Längste Bildunterschrift; längere Werte aus der settings.json werden beim Laden gekürzt.</summary>
+    public const int CaptionMaxLength = 80;
+}
+
+/// <summary>
+/// Liest Enums tolerant: Namen (ohne Beachtung der Groß-/Kleinschreibung) und Zahlen. Ein unbekannter Name führt nicht zu
+/// einer <see cref="JsonException"/> (sonst gälte die ganze Datei als defekt, auch die PIN ginge verloren), sondern ergibt
+/// einen undefinierten Wert, den der Normalizer per <see cref="Enum.IsDefined{TEnum}(TEnum)"/> auf den Standard zurücksetzt
+/// bzw. aus Listen einzeln verwirft. Geschrieben wird wie bei <see cref="JsonStringEnumConverter"/> der Name.
+/// </summary>
+public sealed class TolerantEnumConverterFactory : JsonConverterFactory
+{
+    public override bool CanConvert(Type typeToConvert) => typeToConvert.IsEnum;
+
+    public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options) =>
+        (JsonConverter)Activator.CreateInstance(typeof(TolerantEnumConverter<>).MakeGenericType(typeToConvert))!;
+
+    private sealed class TolerantEnumConverter<TEnum> : JsonConverter<TEnum> where TEnum : struct, Enum
+    {
+        // Ein Wert, der in TEnum nicht definiert ist (für unbekannte Namen und Zahlen außerhalb des Wertebereichs).
+        private static readonly TEnum Undefined = FindUndefined();
+
+        public override TEnum Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            switch (reader.TokenType)
+            {
+                case JsonTokenType.String:
+                    return Enum.TryParse<TEnum>(reader.GetString(), ignoreCase: true, out var named) ? named : Undefined;
+                case JsonTokenType.Number:
+                    return reader.TryGetInt64(out var number) ? FromLong(number) : Undefined;
+                default:
+                    throw new JsonException($"Ungültiger Wert für {typeof(TEnum).Name}.");
+            }
+        }
+
+        public override void Write(Utf8JsonWriter writer, TEnum value, JsonSerializerOptions options)
+        {
+            if (Enum.IsDefined(value))
+                writer.WriteStringValue(value.ToString());
+            else
+                writer.WriteNumberValue(Convert.ToInt64(value));
+        }
+
+        private static TEnum FromLong(long number)
+        {
+            var candidate = (TEnum)Enum.ToObject(typeof(TEnum), number);
+            // Zahlen außerhalb des Basistyps würden sonst abgeschnitten und könnten zufällig einen definierten Wert ergeben.
+            return Convert.ToInt64(candidate) == number ? candidate : Undefined;
+        }
+
+        private static TEnum FindUndefined()
+        {
+            for (long n = -1; ; n--)
+            {
+                var candidate = (TEnum)Enum.ToObject(typeof(TEnum), n);
+                if (!Enum.IsDefined(candidate))
+                    return candidate;
+            }
+        }
+    }
 }
 
 public sealed class AppSettings
 {
-    /// <summary>Gemeinsame Serializer-Optionen für Store und <see cref="Clone"/> (Enums als Strings).</summary>
+    /// <summary>Gemeinsame Serializer-Optionen für Store und <see cref="Clone"/> (Enums als Strings, beim Lesen tolerant).</summary>
     public static JsonSerializerOptions JsonOptions { get; } = new()
     {
         WriteIndented = true,
         PropertyNameCaseInsensitive = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
-        Converters = { new JsonStringEnumConverter() }
+        Converters = { new TolerantEnumConverterFactory() }
     };
 
     public int Version { get; set; } = 1;

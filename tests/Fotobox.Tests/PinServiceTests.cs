@@ -152,4 +152,68 @@ public sealed class PinServiceTests : IDisposable
 
         Assert.False(pin.Verify("1234"));
     }
+
+    [Fact]
+    public void Verify_ImplausiblyHighIterations_ReturnsFalseImmediately_AndKeepsStoredValue()
+    {
+        var (store, pin) = Create();
+        pin.SetPin("1234");
+        var s = store.Current.Clone();
+        s.Security.PinIterations = int.MaxValue; // würde PBKDF2 minutenlang rechnen lassen
+        store.Save(s);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var ok = pin.Verify("1234");
+        watch.Stop();
+
+        Assert.False(ok);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"Dauerte {watch.Elapsed}");
+        Assert.Equal(int.MaxValue, store.Current.Security.PinIterations); // nicht geklemmt
+    }
+
+    [Fact]
+    public void SetPin_WithImplausiblyHighStoredIterations_UsesDefaultInsteadOfHanging()
+    {
+        var (store, pin) = Create();
+        var s = store.Current.Clone();
+        s.Security.PinIterations = 2_000_000_000; // z. B. aus manipulierter Datei ohne Hash
+        store.Save(s);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        pin.SetPin("1234");
+        watch.Stop();
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"Dauerte {watch.Elapsed}");
+        Assert.Equal(100_000, store.Current.Security.PinIterations);
+        Assert.True(pin.Verify("1234"));
+    }
+
+    [Fact]
+    public void Verify_HashOfWrongLength_ReturnsFalse()
+    {
+        var (store, pin) = Create();
+        pin.SetPin("1234");
+        var s = store.Current.Clone();
+        s.Security.PinHash = Convert.ToBase64String(new byte[16]);
+        store.Save(s);
+
+        Assert.False(pin.Verify("1234"));
+
+        s.Security.PinHash = Convert.ToBase64String(new byte[64]);
+        store.Save(s);
+
+        Assert.False(pin.Verify("1234"));
+    }
+
+    [Fact]
+    public void Verify_WithRaisedButPlausibleIterations_StillWorks()
+    {
+        var (store, pin) = Create();
+        var s = store.Current.Clone();
+        s.Security.PinIterations = 20_000;
+        store.Save(s);
+        pin.SetPin("2468");
+
+        Assert.True(pin.Verify("2468"));
+    }
 }

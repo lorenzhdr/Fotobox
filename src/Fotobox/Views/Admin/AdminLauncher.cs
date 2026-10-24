@@ -101,7 +101,8 @@ public sealed class AdminLauncher : IAdminLauncher
             _ = viewModel.RestoreCameraAsync(CloneCamera(_settings.Current.Camera));
         }
 
-        var cameraChanged = viewModel.SettingsSaved && CameraSettingsDiffer(cameraBefore, _settings.Current.Camera);
+        var cameraChanged = viewModel.SettingsSaved
+            && CameraNeedsRestart(cameraBefore, viewModel.LastAppliedCamera, _settings.Current.Camera);
         AppLog.Info($"Admin-Ansicht geschlossen (gespeichert: {viewModel.SettingsSaved}, Kamera geändert: {cameraChanged}, beenden: {viewModel.ExitRequested}).");
         return new AdminResult(true, viewModel.SettingsSaved, viewModel.ExitRequested, cameraChanged);
     }
@@ -122,6 +123,15 @@ public sealed class AdminLauncher : IAdminLauncher
         || a.ResolutionHeight != b.ResolutionHeight
         || a.MirrorPreview != b.MirrorPreview
         || a.MirrorPhoto != b.MirrorPhoto;
+
+    /// <summary>
+    /// Muss die Gastansicht die Kamera nach dem Speichern neu starten? Ja, wenn sich die gespeicherten Einstellungen gegenüber
+    /// dem Stand beim Öffnen geändert haben, oder wenn die Admin-Ansicht die Kamera zuletzt mit etwas anderem gestartet hat
+    /// (z. B. nach schnellem Hin- und Herwechseln: Speichern verwarf den Neustart auf das ursprüngliche Gerät, die Kamera
+    /// läuft noch mit dem zwischenzeitlich gewählten).
+    /// </summary>
+    public static bool CameraNeedsRestart(CameraSettings before, CameraSettings? lastApplied, CameraSettings saved) =>
+        CameraSettingsDiffer(before, saved) || (lastApplied is not null && CameraSettingsDiffer(lastApplied, saved));
 
     private static bool ShowRetry(Window? owner, string message)
     {
