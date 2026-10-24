@@ -1570,6 +1570,26 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Contains(nameof(AdminViewModel.TriggerOnLeftClick), raised);
     }
 
+    [Fact]
+    public void InvertMouseWheel_DefaultsOff_RoundtripsIntoSettings_AndSurvivesResetKeys()
+    {
+        var vm = CreateViewModel();
+        Assert.False(vm.InvertMouseWheel);
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.InvertMouseWheel = true;
+        Assert.Contains(nameof(AdminViewModel.InvertMouseWheel), raised);
+        Assert.False(_store.Current.Input.InvertMouseWheel);   // Entwurf, noch nicht gespeichert
+
+        // Gehört zur Layoutwahl, nicht zu den Tasten.
+        vm.ResetKeysCommand.Execute(null);
+        Assert.True(vm.InvertMouseWheel);
+
+        vm.SaveCommand.Execute(null);
+        Assert.True(_store.Current.Input.InvertMouseWheel);
+    }
+
     // ------------------------------------------------------------------ Reihenfolge der Gastauswahl
 
     private static GuestLayout[] OrderOf(AdminViewModel vm) => vm.GuestOrder.Select(i => i.Layout).ToArray();

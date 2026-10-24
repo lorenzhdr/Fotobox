@@ -1585,6 +1585,13 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         set => SetProperty(_draft.Input.TriggerOnRightClick, value, v => _draft.Input.TriggerOnRightClick = v);
     }
 
+    /// <summary>Mausrad-Richtung der Gast-Layoutwahl umkehren (nach oben scrollen = nächstes Layout).</summary>
+    public bool InvertMouseWheel
+    {
+        get => _draft.Input.InvertMouseWheel;
+        set => SetProperty(_draft.Input.InvertMouseWheel, value, v => _draft.Input.InvertMouseWheel = v);
+    }
+
     private void LoadKeysFromDraft()
     {
         // Wie beim Laden aus der Datei: ungültige, gesperrte und doppelte Einträge fallen weg, Pflicht-Aktionen behalten eine Taste.
@@ -1689,7 +1696,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private void ResetKeys()
     {
         CapturingEditor = null;
-        _draft.Input = new InputSettings();
+        // Die Mausrad-Richtung gehört zur Layoutwahl (Tab „Layout“) und bleibt beim Zurücksetzen der Tasten erhalten.
+        _draft.Input = new InputSettings { InvertMouseWheel = _draft.Input.InvertMouseWheel };
         LoadKeysFromDraft();
         SyncKeysToDraft();
         OnPropertyChanged(nameof(TriggerOnLeftClick));

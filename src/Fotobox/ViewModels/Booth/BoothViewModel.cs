@@ -321,6 +321,18 @@ public sealed class BoothViewModel : ObservableObject
         Refresh();
     }
 
+    /// <summary>
+    /// Eine Mausrad-Stufe: nach oben = vorheriges Layout, nach unten = nächstes; mit
+    /// <see cref="InputSettings.InvertMouseWheel"/> umgekehrt.
+    /// </summary>
+    public void ScrollLayout(bool wheelUp)
+    {
+        var direction = wheelUp ? -1 : 1;
+        if (Settings.Current.Input?.InvertMouseWheel == true)
+            direction = -direction;
+        CycleLayout(direction);
+    }
+
     private int IndexOfSelected(IReadOnlyList<GuestLayout> choices)
     {
         var selected = SelectedLayout;
