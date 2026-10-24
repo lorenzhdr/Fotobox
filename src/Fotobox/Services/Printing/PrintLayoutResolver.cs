@@ -90,6 +90,65 @@ public static class PrintLayoutResolver
         return driverDefault;
     }
 
+    /// <summary>Toleranz (mm) beim Zuordnen eines Treiberpapiers per Maß.</summary>
+    public const double PaperMatchToleranceMm = 1.0;
+
+    /// <summary>Ab dieser relativen Abweichung der Seitenverhältnisse (1 %) wird gewarnt.</summary>
+    public const double AspectWarnTolerance = 0.01;
+
+    /// <summary>
+    /// Sucht unter den Treiberpapieren das mit dem gewünschten Maß (jede Seite ±<paramref name="toleranceMm"/>, beide
+    /// Ausrichtungen). Bei mehreren Treffern gewinnt das mit der geringsten Gesamtabweichung, bei Gleichstand das erste.
+    /// Rückgabe: Index in <paramref name="available"/> oder -1.
+    /// </summary>
+    public static int FindPaperByDimensions(IReadOnlyList<PaperSizeInfo> available, double widthMm, double heightMm,
+        double toleranceMm = PaperMatchToleranceMm)
+    {
+        var best = -1;
+        var bestDelta = double.MaxValue;
+        for (var i = 0; i < available.Count; i++)
+        {
+            var p = available[i];
+            var upright = Delta(p.WidthMm, p.HeightMm, widthMm, heightMm);
+            var turned = Delta(p.WidthMm, p.HeightMm, heightMm, widthMm);
+            var delta = Math.Min(upright ?? double.MaxValue, turned ?? double.MaxValue);
+            if (delta < bestDelta)
+            {
+                best = i;
+                bestDelta = delta;
+            }
+        }
+
+        return best;
+
+        // null = außerhalb der Toleranz, sonst Summe der Abweichungen beider Seiten.
+        double? Delta(double aw, double ah, double bw, double bh)
+        {
+            var dw = Math.Abs(aw - bw);
+            var dh = Math.Abs(ah - bh);
+            const double epsilon = 1e-9;   // Gleitkomma-Rauschen an der Toleranzgrenze
+            return dw <= toleranceMm + epsilon && dh <= toleranceMm + epsilon ? dw + dh : null;
+        }
+    }
+
+    /// <summary>
+    /// Weichen die Seitenverhältnisse (lange/kurze Seite, also ausrichtungsunabhängig) um mehr als
+    /// <paramref name="tolerance"/> (relativ) voneinander ab? Ungültige Maße gelten als „keine Abweichung“.
+    /// </summary>
+    public static bool HasAspectMismatch(double widthA, double heightA, double widthB, double heightB,
+        double tolerance = AspectWarnTolerance)
+    {
+        if (widthA <= 0 || heightA <= 0 || widthB <= 0 || heightB <= 0)
+            return false;
+
+        var a = Math.Max(widthA, heightA) / Math.Min(widthA, heightA);
+        var b = Math.Max(widthB, heightB) / Math.Min(widthB, heightB);
+        return Math.Abs(a - b) / b > tolerance;
+    }
+
+    /// <summary>Pixel bei gegebener Auflösung → Millimeter (0 bei ungültiger Auflösung).</summary>
+    public static double PixelsToMm(double pixels, double dpi) => dpi > 0 ? pixels / dpi * MmPerInch : 0;
+
     /// <summary>Seitenspezifikation (300 dpi) mit aufgelöster Ausrichtung; ohne Papier → <see cref="PageSpec.Default"/>.</summary>
     public static PageSpec ResolvePageSpec(PrinterSettings printer, LayoutKind layout, IReadOnlyList<PaperSizeInfo> available, PaperSizeInfo? driverDefault)
     {
