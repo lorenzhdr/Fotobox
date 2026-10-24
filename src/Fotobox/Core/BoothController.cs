@@ -43,9 +43,10 @@ public sealed class BoothController(
     private int _expectedPrintSeconds = 240;
 
     // Seitengröße: zuletzt erfolgreich ermittelter Wert je Schlüssel (Rückfall bei Zeitüberschreitung)
-    // und die Schlüssel, für die gerade ein Vorabruf läuft (kein Stapeln bei hängendem Drucker).
+    // und die laufende Abfrage je Schlüssel. Vorabruf und Durchgang teilen sich dieselbe Abfrage, damit sich bei
+    // hängendem Spooler keine blockierten Threads stapeln (je Schlüssel höchstens eine Abfrage zugleich).
     private readonly ConcurrentDictionary<PageSpecKey, PageSpec> _lastGoodPage = new();
-    private readonly ConcurrentDictionary<PageSpecKey, byte> _prefetching = new();
+    private readonly ConcurrentDictionary<PageSpecKey, Task<PageSpec>> _pageQueries = new();
 
     private int _countdownValue;
     private int _shotIndex;
@@ -288,8 +289,9 @@ public sealed class BoothController(
         PageSpec page;
         try
         {
-            var pageTask = Task.Run(() => print.GetPageSpec(cfg.Printer, cfg.Layout.Kind));
-            ObserveFault(pageTask);
+            // Läuft für denselben Schlüssel schon eine Abfrage (Vorabruf, vorheriger Durchgang), wird auf diese
+            // gewartet statt eine weitere zu starten.
+            var pageTask = GetPageSpecQuery(cfg.Printer, cfg.Layout.Kind, pageKey);
             page = await pageTask.WaitAsync(PageSpecTimeout, time, ct);
             _lastGoodPage[pageKey] = page;
         }
@@ -317,9 +319,13 @@ public sealed class BoothController(
             return "Das Foto konnte nicht zusammengestellt werden. Bitte versuche es noch einmal.";
         }
 
+        // Bei Zeitüberschreitung wird das Speichern über das Token abgebrochen (SaveCore prüft es zwischen den
+        // Dateien), sonst erschiene die Datei womöglich noch nach der Meldung „konnte nicht gespeichert werden“.
+        using var saveCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task<SavedPhotoSet>? saveTask = null;
         try
         {
-            var saveTask = storage.SaveAsync(layout, photos, cfg.Storage, timestamp, ct);
+            saveTask = storage.SaveAsync(layout, photos, cfg.Storage, timestamp, saveCts.Token);
             ObserveFault(saveTask);
             LastSaved = await saveTask.WaitAsync(SaveTimeout, time, ct);
         }
@@ -330,6 +336,9 @@ public sealed class BoothController(
         catch (TimeoutException)
         {
             AppLog.Error("Speichern hat das Zeitlimit überschritten.");
+            try { saveCts.Cancel(); }
+            catch (Exception ex) { AppLog.Warn("Speichern konnte nicht abgebrochen werden.", ex); }
+            LogLateSave(saveTask);
             return "Das Foto konnte nicht gespeichert werden. Bitte wende dich an das Personal.";
         }
         catch (Exception ex)
@@ -422,6 +431,43 @@ public sealed class BoothController(
         return PageSpec.Default;
     }
 
+    /// <summary>
+    /// Liefert die laufende Seitengrößen-Abfrage für den Schlüssel oder startet (auf dem Threadpool) genau eine neue.
+    /// Die Abfrage selbst ist nicht abbrechbar (blockierender Treiberaufruf); Aufrufer begrenzen nur ihr Warten darauf.
+    /// Ein Erfolg wird als letzter guter Wert gemerkt.
+    /// </summary>
+    private Task<PageSpec> GetPageSpecQuery(PrinterSettings printer, LayoutKind kind, PageSpecKey key)
+    {
+        while (true)
+        {
+            if (_pageQueries.TryGetValue(key, out var running))
+                return running;
+
+            var tcs = new TaskCompletionSource<PageSpec>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!_pageQueries.TryAdd(key, tcs.Task))
+                continue;
+
+            ObserveFault(tcs.Task);
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    var spec = print.GetPageSpec(printer, kind);
+                    _lastGoodPage[key] = spec;
+                    _pageQueries.TryRemove(key, out _);
+                    tcs.TrySetResult(spec);
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Warn("Abfrage der Seitengröße fehlgeschlagen.", ex);
+                    _pageQueries.TryRemove(key, out _);
+                    tcs.TrySetException(ex);
+                }
+            });
+            return tcs.Task;
+        }
+    }
+
     /// <summary>Holt die Seitengröße im Hintergrund (füllt den Zwischenspeicher des Druckdienstes und den letzten guten Wert).</summary>
     private void StartPageSpecPrefetch(LayoutKind? extraKind = null)
     {
@@ -446,26 +492,8 @@ public sealed class BoothController(
 
             foreach (var kind in kinds.Distinct())
             {
-                var key = PageSpecKey.From(printer, kind);
-                if (!_prefetching.TryAdd(key, 0))
-                    continue;
-
-                var task = Task.Run(() =>
-                {
-                    try
-                    {
-                        _lastGoodPage[key] = print.GetPageSpec(printer, kind);
-                    }
-                    catch (Exception ex)
-                    {
-                        AppLog.Warn("Vorabruf der Seitengröße fehlgeschlagen.", ex);
-                    }
-                    finally
-                    {
-                        _prefetching.TryRemove(key, out _);
-                    }
-                });
-                ObserveFault(task);
+                // Läuft schon eine Abfrage für diesen Schlüssel, wird keine zweite gestapelt.
+                _ = GetPageSpecQuery(printer, kind, PageSpecKey.From(printer, kind));
             }
         }
         catch (Exception ex)
@@ -479,7 +507,14 @@ public sealed class BoothController(
     {
         var limit = TimeSpan.FromSeconds(Math.Max(SettingsLimits.PrintTimeoutMin, printer.TimeoutSeconds) + 30);
         using var printCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var progress = new Progress<string>(message => StatusMessage = message);
+        // Der Druck kann nach hartem Timeout noch weiterlaufen und später Status melden; sobald dieser Durchgang
+        // vorbei ist, dürfen solche Meldungen den Status des nächsten Durchgangs nicht mehr überschreiben.
+        var sessionOver = false;
+        var progress = new Progress<string>(message =>
+        {
+            if (!Volatile.Read(ref sessionOver))
+                StatusMessage = message;
+        });
         Task<PrintResult>? task = null;
         try
         {
@@ -501,6 +536,19 @@ public sealed class BoothController(
             AppLog.Error("Druck wirft eine Ausnahme.", ex);
             return new PrintResult(PrintOutcome.Failed, ex.Message);
         }
+        finally
+        {
+            Volatile.Write(ref sessionOver, true);
+        }
+    }
+
+    /// <summary>Loggt, wenn ein per Zeitlimit aufgegebenes Speichern doch noch fertig wurde (die Datei erscheint dann nachträglich).</summary>
+    private static void LogLateSave(Task<SavedPhotoSet>? saveTask)
+    {
+        if (saveTask is null)
+            return;
+        _ = saveTask.ContinueWith(static t => AppLog.Warn($"Speichern war nach dem Zeitlimit doch noch erfolgreich: {t.Result.LayoutPath}"),
+            TaskContinuationOptions.OnlyOnRanToCompletion);
     }
 
     /// <summary>Beobachtet eine ggf. verwaiste Aufgabe, damit ihre Ausnahme nie als UnobservedTaskException endet.</summary>

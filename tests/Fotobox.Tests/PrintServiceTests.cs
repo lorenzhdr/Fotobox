@@ -373,6 +373,68 @@ public class PrintLayoutResolverTests
         Assert.True(landscape.IsLandscape);
     }
 
+    // ---- Papierzuordnung per Maß ----
+
+    [Fact]
+    public void FindPaperByDimensions_ExactMatch_ReturnsIndex()
+    {
+        Assert.Equal(1, PrintLayoutResolver.FindPaperByDimensions([A4, Tenfifteen], 101.6, 152.4));
+    }
+
+    [Theory]
+    [InlineData(101, 151.5, 1)]
+    [InlineData(102.5, 153.2, 1)]
+    [InlineData(152.4, 101.6, 1)]   // andere Ausrichtung
+    [InlineData(152.9, 100.9, 1)]   // andere Ausrichtung, innerhalb der Toleranz
+    [InlineData(100, 150, -1)]      // 1,6 mm Abweichung in der Breite
+    [InlineData(100, 148, -1)]
+    [InlineData(105, 148, -1)]
+    public void FindPaperByDimensions_UsesOneMillimeterToleranceInBothOrientations(double w, double h, int expected)
+    {
+        Assert.Equal(expected, PrintLayoutResolver.FindPaperByDimensions([A4, Tenfifteen], w, h));
+    }
+
+    [Fact]
+    public void FindPaperByDimensions_PrefersClosestMatch_ThenFirst()
+    {
+        var near = new PaperSizeInfo("Near", "n", 100.5, 150.5);
+        var closer = new PaperSizeInfo("Closer", "c", 100.1, 150.1);
+        var twin = new PaperSizeInfo("Twin", "t", 100.1, 150.1);
+
+        Assert.Equal(1, PrintLayoutResolver.FindPaperByDimensions([near, closer, twin], 100, 150));
+    }
+
+    [Fact]
+    public void FindPaperByDimensions_EmptyList_ReturnsMinusOne()
+    {
+        Assert.Equal(-1, PrintLayoutResolver.FindPaperByDimensions([], 100, 150));
+    }
+
+    [Fact]
+    public void FindPaperByDimensions_ToleranceBoundaryIsInclusive()
+    {
+        Assert.Equal(0, PrintLayoutResolver.FindPaperByDimensions([Tenfifteen], 100.6, 151.4));
+    }
+
+    [Theory]
+    [InlineData(1200, 1800, 384, 576, false)]     // gleiches Verhältnis
+    [InlineData(1800, 1200, 384, 576, false)]     // Ausrichtung egal
+    [InlineData(1200, 1800, 378, 576, true)]      // ca. 1,6 % schmaler
+    [InlineData(1200, 1800, 384, 570, true)]
+    [InlineData(1200, 1800, 384, 580, false)]     // unter 1 % (1,5 → 1,510)
+    [InlineData(0, 1800, 384, 576, false)]        // ungültig → keine Warnung
+    public void HasAspectMismatch_WarnsAboveOnePercent(double aw, double ah, double bw, double bh, bool expected)
+    {
+        Assert.Equal(expected, PrintLayoutResolver.HasAspectMismatch(aw, ah, bw, bh));
+    }
+
+    [Fact]
+    public void PixelsToMm_UsesDpi()
+    {
+        Assert.Equal(101.6, PrintLayoutResolver.PixelsToMm(1200, 300), 6);
+        Assert.Equal(0, PrintLayoutResolver.PixelsToMm(1200, 0));
+    }
+
     [Theory]
     [InlineData(1800, 1200, 384, 576, true)]   // Querformat-Bild auf Hochformat-Medium
     [InlineData(1200, 1800, 384, 576, false)]
