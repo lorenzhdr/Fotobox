@@ -47,20 +47,43 @@ public partial class App : Application
 
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-        _services = BuildServices();
-
-        var adminLauncher = _services.GetRequiredService<IAdminLauncher>();
-        if (!adminLauncher.EnsurePinConfigured(null))
+        try
         {
-            AppLog.Info("PIN-Einrichtung bzw. Laden der Einstellungen abgebrochen – Fotobox wird beendet.");
-            Shutdown();
-            return;
-        }
+            _services = BuildServices();
 
-        var boothWindow = _services.GetRequiredService<BoothWindow>();
-        MainWindow = boothWindow;
-        ShutdownMode = ShutdownMode.OnMainWindowClose;
-        boothWindow.Show();
+            var adminLauncher = _services.GetRequiredService<IAdminLauncher>();
+            if (!adminLauncher.EnsurePinConfigured(null))
+            {
+                AppLog.Info("PIN-Einrichtung bzw. Laden der Einstellungen abgebrochen – Fotobox wird beendet.");
+                Shutdown();
+                return;
+            }
+
+            var boothWindow = _services.GetRequiredService<BoothWindow>();
+            MainWindow = boothWindow;
+            ShutdownMode = ShutdownMode.OnMainWindowClose;
+            boothWindow.Show();
+        }
+        catch (Exception ex)
+        {
+            // Ohne diesen Pfad bliebe ein fensterloser Prozess (OnExplicitShutdown) samt Mutex am Leben.
+            AppLog.Error("Die Fotobox konnte nicht gestartet werden.", ex);
+            try
+            {
+                MessageBox.Show(
+                    "Die Fotobox konnte nicht gestartet werden." + Environment.NewLine + Environment.NewLine +
+                    "Einzelheiten stehen im Protokoll im Ordner %LOCALAPPDATA%\\Fotobox\\logs." + Environment.NewLine +
+                    "Prüfen Sie dort bzw. im Ordner %LOCALAPPDATA%, ob Dateien oder Rechte den Start blockieren.",
+                    "Fotobox",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            catch (Exception msgEx)
+            {
+                AppLog.Error("Fehlermeldung konnte nicht angezeigt werden.", msgEx);
+            }
+            Shutdown(1);
+        }
     }
 
     private static ServiceProvider BuildServices()
@@ -104,6 +127,11 @@ public partial class App : Application
                     }
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            // Teilweise initialisierter Zustand (z. B. Dienst nicht erzeugbar): Beenden muss trotzdem durchlaufen.
+            AppLog.Error("Fehler beim Beenden.", ex);
         }
         finally
         {

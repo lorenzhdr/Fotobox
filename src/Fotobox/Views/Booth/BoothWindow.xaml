@@ -60,6 +60,59 @@
             </Style.Triggers>
         </Style>
 
+        <!--
+            Endlos-Animationen nur, solange das Element wirklich sichtbar ist (IsVisible, berücksichtigt auch
+            eingeklappte Eltern). Sonst liefen sie unsichtbar weiter und kosten Render-Zeit über dem Livebild.
+        -->
+        <Style x:Key="HintPillPulse" TargetType="Border">
+            <Style.Triggers>
+                <Trigger Property="IsVisible" Value="True">
+                    <Trigger.EnterActions>
+                        <BeginStoryboard x:Name="HintPillPulseStoryboard">
+                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                 From="1" To="1.05" Duration="0:0:1.1">
+                                    <DoubleAnimation.EasingFunction>
+                                        <SineEase EasingMode="EaseInOut" />
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                 From="1" To="1.05" Duration="0:0:1.1">
+                                    <DoubleAnimation.EasingFunction>
+                                        <SineEase EasingMode="EaseInOut" />
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                 From="0.85" To="1" Duration="0:0:1.1" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                    <Trigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="HintPillPulseStoryboard" />
+                    </Trigger.ExitActions>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Drehender Spinner (gestrichelter Kreis), läuft nur im sichtbaren Zustand. -->
+        <Style x:Key="SpinnerWhenVisible" TargetType="Ellipse">
+            <Style.Triggers>
+                <Trigger Property="IsVisible" Value="True">
+                    <Trigger.EnterActions>
+                        <BeginStoryboard x:Name="SpinnerStoryboard">
+                            <Storyboard RepeatBehavior="Forever">
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                 From="0" To="360" Duration="0:0:1.6" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                    <Trigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="SpinnerStoryboard" />
+                    </Trigger.ExitActions>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- Overlay, das sanft eingeblendet wird, sobald es sichtbar wird. -->
         <Style x:Key="FadeInOverlay" TargetType="Grid">
             <Setter Property="Visibility" Value="Collapsed" />
@@ -232,7 +285,7 @@
         </Border>
 
         <!-- Hinweis-Pille -->
-        <Border x:Name="HintPill" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,80"
+        <Border x:Name="HintPill" Style="{StaticResource HintPillPulse}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,80"
                 Padding="56,22" CornerRadius="60" BorderThickness="2.5"
                 Background="{StaticResource PillBackground}" BorderBrush="{StaticResource GoldBorder}"
                 RenderTransformOrigin="0.5,0.5" IsHitTestVisible="False"
@@ -243,28 +296,6 @@
             <Border.Effect>
                 <DropShadowEffect BlurRadius="40" ShadowDepth="0" Color="#F5C26B" Opacity="0.45" />
             </Border.Effect>
-            <Border.Triggers>
-                <EventTrigger RoutedEvent="FrameworkElement.Loaded">
-                    <BeginStoryboard>
-                        <Storyboard RepeatBehavior="Forever" AutoReverse="True">
-                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
-                                             From="1" To="1.05" Duration="0:0:1.1">
-                                <DoubleAnimation.EasingFunction>
-                                    <SineEase EasingMode="EaseInOut" />
-                                </DoubleAnimation.EasingFunction>
-                            </DoubleAnimation>
-                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
-                                             From="1" To="1.05" Duration="0:0:1.1">
-                                <DoubleAnimation.EasingFunction>
-                                    <SineEase EasingMode="EaseInOut" />
-                                </DoubleAnimation.EasingFunction>
-                            </DoubleAnimation>
-                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                             From="0.85" To="1" Duration="0:0:1.1" />
-                        </Storyboard>
-                    </BeginStoryboard>
-                </EventTrigger>
-            </Border.Triggers>
             <TextBlock Text="{Binding HintText}" Foreground="White"
                        FontSize="38" FontWeight="SemiBold" />
         </Border>
@@ -350,22 +381,12 @@
                         Visibility="{Binding ShowPrintInfo, Converter={StaticResource BoolToVis}}">
                 <StackPanel Visibility="{Binding IsPrinting, Converter={StaticResource BoolToVis}}">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                        <Ellipse Width="30" Height="30" Stroke="{StaticResource Gold}" StrokeThickness="4"
+                        <Ellipse Style="{StaticResource SpinnerWhenVisible}" Width="30" Height="30" Stroke="{StaticResource Gold}" StrokeThickness="4"
                                  StrokeDashArray="3.5 4" StrokeDashCap="Round" Margin="0,0,20,0"
                                  RenderTransformOrigin="0.5,0.5" VerticalAlignment="Center">
                             <Ellipse.RenderTransform>
                                 <RotateTransform Angle="0" />
                             </Ellipse.RenderTransform>
-                            <Ellipse.Triggers>
-                                <EventTrigger RoutedEvent="FrameworkElement.Loaded">
-                                    <BeginStoryboard>
-                                        <Storyboard RepeatBehavior="Forever">
-                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
-                                                             From="0" To="360" Duration="0:0:1.6" />
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </EventTrigger>
-                            </Ellipse.Triggers>
                         </Ellipse>
                         <TextBlock Text="{Binding StatusText}" Foreground="White" FontSize="32" FontWeight="SemiBold"
                                    VerticalAlignment="Center" />
@@ -410,22 +431,12 @@
                 IsHitTestVisible="False"
                 Visibility="{Binding ShowProcessingBanner, Converter={StaticResource BoolToVis}}">
             <StackPanel Orientation="Horizontal">
-                <Ellipse Width="32" Height="32" Stroke="{StaticResource Gold}" StrokeThickness="4"
+                <Ellipse Style="{StaticResource SpinnerWhenVisible}" Width="32" Height="32" Stroke="{StaticResource Gold}" StrokeThickness="4"
                          StrokeDashArray="3.5 4" StrokeDashCap="Round" Margin="0,0,22,0"
                          RenderTransformOrigin="0.5,0.5" VerticalAlignment="Center">
                     <Ellipse.RenderTransform>
                         <RotateTransform Angle="0" />
                     </Ellipse.RenderTransform>
-                    <Ellipse.Triggers>
-                        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
-                            <BeginStoryboard>
-                                <Storyboard RepeatBehavior="Forever">
-                                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
-                                                     From="0" To="360" Duration="0:0:1.6" />
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </EventTrigger>
-                    </Ellipse.Triggers>
                 </Ellipse>
                 <TextBlock Text="{Binding StatusText}" Foreground="White" FontSize="34" FontWeight="SemiBold"
                            VerticalAlignment="Center" />

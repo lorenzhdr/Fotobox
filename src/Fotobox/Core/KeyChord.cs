@@ -45,7 +45,8 @@ public readonly record struct KeyChord(Key Key, ModifierKeys Modifiers)
         }
 
         var keyText = parts[^1];
-        if (keyText.All(char.IsDigit) || !Enum.TryParse<Key>(keyText, ignoreCase: true, out var key) || !Enum.IsDefined(key))
+        // Alle Key-Namen sind alphanumerisch. Enum.TryParse würde "A,Space" sonst per ODER verknüpfen (→ Key.S).
+        if (!keyText.All(char.IsAsciiLetterOrDigit) || keyText.All(char.IsDigit) || !Enum.TryParse<Key>(keyText, ignoreCase: true, out var key) || !Enum.IsDefined(key))
             return false;
 
         chord = new KeyChord(key, modifiers);

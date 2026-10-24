@@ -21,6 +21,28 @@ public sealed class KeyChordTests
     }
 
     [Theory]
+    [InlineData(" A ", Key.A, ModifierKeys.None)]
+    [InlineData(" Ctrl + Alt + F5 ", Key.F5, ModifierKeys.Control | ModifierKeys.Alt)]
+    [InlineData("D1", Key.D1, ModifierKeys.None)]
+    [InlineData("OemPlus", Key.OemPlus, ModifierKeys.None)]
+    [InlineData("NumPad0", Key.NumPad0, ModifierKeys.None)]
+    public void TryParse_Valid_WhitespaceAndAlphanumericNames(string text, Key key, ModifierKeys modifiers)
+    {
+        Assert.True(KeyChord.TryParse(text, out var chord));
+        Assert.Equal(new KeyChord(key, modifiers), chord);
+    }
+
+    [Fact]
+    public void AllKeyEnumNames_AreAlphanumeric()
+    {
+        foreach (var key in Enum.GetValues<Key>())
+        {
+            var name = key.ToString();
+            Assert.All(name, c => Assert.True(char.IsAsciiLetterOrDigit(c), name));
+        }
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("Ctrl+")]
@@ -28,6 +50,11 @@ public sealed class KeyChordTests
     [InlineData("Win+A")]
     [InlineData("Foo")]
     [InlineData("7")]
+    [InlineData("Ctrl+A,Space")]
+    [InlineData("A,B")]
+    [InlineData("Space,Enter")]
+    [InlineData("Ctrl+-1")]
+    [InlineData("A|B")]
     public void TryParse_Invalid(string? text) => Assert.False(KeyChord.TryParse(text, out _));
 
     [Theory]
