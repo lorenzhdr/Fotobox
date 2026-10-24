@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Text;
 
@@ -51,13 +52,21 @@ public static class AppLog
     private static string DefaultDirectory() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fotobox", "logs");
 
+    /// <summary>Zeitstempel einer Logzeile, bewusst kulturunabhängig (Zeittrenner, Kalender).</summary>
+    public static string FormatTimestamp(DateTime time) =>
+        time.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+
+    /// <summary>Dateiname der Tagesdatei, bewusst kulturunabhängig (z. B. kein buddhistisches Jahr).</summary>
+    public static string LogFileName(DateTime time) =>
+        "fotobox-" + time.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + ".log";
+
     private static void Write(string level, string message, Exception? ex)
     {
         try
         {
             var now = DateTime.Now;
             var sb = new StringBuilder();
-            sb.Append(now.ToString("yyyy-MM-dd HH:mm:ss.fff")).Append(" [").Append(level).Append("] [T")
+            sb.Append(FormatTimestamp(now)).Append(" [").Append(level).Append("] [T")
               .Append(Environment.CurrentManagedThreadId).Append("] ").Append(message);
             if (ex is not null)
                 sb.AppendLine().Append(ex);
@@ -67,7 +76,7 @@ public static class AppLog
             {
                 var dir = _directory ??= DefaultDirectory();
                 System.IO.Directory.CreateDirectory(dir);
-                File.AppendAllText(Path.Combine(dir, $"fotobox-{now:yyyyMMdd}.log"), sb.ToString(), Encoding.UTF8);
+                File.AppendAllText(Path.Combine(dir, LogFileName(now)), sb.ToString(), Encoding.UTF8);
             }
         }
         catch

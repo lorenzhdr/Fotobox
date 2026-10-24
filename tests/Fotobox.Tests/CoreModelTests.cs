@@ -204,3 +204,24 @@ public class AppSettingsTests
         Assert.NotNull(back.Camera);
     }
 }
+
+public class AppLogFormatTests
+{
+    [Fact]
+    public void Formatting_IsCultureInvariant()
+    {
+        var old = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("th-TH");
+            var now = new DateTime(2026, 3, 7, 14, 5, 9, 123);
+
+            Assert.Equal("2026-03-07 14:05:09.123", AppLog.FormatTimestamp(now));
+            Assert.Equal("fotobox-20260307.log", AppLog.LogFileName(now));
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = old;
+        }
+    }
+}
