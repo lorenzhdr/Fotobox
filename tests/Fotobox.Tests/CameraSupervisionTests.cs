@@ -230,3 +230,53 @@ public sealed class CameraReconnectBackoffTests
     public void Interval_GrowsAfterRepeatedNoImageAttempts(int attempts, int expectedSeconds) =>
         Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), CameraReconnectBackoff.GetInterval(attempts));
 }
+
+public sealed class FrameErrorThrottleTests
+{
+    [Fact]
+    public void FirstErrorOfASeries_IsLogged_FollowingOnesOnlyEveryNth()
+    {
+        var throttle = new FrameErrorThrottle();
+        Assert.True(throttle.OnError(out var first));
+        Assert.Equal(1, first);
+
+        var logged = 0;
+        for (var i = 2; i <= FrameErrorThrottle.RepeatEvery * 2; i++)
+        {
+            if (throttle.OnError(out var count))
+            {
+                logged++;
+                Assert.Equal(0, count % FrameErrorThrottle.RepeatEvery);
+            }
+        }
+        Assert.Equal(2, logged);
+    }
+
+    [Fact]
+    public void Success_EndsTheSeries_AndReportsItsLength()
+    {
+        var throttle = new FrameErrorThrottle();
+        Assert.Equal(0, throttle.OnSuccess());
+
+        throttle.OnError(out _);
+        throttle.OnError(out _);
+        throttle.OnError(out _);
+        Assert.Equal(3, throttle.OnSuccess());
+        Assert.Equal(0, throttle.OnSuccess());
+
+        // Neue Serie: wieder wird der erste Fehler gemeldet.
+        Assert.True(throttle.OnError(out var count));
+        Assert.Equal(1, count);
+    }
+}
+
+public sealed class CameraTimeoutExceptionTests
+{
+    [Fact]
+    public void Pending_CarriesTheRunningOperation_AndIsOptional()
+    {
+        var pending = new TaskCompletionSource().Task;
+        Assert.Same(pending, new CameraTimeoutException("Start", pending).Pending);
+        Assert.Null(new CameraTimeoutException("Initialisierung").Pending);
+    }
+}

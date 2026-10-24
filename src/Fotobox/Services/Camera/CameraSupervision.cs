@@ -128,8 +128,38 @@ public static class CameraReconnectBackoff
 /// <summary>Ein Kameraschritt (Initialisierung, Formatwahl, Start …) hat seine Frist überschritten.</summary>
 public sealed class CameraTimeoutException : TimeoutException
 {
-    public CameraTimeoutException(string step)
+    public CameraTimeoutException(string step, Task? pending = null)
         : base($"Zeitüberschreitung bei der Kamera ({step}).")
     {
+        Pending = pending;
     }
+
+    /// <summary>
+    /// Die noch laufende WinRT-Operation des Schritts (falls bekannt). Beteiligte Objekte dürfen erst nach deren
+    /// Abschluss freigegeben werden, nie währenddessen (Zugriffsverletzung/Hänger im Treiber möglich).
+    /// </summary>
+    public Task? Pending { get; }
+}
+
+/// <summary>
+/// Drosselt Log-Meldungen für Fehler, die bei jedem Kamerabild erneut auftreten (bis zu ca. 30 Meldungen je Sekunde):
+/// Gemeldet wird der erste Fehler einer Serie und danach nur noch jeder <see cref="RepeatEvery"/>-te.
+/// Ein erfolgreich verarbeitetes Bild beendet die Serie. Threadsicher.
+/// </summary>
+public sealed class FrameErrorThrottle
+{
+    /// <summary>Abstand (in Fehlern) der Folgemeldungen einer Serie, bei 30 Bildern/s etwa alle 10 s.</summary>
+    public const int RepeatEvery = 300;
+
+    private int _count;
+
+    /// <summary>Zählt einen Fehler. true = jetzt loggen; <paramref name="count"/> ist die Länge der Serie bis hierhin.</summary>
+    public bool OnError(out int count)
+    {
+        count = Interlocked.Increment(ref _count);
+        return count == 1 || count % RepeatEvery == 0;
+    }
+
+    /// <summary>Beendet die Serie; liefert die Anzahl der Fehler seit dem letzten Erfolg (0 = es gab keine).</summary>
+    public int OnSuccess() => Interlocked.Exchange(ref _count, 0);
 }

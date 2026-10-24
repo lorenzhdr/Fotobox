@@ -91,6 +91,60 @@ public sealed class CameraFormatSelectorTests
         Assert.Equal(1, CameraFormatSelector.SelectIndex(formats, null, null));
     }
 
+    private static CameraFormatCandidate S(int w, int h, double fps, string? subtype) => new(w, h, fps, subtype);
+
+    [Fact]
+    public void Subtype_Uncompressed_BeatsMjpgBeatsCompressed_AtSameResolutionAndRate()
+    {
+        var formats = new[] { S(1280, 720, 30, "H264"), S(1280, 720, 30, "MJPG"), S(1280, 720, 30, "NV12"), S(1280, 720, 30, "HEVC") };
+        Assert.Equal(2, CameraFormatSelector.SelectIndex(formats, null, null));
+        Assert.Equal(2, CameraFormatSelector.SelectIndex(formats, 1280, 720));
+    }
+
+    [Theory]
+    [InlineData("YUY2", "MJPG")]
+    [InlineData("MJPG", null)]
+    [InlineData(null, "H264")]
+    [InlineData("MJPG", "H264")]
+    [InlineData("NV12", "HEVC")]
+    [InlineData("RGB32", "H264_ES")]
+    public void Subtype_Ranking_FirstIsPreferred(string? better, string? worse)
+    {
+        // Der bessere Subtyp gewinnt unabhängig von der Position in der Liste.
+        Assert.Equal(0, CameraFormatSelector.SelectIndex([S(1280, 720, 30, better), S(1280, 720, 30, worse)], null, null));
+        Assert.Equal(1, CameraFormatSelector.SelectIndex([S(1280, 720, 30, worse), S(1280, 720, 30, better)], null, null));
+    }
+
+    [Fact]
+    public void Subtype_UnknownOrMissing_KeepsFirstIndexAsBefore()
+    {
+        var formats = new[] { S(1280, 720, 30, null), S(1280, 720, 30, ""), S(1280, 720, 30, "XYZ1") };
+        Assert.Equal(0, CameraFormatSelector.SelectIndex(formats, null, null));
+    }
+
+    [Fact]
+    public void Subtype_IsOnlyTieBreaker_ResolutionAndFrameRateStillWin()
+    {
+        // Höhere Auflösung gewinnt auch dann, wenn sie nur als MJPG angeboten wird.
+        var byResolution = new[] { S(1280, 720, 30, "NV12"), S(1920, 1080, 30, "MJPG") };
+        Assert.Equal(1, CameraFormatSelector.SelectIndex(byResolution, null, null));
+
+        // Bessere Bildrate gewinnt gegen besseres Pixelformat.
+        var byRate = new[] { S(1280, 720, 10, "NV12"), S(1280, 720, 30, "MJPG") };
+        Assert.Equal(1, CameraFormatSelector.SelectIndex(byRate, 1280, 720));
+
+        // Ein komprimiertes Format bleibt wählbar, wenn es das einzige mit der gewünschten Auflösung ist.
+        var onlyCompressed = new[] { S(1280, 720, 30, "NV12"), S(1920, 1080, 30, "H264") };
+        Assert.Equal(1, CameraFormatSelector.SelectIndex(onlyCompressed, 1920, 1080));
+    }
+
+    [Fact]
+    public void Subtype_IsCaseInsensitive()
+    {
+        var formats = new[] { S(640, 480, 30, "h264"), S(640, 480, 30, "nv12") };
+        Assert.Equal(1, CameraFormatSelector.SelectIndex(formats, null, null));
+    }
+
     [Fact]
     public void DistinctResolutions_AreUniqueAndDescending()
     {
@@ -290,6 +344,25 @@ public sealed class CameraHardwareTests
                 await harness.RestartAsync(new CameraSettings { DeviceId = device.Id }, $"Gerät {device.Name} #{i}");
                 await harness.StopAsync();
             }
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Hardware")]
+    public async Task StartThenStop_WithoutAwaiting_EndsStopped_AndOvertakenStartIsDiscarded()
+    {
+        // Welcher Pool-Thread zuerst das Gate erreicht, ist nicht festgelegt: Start gefolgt von Stopp muss immer in
+        // „Stopped“ enden (auch ohne Kamera), und ein überholter Start darf keine Session hinterlassen.
+        await using var camera = new WinRtCameraService();
+        var devices = await camera.GetDevicesAsync();
+        var settings = new CameraSettings { DeviceId = devices.Count > 0 ? devices[0].Id : null };
+
+        for (var i = 0; i < 10; i++)
+        {
+            var start = camera.StartAsync(settings);
+            var stop = camera.StopAsync();
+            await Task.WhenAll(start, stop).WaitAsync(TimeSpan.FromSeconds(60));
+            Assert.Equal(CameraStatus.Stopped, camera.Status);
         }
     }
 

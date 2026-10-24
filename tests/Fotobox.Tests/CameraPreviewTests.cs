@@ -156,6 +156,114 @@ public sealed class CameraPreviewTests
         }
     }
 
+    private static CameraFrame SolidFrame(int width, int height, byte value)
+    {
+        var stride = width * 4;
+        var pixels = new byte[stride * height];
+        Array.Fill(pixels, value);
+        return new CameraFrame { Width = width, Height = height, Stride = stride, Pixels = pixels };
+    }
+
+    private static byte[] BitmapPixels(CameraPreview preview)
+    {
+        var bitmap = (WriteableBitmap)((Image)preview.FindName("PreviewImage")).Source;
+        var pixels = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4];
+        bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
+        return pixels;
+    }
+
+    [WpfFact]
+    public async Task Preview_ShowsOnlyTheNewestFrame_WhenSeveralArriveBeforeRender()
+    {
+        var camera = new FakeCameraService();
+        var preview = new CameraPreview { Camera = camera };
+        var window = ShowHost(preview);
+        try
+        {
+            // Der UI-Thread kommt nicht zum Rendern: nur das letzte Bild zählt, ältere werden überholt.
+            for (byte v = 10; v <= 60; v += 10)
+                camera.RaiseFrame(SolidFrame(32, 18, v));
+            await FlushDispatcherAsync();
+
+            var pixels = BitmapPixels(preview);
+            Assert.All(pixels.Where((_, i) => i % 4 != 3), b => Assert.Equal(60, b));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [WpfFact]
+    public async Task Preview_WithConcurrentProducer_NeverShowsTornFrames_AndEndsOnLastFrame()
+    {
+        var camera = new FakeCameraService();
+        var preview = new CameraPreview { Camera = camera };
+        var window = ShowHost(preview);
+        try
+        {
+            camera.RaiseFrame(SolidFrame(64, 36, 1));
+            await FlushDispatcherAsync();
+
+            // Kamera-Thread liefert schnell Vollflächen-Bilder (Wert = laufende Nummer), der UI-Thread rendert dazwischen.
+            const int count = 400;
+            var producer = Task.Run(() =>
+            {
+                for (var i = 0; i < count; i++)
+                    camera.RaiseFrame(SolidFrame(64, 36, (byte)(20 + i % 200)));
+            });
+
+            var observed = 0;
+            while (!producer.IsCompleted)
+            {
+                await FlushDispatcherAsync();
+                var pixels = BitmapPixels(preview);
+                var first = pixels[0];
+                // Ein gemischtes Bild (Puffer wird während der Kopie beschrieben) hätte verschiedene Werte.
+                Assert.All(pixels.Where((_, i) => i % 4 != 3), b => Assert.Equal(first, b));
+                observed++;
+            }
+            await producer;
+            await FlushDispatcherAsync();
+            await FlushDispatcherAsync();
+
+            var last = BitmapPixels(preview);
+            Assert.All(last.Where((_, i) => i % 4 != 3), b => Assert.Equal((byte)(20 + (count - 1) % 200), b));
+            Assert.True(observed > 0);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [WpfFact]
+    public async Task Preview_HandlesResolutionChange_WithRecycledBuffers()
+    {
+        var camera = new FakeCameraService();
+        var preview = new CameraPreview { Camera = camera };
+        var window = ShowHost(preview);
+        try
+        {
+            camera.RaiseFrame(SolidFrame(32, 18, 40));
+            await FlushDispatcherAsync();
+            camera.RaiseFrame(SolidFrame(32, 18, 50));
+            await FlushDispatcherAsync();
+
+            camera.RaiseFrame(SolidFrame(48, 27, 90));
+            await FlushDispatcherAsync();
+
+            var bitmap = (WriteableBitmap)((Image)preview.FindName("PreviewImage")).Source;
+            Assert.Equal(48, bitmap.PixelWidth);
+            Assert.Equal(27, bitmap.PixelHeight);
+            Assert.All(BitmapPixels(preview).Where((_, i) => i % 4 != 3), b => Assert.Equal(90, b));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     [WpfTheory]
     [InlineData(true, Visibility.Visible)]
     [InlineData(false, Visibility.Collapsed)]
