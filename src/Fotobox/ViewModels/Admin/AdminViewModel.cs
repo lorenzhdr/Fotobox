@@ -1786,7 +1786,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
         // Streifen und Overlay zählen auch, wenn sie nur zur Auswahl für Gäste gehören.
         if (ShowStripOptions && _draft.Layout.StripPhotoCount is < SettingsLimits.StripPhotosMin or > SettingsLimits.StripPhotosMax)
-            errors.Add("Ein Fotostreifen besteht aus 2 bis 4 Fotos.");
+            errors.Add($"Ein Fotostreifen besteht aus {SettingsLimits.StripPhotosMin} bis {SettingsLimits.StripPhotosMax} Fotos.");
 
         if (ShowOverlayOptions)
         {
@@ -1811,7 +1811,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             errors.Add($"Tasten: Für „{editor.Title}“ muss mindestens eine Taste festgelegt sein.");
 
         if (_draft.Storage.JpegQuality is < SettingsLimits.JpegQualityMin or > SettingsLimits.JpegQualityMax)
-            errors.Add("Die JPEG-Qualität muss zwischen 50 und 100 Prozent liegen.");
+            errors.Add($"Die JPEG-Qualität muss zwischen {SettingsLimits.JpegQualityMin} und {SettingsLimits.JpegQualityMax} Prozent liegen.");
 
         var prefix = _draft.Storage.FilePrefix;
         if (string.IsNullOrWhiteSpace(prefix))

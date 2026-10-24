@@ -172,6 +172,23 @@ public sealed class PinServiceTests : IDisposable
     }
 
     [Fact]
+    public void SetPin_WithImplausiblyHighStoredIterations_UsesDefaultInsteadOfHanging()
+    {
+        var (store, pin) = Create();
+        var s = store.Current.Clone();
+        s.Security.PinIterations = 2_000_000_000; // z. B. aus manipulierter Datei ohne Hash
+        store.Save(s);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        pin.SetPin("1234");
+        watch.Stop();
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"Dauerte {watch.Elapsed}");
+        Assert.Equal(100_000, store.Current.Security.PinIterations);
+        Assert.True(pin.Verify("1234"));
+    }
+
+    [Fact]
     public void Verify_HashOfWrongLength_ReturnsFalse()
     {
         var (store, pin) = Create();

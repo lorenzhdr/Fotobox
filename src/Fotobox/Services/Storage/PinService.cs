@@ -26,7 +26,10 @@ public sealed class PinService(ISettingsStore settings) : IPinService
             throw new ArgumentException($"Die PIN muss aus {MinLength} bis {MaxLength} Ziffern bestehen.", nameof(pin));
 
         var copy = settings.Current.Clone();
-        var iterations = Math.Max(copy.Security.PinIterations, SettingsNormalizer.MinPinIterations);
+        // Eine unplausibel hohe Zahl aus der Datei (z. B. bei fehlendem Hash) würde die Berechnung minutenlang blockieren.
+        var iterations = copy.Security.PinIterations > SettingsNormalizer.MaxPlausiblePinIterations
+            ? new SecuritySettings().PinIterations
+            : Math.Max(copy.Security.PinIterations, SettingsNormalizer.MinPinIterations);
         var salt = RandomNumberGenerator.GetBytes(SaltSize);
         var hash = Derive(pin, salt, iterations, HashSize);
 
