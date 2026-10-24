@@ -165,6 +165,35 @@
                             <TextBlock Text="Mit mindestens zwei Einträgen können Gäste in der Gastansicht per Mausrad wechseln. Nach jedem Foto gilt wieder das Standard-Layout."
                                        Style="{StaticResource Hint}" />
 
+                            <StackPanel Visibility="{Binding HasGuestOrder, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="Reihenfolge beim Scrollen" Style="{StaticResource FieldLabel}" />
+                                <ItemsControl ItemsSource="{Binding GuestOrder}" MaxWidth="480" HorizontalAlignment="Left">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="{StaticResource AccentSoftBrush}" CornerRadius="8" Padding="12,6" Margin="0,0,0,6">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="32" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="{Binding PositionText}" FontWeight="SemiBold" FontSize="15"
+                                                               VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="15" VerticalAlignment="Center" />
+                                                    <Button Grid.Column="2" Content="▲" Command="{Binding MoveUpCommand}" MinWidth="40" Padding="0,4"
+                                                            Margin="8,0,0,0" ToolTip="Nach oben" AutomationProperties.Name="Nach oben" />
+                                                    <Button Grid.Column="3" Content="▼" Command="{Binding MoveDownCommand}" MinWidth="40" Padding="0,4"
+                                                            Margin="6,0,0,0" ToolTip="Nach unten" AutomationProperties.Name="Nach unten" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="Die Reihenfolge entspricht dem Scrollen mit dem Mausrad von oben nach unten."
+                                           Style="{StaticResource Hint}" />
+                            </StackPanel>
+
                             <StackPanel Visibility="{Binding ShowStripOptions, Converter={StaticResource BoolToVis}}">
                                 <TextBlock Text="Anzahl der Fotos im Streifen" Style="{StaticResource FieldLabel}" />
                                 <local:NumberStepper Value="{Binding StripPhotoCount}" Minimum="{x:Static core:SettingsLimits.StripPhotosMin}" Maximum="{x:Static core:SettingsLimits.StripPhotosMax}" Suffix=" Fotos" />
@@ -470,6 +499,17 @@
                             <TextBlock Text="{Binding PinStatus}" FontSize="14" TextWrapping="Wrap" Margin="0,12,0,0" />
                             <TextBlock Style="{StaticResource Hint}"
                                        Text="Die PIN wird sofort geändert. Haben Sie die Felder ausgefüllt und klicken auf „Speichern“, wird die neue PIN ebenfalls übernommen." />
+
+                            <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,28,0,0" Padding="0,22,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Standardwerte" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Setzt alle Einstellungen außer der PIN zurück. Fotos und Overlay-Dateien bleiben erhalten. Die Änderung gilt erst nach „Speichern“." />
+                                    <Button Content="Standardwerte wiederherstellen …" Command="{Binding ResetToDefaultsCommand}"
+                                            HorizontalAlignment="Left" Margin="0,14,0,0"
+                                            AutomationProperties.Name="Standardwerte wiederherstellen" />
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Border>
                 </ScrollViewer>

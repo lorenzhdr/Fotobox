@@ -34,6 +34,27 @@ public sealed record OrientationOption(PageOrientation Orientation, string Displ
     public override string ToString() => Display;
 }
 
+/// <summary>Eintrag der Reihenfolge-Liste der Gastauswahl (Nummer, Name, ▲/▼).</summary>
+public sealed class GuestLayoutItem
+{
+    internal GuestLayoutItem(GuestLayout layout, int position, string name, bool canMoveUp, bool canMoveDown,
+        Action moveUp, Action moveDown)
+    {
+        Layout = layout;
+        Position = position;
+        Name = name;
+        MoveUpCommand = new RelayCommand(moveUp, () => canMoveUp);
+        MoveDownCommand = new RelayCommand(moveDown, () => canMoveDown);
+    }
+
+    public GuestLayout Layout { get; }
+    public int Position { get; }
+    public string PositionText => Position + ".";
+    public string Name { get; }
+    public IRelayCommand MoveUpCommand { get; }
+    public IRelayCommand MoveDownCommand { get; }
+}
+
 /// <summary>
 /// Admin-Ansicht: bearbeitet einen Entwurf (Clone) der Einstellungen. Gespeichert wird erst über
 /// <see cref="SaveCommand"/>; Abbrechen lässt den Store unberührt.
@@ -78,8 +99,11 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private int _pageSpecVersion;
 
     private IReadOnlyList<FontOption> _captionFonts = [];
+    private IReadOnlyList<FontOption> _installedFonts = [];
     private FontOption _selectedCaptionFont;
     private bool _fontsLoaded;
+
+    private IReadOnlyList<GuestLayoutItem> _guestOrder = [];
 
     private KeyActionEditor? _capturingEditor;
     private string _keyMessage = string.Empty;
@@ -120,6 +144,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 "Bricht einen laufenden Countdown ab.", isRequired: false),
         ];
         LoadKeysFromDraft();
+        RebuildGuestOrder();
 
         SaveCommand = new RelayCommand(Save);
         CancelCommand = new RelayCommand(Cancel);
@@ -133,6 +158,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         TestPrintCommand = new AsyncRelayCommand(TestPrintAsync, () => !IsTestPrinting);
         CancelKeyCaptureCommand = new RelayCommand(CancelKeyCapture);
         ResetKeysCommand = new RelayCommand(ResetKeys);
+        ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
 
         Camera.StatusChanged += OnCameraStatusChanged;
         UpdateOverlay();
@@ -158,6 +184,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     public IAsyncRelayCommand TestPrintCommand { get; }
     public IRelayCommand CancelKeyCaptureCommand { get; }
     public IRelayCommand ResetKeysCommand { get; }
+    public IAsyncRelayCommand ResetToDefaultsCommand { get; }
 
     /// <summary>Wird ausgelöst, wenn das Fenster geschlossen werden soll (Parameter: true = Speichern).</summary>
     public event Action<bool>? CloseRequested;
@@ -547,8 +574,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     }
 
     // ---- Auswahl für Gäste (Mausrad)
-    // Die Wahlmöglichkeiten stehen im Entwurf als kanonisch sortierte Liste. Leer = kein Wechsel. Ist sie nicht leer, enthält
-    // sie immer das Standard-Layout (Art + Streifenvariante); dessen Kästchen ist angehakt und nicht abwählbar.
+    // Die Wahlmöglichkeiten stehen im Entwurf als geordnete Liste; ihre Reihenfolge ist die Scroll-Reihenfolge der Gäste.
+    // Leer = kein Wechsel. Ist sie nicht leer, enthält sie immer das Standard-Layout (Art + Streifenvariante, an beliebiger
+    // Position); dessen Kästchen ist angehakt und nicht abwählbar. Neu angehakte Layouts kommen ans Ende.
 
     /// <summary>Standard-Layout des Entwurfs (aus Art und Streifenvariante).</summary>
     private GuestLayout DefaultGuestLayout => GuestLayouts.From(_draft.Layout);
@@ -561,32 +589,79 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         var standard = DefaultGuestLayout;
         if (layout != standard)
         {
-            var set = new HashSet<GuestLayout>(_draft.Layout.GuestChoices ?? []);
+            var list = new List<GuestLayout>(_draft.Layout.GuestChoices ?? []);
             if (selected)
             {
-                set.Add(layout);
-                set.Add(standard);
+                if (!list.Contains(standard))
+                    list.Add(standard);
+                if (!list.Contains(layout))
+                    list.Add(layout);
             }
             else
             {
-                set.Remove(layout);
+                list.Remove(layout);
             }
 
             // Nur der Standard übrig: kein Wechsel möglich → Liste leer.
-            _draft.Layout.GuestChoices = set.Count <= 1 ? [] : set.Order().ToList();
+            _draft.Layout.GuestChoices = list.Count <= 1 ? [] : list;
         }
 
         // Auch bei abgelehntem Abwählen des Standards: das Kästchen springt auf „angehakt“ zurück.
         RaiseGuestChoices();
     }
 
-    /// <summary>Nach einem Wechsel des Standards: Ist ein Wechsel für Gäste aktiv, gehört der neue Standard dazu.</summary>
+    /// <summary>Nach einem Wechsel des Standards: Ist ein Wechsel für Gäste aktiv, gehört der neue Standard dazu (hinten, falls er fehlt).</summary>
     private void EnsureDefaultInGuestChoices()
     {
         var choices = _draft.Layout.GuestChoices ?? [];
         if (choices.Count > 0 && !choices.Contains(DefaultGuestLayout))
-            _draft.Layout.GuestChoices = choices.Append(DefaultGuestLayout).Order().ToList();
+            _draft.Layout.GuestChoices = [.. choices, DefaultGuestLayout];
         RaiseGuestChoices();
+    }
+
+    /// <summary>Verschiebt ein Layout der Gastauswahl um eine Position nach oben (früher beim Scrollen).</summary>
+    public void MoveGuestLayoutUp(GuestLayout layout) => MoveGuestLayout(layout, -1);
+
+    /// <summary>Verschiebt ein Layout der Gastauswahl um eine Position nach unten (später beim Scrollen).</summary>
+    public void MoveGuestLayoutDown(GuestLayout layout) => MoveGuestLayout(layout, +1);
+
+    private void MoveGuestLayout(GuestLayout layout, int delta)
+    {
+        var list = _draft.Layout.GuestChoices;
+        var index = list?.IndexOf(layout) ?? -1;
+        var target = index + delta;
+        if (list is null || index < 0 || target < 0 || target >= list.Count)
+            return;
+
+        var reordered = new List<GuestLayout>(list);
+        (reordered[index], reordered[target]) = (reordered[target], reordered[index]);
+        _draft.Layout.GuestChoices = reordered;
+        RaiseGuestOrder();
+    }
+
+    /// <summary>Die Gastauswahl in Scroll-Reihenfolge (leer = kein Wechsel); jeder Eintrag mit Nummer, Name und ▲/▼-Befehlen.</summary>
+    public IReadOnlyList<GuestLayoutItem> GuestOrder => _guestOrder;
+
+    /// <summary>Die Reihenfolge-Liste ist relevant: mindestens zwei Layouts zur Auswahl.</summary>
+    public bool HasGuestOrder => _guestOrder.Count >= 2;
+
+    private void RebuildGuestOrder()
+    {
+        var list = _draft.Layout.GuestChoices ?? [];
+        var photoCount = _draft.Layout.StripPhotoCount;
+        _guestOrder = list
+            .Select((layout, i) => new GuestLayoutItem(
+                layout, i + 1, GuestLayouts.DisplayName(layout, photoCount),
+                canMoveUp: i > 0, canMoveDown: i < list.Count - 1,
+                moveUp: () => MoveGuestLayoutUp(layout), moveDown: () => MoveGuestLayoutDown(layout)))
+            .ToArray();
+    }
+
+    private void RaiseGuestOrder()
+    {
+        RebuildGuestOrder();
+        OnPropertyChanged(nameof(GuestOrder));
+        OnPropertyChanged(nameof(HasGuestOrder));
     }
 
     private void RaiseGuestChoices()
@@ -601,6 +676,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsGuestOverlayEnabled));
         OnPropertyChanged(nameof(ShowStripOptions));
         OnPropertyChanged(nameof(ShowOverlayOptions));
+        RaiseGuestOrder();
     }
 
     public bool IsGuestSingle
@@ -644,7 +720,11 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     public int StripPhotoCount
     {
         get => _draft.Layout.StripPhotoCount;
-        set => SetProperty(_draft.Layout.StripPhotoCount, value, v => _draft.Layout.StripPhotoCount = v);
+        set
+        {
+            if (SetProperty(_draft.Layout.StripPhotoCount, value, v => _draft.Layout.StripPhotoCount = v))
+                RaiseGuestOrder();
+        }
     }
 
     /// <summary>Fotostreifen: zwei gleiche Streifen nebeneinander (zum Teilen).</summary>
@@ -741,6 +821,15 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             fonts = [];
         }
 
+        _installedFonts = fonts;
+        _fontsLoaded = true;
+        SelectCaptionFontFromDraft();
+    }
+
+    /// <summary>Wählt in der geladenen Schriftenliste die Schrift des Entwurfs (fehlt sie, als „nicht installiert“ vorangestellt).</summary>
+    private void SelectCaptionFontFromDraft()
+    {
+        var fonts = _installedFonts;
         var saved = SettingsNormalizer.SanitizeFontName(_draft.Layout.CaptionFontFamily);
         var match = fonts.FirstOrDefault(f => string.Equals(f.Source, saved, StringComparison.OrdinalIgnoreCase));
         var list = fonts;
@@ -757,7 +846,6 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         {
             CaptionFonts = list;
             _selectedCaptionFont = match;
-            _fontsLoaded = true;
             RaiseCaptionFont();
         }
         finally
@@ -1542,6 +1630,66 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(TriggerOnLeftClick));
         OnPropertyChanged(nameof(TriggerOnRightClick));
         KeyMessage = "Die Tasten wurden auf die Standardbelegung zurückgesetzt. Sie gilt nach „Speichern“.";
+    }
+
+    // ---------------------------------------------------------------- Standardwerte
+
+    /// <summary>
+    /// Setzt alle Einstellungen im Entwurf auf die Standardwerte zurück (nach Bestätigung). Die PIN (<see cref="AppSettings.Security"/>)
+    /// und die Version bleiben erhalten. Wie jede andere Änderung gilt das Zurücksetzen erst mit „Speichern“; „Abbrechen“ verwirft es.
+    /// </summary>
+    public async Task ResetToDefaultsAsync()
+    {
+        if (_disposed)
+            return;
+
+        if (!_ui.Confirm("Standardwerte wiederherstellen",
+                "Alle Einstellungen außer der PIN werden auf die Standardwerte zurückgesetzt. " +
+                "Die Änderung wird erst mit „Speichern“ übernommen.\nFortfahren?"))
+            return;
+
+        var cameraBefore = _draft.Camera;
+        var defaults = new AppSettings();
+        _draft.Camera = defaults.Camera;
+        _draft.Flow = defaults.Flow;
+        _draft.Layout = defaults.Layout;
+        _draft.Printer = defaults.Printer;
+        _draft.Storage = defaults.Storage;
+        _draft.Input = defaults.Input;
+        // Security (PIN) und Version bleiben bewusst unverändert.
+
+        // UI-Zustand wie bei einer frisch geöffneten Admin-Ansicht mit Standard-Einstellungen.
+        CapturingEditor = null;
+        KeyMessage = string.Empty;
+        ValidationMessage = string.Empty;
+        LoadKeysFromDraft();
+        SyncKeysToDraft();
+        RaiseGuestChoices();
+        _selectedOrientation = Orientations.First(o => o.Orientation == _draft.Printer.Orientation);
+        SelectCaptionFontFromDraft();
+        _selectedDevice = Devices.FirstOrDefault();
+        _selectedResolution = Resolutions.FirstOrDefault();
+        _selectedPrinter = Printers.FirstOrDefault(p => p.Name is null) ?? Printers.FirstOrDefault();
+        _selectedPaper = PaperSizes.FirstOrDefault();
+        UpdateOverlay();
+        RaiseFolder();
+        RaisePrintTimeoutHint();
+        // Alle gebundenen Eigenschaften neu lesen (Werte kommen direkt aus dem Entwurf).
+        OnPropertyChanged(string.Empty);
+
+        // Listen, die vom gewählten Gerät bzw. Drucker abhängen, neu laden; die Kamera nur bei geänderten Kameraeinstellungen neu starten.
+        if (_selectedDevice is { } device)
+            await LoadResolutionsAsync(device.Id);
+        await LoadPaperSizesAsync();
+        RequestPageSpec();
+
+        var cameraChanged = cameraBefore.DeviceId != _draft.Camera.DeviceId
+            || cameraBefore.ResolutionWidth != _draft.Camera.ResolutionWidth
+            || cameraBefore.ResolutionHeight != _draft.Camera.ResolutionHeight
+            || cameraBefore.MirrorPreview != _draft.Camera.MirrorPreview
+            || cameraBefore.MirrorPhoto != _draft.Camera.MirrorPhoto;
+        if (cameraChanged)
+            await RestartCameraAsync();
     }
 
     // ---------------------------------------------------------------- Validierung / Speichern

@@ -54,18 +54,25 @@ internal static class SettingsNormalizer
     }
 
     /// <summary>
-    /// Wahlliste der Gäste: undefinierte Werte und Duplikate raus, Overlay nur mit gesetzter Rahmendatei, kanonische
-    /// Reihenfolge. Ist die Liste danach nicht leer, enthält sie immer auch den Standard (unabhängig von der Overlay-Regel;
-    /// ein Standard-Overlay ohne Datei fängt die Admin-Validierung ab). Eine Liste mit nur einem Eintrag bedeutet: kein Wechsel.
+    /// Wahlliste der Gäste: undefinierte Werte und Duplikate raus, Overlay nur mit gesetzter Rahmendatei. Die Reihenfolge
+    /// der Liste bleibt erhalten (sie ist die Reihenfolge beim Scrollen mit dem Mausrad). Ist die Liste danach nicht leer,
+    /// enthält sie immer auch den Standard (fehlt er, wird er hinten angehängt; unabhängig von der Overlay-Regel – ein
+    /// Standard-Overlay ohne Datei fängt die Admin-Validierung ab). Eine Liste mit nur einem Eintrag bedeutet: kein Wechsel.
     /// </summary>
     private static List<GuestLayout> NormalizeGuestChoices(LayoutSettings layout)
     {
         var hasOverlayFile = !string.IsNullOrWhiteSpace(layout.OverlayFileName);
-        var set = new HashSet<GuestLayout>(
-            (layout.GuestChoices ?? []).Where(g => Enum.IsDefined(g) && (g != GuestLayout.Overlay || hasOverlayFile)));
-        if (set.Count > 0)
-            set.Add(GuestLayouts.From(layout));
-        return set.Order().ToList();
+        var result = new List<GuestLayout>();
+        foreach (var g in layout.GuestChoices ?? [])
+        {
+            if (Enum.IsDefined(g) && (g != GuestLayout.Overlay || hasOverlayFile) && !result.Contains(g))
+                result.Add(g);
+        }
+
+        var standard = GuestLayouts.From(layout);
+        if (result.Count > 0 && !result.Contains(standard))
+            result.Add(standard);
+        return result;
     }
 
     /// <summary>Leer → Segoe UI; Steuerzeichen raus, Länge begrenzt.</summary>

@@ -89,6 +89,7 @@ public sealed class LayoutSettings
     /// <summary>
     /// Layouts, zwischen denen Gäste per Mausrad wählen dürfen. Leer = kein Wechsel, es gilt immer
     /// <see cref="Kind"/>/<see cref="StripStyle"/>. Der Standard ist nach der Normalisierung enthalten, sobald die Liste nicht leer ist.
+    /// Die Reihenfolge der Liste ist die Reihenfolge beim Scrollen (im Admin einstellbar).
     /// </summary>
     public List<GuestLayout> GuestChoices { get; set; } = [];
 

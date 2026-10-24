@@ -1359,20 +1359,20 @@ public sealed class AdminViewModelTests : IDisposable
     }
 
     [Fact]
-    public void GuestChoices_Roundtrip_KeepsCanonicalOrder_AndAddsStandard()
+    public void GuestChoices_NewlyChecked_AreAppendedAtTheEnd_AndStandardIsAdded()
     {
         var vm = CreateViewModel();
 
         vm.IsGuestStripSingle = true;
         vm.IsGuestStripDouble = true;
 
-        Assert.Equal([GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.StripSingle], vm.Draft.Layout.GuestChoices);
+        Assert.Equal([GuestLayout.Single, GuestLayout.StripSingle, GuestLayout.StripDouble], vm.Draft.Layout.GuestChoices);
         Assert.True(vm.IsGuestSingle);
 
-        vm.IsGuestStripDouble = false;
-        Assert.Equal([GuestLayout.Single, GuestLayout.StripSingle], vm.Draft.Layout.GuestChoices);
-        Assert.False(vm.IsGuestStripDouble);
-        Assert.True(vm.IsGuestStripSingle);
+        vm.IsGuestStripSingle = false;
+        Assert.Equal([GuestLayout.Single, GuestLayout.StripDouble], vm.Draft.Layout.GuestChoices);
+        Assert.False(vm.IsGuestStripSingle);
+        Assert.True(vm.IsGuestStripDouble);
     }
 
     [Fact]
@@ -1486,7 +1486,7 @@ public sealed class AdminViewModelTests : IDisposable
         vm.SaveCommand.Execute(null);
 
         Assert.Equal(1, _store.SaveCount);
-        Assert.Equal([GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.Overlay], _store.Current.Layout.GuestChoices);
+        Assert.Equal([GuestLayout.Single, GuestLayout.Overlay, GuestLayout.StripDouble], _store.Current.Layout.GuestChoices);
     }
 
     [Fact]
@@ -1538,6 +1538,400 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.True(vm.TriggerOnLeftClick);
         Assert.True(vm.TriggerOnRightClick);
         Assert.Contains(nameof(AdminViewModel.TriggerOnLeftClick), raised);
+    }
+
+    // ------------------------------------------------------------------ Reihenfolge der Gastauswahl
+
+    private static GuestLayout[] OrderOf(AdminViewModel vm) => vm.GuestOrder.Select(i => i.Layout).ToArray();
+
+    [Fact]
+    public void GuestOrder_ListsChoicesWithNumberAndName()
+    {
+        var vm = CreateViewModel();
+        Assert.Empty(vm.GuestOrder);
+        Assert.False(vm.HasGuestOrder);
+
+        vm.StripPhotoCount = 4;
+        vm.IsGuestStripDouble = true;
+
+        Assert.True(vm.HasGuestOrder);
+        Assert.Equal(["1.", "2."], vm.GuestOrder.Select(i => i.PositionText));
+        Assert.Equal(["Ein Foto", "4 Fotos – 2 Streifen"], vm.GuestOrder.Select(i => i.Name));
+
+        vm.StripPhotoCount = 2;   // Der Name folgt der Fotozahl.
+        Assert.Equal("2 Fotos – 2 Streifen", vm.GuestOrder[1].Name);
+    }
+
+    [Fact]
+    public void GuestOrder_MoveUpAndDown_ReordersDraft_AndRaisesChange()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        vm.IsGuestStripSingle = true;   // Einzelfoto, 2 Streifen, 1 Streifen
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.GuestOrder[0].MoveDownCommand.Execute(null);
+
+        Assert.Equal([GuestLayout.StripDouble, GuestLayout.Single, GuestLayout.StripSingle], vm.Draft.Layout.GuestChoices);
+        Assert.Equal(vm.Draft.Layout.GuestChoices, OrderOf(vm));
+        Assert.Contains(nameof(AdminViewModel.GuestOrder), raised);
+
+        vm.GuestOrder[2].MoveUpCommand.Execute(null);
+        Assert.Equal([GuestLayout.StripDouble, GuestLayout.StripSingle, GuestLayout.Single], vm.Draft.Layout.GuestChoices);
+
+        vm.MoveGuestLayoutUp(GuestLayout.Single);
+        vm.MoveGuestLayoutDown(GuestLayout.StripDouble);
+        Assert.Equal([GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.StripSingle], vm.Draft.Layout.GuestChoices);
+        // Das Standard-Kästchen bleibt angehakt und gesperrt, egal an welcher Position der Standard steht.
+        Assert.True(vm.IsGuestSingle);
+        Assert.False(vm.IsGuestSingleEnabled);
+    }
+
+    [Fact]
+    public void GuestOrder_FirstCannotMoveUp_LastCannotMoveDown()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        vm.IsGuestOverlay = true;   // Einzelfoto, 2 Streifen, Overlay
+
+        Assert.False(vm.GuestOrder[0].MoveUpCommand.CanExecute(null));
+        Assert.True(vm.GuestOrder[0].MoveDownCommand.CanExecute(null));
+        Assert.True(vm.GuestOrder[1].MoveUpCommand.CanExecute(null));
+        Assert.True(vm.GuestOrder[1].MoveDownCommand.CanExecute(null));
+        Assert.True(vm.GuestOrder[2].MoveUpCommand.CanExecute(null));
+        Assert.False(vm.GuestOrder[2].MoveDownCommand.CanExecute(null));
+
+        var before = vm.Draft.Layout.GuestChoices.ToArray();
+        vm.MoveGuestLayoutUp(GuestLayout.Single);
+        vm.MoveGuestLayoutDown(GuestLayout.Overlay);
+        vm.MoveGuestLayoutUp(GuestLayout.StripSingle);   // nicht in der Liste
+        Assert.Equal(before, vm.Draft.Layout.GuestChoices);
+    }
+
+    [Fact]
+    public void GuestOrder_NewlyChecked_GoesToTheEnd_AfterReordering()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        vm.MoveGuestLayoutUp(GuestLayout.StripDouble);   // 2 Streifen, Einzelfoto
+
+        vm.IsGuestStripSingle = true;
+
+        Assert.Equal([GuestLayout.StripDouble, GuestLayout.Single, GuestLayout.StripSingle], vm.Draft.Layout.GuestChoices);
+
+        // Entfernen und erneutes Anhaken hängt hinten an.
+        vm.IsGuestStripDouble = false;
+        vm.IsGuestStripDouble = true;
+        Assert.Equal([GuestLayout.Single, GuestLayout.StripSingle, GuestLayout.StripDouble], vm.Draft.Layout.GuestChoices);
+    }
+
+    [Fact]
+    public void GuestOrder_ChangingStandard_AppendsMissingStandard_ButKeepsOrderOtherwise()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        vm.MoveGuestLayoutUp(GuestLayout.StripDouble);   // 2 Streifen, Einzelfoto
+
+        vm.IsStripLayout = true;   // Standard = 2 Streifen: schon enthalten → Reihenfolge unverändert
+        Assert.Equal([GuestLayout.StripDouble, GuestLayout.Single], vm.Draft.Layout.GuestChoices);
+
+        vm.IsOverlayLayout = true;   // Standard = Overlay: fehlt → hinten angehängt
+        Assert.Equal([GuestLayout.StripDouble, GuestLayout.Single, GuestLayout.Overlay], vm.Draft.Layout.GuestChoices);
+    }
+
+    [Fact]
+    public void GuestOrder_OnlyStandardLeft_ClearsList()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        vm.MoveGuestLayoutUp(GuestLayout.StripDouble);   // Standard steht hinten
+
+        vm.IsGuestStripDouble = false;
+
+        Assert.Empty(vm.Draft.Layout.GuestChoices);
+        Assert.Empty(vm.GuestOrder);
+        Assert.False(vm.HasGuestOrder);
+    }
+
+    [Fact]
+    public void GuestOrder_IsWrittenToSavedSettings()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        vm.IsGuestStripSingle = true;
+        vm.MoveGuestLayoutDown(GuestLayout.Single);
+        vm.MoveGuestLayoutDown(GuestLayout.Single);   // 2 Streifen, 1 Streifen, Einzelfoto
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(1, _store.SaveCount);
+        Assert.Equal([GuestLayout.StripDouble, GuestLayout.StripSingle, GuestLayout.Single], _store.Current.Layout.GuestChoices);
+    }
+
+    // ------------------------------------------------------------------ Standardwerte wiederherstellen
+
+    private static readonly string[] DefaultTriggerKeys = [InputSettings.DefaultTriggerKey];
+
+    private static string Json(AppSettings s) => System.Text.Json.JsonSerializer.Serialize(s, AppSettings.JsonOptions);
+
+    /// <summary>Ändert in jedem Bereich mindestens einen Wert weg vom Standard.</summary>
+    private async Task<AdminViewModel> CreateChangedViewModelAsync()
+    {
+        _store.Current.Security.PinHash = "hash:4711";
+        _store.Current.Security.PinSalt = "salt";
+        _store.Current.Security.PinIterations = 123_456;
+        _store.Current.Flow.CountdownSeconds = 9;
+
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        await vm.SelectDeviceAsync(vm.Devices[1]);
+        vm.SelectedResolution = vm.Resolutions[1];
+        vm.MirrorPreview = false;
+        vm.MirrorPhoto = true;
+        vm.CountdownSeconds = 12;
+        vm.PrintingEnabled = false;
+        vm.ExpectedPrintSeconds = 100;
+        vm.IsStripLayout = true;
+        vm.IsStripSingle = true;
+        vm.StripPhotoCount = 4;
+        vm.IsGuestOverlay = true;
+        vm.CaptionText = "Hochzeit";
+        vm.ShowDate = true;
+        File.WriteAllBytes(Path.Combine(_store.OverlayDirectory, "rahmen.png"), [1]);
+        vm.Draft.Layout.OverlayFileName = "rahmen.png";
+        await vm.SelectPrinterAsync(vm.Printers[1]);
+        vm.SelectedPaper = vm.PaperSizes[1];
+        vm.SelectedOrientation = vm.Orientations[2];
+        vm.Copies = 3;
+        vm.PrintTimeoutSeconds = 500;
+        vm.DateSubfolder = false;
+        vm.SaveOriginals = false;
+        vm.JpegQuality = 70;
+        vm.FilePrefix = "Party";
+        vm.Draft.Storage.PhotoFolder = Path.Combine(_dir, "fotos");
+        vm.TriggerOnLeftClick = false;
+        vm.TriggerOnRightClick = false;
+        vm.BeginKeyCapture(KeyAction.Trigger);
+        Assert.True(KeyChord.TryParse("F5", out var f5));
+        Assert.True(vm.CaptureKey(f5));
+        return vm;
+    }
+
+    [Fact]
+    public async Task ResetToDefaults_AfterConfirm_RestoresEverythingExceptPin()
+    {
+        var vm = await CreateChangedViewModelAsync();
+        Assert.NotEqual(Json(new AppSettings()), Json(vm.Draft));
+        _ui.ConfirmResult = true;
+
+        await vm.ResetToDefaultsAsync();
+
+        Assert.Equal(1, _ui.ConfirmCalls);
+        Assert.Contains("außer der PIN", _ui.LastConfirmMessage);
+        Assert.Contains("Speichern", _ui.LastConfirmMessage);
+
+        var expected = new AppSettings();
+        expected.Security.PinHash = "hash:4711";
+        expected.Security.PinSalt = "salt";
+        expected.Security.PinIterations = 123_456;
+        Assert.Equal(Json(expected), Json(vm.Draft));
+
+        // Stichproben je Bereich.
+        Assert.Null(vm.Draft.Camera.DeviceId);
+        Assert.Null(vm.Draft.Camera.ResolutionWidth);
+        Assert.True(vm.Draft.Camera.MirrorPreview);
+        Assert.False(vm.Draft.Camera.MirrorPhoto);
+        Assert.Equal(5, vm.Draft.Flow.CountdownSeconds);
+        Assert.Equal(240, vm.Draft.Flow.ExpectedPrintSeconds);
+        Assert.True(vm.Draft.Flow.PrintingEnabled);
+        Assert.Equal(LayoutKind.SingleBorderless, vm.Draft.Layout.Kind);
+        Assert.Empty(vm.Draft.Layout.GuestChoices);
+        Assert.Null(vm.Draft.Layout.OverlayFileName);
+        Assert.Null(vm.Draft.Layout.CaptionText);
+        Assert.Null(vm.Draft.Printer.PrinterName);
+        Assert.Null(vm.Draft.Printer.PaperSizeName);
+        Assert.Equal(1, vm.Draft.Printer.Copies);
+        Assert.Equal("Fotobox", vm.Draft.Storage.FilePrefix);
+        Assert.Null(vm.Draft.Storage.PhotoFolder);
+        Assert.Equal(DefaultTriggerKeys, vm.Draft.Input.TriggerKeys);
+        Assert.True(vm.Draft.Input.TriggerOnLeftClick);
+        Assert.True(vm.Draft.Input.TriggerOnRightClick);
+    }
+
+    [Fact]
+    public async Task ResetToDefaults_KeepsPinAndVersion()
+    {
+        var vm = await CreateChangedViewModelAsync();
+        vm.Draft.Version = 7;
+        _ui.ConfirmResult = true;
+
+        await vm.ResetToDefaultsAsync();
+
+        Assert.Equal("hash:4711", vm.Draft.Security.PinHash);
+        Assert.Equal("salt", vm.Draft.Security.PinSalt);
+        Assert.Equal(123_456, vm.Draft.Security.PinIterations);
+        Assert.Equal(7, vm.Draft.Version);
+    }
+
+    [Fact]
+    public async Task ResetToDefaults_WhenDeclined_ChangesNothing()
+    {
+        var vm = await CreateChangedViewModelAsync();
+        var before = Json(vm.Draft);
+        var startCalls = _camera.StartCalls.Count;
+        _ui.ConfirmResult = false;
+
+        await vm.ResetToDefaultsCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _ui.ConfirmCalls);
+        Assert.Equal(before, Json(vm.Draft));
+        Assert.Equal("Party", vm.FilePrefix);
+        Assert.Equal(startCalls, _camera.StartCalls.Count);
+    }
+
+    [Fact]
+    public async Task ResetToDefaults_ThenCancel_LeavesStoreUntouched()
+    {
+        var vm = await CreateChangedViewModelAsync();
+        _ui.ConfirmResult = true;
+        bool? closed = null;
+        vm.CloseRequested += save => closed = save;
+
+        await vm.ResetToDefaultsCommand.ExecuteAsync(null);
+        vm.CancelCommand.Execute(null);
+
+        Assert.False(closed);
+        Assert.False(vm.SettingsSaved);
+        Assert.Equal(0, _store.SaveCount);
+        Assert.Equal(9, _store.Current.Flow.CountdownSeconds);
+        Assert.Equal("hash:4711", _store.Current.Security.PinHash);
+    }
+
+    [Fact]
+    public async Task ResetToDefaults_ThenSave_WritesDefaultsAndKeepsPin()
+    {
+        var vm = await CreateChangedViewModelAsync();
+        _ui.ConfirmResult = true;
+
+        await vm.ResetToDefaultsCommand.ExecuteAsync(null);
+        vm.SaveCommand.Execute(null);
+
+        Assert.True(vm.SettingsSaved);
+        Assert.Equal(1, _store.SaveCount);
+        var saved = _store.Current;
+        Assert.Equal(5, saved.Flow.CountdownSeconds);
+        Assert.Equal(240, saved.Flow.ExpectedPrintSeconds);
+        Assert.Equal(LayoutKind.SingleBorderless, saved.Layout.Kind);
+        Assert.Empty(saved.Layout.GuestChoices);
+        Assert.Equal("Fotobox", saved.Storage.FilePrefix);
+        Assert.Equal(DefaultTriggerKeys, saved.Input.TriggerKeys);
+        Assert.Null(saved.Camera.DeviceId);
+        Assert.Null(saved.Printer.PrinterName);
+        Assert.Equal("hash:4711", saved.Security.PinHash);
+        Assert.Equal("salt", saved.Security.PinSalt);
+        Assert.Equal(123_456, saved.Security.PinIterations);
+    }
+
+    [Fact]
+    public async Task ResetToDefaults_UpdatesBoundStateAndRaisesPropertyChanged()
+    {
+        var vm = await CreateChangedViewModelAsync();
+        vm.CountdownSeconds = 0;
+        vm.SaveCommand.Execute(null);   // Validierungsmeldung
+        vm.BeginKeyCapture(KeyAction.Admin);
+        Assert.True(vm.HasValidationMessage);
+        Assert.True(vm.IsKeyCaptureActive);
+        Assert.True(vm.IsStripLayout);
+        Assert.True(vm.HasOverlay);
+        Assert.True(vm.HasGuestOrder);
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        _ui.ConfirmResult = true;
+
+        await vm.ResetToDefaultsCommand.ExecuteAsync(null);
+
+        Assert.Contains(string.Empty, raised);   // alle gebundenen Eigenschaften neu lesen
+        Assert.Contains(nameof(AdminViewModel.GuestOrder), raised);
+        Assert.Contains(nameof(AdminViewModel.OverlayFileName), raised);
+
+        // Layout
+        Assert.True(vm.IsSingleLayout);
+        Assert.False(vm.IsStripLayout);
+        Assert.False(vm.IsOverlayLayout);
+        Assert.True(vm.IsStripDoubleCut);
+        Assert.False(vm.IsStripSingle);
+        Assert.True(vm.IsGuestSingle);
+        Assert.False(vm.IsGuestSingleEnabled);
+        Assert.False(vm.IsGuestOverlay);
+        Assert.False(vm.ShowStripOptions);
+        Assert.False(vm.ShowOverlayOptions);
+        Assert.Empty(vm.GuestOrder);
+        Assert.False(vm.HasGuestOrder);
+        Assert.False(vm.HasOverlay);
+        Assert.Null(vm.OverlayThumbnail);
+        Assert.Equal(string.Empty, vm.OverlayInfo);
+        Assert.Equal(string.Empty, vm.CaptionText);
+        Assert.False(vm.ShowDate);
+        Assert.Equal(LayoutSettings.DefaultCaptionFont, vm.SelectedCaptionFont.Source);
+        Assert.Equal(3, vm.StripPhotoCount);
+
+        // Ablauf, Speicher, Drucker
+        Assert.Equal(5, vm.CountdownSeconds);
+        Assert.Equal(240, vm.ExpectedPrintSeconds);
+        Assert.True(vm.PrintingEnabled);
+        Assert.Equal("Fotobox", vm.FilePrefix);
+        Assert.Equal(92, vm.JpegQuality);
+        Assert.Equal("92 %", vm.JpegQualityText);
+        Assert.True(vm.DateSubfolder);
+        Assert.True(vm.SaveOriginals);
+        Assert.True(vm.IsDefaultPhotoFolder);
+        Assert.Equal(1, vm.Copies);
+        Assert.Equal(300, vm.PrintTimeoutSeconds);
+        Assert.False(vm.HasPrintTimeoutHint);
+        Assert.Equal(PageOrientation.Auto, vm.SelectedOrientation.Orientation);
+
+        // Auswahl in den Listen: wie bei einer frisch geöffneten Ansicht mit Standard-Einstellungen.
+        Assert.Equal("cam1", vm.SelectedDevice?.Id);
+        Assert.Null(vm.SelectedResolution?.Resolution);
+        Assert.Null(vm.SelectedPrinter?.Name);
+        Assert.Null(vm.SelectedPaper?.Info);
+        Assert.True(vm.MirrorPreview);
+        Assert.False(vm.MirrorPhoto);
+
+        // Tasten
+        Assert.False(vm.IsKeyCaptureActive);
+        Assert.Null(vm.CapturingEditor);
+        Assert.Equal(DefaultTriggerKeys, vm.KeyEditors[0].Keys.Select(k => k.Chord.ToString()));
+        Assert.Equal([InputSettings.DefaultAdminKey], vm.KeyEditors[1].Keys.Select(k => k.Chord.ToString()));
+        Assert.Equal([InputSettings.DefaultCancelKey], vm.KeyEditors[2].Keys.Select(k => k.Chord.ToString()));
+        Assert.True(vm.TriggerOnLeftClick);
+        Assert.True(vm.TriggerOnRightClick);
+
+        // Meldungen
+        Assert.False(vm.HasValidationMessage);
+        Assert.Equal(string.Empty, vm.ValidationMessage);
+        Assert.False(vm.HasKeyMessage);
+    }
+
+    [Fact]
+    public async Task ResetToDefaults_RestartsCameraWithDefaults_OnlyWhenCameraSettingsChanged()
+    {
+        var vm = await CreateChangedViewModelAsync();
+        _ui.ConfirmResult = true;
+        var before = _camera.StartCalls.Count;
+
+        await vm.ResetToDefaultsCommand.ExecuteAsync(null);
+
+        Assert.Equal(before + 1, _camera.StartCalls.Count);
+        Assert.Null(_camera.StartCalls[^1].DeviceId);
+        Assert.True(_camera.StartCalls[^1].MirrorPreview);
+        Assert.True(vm.CameraTouched);
+
+        // Ein zweites Zurücksetzen ändert an der Kamera nichts mehr → kein weiterer Neustart.
+        await vm.ResetToDefaultsCommand.ExecuteAsync(null);
+        Assert.Equal(before + 1, _camera.StartCalls.Count);
     }
 
     // ------------------------------------------------------------------ Fakes
@@ -1674,13 +2068,22 @@ public sealed class AdminViewModelTests : IDisposable
     internal sealed class FakeUi : IAdminUi
     {
         public bool ConfirmResult { get; set; }
+        public int ConfirmCalls { get; private set; }
+        public string? LastConfirmTitle { get; private set; }
+        public string? LastConfirmMessage { get; private set; }
         public string? FolderToPick { get; set; }
         public string? OpenedFolder { get; private set; }
         public BitmapSource? LastTestPage { get; private set; }
 
         public string? PickOverlayFile() => null;
         public string? PickFolder(string? initialFolder) => FolderToPick;
-        public bool Confirm(string title, string message) => ConfirmResult;
+        public bool Confirm(string title, string message)
+        {
+            ConfirmCalls++;
+            LastConfirmTitle = title;
+            LastConfirmMessage = message;
+            return ConfirmResult;
+        }
         public void OpenFolder(string path) => OpenedFolder = path;
 
         public BitmapSource RenderTestPage(PageSpec page)

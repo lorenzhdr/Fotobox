@@ -47,7 +47,7 @@ Die Admin-Ansicht hat diese Bereiche. Änderungen gelten erst nach „Speichern�
 - **Drucker:** Drucker (Standard: Windows-Standarddrucker), Papiergröße (für randlosen Druck die randlose Größe des Fotodruckers wählen, z. B. „10 x 15 cm randlos“), Ausrichtung, Kopien (1–20), Zeitlimit für den Druck (10–900 s, Standard 300; automatisch mindestens erwartete Druckdauer + 60 s), Testseite drucken (mit den aktuellen, noch nicht gespeicherten Einstellungen).
 - **Tasten:** Belegung der Tasten für „Foto auslösen“ (Standard Leertaste), „Admin-Ansicht öffnen“ (Standard `Strg` + `Alt` + `A`) und „Countdown abbrechen“ (Standard `Esc`). Pro Aktion sind mehrere Tasten möglich (bis zu 8). Systemkombinationen wie Alt+F4, Alt+Tab oder die Windows-Taste sind nicht erlaubt. Merke dir die Admin-Taste, sonst kommst du nicht mehr in die Einstellungen.
 - **Speicher:** Speicherordner (ändern, öffnen, Standardordner), Unterordner pro Tag, Originalfotos zusätzlich speichern, JPEG-Qualität (50–100, Standard 92), Dateipräfix (Standard „Fotobox“).
-- **Sicherheit:** PIN ändern (4–12 Ziffern).
+- **Sicherheit:** PIN ändern (4–12 Ziffern). „Standardwerte wiederherstellen …“ setzt alle Einstellungen außer der PIN zurück (nach Bestätigung, gilt erst nach „Speichern“; Fotos und Overlay-Dateien bleiben erhalten).
 - **Fotobox beenden:** Button unten links in der Admin-Ansicht.
 
 ## Wo liegt was?

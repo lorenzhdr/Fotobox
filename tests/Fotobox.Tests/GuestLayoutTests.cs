@@ -80,14 +80,38 @@ public sealed class GuestChoicesNormalizationTests : IDisposable
     }
 
     [Fact]
-    public void RemovesDuplicatesAndUndefinedValues_KeepsCanonicalOrder()
+    public void RemovesDuplicatesAndUndefinedValues_KeepsListOrder()
     {
         var s = new AppSettings();
         s.Layout.GuestChoices = [GuestLayout.StripSingle, GuestLayout.Single, (GuestLayout)99, GuestLayout.StripSingle, GuestLayout.StripDouble];
 
         var result = SaveAndReload(s).Layout.GuestChoices;
 
-        Assert.Equal([GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.StripSingle], result);
+        Assert.Equal([GuestLayout.StripSingle, GuestLayout.Single, GuestLayout.StripDouble], result);
+    }
+
+    [Fact]
+    public void CustomOrder_IsKept_DefaultStaysWhereItIs()
+    {
+        var s = new AppSettings();
+        s.Layout.OverlayFileName = "rahmen.png";
+        s.Layout.GuestChoices = [GuestLayout.Overlay, GuestLayout.Single, GuestLayout.StripSingle, GuestLayout.StripDouble];
+
+        var result = SaveAndReload(s).Layout.GuestChoices;
+
+        Assert.Equal([GuestLayout.Overlay, GuestLayout.Single, GuestLayout.StripSingle, GuestLayout.StripDouble], result);
+    }
+
+    [Fact]
+    public void MissingDefault_IsAppendedAtTheEnd_WithoutSorting()
+    {
+        var s = new AppSettings();   // Standard: Einzelfoto
+        s.Layout.OverlayFileName = "rahmen.png";
+        s.Layout.GuestChoices = [GuestLayout.Overlay, GuestLayout.StripDouble];
+
+        var result = SaveAndReload(s).Layout.GuestChoices;
+
+        Assert.Equal([GuestLayout.Overlay, GuestLayout.StripDouble, GuestLayout.Single], result);
     }
 
     [Fact]
@@ -138,7 +162,7 @@ public sealed class GuestChoicesNormalizationTests : IDisposable
         s.Layout.OverlayFileName = "rahmen.png";
         s.Layout.GuestChoices = [GuestLayout.Overlay, GuestLayout.Single];
 
-        Assert.Equal([GuestLayout.Single, GuestLayout.Overlay], SaveAndReload(s).Layout.GuestChoices);
+        Assert.Equal([GuestLayout.Overlay, GuestLayout.Single], SaveAndReload(s).Layout.GuestChoices);
     }
 
     [Fact]

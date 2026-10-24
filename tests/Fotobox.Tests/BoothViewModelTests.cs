@@ -315,6 +315,27 @@ public class BoothViewModelTests
     }
 
     [Fact]
+    public void CycleLayout_FollowsCustomListOrder_StartingAtTheDefault()
+    {
+        // Standard (Einzelfoto) steht in der Mitte; die Reihenfolge der Liste ist die Scroll-Reihenfolge.
+        var h = LayoutHarness(GuestLayout.StripDouble, GuestLayout.Single, GuestLayout.Overlay);
+
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+        Assert.Equal(["3 Fotos – 2 Streifen", "Ein Foto", "Foto mit Rahmen"], h.ViewModel.LayoutOptions.Select(o => o.Name));
+        Assert.Equal([false, true, false], h.ViewModel.LayoutOptions.Select(o => o.IsSelected));
+
+        h.ViewModel.CycleLayout(1);
+        Assert.Equal(GuestLayout.Overlay, h.ViewModel.SelectedLayout);
+        h.ViewModel.CycleLayout(1);
+        Assert.Equal(GuestLayout.StripDouble, h.ViewModel.SelectedLayout);
+        h.ViewModel.CycleLayout(1);
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+
+        h.ViewModel.CycleLayout(-1);
+        Assert.Equal(GuestLayout.StripDouble, h.ViewModel.SelectedLayout);
+    }
+
+    [Fact]
     public void CycleLayout_Backward_IsCyclic()
     {
         var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.Overlay);
