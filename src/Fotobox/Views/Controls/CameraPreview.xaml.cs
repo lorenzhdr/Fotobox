@@ -113,11 +113,21 @@ public partial class CameraPreview : UserControl
         var length = Math.Min(frame.Pixels.Length, frame.Stride * frame.Height);
 
         // Freien Puffer übernehmen (gehört ab jetzt diesem Thread), außerhalb des Locks kopieren, dann veröffentlichen.
+        // Ist keiner frei (UI-Thread zeichnet noch), wird das noch nicht angezeigte Bild überholt und sein Puffer
+        // wiederverwendet; so bleibt es bei höchstens drei Puffern statt einer Neuanlage je Frame.
         byte[]? buffer;
         lock (_bufferLock)
         {
-            buffer = _spare;
-            _spare = null;
+            if (_spare is not null)
+            {
+                buffer = _spare;
+                _spare = null;
+            }
+            else
+            {
+                buffer = _ready;
+                _ready = null;
+            }
         }
         if (buffer is null || buffer.Length != length)
             buffer = new byte[length];
