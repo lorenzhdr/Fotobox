@@ -197,6 +197,8 @@ public sealed class InputSettings
     public bool TriggerOnLeftClick { get; set; } = true;
     /// <summary>Rechtsklick löst die Aufnahme aus.</summary>
     public bool TriggerOnRightClick { get; set; } = true;
+    /// <summary>Mausrad-Richtung der Gast-Layoutwahl umkehren (Standard: nach oben = vorheriges Layout, mit Umkehrung = nächstes).</summary>
+    public bool InvertMouseWheel { get; set; }
 
     public const string DefaultTriggerKey = "Space";
     public const string DefaultAdminKey = "Ctrl+Alt+A";

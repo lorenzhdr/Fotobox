@@ -190,7 +190,10 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                                <TextBlock Text="Die Reihenfolge entspricht dem Scrollen mit dem Mausrad von oben nach unten."
+                                <TextBlock Text="Gäste scrollen in dieser Reihenfolge durch die Layouts (am Ende geht es wieder von vorn los)."
+                                           Style="{StaticResource Hint}" />
+                                <CheckBox Content="Mausrad-Richtung umkehren" IsChecked="{Binding InvertMouseWheel}" Margin="0,10,0,0" />
+                                <TextBlock Text="Ohne Haken wählt Scrollen nach oben das vorherige Layout (Markierung wandert nach oben), mit Haken das nächste."
                                            Style="{StaticResource Hint}" />
                             </StackPanel>
 

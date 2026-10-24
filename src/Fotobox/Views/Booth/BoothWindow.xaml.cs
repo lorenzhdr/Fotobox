@@ -169,7 +169,8 @@ public sealed partial class BoothWindow : Window
     }
 
     /// <summary>
-    /// Mausrad wechselt das Layout: je volle Raster-Stufe (120) ein Schritt, nach oben = vorheriges Layout.
+    /// Mausrad wechselt das Layout: je volle Raster-Stufe (120) ein Schritt, nach oben = vorheriges Layout
+    /// (umkehrbar, siehe <see cref="BoothViewModel.ScrollLayout"/>).
     /// Feine Wheel-Deltas (z. B. Touchpads) werden gesammelt; ein Richtungswechsel verwirft den Rest.
     /// </summary>
     private void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -186,7 +187,7 @@ public sealed partial class BoothWindow : Window
         while (Math.Abs(_wheelRemainder) >= step)
         {
             var up = _wheelRemainder > 0;
-            _viewModel.CycleLayout(up ? -1 : 1);
+            _viewModel.ScrollLayout(up);
             _wheelRemainder += up ? -step : step;
         }
     }

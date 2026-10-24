@@ -194,6 +194,7 @@ public sealed class GuestChoicesNormalizationTests : IDisposable
         Assert.Empty(loaded.Layout.GuestChoices);
         Assert.True(loaded.Input.TriggerOnLeftClick);
         Assert.True(loaded.Input.TriggerOnRightClick);
+        Assert.False(loaded.Input.InvertMouseWheel);
     }
 
     [Fact]
@@ -202,6 +203,7 @@ public sealed class GuestChoicesNormalizationTests : IDisposable
         var s = new AppSettings();
         s.Layout.GuestChoices = [GuestLayout.Single, GuestLayout.StripDouble];
         s.Input.TriggerOnRightClick = false;
+        s.Input.InvertMouseWheel = true;
 
         var json = JsonSerializer.Serialize(s, AppSettings.JsonOptions);
         var back = SaveAndReload(s);
@@ -210,5 +212,6 @@ public sealed class GuestChoicesNormalizationTests : IDisposable
         Assert.Equal([GuestLayout.Single, GuestLayout.StripDouble], back.Layout.GuestChoices);
         Assert.True(back.Input.TriggerOnLeftClick);
         Assert.False(back.Input.TriggerOnRightClick);
+        Assert.True(back.Input.InvertMouseWheel);
     }
 }

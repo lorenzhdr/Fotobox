@@ -348,6 +348,22 @@ public class BoothViewModelTests
         Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
     }
 
+    [Theory]
+    [InlineData(false, true, GuestLayout.Overlay)]      // Standard: nach oben = vorheriges
+    [InlineData(false, false, GuestLayout.StripDouble)] // nach unten = nächstes
+    [InlineData(true, true, GuestLayout.StripDouble)]   // umgekehrt: nach oben = nächstes
+    [InlineData(true, false, GuestLayout.Overlay)]
+    public void ScrollLayout_FollowsWheelDirectionSetting(bool invert, bool wheelUp, GuestLayout expected)
+    {
+        var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.Overlay);
+        h.Settings.Current.Input.InvertMouseWheel = invert;
+
+        h.ViewModel.ScrollLayout(wheelUp);
+
+        Assert.Equal(expected, h.ViewModel.SelectedLayout);
+        Assert.True(h.ViewModel.IsLayoutPreviewVisible);
+    }
+
     [Fact]
     public void CycleLayout_StartsAtFirstEntry_WhenDefaultIsNotInChoices()
     {
