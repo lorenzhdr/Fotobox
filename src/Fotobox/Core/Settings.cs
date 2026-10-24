@@ -6,6 +6,8 @@ namespace Fotobox.Core;
 public enum LayoutKind { SingleBorderless, Strip, Overlay }
 /// <summary>DoubleCut: zwei gleiche Streifen nebeneinander (zum Teilen); Single: ein Streifen über die ganze Seite.</summary>
 public enum StripStyle { DoubleCut, Single }
+/// <summary>Per Mausrad wählbare Layoutvariante der Gastansicht (fasst <see cref="LayoutKind"/> und <see cref="StripStyle"/> zusammen).</summary>
+public enum GuestLayout { Single, StripDouble, StripSingle, Overlay }
 /// <summary>Auto: Strip → Hochformat, sonst Querformat.</summary>
 public enum PageOrientation { Auto, Portrait, Landscape }
 
@@ -71,7 +73,7 @@ public sealed class FlowSettings
     public int ErrorDisplaySeconds { get; set; } = 6;
     public bool PrintingEnabled { get; set; } = true;
     /// <summary>So lange braucht der Drucker etwa; danach ist der Fortschrittsbalken voll.</summary>
-    public int ExpectedPrintSeconds { get; set; } = 120;
+    public int ExpectedPrintSeconds { get; set; } = 240;
 }
 
 public sealed class LayoutSettings
@@ -84,6 +86,11 @@ public sealed class LayoutSettings
     public bool ShowDate { get; set; } = false;
     /// <summary>Schriftfamilie der Bildunterschrift (<c>FontFamily.Source</c>); fehlt sie, wird Segoe UI verwendet.</summary>
     public string CaptionFontFamily { get; set; } = DefaultCaptionFont;
+    /// <summary>
+    /// Layouts, zwischen denen Gäste per Mausrad wählen dürfen. Leer = kein Wechsel, es gilt immer
+    /// <see cref="Kind"/>/<see cref="StripStyle"/>. Der Standard ist nach der Normalisierung enthalten, sobald die Liste nicht leer ist.
+    /// </summary>
+    public List<GuestLayout> GuestChoices { get; set; } = [];
 
     public const string DefaultCaptionFont = "Segoe UI";
 }
@@ -97,7 +104,7 @@ public sealed class PrinterSettings
     public double? PaperHeightMm { get; set; }
     public PageOrientation Orientation { get; set; } = PageOrientation.Auto;
     public int Copies { get; set; } = 1;
-    public int TimeoutSeconds { get; set; } = 180;
+    public int TimeoutSeconds { get; set; } = 300;
 }
 
 public sealed class StorageSettings
@@ -123,6 +130,10 @@ public sealed class InputSettings
     public List<string> TriggerKeys { get; set; } = [DefaultTriggerKey];
     public List<string> AdminKeys { get; set; } = [DefaultAdminKey];
     public List<string> CancelCountdownKeys { get; set; } = [DefaultCancelKey];
+    /// <summary>Linksklick löst die Aufnahme aus.</summary>
+    public bool TriggerOnLeftClick { get; set; } = true;
+    /// <summary>Rechtsklick löst die Aufnahme aus.</summary>
+    public bool TriggerOnRightClick { get; set; } = true;
 
     public const string DefaultTriggerKey = "Space";
     public const string DefaultAdminKey = "Ctrl+Alt+A";

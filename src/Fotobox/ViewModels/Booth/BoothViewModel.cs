@@ -10,11 +10,20 @@ namespace Fotobox.ViewModels.Booth;
 /// <summary>Aktion, die einer Taste in der Gastansicht zugeordnet ist.</summary>
 public enum BoothKeyAction { None, Trigger, OpenAdmin, CancelCountdown }
 
+/// <summary>
+/// Eintrag der Layout-Vorschauliste: gewählte Variante, Anzeigename, Hervorhebung und Platzhalter 1..n für die Fotofelder
+/// einer Streifen-Skizze.
+/// </summary>
+public sealed record LayoutOption(GuestLayout Layout, string Name, bool IsSelected, IReadOnlyList<int> StripSlots);
+
 /// <summary>Bindbare Sicht auf <see cref="BoothController"/> und Kamera für die Gastansicht.</summary>
 public sealed class BoothViewModel : ObservableObject
 {
     /// <summary>Höchstens so viele Tastennamen nennt der Hinweistext.</summary>
     private const int HintKeysMax = 3;
+
+    /// <summary>So lange bleibt die Layout-Vorschauliste nach dem letzten Mausrad-Schritt sichtbar.</summary>
+    private static readonly TimeSpan LayoutPreviewDuration = TimeSpan.FromSeconds(2);
 
     private readonly Dispatcher _dispatcher;
     private readonly SemaphoreSlim _cameraGate = new(1, 1);
@@ -22,6 +31,12 @@ public sealed class BoothViewModel : ObservableObject
     private bool _isAdminOpen;
     // Geparste Tastenbelegung; wird beim Einstellungswechsel verworfen und beim nächsten Zugriff neu gelesen.
     private volatile KeyMap? _keyMap;
+    // Vom Gast gewähltes Layout; null = Standard aus den Einstellungen (für den nächsten Gast gilt wieder der Standard).
+    private GuestLayout? _selectedLayout;
+    private readonly DispatcherTimer _layoutPreviewTimer;
+    private bool _isLayoutPreviewVisible;
+    private LayoutOption[] _layoutOptions = [];
+    private int[] _stripSlots = [];
 
     /// <summary>Geparste Tastenbelegung (Reihenfolge der Auslöser-Tasten bleibt für den Hinweistext erhalten).</summary>
     private sealed record KeyMap(IReadOnlyList<KeyChord> Trigger, HashSet<KeyChord> Admin, HashSet<KeyChord> Cancel);
@@ -32,6 +47,8 @@ public sealed class BoothViewModel : ObservableObject
         Camera = camera;
         Settings = settings;
         _dispatcher = Dispatcher.CurrentDispatcher;
+        _layoutPreviewTimer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher) { Interval = LayoutPreviewDuration };
+        _layoutPreviewTimer.Tick += (_, _) => HideLayoutPreview();
 
         controller.StateChanged += (_, _) => OnUi(Refresh);
         controller.Changed += (_, _) => OnUi(Refresh);
@@ -40,7 +57,11 @@ public sealed class BoothViewModel : ObservableObject
         settings.SettingsChanged += (_, _) =>
         {
             _keyMap = null;
-            OnUi(Refresh);
+            OnUi(() =>
+            {
+                ResetLayoutSelection();
+                Refresh();
+            });
         };
     }
 
@@ -151,25 +172,177 @@ public sealed class BoothViewModel : ObservableObject
     /// <summary>
     /// Hinweistext mit den eingestellten Auslöser-Tasten: „Drücke die Leertaste für ein Foto 📸“,
     /// bei mehreren Tasten „Drücke Leertaste oder Eingabetaste für ein Foto 📸“ (höchstens drei Namen).
+    /// Löst auch ein Mausklick aus, steht das dabei: „Drücke die Leertaste oder klicke für ein Foto 📸“.
     /// </summary>
     public string HintText
     {
         get
         {
             var keys = GetKeyMap().Trigger;
+            var click = TriggersOnClick;
             if (keys.Count == 1)
             {
                 var single = keys[0];
                 var name = single == new KeyChord(Key.Space, ModifierKeys.None) ? "die Leertaste" : single.DisplayName;
-                return $"Drücke {name} für ein Foto 📸";
+                return click
+                    ? $"Drücke {name} oder klicke für ein Foto 📸"
+                    : $"Drücke {name} für ein Foto 📸";
             }
 
             var names = keys.Take(HintKeysMax).Select(k => k.DisplayName).ToList();
             var list = names.Count <= 1
                 ? string.Concat(names)
                 : $"{string.Join(", ", names.Take(names.Count - 1))} oder {names[^1]}";
-            return $"Drücke {list} für ein Foto 📸";
+            return click
+                ? $"Drücke {list} – oder klicke – für ein Foto 📸"
+                : $"Drücke {list} für ein Foto 📸";
         }
+    }
+
+    /// <summary>Mindestens eine Maustaste löst die Aufnahme aus.</summary>
+    private bool TriggersOnClick =>
+        Settings.Current.Input is { } input && (input.TriggerOnLeftClick || input.TriggerOnRightClick);
+
+    /// <summary>
+    /// Ordnet eine gedrückte Maustaste der Einstellung zu (links/rechts, je nach <see cref="InputSettings"/>).
+    /// Reine Zuordnung ohne Seiteneffekt; ausgeführt wird sie vom Fenster.
+    /// </summary>
+    public BoothKeyAction HandleMouseButton(MouseButton button)
+    {
+        var input = Settings.Current.Input;
+        return button switch
+        {
+            MouseButton.Left when input?.TriggerOnLeftClick == true => BoothKeyAction.Trigger,
+            MouseButton.Right when input?.TriggerOnRightClick == true => BoothKeyAction.Trigger,
+            _ => BoothKeyAction.None,
+        };
+    }
+
+    // ---- Layoutwahl per Mausrad
+
+    /// <summary>Layouts, zwischen denen der Gast wechseln darf (leer oder ein Eintrag = kein Wechsel).</summary>
+    public IReadOnlyList<GuestLayout> LayoutChoices => Settings.Current.Layout.GuestChoices ?? [];
+
+    /// <summary>Standard-Layout aus den Einstellungen.</summary>
+    private GuestLayout DefaultLayout => GuestLayouts.From(Settings.Current.Layout);
+
+    /// <summary>Aktuell gewähltes Layout (nach Start, Foto oder Einstellungswechsel: der Standard).</summary>
+    public GuestLayout SelectedLayout => _selectedLayout ?? DefaultLayout;
+
+    public string SelectedLayoutName => GuestLayouts.DisplayName(SelectedLayout, Settings.Current.Layout.StripPhotoCount);
+
+    /// <summary>
+    /// Ein Eintrag je Wahlmöglichkeit für die Vorschauliste (Skizze, Name, Hervorhebung). Die Liste bleibt dieselbe Instanz,
+    /// solange sich Auswahl, Wahlmöglichkeiten und Fotozahl nicht ändern – <see cref="Refresh"/> meldet sonst alle
+    /// Eigenschaften neu (auch im Drucktakt), und die Liste würde jedes Mal neu aufgebaut.
+    /// </summary>
+    public IReadOnlyList<LayoutOption> LayoutOptions
+    {
+        get
+        {
+            var choices = LayoutChoices;
+            var selected = SelectedLayout;
+            var slots = StripSlots;
+            var photoCount = Settings.Current.Layout.StripPhotoCount;
+
+            if (!OptionsMatch(choices, selected, slots, photoCount))
+            {
+                _layoutOptions = choices
+                    .Select(c => new LayoutOption(c, GuestLayouts.DisplayName(c, photoCount), c == selected, slots))
+                    .ToArray();
+            }
+            return _layoutOptions;
+        }
+    }
+
+    private bool OptionsMatch(IReadOnlyList<GuestLayout> choices, GuestLayout selected, IReadOnlyList<int> slots, int photoCount)
+    {
+        if (_layoutOptions.Length != choices.Count)
+            return false;
+
+        for (var i = 0; i < choices.Count; i++)
+        {
+            var option = _layoutOptions[i];
+            if (option.Layout != choices[i] ||
+                option.IsSelected != (choices[i] == selected) ||
+                !ReferenceEquals(option.StripSlots, slots) ||
+                option.Name != GuestLayouts.DisplayName(choices[i], photoCount))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>Platzhalter 1..n für die schematischen Fotofelder eines Streifens in der Vorschauliste.</summary>
+    public IReadOnlyList<int> StripSlots
+    {
+        get
+        {
+            var count = Math.Max(1, Settings.Current.Layout.StripPhotoCount);
+            if (_stripSlots.Length != count)
+                _stripSlots = Enumerable.Range(1, count).ToArray();
+            return _stripSlots;
+        }
+    }
+
+    /// <summary>Der Gast darf das Layout wechseln: mindestens zwei Möglichkeiten, Leerlauf mit laufender Kamera, nichts blockiert.</summary>
+    public bool CanChooseLayout =>
+        LayoutChoices.Count >= 2 && IsIdle && Camera.Status == CameraStatus.Running && !IsAdminOpen && !IsCameraBusy;
+
+    /// <summary>Vorschauliste mit allen Layouts ist (noch) eingeblendet.</summary>
+    public bool IsLayoutPreviewVisible
+    {
+        get => _isLayoutPreviewVisible;
+        private set => SetProperty(ref _isLayoutPreviewVisible, value);
+    }
+
+    /// <summary>Zusatzzeile unter dem Hinweistext; nur, wenn der Gast überhaupt wählen kann.</summary>
+    public bool ShowLayoutHint => ShowHint && LayoutChoices.Count >= 2;
+
+    public string LayoutHintText => $"Mausrad: Layout wechseln · {SelectedLayoutName}";
+
+    /// <summary>
+    /// Wählt das nächste (<paramref name="direction"/> &gt; 0) bzw. vorherige Layout, zyklisch, und blendet die Vorschauliste
+    /// für kurze Zeit ein. Wirkt nur, wenn <see cref="CanChooseLayout"/> gilt.
+    /// </summary>
+    public void CycleLayout(int direction)
+    {
+        if (direction == 0 || !CanChooseLayout)
+            return;
+
+        var choices = LayoutChoices;
+        var index = IndexOfSelected(choices);
+        // Nicht in der Liste (z. B. Standard fehlt): bei Index 0 beginnen.
+        var next = index < 0 ? 0 : (index + Math.Sign(direction) + choices.Count) % choices.Count;
+        _selectedLayout = choices[next];
+
+        IsLayoutPreviewVisible = true;
+        _layoutPreviewTimer.Stop();
+        _layoutPreviewTimer.Start();
+        Refresh();
+    }
+
+    private int IndexOfSelected(IReadOnlyList<GuestLayout> choices)
+    {
+        var selected = SelectedLayout;
+        for (var i = 0; i < choices.Count; i++)
+        {
+            if (choices[i] == selected)
+                return i;
+        }
+        return -1;
+    }
+
+    private void HideLayoutPreview()
+    {
+        _layoutPreviewTimer.Stop();
+        IsLayoutPreviewVisible = false;
+    }
+
+    /// <summary>Zurück zum Standard-Layout und Vorschauliste ausblenden (nächster Gast, Einstellungswechsel).</summary>
+    private void ResetLayoutSelection()
+    {
+        _selectedLayout = null;
+        HideLayoutPreview();
     }
 
     /// <summary>
@@ -236,10 +409,23 @@ public sealed class BoothViewModel : ObservableObject
     public bool IsCameraBusy => _cameraGate.CurrentCount == 0;
 
     /// <summary>
-    /// Löst einen Durchgang aus. Gesperrt, solange die Admin-Ansicht offen ist oder die Kamera gerade (neu) startet;
-    /// alles Weitere (Idle, Kamera läuft) prüft der <see cref="BoothController"/>.
+    /// Löst einen Durchgang aus (mit dem gewählten Layout, danach gilt wieder der Standard). Gesperrt, solange die
+    /// Admin-Ansicht offen ist oder die Kamera gerade (neu) startet; alles Weitere (Idle, Kamera läuft) prüft der
+    /// <see cref="BoothController"/>.
     /// </summary>
-    public bool TryTrigger() => !IsAdminOpen && !IsCameraBusy && Controller.TryTrigger();
+    public bool TryTrigger()
+    {
+        if (IsAdminOpen || IsCameraBusy)
+            return false;
+
+        // Nur bei echter Auswahlmöglichkeit überschreibt die Wahl des Gastes das Standard-Layout.
+        GuestLayout? layout = LayoutChoices.Count >= 2 ? SelectedLayout : null;
+        if (!Controller.TryTrigger(layout))
+            return false;
+
+        ResetLayoutSelection();
+        return true;
+    }
 
     /// <summary>Bricht den Countdown ab (nur im Zustand Countdown wirksam, sonst false).</summary>
     public bool TryCancelCountdown() => !IsAdminOpen && Controller.TryCancelCountdown();
@@ -258,6 +444,7 @@ public sealed class BoothViewModel : ObservableObject
     /// <summary>Bricht einen Ablauf ab und stoppt die Kamera (blockiert max. 3 s).</summary>
     public void Shutdown()
     {
+        _layoutPreviewTimer.Stop();
         Controller.Cancel();
         try
         {
@@ -305,6 +492,10 @@ public sealed class BoothViewModel : ObservableObject
 
     private void Refresh()
     {
+        // Die Vorschauliste gehört in den Leerlauf; beginnt ein Durchgang oder ein Fehler, verschwindet sie sofort.
+        if (_isLayoutPreviewVisible && !CanChooseLayout)
+            HideLayoutPreview();
+
         OnPropertyChanged(string.Empty);
 
         var value = Controller.CountdownValue;

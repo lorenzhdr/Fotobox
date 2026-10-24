@@ -86,9 +86,9 @@ public class BoothViewModelTests
         h.Camera.Status = CameraStatus.NoDevice;
         Assert.True(h.ViewModel.HasCameraProblem);
         Assert.False(h.ViewModel.ShowHint);
-
         h.Camera.Status = CameraStatus.Running;
         Assert.False(h.ViewModel.HasCameraProblem);
+
         Assert.True(h.ViewModel.ShowHint);
     }
 
@@ -184,6 +184,7 @@ public class BoothViewModelTests
     public void HintText_SingleKey_NamesTheKey()
     {
         var h = new Harness();
+        DisableClicks(h);
         Assert.Equal("Drücke die Leertaste für ein Foto 📸", h.ViewModel.HintText);
 
         h.Settings.Current.Input.TriggerKeys = ["Enter"];
@@ -199,6 +200,7 @@ public class BoothViewModelTests
     public void HintText_MultipleKeys_ListsAtMostThree()
     {
         var h = new Harness();
+        DisableClicks(h);
 
         h.Settings.Current.Input.TriggerKeys = ["Space", "Enter"];
         h.Settings.RaiseSettingsChanged();
@@ -207,6 +209,300 @@ public class BoothViewModelTests
         h.Settings.Current.Input.TriggerKeys = ["Space", "Enter", "F5", "F6"];
         h.Settings.RaiseSettingsChanged();
         Assert.Equal("Drücke Leertaste, Eingabetaste oder F5 für ein Foto 📸", h.ViewModel.HintText);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void HintText_MentionsClick_WhenAnyMouseButtonTriggers(bool left, bool right)
+    {
+        var h = new Harness();
+        h.Settings.Current.Input.TriggerOnLeftClick = left;
+        h.Settings.Current.Input.TriggerOnRightClick = right;
+
+        Assert.Equal("Drücke die Leertaste oder klicke für ein Foto 📸", h.ViewModel.HintText);
+
+        h.Settings.Current.Input.TriggerKeys = ["Enter"];
+        h.Settings.RaiseSettingsChanged();
+        Assert.Equal("Drücke Eingabetaste oder klicke für ein Foto 📸", h.ViewModel.HintText);
+
+        h.Settings.Current.Input.TriggerKeys = ["Space", "Enter"];
+        h.Settings.RaiseSettingsChanged();
+        Assert.Equal("Drücke Leertaste oder Eingabetaste – oder klicke – für ein Foto 📸", h.ViewModel.HintText);
+    }
+
+    private static void DisableClicks(Harness h)
+    {
+        h.Settings.Current.Input.TriggerOnLeftClick = false;
+        h.Settings.Current.Input.TriggerOnRightClick = false;
+    }
+
+    // ---- Maus
+
+    [Theory]
+    [InlineData(true, true, MouseButton.Left, BoothKeyAction.Trigger)]
+    [InlineData(true, true, MouseButton.Right, BoothKeyAction.Trigger)]
+    [InlineData(true, false, MouseButton.Left, BoothKeyAction.Trigger)]
+    [InlineData(true, false, MouseButton.Right, BoothKeyAction.None)]
+    [InlineData(false, true, MouseButton.Left, BoothKeyAction.None)]
+    [InlineData(false, true, MouseButton.Right, BoothKeyAction.Trigger)]
+    [InlineData(false, false, MouseButton.Left, BoothKeyAction.None)]
+    [InlineData(false, false, MouseButton.Right, BoothKeyAction.None)]
+    [InlineData(true, true, MouseButton.Middle, BoothKeyAction.None)]
+    public void HandleMouseButton_FollowsSettings(bool left, bool right, MouseButton button, BoothKeyAction expected)
+    {
+        var h = new Harness();
+        h.Settings.Current.Input.TriggerOnLeftClick = left;
+        h.Settings.Current.Input.TriggerOnRightClick = right;
+
+        Assert.Equal(expected, h.ViewModel.HandleMouseButton(button));
+    }
+
+    [Fact]
+    public void HandleMouseButton_DefaultSettings_TriggersOnBothButtons()
+    {
+        var h = new Harness();
+
+        Assert.Equal(BoothKeyAction.Trigger, h.ViewModel.HandleMouseButton(MouseButton.Left));
+        Assert.Equal(BoothKeyAction.Trigger, h.ViewModel.HandleMouseButton(MouseButton.Right));
+    }
+
+    // ---- Layoutwahl per Mausrad
+
+    private static Harness LayoutHarness(params GuestLayout[] choices)
+    {
+        var h = new Harness();
+        h.Settings.Current.Layout.StripPhotoCount = 3;
+        h.Settings.Current.Layout.GuestChoices = [.. choices];
+        return h;
+    }
+
+    [Fact]
+    public void LayoutSelection_StartsWithDefault_AndListsAllChoices()
+    {
+        var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.Overlay);
+
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+        Assert.Equal("Ein Foto", h.ViewModel.SelectedLayoutName);
+        Assert.Equal(["Ein Foto", "3 Fotos – 2 Streifen", "Foto mit Rahmen"], h.ViewModel.LayoutOptions.Select(o => o.Name));
+        Assert.Equal([true, false, false], h.ViewModel.LayoutOptions.Select(o => o.IsSelected));
+        Assert.True(h.ViewModel.CanChooseLayout);
+        Assert.True(h.ViewModel.ShowLayoutHint);
+        Assert.False(h.ViewModel.IsLayoutPreviewVisible);
+    }
+
+    [Fact]
+    public void CycleLayout_Forward_IsCyclic_ShowsPreview_AndRaisesChange()
+    {
+        var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.Overlay);
+        var changed = new List<string?>();
+        h.ViewModel.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        h.ViewModel.CycleLayout(1);
+        Assert.Equal(GuestLayout.StripDouble, h.ViewModel.SelectedLayout);
+        Assert.Equal("3 Fotos – 2 Streifen", h.ViewModel.SelectedLayoutName);
+        Assert.Equal([false, true, false], h.ViewModel.LayoutOptions.Select(o => o.IsSelected));
+        Assert.True(h.ViewModel.IsLayoutPreviewVisible);
+        Assert.Contains(nameof(BoothViewModel.IsLayoutPreviewVisible), changed);
+        Assert.Contains(string.Empty, changed);   // Refresh: alle Eigenschaften neu lesen
+
+        h.ViewModel.CycleLayout(1);
+        Assert.Equal(GuestLayout.Overlay, h.ViewModel.SelectedLayout);
+        h.ViewModel.CycleLayout(1);
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+        Assert.Equal("Mausrad: Layout wechseln · Ein Foto", h.ViewModel.LayoutHintText);
+    }
+
+    [Fact]
+    public void CycleLayout_Backward_IsCyclic()
+    {
+        var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.Overlay);
+
+        h.ViewModel.CycleLayout(-1);
+        Assert.Equal(GuestLayout.Overlay, h.ViewModel.SelectedLayout);
+        h.ViewModel.CycleLayout(-1);
+        Assert.Equal(GuestLayout.StripDouble, h.ViewModel.SelectedLayout);
+        h.ViewModel.CycleLayout(-1);
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+    }
+
+    [Fact]
+    public void CycleLayout_StartsAtFirstEntry_WhenDefaultIsNotInChoices()
+    {
+        var h = LayoutHarness(GuestLayout.StripDouble, GuestLayout.Overlay);   // Standard „Ein Foto“ fehlt
+
+        h.ViewModel.CycleLayout(1);
+
+        Assert.Equal(GuestLayout.StripDouble, h.ViewModel.SelectedLayout);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void CycleLayout_WithoutTwoChoices_DoesNothing(int count)
+    {
+        var h = LayoutHarness([.. new[] { GuestLayout.Single }.Take(count)]);
+
+        h.ViewModel.CycleLayout(1);
+
+        Assert.False(h.ViewModel.CanChooseLayout);
+        Assert.False(h.ViewModel.ShowLayoutHint);
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+        Assert.False(h.ViewModel.IsLayoutPreviewVisible);
+    }
+
+    [Fact]
+    public void CycleLayout_IsBlocked_WhenNotIdleCameraNotRunningOrAdminOpen()
+    {
+        var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble);
+
+        h.Camera.Status = CameraStatus.NoDevice;
+        h.ViewModel.CycleLayout(1);
+        Assert.False(h.ViewModel.CanChooseLayout);
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+        h.ViewModel.IsAdminOpen = true;
+        h.ViewModel.CycleLayout(1);
+        Assert.False(h.ViewModel.CanChooseLayout);
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+        h.ViewModel.IsAdminOpen = false;
+        h.Camera.Status = CameraStatus.Running;
+        Assert.True(h.ViewModel.CanChooseLayout);
+
+        h.Settings.Current.Flow.CountdownSeconds = 3;
+        Assert.True(h.ViewModel.TryTrigger());
+        h.ViewModel.CycleLayout(1);
+        Assert.False(h.ViewModel.CanChooseLayout);
+        Assert.False(h.ViewModel.IsLayoutPreviewVisible);
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+    }
+
+    [Fact]
+    public async Task CycleLayout_IsBlocked_WhileCameraStarts()
+    {
+        var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble);
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Camera.StartTask = start.Task;
+
+        var restart = h.ViewModel.RestartCameraAsync();
+        h.ViewModel.CycleLayout(1);
+        Assert.False(h.ViewModel.CanChooseLayout);
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+
+        start.SetResult();
+        await restart;
+        h.ViewModel.CycleLayout(1);
+        Assert.Equal(GuestLayout.StripDouble, h.ViewModel.SelectedLayout);
+    }
+
+    [Fact]
+    public void TryTrigger_UsesSelectedLayout_ThenResetsToDefault()
+    {
+        var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripSingle);
+        h.Settings.Current.Flow.CountdownSeconds = 3;
+        h.Composer.CountFor = l => l.Kind == LayoutKind.Strip ? l.StripPhotoCount : 1;
+        h.ViewModel.CycleLayout(1);
+        Assert.Equal(GuestLayout.StripSingle, h.ViewModel.SelectedLayout);
+
+        Assert.True(h.ViewModel.TryTrigger());
+
+        // Die Sitzung fragt die Fotozahl auf dem Threadpool ab.
+        Assert.True(SpinWait.SpinUntil(() => h.Composer.RequestedLayout is not null, TimeSpan.FromSeconds(10)));
+        Assert.Equal(LayoutKind.Strip, h.Composer.RequestedLayout!.Kind);
+        Assert.Equal(StripStyle.Single, h.Composer.RequestedLayout.StripStyle);
+        Assert.Equal(LayoutKind.SingleBorderless, h.Settings.Current.Layout.Kind);   // Einstellungen bleiben unberührt
+
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+        Assert.False(h.ViewModel.IsLayoutPreviewVisible);
+
+        h.ViewModel.TryCancelCountdown();
+        SpinWait.SpinUntil(() => h.Controller.State == BoothState.Idle, TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void TryTrigger_WithoutChoices_UsesSettingsLayout()
+    {
+        var h = LayoutHarness();
+        h.Settings.Current.Flow.CountdownSeconds = 3;
+        h.Composer.CountFor = l => l.Kind == LayoutKind.Strip ? l.StripPhotoCount : 1;
+
+        Assert.True(h.ViewModel.TryTrigger());
+
+        Assert.True(SpinWait.SpinUntil(() => h.Composer.RequestedLayout is not null, TimeSpan.FromSeconds(10)));
+        Assert.Same(h.Settings.Current.Layout, h.Composer.RequestedLayout);
+        h.ViewModel.TryCancelCountdown();
+        SpinWait.SpinUntil(() => h.Controller.State == BoothState.Idle, TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void TryTrigger_Rejected_KeepsSelection()
+    {
+        var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble);
+        h.ViewModel.CycleLayout(1);
+
+        h.ViewModel.IsAdminOpen = true;
+        Assert.False(h.ViewModel.TryTrigger());
+
+        Assert.Equal(GuestLayout.StripDouble, h.ViewModel.SelectedLayout);
+    }
+
+    [Fact]
+    public void SettingsChanged_ResetsSelectionToDefault()
+    {
+        var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble);
+        h.ViewModel.CycleLayout(1);
+        Assert.True(h.ViewModel.IsLayoutPreviewVisible);
+
+        h.Settings.RaiseSettingsChanged();
+
+        Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
+        Assert.False(h.ViewModel.IsLayoutPreviewVisible);
+    }
+
+    [Fact]
+    public void LayoutOptions_AreRebuiltOnlyWhenSelectionChoicesOrPhotoCountChange()
+    {
+        var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.Overlay);
+        var vm = h.ViewModel;
+        var first = vm.LayoutOptions;
+
+        // Wiederholtes Lesen (Refresh meldet alle Eigenschaften neu, auch im Drucktakt): dieselbe Liste, kein Neuaufbau.
+        Assert.Same(first, vm.LayoutOptions);
+        Assert.Same(first, vm.LayoutOptions);
+        Assert.Equal(3, first.Count);
+        Assert.All(first, o => Assert.Same(vm.StripSlots, o.StripSlots));
+
+        vm.CycleLayout(1);
+        var afterCycle = vm.LayoutOptions;
+        Assert.NotSame(first, afterCycle);
+        Assert.Equal([false, true, false], afterCycle.Select(o => o.IsSelected));
+        Assert.Same(afterCycle, vm.LayoutOptions);
+
+        h.Settings.Current.Layout.StripPhotoCount = 4;
+        var afterCount = vm.LayoutOptions;
+        Assert.NotSame(afterCycle, afterCount);
+        Assert.Equal("4 Fotos – 2 Streifen", afterCount[1].Name);
+        Assert.Equal([1, 2, 3, 4], afterCount[1].StripSlots);
+
+        h.Settings.Current.Layout.GuestChoices = [GuestLayout.Single, GuestLayout.StripSingle];
+        Assert.Equal([GuestLayout.Single, GuestLayout.StripSingle], vm.LayoutOptions.Select(o => o.Layout));
+    }
+
+    [Fact]
+    public void LayoutOptions_WithoutChoices_AreEmpty()
+    {
+        var h = LayoutHarness();
+        Assert.Empty(h.ViewModel.LayoutOptions);
+    }
+
+    [Fact]
+    public void StripSlots_FollowStripPhotoCount()
+    {
+        var h = LayoutHarness();
+        Assert.Equal([1, 2, 3], h.ViewModel.StripSlots);
+
+        h.Settings.Current.Layout.StripPhotoCount = 4;
+        Assert.Equal([1, 2, 3, 4], h.ViewModel.StripSlots);
     }
 
     [Theory]
@@ -364,6 +660,60 @@ public class BoothViewModelTests
         Assert.InRange(indicator.ActualWidth, 780, 800);
     }
 
+    [StaFact]
+    public void BoothWindow_LayoutList_ShowsAllLayouts_WithExactlyOneHighlighted()
+    {
+        var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.StripSingle, GuestLayout.Overlay);
+        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings);
+        var card = (System.Windows.FrameworkElement)window.FindName("LayoutCard");
+        Assert.Equal("Layout-Auswahl", System.Windows.Automation.AutomationProperties.GetName(card));
+        Assert.False(card.IsHitTestVisible);
+
+        // Je Schritt: ein Eintrag je Layout; die Skizzen der Streifen zeigen 6 (zwei Streifen) bzw. 3 Fotofelder
+        // (Fotozahl 3), Einzel und Rahmen keine; genau der gewählte Eintrag ist voll sichtbar, die anderen gedimmt.
+        for (var selected = 0; selected < 4; selected++)
+        {
+            card.Measure(new System.Windows.Size(1920, 1080));
+            card.Arrange(new System.Windows.Rect(0, 0, 1920, 1080));
+            card.UpdateLayout();
+
+            var rows = FindRows(card);
+            Assert.Equal(4, rows.Count);
+            Assert.Equal(9, CountSlots(card));
+            for (var i = 0; i < rows.Count; i++)
+                Assert.Equal(i == selected ? 1.0 : 0.4, rows[i].Opacity);
+            Assert.Single(rows, r => r.Opacity == 1.0);
+
+            h.ViewModel.CycleLayout(1);
+        }
+    }
+
+    private static List<System.Windows.Controls.Border> FindRows(System.Windows.DependencyObject root)
+    {
+        var rows = new List<System.Windows.Controls.Border>();
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is System.Windows.Controls.Border { Name: "Row" } row)
+                rows.Add(row);
+            rows.AddRange(FindRows(child));
+        }
+        return rows;
+    }
+
+    private static int CountSlots(System.Windows.DependencyObject root)
+    {
+        var count = 0;
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is System.Windows.Controls.ItemsControl { ItemsSource: IReadOnlyList<int> slots })
+                count += slots.Count;
+            count += CountSlots(child);
+        }
+        return count;
+    }
+
     // ---- Hilfsmittel ----
 
     private sealed class Harness
@@ -424,7 +774,16 @@ public class BoothViewModelTests
         /// <summary>Ergebnis von Compose; ohne Wert wird eine Ausnahme geworfen.</summary>
         public BitmapSource? Result { get; set; }
 
-        public int GetRequiredPhotoCount(LayoutSettings layout) => 1;
+        /// <summary>Optional: Fotozahl abhängig vom Layout (sonst 1).</summary>
+        public Func<LayoutSettings, int>? CountFor { get; set; }
+        /// <summary>Layout der letzten Abfrage der Fotozahl (womit der Controller arbeitet).</summary>
+        public LayoutSettings? RequestedLayout { get; private set; }
+
+        public int GetRequiredPhotoCount(LayoutSettings layout)
+        {
+            RequestedLayout = layout;
+            return CountFor?.Invoke(layout) ?? 1;
+        }
 
         public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page,
             string overlayDirectory, DateTime timestamp) => Result ?? throw new NotSupportedException();

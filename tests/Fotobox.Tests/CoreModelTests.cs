@@ -86,6 +86,7 @@ public class AppSettingsTests
         Assert.Equal(2, s.Flow.PauseBetweenShotsSeconds);
         Assert.Equal(6, s.Flow.ErrorDisplaySeconds);
         Assert.True(s.Flow.PrintingEnabled);
+        Assert.Equal(240, s.Flow.ExpectedPrintSeconds);
 
         Assert.Equal(LayoutKind.SingleBorderless, s.Layout.Kind);
         Assert.Equal(3, s.Layout.StripPhotoCount);
@@ -99,7 +100,7 @@ public class AppSettingsTests
         Assert.Null(s.Printer.PaperHeightMm);
         Assert.Equal(PageOrientation.Auto, s.Printer.Orientation);
         Assert.Equal(1, s.Printer.Copies);
-        Assert.Equal(180, s.Printer.TimeoutSeconds);
+        Assert.Equal(300, s.Printer.TimeoutSeconds);
 
         Assert.Null(s.Storage.PhotoFolder);
         Assert.True(s.Storage.DateSubfolder);

@@ -40,7 +40,7 @@ public sealed class BoothController(
     private DateTimeOffset _printStart;
     private volatile bool _printActive;
     private volatile bool _printDone;
-    private int _expectedPrintSeconds = 120;
+    private int _expectedPrintSeconds = 240;
 
     // Seitengröße: zuletzt erfolgreich ermittelter Wert je Schlüssel (Rückfall bei Zeitüberschreitung)
     // und die Schlüssel, für die gerade ein Vorabruf läuft (kein Stapeln bei hängendem Drucker).
@@ -118,8 +118,12 @@ public sealed class BoothController(
         StartPageSpecPrefetch();
     }
 
-    /// <summary>Startet einen Durchgang. Nur im Zustand Idle und bei laufender Kamera.</summary>
-    public bool TryTrigger()
+    /// <summary>
+    /// Startet einen Durchgang. Nur im Zustand Idle und bei laufender Kamera.
+    /// <paramref name="layout"/>: vom Gast gewählte Variante; <c>null</c> oder gleich dem Standard = Einstellungen unverändert.
+    /// Die gespeicherten Einstellungen werden nie verändert, der Durchgang arbeitet mit einer Kopie.
+    /// </summary>
+    public bool TryTrigger(GuestLayout? layout = null)
     {
         if (_state != BoothState.Idle || camera.Status != CameraStatus.Running)
             return false;
@@ -129,6 +133,11 @@ public sealed class BoothController(
         var cts = new CancellationTokenSource();
         _sessionCts = cts;
         var cfg = settings.Current;
+        if (layout is { } chosen && chosen != GuestLayouts.From(cfg.Layout))
+        {
+            cfg = cfg.Clone();
+            GuestLayouts.ApplyTo(cfg.Layout, chosen);
+        }
 
         ErrorMessage = null;
         StatusMessage = null;
@@ -140,7 +149,7 @@ public sealed class BoothController(
         State = BoothState.Countdown;
 
         // Bis zur Komposition vergeht der Countdown: genug Zeit, die Seitengröße vorab zu holen.
-        StartPageSpecPrefetch();
+        StartPageSpecPrefetch(cfg.Layout.Kind);
 
         _ = RunSessionAsync(cfg, cts);
         return true;
@@ -414,7 +423,7 @@ public sealed class BoothController(
     }
 
     /// <summary>Holt die Seitengröße im Hintergrund (füllt den Zwischenspeicher des Druckdienstes und den letzten guten Wert).</summary>
-    private void StartPageSpecPrefetch()
+    private void StartPageSpecPrefetch(LayoutKind? extraKind = null)
     {
         if (!PrefetchPageSpec)
             return;
@@ -423,27 +432,41 @@ public sealed class BoothController(
         {
             var cfg = settings.Current;
             var printer = cfg.Printer;
-            var kind = cfg.Layout.Kind;
-            var key = PageSpecKey.From(printer, kind);
-            if (!_prefetching.TryAdd(key, 0))
-                return;
 
-            var task = Task.Run(() =>
+            // Standard, alle per Mausrad wählbaren Layouts und ein ggf. gerade gewähltes.
+            var kinds = new List<LayoutKind> { cfg.Layout.Kind };
+            foreach (var choice in cfg.Layout.GuestChoices ?? [])
             {
-                try
+                var choiceLayout = new LayoutSettings();
+                GuestLayouts.ApplyTo(choiceLayout, choice);
+                kinds.Add(choiceLayout.Kind);
+            }
+            if (extraKind is { } extra)
+                kinds.Add(extra);
+
+            foreach (var kind in kinds.Distinct())
+            {
+                var key = PageSpecKey.From(printer, kind);
+                if (!_prefetching.TryAdd(key, 0))
+                    continue;
+
+                var task = Task.Run(() =>
                 {
-                    _lastGoodPage[key] = print.GetPageSpec(printer, kind);
-                }
-                catch (Exception ex)
-                {
-                    AppLog.Warn("Vorabruf der Seitengröße fehlgeschlagen.", ex);
-                }
-                finally
-                {
-                    _prefetching.TryRemove(key, out _);
-                }
-            });
-            ObserveFault(task);
+                    try
+                    {
+                        _lastGoodPage[key] = print.GetPageSpec(printer, kind);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLog.Warn("Vorabruf der Seitengröße fehlgeschlagen.", ex);
+                    }
+                    finally
+                    {
+                        _prefetching.TryRemove(key, out _);
+                    }
+                });
+                ObserveFault(task);
+            }
         }
         catch (Exception ex)
         {

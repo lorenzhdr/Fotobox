@@ -108,7 +108,7 @@
                     <Border Style="{StaticResource Card}">
                         <StackPanel>
                             <TextBlock Text="Layout" Style="{StaticResource SectionTitle}" />
-                            <TextBlock Text="Art des Drucklayouts" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Text="Standard-Layout" Style="{StaticResource FieldLabel}" />
 
                             <UniformGrid Columns="3" Margin="0,0,-14,0">
                                 <RadioButton GroupName="LayoutKind" Style="{StaticResource CardRadio}"
@@ -153,10 +153,25 @@
                                 </RadioButton>
                             </UniformGrid>
 
-                            <StackPanel Visibility="{Binding IsStripLayout, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Auswahl für Gäste (Mausrad)" Style="{StaticResource FieldLabel}" />
+                            <CheckBox Content="Ein Foto (Vollbild)" IsChecked="{Binding IsGuestSingle}"
+                                      IsEnabled="{Binding IsGuestSingleEnabled}" Margin="0,4" />
+                            <CheckBox Content="Fotostreifen – 2 Streifen nebeneinander" IsChecked="{Binding IsGuestStripDouble}"
+                                      IsEnabled="{Binding IsGuestStripDoubleEnabled}" Margin="0,4" />
+                            <CheckBox Content="Fotostreifen – 1 Streifen" IsChecked="{Binding IsGuestStripSingle}"
+                                      IsEnabled="{Binding IsGuestStripSingleEnabled}" Margin="0,4" />
+                            <CheckBox Content="Foto mit Overlay" IsChecked="{Binding IsGuestOverlay}"
+                                      IsEnabled="{Binding IsGuestOverlayEnabled}" Margin="0,4" />
+                            <TextBlock Text="Mit mindestens zwei Einträgen können Gäste in der Gastansicht per Mausrad wechseln. Nach jedem Foto gilt wieder das Standard-Layout."
+                                       Style="{StaticResource Hint}" />
+
+                            <StackPanel Visibility="{Binding ShowStripOptions, Converter={StaticResource BoolToVis}}">
                                 <TextBlock Text="Anzahl der Fotos im Streifen" Style="{StaticResource FieldLabel}" />
                                 <local:NumberStepper Value="{Binding StripPhotoCount}" Minimum="{x:Static core:SettingsLimits.StripPhotosMin}" Maximum="{x:Static core:SettingsLimits.StripPhotosMax}" Suffix=" Fotos" />
+                                <TextBlock Text="Fotostreifen werden immer im Hochformat gedruckt." Style="{StaticResource Hint}" />
+                            </StackPanel>
 
+                            <StackPanel Visibility="{Binding IsStripLayout, Converter={StaticResource BoolToVis}}">
                                 <TextBlock Text="Variante des Fotostreifens" Style="{StaticResource FieldLabel}" />
                                 <StackPanel Orientation="Horizontal">
                                     <RadioButton GroupName="StripStyle" Style="{StaticResource CardRadio}" Width="250"
@@ -197,10 +212,9 @@
                                         </StackPanel>
                                     </RadioButton>
                                 </StackPanel>
-                                <TextBlock Text="Fotostreifen werden immer im Hochformat gedruckt." Style="{StaticResource Hint}" />
                             </StackPanel>
 
-                            <StackPanel Visibility="{Binding IsOverlayLayout, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Visibility="{Binding ShowOverlayOptions, Converter={StaticResource BoolToVis}}">
                                 <TextBlock Text="Overlay (PNG)" Style="{StaticResource FieldLabel}" />
                                 <StackPanel Orientation="Horizontal">
                                     <Border Width="90" Height="120" CornerRadius="6" BorderBrush="{StaticResource LineBrush}"
@@ -347,6 +361,24 @@
 
                                                 <Button Content="Taste hinzufügen" Command="{Binding AddKeyCommand}"
                                                         HorizontalAlignment="Left" Margin="0,4,0,0" />
+
+                                                <!-- Maus: gehört nur zur Aktion „Foto auslösen“ -->
+                                                <StackPanel Margin="0,10,0,0">
+                                                    <StackPanel.Style>
+                                                        <Style TargetType="StackPanel">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Action}" Value="Trigger">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </StackPanel.Style>
+                                                    <CheckBox Content="Linke Maustaste löst aus"
+                                                              IsChecked="{Binding DataContext.TriggerOnLeftClick, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                                    <CheckBox Content="Rechte Maustaste löst aus"
+                                                              IsChecked="{Binding DataContext.TriggerOnRightClick, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                                </StackPanel>
 
                                                 <Border Background="{StaticResource AccentSoftBrush}" CornerRadius="10" Padding="14,10" Margin="0,12,0,0"
                                                         Visibility="{Binding IsCapturing, Converter={StaticResource BoolToVis}}">
