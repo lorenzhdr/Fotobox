@@ -2,8 +2,11 @@ using Fotobox.Core;
 
 namespace Fotobox.Services.Camera;
 
-/// <summary>Ein von der Kamera angebotenes Videoformat (nur die für die Auswahl relevanten Eigenschaften).</summary>
-public readonly record struct CameraFormatCandidate(int Width, int Height, double FrameRate);
+/// <summary>
+/// Ein von der Kamera angebotenes Videoformat (nur die für die Auswahl relevanten Eigenschaften).
+/// <paramref name="Subtype"/> ist das Pixelformat (z. B. NV12, YUY2, MJPG, H264); null = unbekannt.
+/// </summary>
+public readonly record struct CameraFormatCandidate(int Width, int Height, double FrameRate, string? Subtype = null);
 
 /// <summary>Reine Auswahllogik für Kameraformate (ohne WinRT, daher testbar).</summary>
 public static class CameraFormatSelector
@@ -24,7 +27,7 @@ public static class CameraFormatSelector
 
         if (preferredWidth is > 0 && preferredHeight is > 0)
         {
-            var match = BestBy(formats, f => f.Width == preferredWidth && f.Height == preferredHeight, CompareFrameRate);
+            var match = BestBy(formats, f => f.Width == preferredWidth && f.Height == preferredHeight, CompareFormat);
             if (match >= 0)
                 return match;
         }
@@ -42,7 +45,7 @@ public static class CameraFormatSelector
         for (var i = 1; i < formats.Count; i++)
         {
             if (Pixels(formats[i]) < Pixels(formats[best]) ||
-                (Pixels(formats[i]) == Pixels(formats[best]) && CompareFrameRate(formats[i], formats[best]) > 0))
+                (Pixels(formats[i]) == Pixels(formats[best]) && CompareFormat(formats[i], formats[best]) > 0))
                 best = i;
         }
         return best;
@@ -86,7 +89,38 @@ public static class CameraFormatSelector
         if (sixteenA != sixteenB)
             return sixteenA ? 1 : -1;
         var pixels = Pixels(a).CompareTo(Pixels(b));
-        return pixels != 0 ? pixels : CompareFrameRate(a, b);
+        return pixels != 0 ? pixels : CompareFormat(a, b);
+    }
+
+    /// <summary>Bildrate; nur bei gleichem Rang entscheidet das Pixelformat (Tie-Breaker).</summary>
+    private static int CompareFormat(CameraFormatCandidate a, CameraFormatCandidate b)
+    {
+        var rate = CompareFrameRate(a, b);
+        return rate != 0 ? rate : SubtypeRank(a.Subtype).CompareTo(SubtypeRank(b.Subtype));
+    }
+
+    /// <summary>
+    /// Höher ist besser: unkomprimiert (3) &gt; MJPG (2) &gt; unbekannt (1) &gt; komprimierte Videoformate wie H264/HEVC (0).
+    /// Der Frame-Reader liefert für komprimierte Videoformate keine SoftwareBitmap, die Kamera bliebe ohne Bild.
+    /// </summary>
+    internal static int SubtypeRank(string? subtype)
+    {
+        if (string.IsNullOrWhiteSpace(subtype))
+            return 1;
+
+        var s = subtype.Trim().ToUpperInvariant();
+        if (s is "NV12" or "YUY2" or "YUYV" or "UYVY" or "YV12" or "IYUV" or "I420" or "P010" or "BGRA8" or "RGB32"
+            or "RGB24" or "ARGB32" or "RGB565" or "RGB555")
+            return 3;
+        if (s is "MJPG" or "MJPEG" or "JPEG")
+            return 2;
+        if (s.StartsWith("H264", StringComparison.Ordinal) || s.StartsWith("HEVC", StringComparison.Ordinal)
+            || s.StartsWith("H265", StringComparison.Ordinal) || s.StartsWith("MPEG", StringComparison.Ordinal)
+            || s.StartsWith("MP4", StringComparison.Ordinal) || s.StartsWith("WMV", StringComparison.Ordinal)
+            || s.StartsWith("VC1", StringComparison.Ordinal) || s.StartsWith("VP8", StringComparison.Ordinal)
+            || s.StartsWith("VP9", StringComparison.Ordinal) || s.StartsWith("AV1", StringComparison.Ordinal))
+            return 0;
+        return 1;
     }
 
     private static int BestBy(IReadOnlyList<CameraFormatCandidate> formats, Func<CameraFormatCandidate, bool> filter,
