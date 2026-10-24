@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -114,8 +115,10 @@ public sealed class JsonSettingsStore : ISettingsStore
 
     /// <summary>
     /// Liest die Datei. Fehlt sie, kommen Standardwerte (echter Erststart). Ist sie nicht lesbar, wird kurz wiederholt;
-    /// danach <c>null</c> (= fail-closed, siehe <see cref="LoadFailed"/>). Ungültiges JSON wird als .bak gesichert
-    /// und durch Standardwerte ersetzt; gelingt die Sicherung nicht, ebenfalls <c>null</c>.
+    /// danach <c>null</c> (= fail-closed, siehe <see cref="LoadFailed"/>). Unbekannte Enum-Werte lassen die Datei gültig
+    /// (der Normalizer setzt sie auf den Standard zurück). Ungültiges JSON (Syntaxfehler, falscher Typ) wird als .bak
+    /// gesichert und durch Standardwerte ersetzt, wobei die PIN (<c>Security</c>) nach Möglichkeit aus der defekten Datei
+    /// gerettet wird; gelingt die Sicherung nicht, kommt <c>null</c>.
     /// </summary>
     private AppSettings? Load()
     {
@@ -160,16 +163,85 @@ public sealed class JsonSettingsStore : ISettingsStore
             // Kann sie nicht gesichert werden, würde ein späteres Speichern sie ungesichert überschreiben → fail-closed.
             if (!BackupBrokenFile())
                 return null;
-            AppLog.Warn("settings.json ist defekt – Standardwerte werden verwendet.", ex);
-            return SettingsNormalizer.Normalize(new AppSettings());
+            var fallback = new AppSettings();
+            if (TryRescueSecurity(json, out var security))
+            {
+                fallback.Security = security;
+                AppLog.Warn("settings.json ist defekt – Standardwerte werden verwendet, die PIN wurde übernommen.", ex);
+            }
+            else
+            {
+                AppLog.Warn("settings.json ist defekt – Standardwerte werden verwendet (keine PIN übernommen).", ex);
+            }
+            return SettingsNormalizer.Normalize(fallback);
         }
+    }
+
+    /// <summary>
+    /// Zieht die PIN-Daten (PinHash, PinSalt, PinIterations; Namen ohne Beachtung der Groß-/Kleinschreibung) aus einer
+    /// ansonsten unbrauchbaren Datei, damit ein Fehler an anderer Stelle nicht zum Erststart ohne PIN führt.
+    /// Schlägt fehl, wenn das JSON nicht parsebar ist oder Hash/Salt fehlen bzw. keine Texte sind.
+    /// </summary>
+    private static bool TryRescueSecurity(string json, out SecuritySettings security)
+    {
+        security = new SecuritySettings();
+        try
+        {
+            using var doc = JsonDocument.Parse(json, new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip
+            });
+            if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                !TryGetProperty(doc.RootElement, nameof(AppSettings.Security), out var sec) ||
+                sec.ValueKind != JsonValueKind.Object)
+                return false;
+
+            if (!TryGetProperty(sec, nameof(SecuritySettings.PinHash), out var hash) || hash.ValueKind != JsonValueKind.String ||
+                !TryGetProperty(sec, nameof(SecuritySettings.PinSalt), out var salt) || salt.ValueKind != JsonValueKind.String)
+                return false;
+
+            var hashText = hash.GetString();
+            var saltText = salt.GetString();
+            if (string.IsNullOrEmpty(hashText) || string.IsNullOrEmpty(saltText))
+                return false;
+
+            // Fehlt die Iterationszahl, gilt wie beim normalen Laden der Standardwert; ein kaputter Wert macht den Hash unbrauchbar.
+            var iterations = security.PinIterations;
+            if (TryGetProperty(sec, nameof(SecuritySettings.PinIterations), out var it) &&
+                !(it.ValueKind == JsonValueKind.Number && it.TryGetInt32(out iterations)))
+                return false;
+
+            security = new SecuritySettings { PinHash = hashText, PinSalt = saltText, PinIterations = iterations };
+            return true;
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetProperty(JsonElement obj, string name, out JsonElement value)
+    {
+        value = default;
+        var found = false;
+        // Bei doppelten Namen gewinnt wie beim Deserialisieren der letzte Eintrag.
+        foreach (var property in obj.EnumerateObject())
+        {
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                found = true;
+            }
+        }
+        return found;
     }
 
     private bool BackupBrokenFile()
     {
         try
         {
-            var backup = $"{_settingsPath}.bak-{DateTime.Now:yyyyMMddHHmmss}";
+            var backup = $"{_settingsPath}.bak-{DateTime.Now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture)}";
             File.Move(_settingsPath, backup, overwrite: true);
             AppLog.Info($"Defekte Einstellungsdatei gesichert als {Path.GetFileName(backup)}.");
             return true;

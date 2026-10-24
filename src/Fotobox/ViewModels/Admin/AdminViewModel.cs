@@ -75,9 +75,14 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly AppSettings _draft;
 
-    private bool _loading;
+    // Zähler statt Flag: Kamera-, Drucker- und Schriftliste werden unabhängig voneinander geladen und angewendet.
+    private int _loadingDepth;
     private bool _disposed;
     private int _cameraRestartVersion;
+    // Mit diesen Kameraeinstellungen wurde die Kamera zuletzt wirklich gestartet (null = nie durch die Admin-Ansicht).
+    private CameraSettings? _lastAppliedCamera;
+    // Speicherordner beim Öffnen: Nur ein geänderter Ordner wird beim Speichern per Schreibtest geprüft.
+    private readonly string? _initialPhotoFolder;
 
     private CameraDevice? _selectedDevice;
     private ResolutionOption? _selectedResolution;
@@ -121,6 +126,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _print = print;
         _ui = ui;
         _draft = store.Current.Clone();
+        _initialPhotoFolder = _draft.Storage.PhotoFolder;
 
         Orientations =
         [
@@ -216,18 +222,36 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     /// <summary>Lädt Geräte, Auflösungen, Drucker und Papiergrößen. Wirft nicht.</summary>
     public async Task InitializeAsync()
     {
-        // Die Schriftenliste lädt parallel zu Kamera und Drucker (und nur einmal pro Prozess).
-        var fontsTask = FontCatalog.GetAsync();
-        // Seitengröße ebenfalls im Hintergrund; sie hängt nur vom Entwurf ab, nicht von den geladenen Listen.
-        var pageTask = RefreshPageSpecAsync();
-
-        await LoadCameraListsAsync();
-        await LoadPrintersAsync();
-        await ApplyFontsAsync(fontsTask);
-        UpdateOverlay();
+        // Kamera-, Drucker- und Schriftenliste (die nur einmal pro Prozess geladen wird) laden und wenden sich unabhängig
+        // voneinander an: Eine langsame Kamera- oder Druckerabfrage hält die anderen Listen nicht auf.
+        // Die Seitengröße hängt nur vom Entwurf ab, nicht von den geladenen Listen.
+        await Task.WhenAll(
+            Guard(LoadCameraListsAsync(), "Kameraliste"),
+            Guard(LoadPrintersAsync(), "Druckerliste"),
+            Guard(ApplyFontsAsync(FontCatalog.GetAsync()), "Schriftenliste"),
+            Guard(RefreshPageSpecAsync(), "Seitengröße"));
+        // Das Overlay-Vorschaubild hat bereits der Konstruktor geladen.
         RaiseCameraStatus();
-        await pageTask;
     }
+
+    /// <summary>Protokolliert einen unerwarteten Fehler einer Ladeaufgabe, statt <see cref="InitializeAsync"/> scheitern zu lassen.</summary>
+    private static async Task Guard(Task task, string what)
+    {
+        try
+        {
+            await task;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"{what} der Admin-Ansicht konnte nicht geladen werden.", ex);
+        }
+    }
+
+    private bool IsLoading => Volatile.Read(ref _loadingDepth) > 0;
+
+    private void BeginLoading() => Interlocked.Increment(ref _loadingDepth);
+
+    private void EndLoading() => Interlocked.Decrement(ref _loadingDepth);
 
     // ---------------------------------------------------------------- Kamera
 
@@ -243,7 +267,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 return;
             _selectedDevice = value;
             OnPropertyChanged();
-            if (!_loading)
+            if (!IsLoading)
                 Forget(SelectDeviceAsync(value));
         }
     }
@@ -273,7 +297,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 return;
             _selectedResolution = value;
             OnPropertyChanged();
-            if (_loading)
+            if (IsLoading)
                 return;
             _draft.Camera.ResolutionWidth = value.Resolution?.Width;
             _draft.Camera.ResolutionHeight = value.Resolution?.Height;
@@ -334,6 +358,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 MirrorPreview = _draft.Camera.MirrorPreview,
                 MirrorPhoto = _draft.Camera.MirrorPhoto,
             };
+            // Festhalten, womit die Kamera wirklich läuft: Verwirft Speichern einen wartenden Neustart, kann sie noch auf einem
+            // früheren Entwurfsstand laufen, obwohl die gespeicherten Werte denen beim Öffnen gleichen (siehe AdminLauncher).
+            Volatile.Write(ref _lastAppliedCamera, CloneCamera(settings));
             await Camera.StartAsync(settings);
         }
         catch (Exception ex)
@@ -346,6 +373,21 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             RaiseCameraStatus();
         }
     }
+
+    /// <summary>
+    /// Kameraeinstellungen, mit denen die Admin-Ansicht die Kamera zuletzt gestartet hat (Kopie); null, wenn sie sie nie
+    /// angefasst hat. Läuft die Kamera damit anders als gespeichert, muss die Gastansicht sie nach dem Speichern neu starten.
+    /// </summary>
+    public CameraSettings? LastAppliedCamera => Volatile.Read(ref _lastAppliedCamera) is { } c ? CloneCamera(c) : null;
+
+    private static CameraSettings CloneCamera(CameraSettings c) => new()
+    {
+        DeviceId = c.DeviceId,
+        ResolutionWidth = c.ResolutionWidth,
+        ResolutionHeight = c.ResolutionHeight,
+        MirrorPreview = c.MirrorPreview,
+        MirrorPhoto = c.MirrorPhoto,
+    };
 
     /// <summary>
     /// Stellt nach „Abbrechen“ die gespeicherten Kamera-Einstellungen wieder her. Läuft über dasselbe Gate wie
@@ -382,7 +424,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             devices = [];
         }
 
-        _loading = true;
+        BeginLoading();
         try
         {
             Devices.Clear();
@@ -395,7 +437,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            _loading = false;
+            EndLoading();
         }
 
         if (_selectedDevice is not null)
@@ -415,6 +457,10 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             resolutions = [];
         }
 
+        // Inzwischen wurde ein anderes Gerät gewählt: Die verspätete Antwort gehört nicht mehr zur Auswahl.
+        if (_disposed || _selectedDevice?.Id != deviceId)
+            return;
+
         // Nur eine vollständige Liste des eigenen Geräts darf die gespeicherte Auflösung für ungültig erklären. Fehlt die Liste
         // (Abfrage fehlgeschlagen, z. B. weil die Kamera gerade belegt ist) oder gehört sie zu einem anderen Gerät als dem
         // gespeicherten, bleibt der Entwurf unverändert – sonst würde „Speichern ohne Änderung“ die Auflösung löschen
@@ -422,7 +468,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         var listIsAuthoritative = resolutions.Count > 0
             && (_draft.Camera.DeviceId is null || _draft.Camera.DeviceId == deviceId);
 
-        _loading = true;
+        BeginLoading();
         try
         {
             Resolutions.Clear();
@@ -454,7 +500,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            _loading = false;
+            EndLoading();
         }
     }
 
@@ -781,7 +827,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             if (value is null || ReferenceEquals(value, _selectedCaptionFont))
                 return;
             _selectedCaptionFont = value;
-            if (!_loading)
+            if (!IsLoading)
                 _draft.Layout.CaptionFontFamily = value.Source;
             RaiseCaptionFont();
         }
@@ -841,7 +887,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             list = [match, .. fonts];
         }
 
-        _loading = true;
+        BeginLoading();
         try
         {
             CaptionFonts = list;
@@ -850,7 +896,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            _loading = false;
+            EndLoading();
         }
     }
 
@@ -971,8 +1017,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 return false;
             }
 
-            // Vorab prüfen, ob die Datei ein gültiges Bild ist.
-            _ = LoadBitmap(sourcePath);
+            // Vorab prüfen, ob die Datei ein gültiges Bild ist (die Vorschau wird dabei komplett gelesen, aber klein dekodiert).
+            _ = LoadOverlayPreview(sourcePath);
 
             // Eine vorhandene Overlay-Datei (ggf. das aktive Overlay) wird nie überschrieben: „Abbrechen“ in der
             // Admin-Ansicht könnte das nicht rückgängig machen. Stattdessen eindeutiger Name bzw. identische Datei wiederverwenden.
@@ -1060,8 +1106,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             var path = Path.Combine(_store.OverlayDirectory, name);
             try
             {
-                bitmap = LoadBitmap(path);
-                info = $"{name} ({bitmap.PixelWidth} × {bitmap.PixelHeight} Pixel)";
+                var preview = LoadOverlayPreview(path);
+                bitmap = preview.Thumbnail;
+                info = $"{name} ({preview.PixelWidth} × {preview.PixelHeight} Pixel)";
             }
             catch (Exception ex)
             {
@@ -1077,16 +1124,30 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(OverlayHint));
     }
 
-    private static BitmapImage LoadBitmap(string path)
+    /// <summary>Breite, auf die das Overlay für die Vorschau (90 × 120 DIPs im Admin) dekodiert wird.</summary>
+    private const int OverlayPreviewDecodeWidth = 240;
+
+    /// <summary>
+    /// Lädt das Overlay als kleines Vorschaubild (ein druckgroßes PNG voll zu dekodieren kostet viel Speicher und Zeit) und liefert
+    /// zusätzlich die echte Pixelgröße der Datei, die aus den Bildmetadaten gelesen wird. Die Datei bleibt nicht geöffnet.
+    /// </summary>
+    private static (BitmapSource Thumbnail, int PixelWidth, int PixelHeight) LoadOverlayPreview(string path)
     {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        var frame = BitmapFrame.Create(stream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+        int width = frame.PixelWidth, height = frame.PixelHeight;
+
+        stream.Position = 0;
         var image = new BitmapImage();
         image.BeginInit();
-        image.CacheOption = BitmapCacheOption.OnLoad;
-        image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-        image.UriSource = new Uri(path, UriKind.Absolute);
+        image.CacheOption = BitmapCacheOption.OnLoad;   // ohne UriSource gibt es keinen Bildcache, der veralten könnte
+        if (width > OverlayPreviewDecodeWidth)
+            image.DecodePixelWidth = OverlayPreviewDecodeWidth;
+        image.StreamSource = stream;
         image.EndInit();
         image.Freeze();
-        return image;
+        return (image, width, height);
     }
 
     // ---------------------------------------------------------------- Drucker
@@ -1104,7 +1165,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 return;
             _selectedPrinter = value;
             OnPropertyChanged();
-            if (!_loading)
+            if (!IsLoading)
                 Forget(SelectPrinterAsync(value));
         }
     }
@@ -1135,7 +1196,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 return;
             _selectedPaper = value;
             OnPropertyChanged();
-            if (_loading)
+            if (IsLoading)
                 return;
             _draft.Printer.PaperSizeName = value.Info?.Name;
             _draft.Printer.PaperWidthMm = value.Info?.WidthMm;
@@ -1203,7 +1264,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             printers = [];
         }
 
-        _loading = true;
+        BeginLoading();
         try
         {
             Printers.Clear();
@@ -1225,7 +1286,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            _loading = false;
+            EndLoading();
         }
 
         await LoadPaperSizesAsync();
@@ -1245,7 +1306,11 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             sizes = [];
         }
 
-        _loading = true;
+        // Inzwischen wurde ein anderer Drucker gewählt: Die verspätete Antwort gehört nicht mehr zur Auswahl.
+        if (_disposed || _draft.Printer.PrinterName != printerName)
+            return;
+
+        BeginLoading();
         try
         {
             PaperSizes.Clear();
@@ -1267,7 +1332,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            _loading = false;
+            EndLoading();
         }
     }
 
@@ -1643,6 +1708,20 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         if (_disposed)
             return;
 
+        // Wie bei Save darf kein Fehler als unbehandelte Ausnahme aus dem Befehl in den Dispatcher laufen (globaler Handler, Absturz).
+        try
+        {
+            await ResetToDefaultsCoreAsync();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Standardwerte konnten nicht wiederhergestellt werden.", ex);
+            ValidationMessage = "Die Standardwerte konnten nicht vollständig wiederhergestellt werden: " + ex.Message;
+        }
+    }
+
+    private async Task ResetToDefaultsCoreAsync()
+    {
         if (!_ui.Confirm("Standardwerte wiederherstellen",
                 "Alle Einstellungen außer der PIN werden auf die Standardwerte zurückgesetzt. " +
                 "Die Änderung wird erst mit „Speichern“ übernommen.\nFortfahren?"))
@@ -1720,8 +1799,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 errors.Add("Die gewählte Overlay-Datei wurde nicht gefunden. Bitte wählen Sie sie erneut aus.");
         }
 
-        if ((_draft.Layout.CaptionText?.Length ?? 0) > 80)
-            errors.Add("Die Bildunterschrift darf höchstens 80 Zeichen lang sein.");
+        if ((_draft.Layout.CaptionText?.Length ?? 0) > SettingsLimits.CaptionMaxLength)
+            errors.Add($"Die Bildunterschrift darf höchstens {SettingsLimits.CaptionMaxLength} Zeichen lang sein.");
 
         if (_draft.Printer.Copies is < SettingsLimits.CopiesMin or > SettingsLimits.CopiesMax)
             errors.Add($"Die Anzahl der Kopien muss zwischen {SettingsLimits.CopiesMin} und {SettingsLimits.CopiesMax} liegen.");
@@ -1737,16 +1816,19 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         var prefix = _draft.Storage.FilePrefix;
         if (string.IsNullOrWhiteSpace(prefix))
             errors.Add("Das Dateipräfix darf nicht leer sein.");
-        else if (prefix.Length > 40 || prefix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            errors.Add("Das Dateipräfix darf höchstens 40 Zeichen lang sein und keine Zeichen wie \\ / : * ? \" < > | enthalten.");
+        else if (prefix.Length > SettingsLimits.FilePrefixMaxLength || prefix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            errors.Add($"Das Dateipräfix darf höchstens {SettingsLimits.FilePrefixMaxLength} Zeichen lang sein und keine Zeichen wie \\ / : * ? \" < > | enthalten.");
 
         var folder = _draft.Storage.PhotoFolder;
         if (!string.IsNullOrWhiteSpace(folder))
         {
             // Echter Schreibtest, damit ein Fehler nicht erst bei der ersten Session auffällt (und dann nicht gedruckt wird).
+            // Nur bei geändertem Ordner: Ein unveränderter, aber gerade nicht erreichbarer Netzpfad ließe den UI-Thread beim
+            // Speichern sonst lange hängen (der Betrieb fällt dann ohnehin auf Bilder\Fotobox aus, siehe PhotoStorage).
+            var folderChanged = !string.Equals(folder, _initialPhotoFolder, StringComparison.OrdinalIgnoreCase);
             if (!IsUsablePath(folder))
                 errors.Add("Der Speicherordner ist kein gültiger Pfad. Bitte wählen Sie einen Ordner aus.");
-            else if (!FolderProbe.TryEnsureWritable(folder, out var folderError))
+            else if (folderChanged && !FolderProbe.TryEnsureWritable(folder, out var folderError))
                 errors.Add($"In den Speicherordner kann nicht geschrieben werden ({folderError}). Bitte wählen Sie einen anderen Ordner aus.");
         }
 
@@ -1770,7 +1852,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     {
         try
         {
-            return Path.IsPathRooted(path) && Path.GetFullPath(path).Length > 0;
+            // Vollständig qualifiziert: „C:fotos“ (laufwerksrelativ) und „\fotos“ (laufwerkslos) hängen vom Arbeitsverzeichnis ab.
+            return Path.IsPathFullyQualified(path) && Path.GetFullPath(path).Length > 0;
         }
         catch (Exception)
         {

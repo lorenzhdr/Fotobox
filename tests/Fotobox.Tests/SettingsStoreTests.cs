@@ -181,15 +181,179 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     [Fact]
-    public void UnknownEnumValue_IsTreatedAsBrokenFile()
+    public void UnknownEnumName_KeepsFile_UsesDefault_AndKeepsPin()
     {
         Directory.CreateDirectory(_dir);
-        File.WriteAllText(SettingsPath, "{ \"Layout\": { \"Kind\": \"Quatsch\" } }");
+        File.WriteAllText(SettingsPath, """
+        {
+          "Flow": { "CountdownSeconds": 7 },
+          "Layout": { "Kind": "Neu", "StripStyle": "Quatsch" },
+          "Printer": { "Orientation": "Diagonal" },
+          "Security": { "PinHash": "hash", "PinSalt": "salt", "PinIterations": 123456 }
+        }
+        """);
+        var before = File.ReadAllText(SettingsPath);
 
         var store = new JsonSettingsStore(_dir);
 
+        Assert.False(store.LoadFailed);
         Assert.Equal(LayoutKind.SingleBorderless, store.Current.Layout.Kind);
+        Assert.Equal(StripStyle.DoubleCut, store.Current.Layout.StripStyle);
+        Assert.Equal(PageOrientation.Auto, store.Current.Printer.Orientation);
+        Assert.Equal(7, store.Current.Flow.CountdownSeconds);
+        Assert.Equal("hash", store.Current.Security.PinHash);
+        Assert.Equal("salt", store.Current.Security.PinSalt);
+        Assert.Equal(123456, store.Current.Security.PinIterations);
+        Assert.Empty(Directory.GetFiles(_dir, "settings.json.bak-*"));
+        Assert.Equal(before, File.ReadAllText(SettingsPath));
+    }
+
+    [Fact]
+    public void Enum_IsReadCaseInsensitive_AndByNumber_AndOutOfRangeNumberFallsBack()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, """
+        { "Layout": { "Kind": "strip", "StripStyle": 1 }, "Printer": { "Orientation": 99 } }
+        """);
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.Equal(LayoutKind.Strip, s.Layout.Kind);
+        Assert.Equal(StripStyle.Single, s.Layout.StripStyle);
+        Assert.Equal(PageOrientation.Auto, s.Printer.Orientation);
+        Assert.Empty(Directory.GetFiles(_dir, "settings.json.bak-*"));
+    }
+
+    [Fact]
+    public void UnknownGuestChoice_IsDroppedIndividually()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, """
+        { "Layout": { "Kind": "SingleBorderless", "GuestChoices": [ "StripDouble", "Zukunft", "Single", 77 ] },
+          "Security": { "PinHash": "hash", "PinSalt": "salt" } }
+        """);
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.Equal([GuestLayout.StripDouble, GuestLayout.Single], s.Layout.GuestChoices);
+        Assert.Equal("hash", s.Security.PinHash);
+        Assert.Empty(Directory.GetFiles(_dir, "settings.json.bak-*"));
+    }
+
+    [Fact]
+    public void WrongType_BacksUpFile_AndRescuesPin()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, """
+        {
+          "Printer": { "Copies": "2" },
+          "Flow": { "CountdownSeconds": 9 },
+          "security": { "pinhash": "hash", "PINSALT": "salt", "PinIterations": 250000 }
+        }
+        """);
+
+        var store = new JsonSettingsStore(_dir);
+
+        Assert.False(store.LoadFailed);
         Assert.Single(Directory.GetFiles(_dir, "settings.json.bak-*"));
+        Assert.False(File.Exists(SettingsPath));
+        Assert.Equal("hash", store.Current.Security.PinHash);
+        Assert.Equal("salt", store.Current.Security.PinSalt);
+        Assert.Equal(250000, store.Current.Security.PinIterations);
+        // Alles andere sind Standardwerte.
+        Assert.Equal(5, store.Current.Flow.CountdownSeconds);
+        Assert.Equal(1, store.Current.Printer.Copies);
+    }
+
+    [Fact]
+    public void SyntaxError_WithoutParsableJson_StartsFresh_AsBefore()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, "{ \"Security\": { \"PinHash\": \"hash\", ");
+
+        var store = new JsonSettingsStore(_dir);
+
+        Assert.False(store.LoadFailed);
+        Assert.Single(Directory.GetFiles(_dir, "settings.json.bak-*"));
+        Assert.True(string.IsNullOrEmpty(store.Current.Security.PinHash));
+    }
+
+    [Fact]
+    public void WrongType_WithoutRescuablePin_StartsFresh()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, """{ "Printer": { "Copies": "2" }, "Security": { "PinHash": "hash" } }""");
+
+        var store = new JsonSettingsStore(_dir);
+
+        Assert.Single(Directory.GetFiles(_dir, "settings.json.bak-*"));
+        Assert.True(string.IsNullOrEmpty(store.Current.Security.PinHash));
+    }
+
+    [Fact]
+    public void WrongType_WithCommentsAndTrailingCommas_StillRescuesPin()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, """
+        {
+          // Kommentar
+          "Printer": { "Copies": "x", },
+          "Security": { "PinHash": "hash", "PinSalt": "salt", },
+        }
+        """);
+
+        var store = new JsonSettingsStore(_dir);
+
+        Assert.Equal("hash", store.Current.Security.PinHash);
+        Assert.Equal(100_000, store.Current.Security.PinIterations);
+        Assert.Single(Directory.GetFiles(_dir, "settings.json.bak-*"));
+    }
+
+    [Fact]
+    public void BackupName_UsesInvariantTimestamp()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, "{ kaputt");
+
+        _ = new JsonSettingsStore(_dir);
+
+        var name = Path.GetFileName(Assert.Single(Directory.GetFiles(_dir, "settings.json.bak-*")));
+        Assert.Matches(@"^settings\.json\.bak-\d{14}$", name);
+    }
+
+    [Fact]
+    public void Enums_AreWrittenAsNames_AndRoundtripUnchanged()
+    {
+        var s = new AppSettings();
+        s.Layout.Kind = LayoutKind.Overlay;
+        s.Layout.StripStyle = StripStyle.Single;
+        s.Layout.GuestChoices = [GuestLayout.Overlay, GuestLayout.StripSingle];
+        s.Printer.Orientation = PageOrientation.Landscape;
+
+        var json = JsonSerializer.Serialize(s, AppSettings.JsonOptions);
+
+        Assert.Contains("\"Kind\": \"Overlay\"", json);
+        Assert.Contains("\"StripStyle\": \"Single\"", json);
+        Assert.Contains("\"Orientation\": \"Landscape\"", json);
+        Assert.Contains("\"StripSingle\"", json);
+        var back = JsonSerializer.Deserialize<AppSettings>(json, AppSettings.JsonOptions)!;
+        Assert.Equal(json, JsonSerializer.Serialize(back, AppSettings.JsonOptions));
+        Assert.Equal([GuestLayout.Overlay, GuestLayout.StripSingle], back.Layout.GuestChoices);
+    }
+
+    [Fact]
+    public void Load_TrimsTooLongPrefixAndCaption_InsteadOfRejecting()
+    {
+        Directory.CreateDirectory(_dir);
+        var prefix = new string('p', SettingsLimits.FilePrefixMaxLength + 15);
+        var caption = new string('c', SettingsLimits.CaptionMaxLength + 20);
+        File.WriteAllText(SettingsPath,
+            $$"""{ "Storage": { "FilePrefix": "{{prefix}}" }, "Layout": { "CaptionText": "{{caption}}" } }""");
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.Equal(SettingsLimits.FilePrefixMaxLength, s.Storage.FilePrefix.Length);
+        Assert.Equal(SettingsLimits.CaptionMaxLength, s.Layout.CaptionText!.Length);
     }
 
     [Fact]

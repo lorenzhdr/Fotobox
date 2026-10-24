@@ -44,14 +44,25 @@ public sealed class PinService(ISettingsStore settings) : IPinService
         var sec = settings.Current.Security;
         if (string.IsNullOrEmpty(sec.PinHash) || string.IsNullOrEmpty(sec.PinSalt) || sec.PinIterations < 1)
             return false;
+        // Eine manipulierte oder kaputte settings.json darf die Box nicht per riesiger Iterationszahl minutenlang rechnen lassen.
+        if (sec.PinIterations > SettingsNormalizer.MaxPlausiblePinIterations)
+        {
+            AppLog.Warn($"PIN-Prüfung abgelehnt: unplausible Iterationszahl ({sec.PinIterations}).");
+            return false;
+        }
 
         try
         {
             var salt = Convert.FromBase64String(sec.PinSalt);
             var expected = Convert.FromBase64String(sec.PinHash);
-            if (salt.Length == 0 || expected.Length == 0)
+            if (salt.Length == 0)
                 return false;
-            var actual = Derive(pin, salt, sec.PinIterations, expected.Length);
+            if (expected.Length != HashSize)
+            {
+                AppLog.Warn($"PIN-Prüfung abgelehnt: unerwartete Hashlänge ({expected.Length} Byte).");
+                return false;
+            }
+            var actual = Derive(pin, salt, sec.PinIterations, HashSize);
             return CryptographicOperations.FixedTimeEquals(actual, expected);
         }
         catch (FormatException)
