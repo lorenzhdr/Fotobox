@@ -34,9 +34,33 @@ public enum PrintJobPhase { InProgress, Completed, Failed }
 /// </summary>
 public sealed record PrintJobDecision(PrintJobPhase Phase, string Message, bool GenericError = false);
 
+/// <summary>Nächster Schritt, nachdem der Gast den Druck abbrechen will (siehe <see cref="PrintJobStateEvaluator.DecideUserCancel"/>).</summary>
+public enum UserCancelStep { NotRequested, CancelJob, KeepSearching, GiveUp }
+
 /// <summary>Reine Zustandsauswertung: Flags + Zeiten → Entscheidung + deutsche Meldung. Keine Uhr, kein Spooler-Zugriff.</summary>
 public static class PrintJobStateEvaluator
 {
+    /// <summary>
+    /// So lange wird nach einem Abbruchwunsch noch nach dem Auftrag gesucht, wenn er (noch) nicht in der Warteschlange
+    /// erschienen ist; danach gilt der Abbruch als gescheitert.
+    /// </summary>
+    public static readonly TimeSpan UserCancelFindWindow = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Entscheidet nach einem Abbruchwunsch, was mit dem Auftrag geschieht: stornieren, weitersuchen oder aufgeben.
+    /// </summary>
+    /// <param name="cancelRequested">Der Gast hat den Abbruch angefordert.</param>
+    /// <param name="jobKnown">Die ID des Auftrags in der Warteschlange ist bekannt.</param>
+    /// <param name="sinceRequested">Zeit seit dem Abbruchwunsch.</param>
+    public static UserCancelStep DecideUserCancel(bool cancelRequested, bool jobKnown, TimeSpan sinceRequested)
+    {
+        if (!cancelRequested)
+            return UserCancelStep.NotRequested;
+        if (jobKnown)
+            return UserCancelStep.CancelJob;
+        return sinceRequested >= UserCancelFindWindow ? UserCancelStep.GiveUp : UserCancelStep.KeepSearching;
+    }
+
     public const string StatusPrinting = "Wird gedruckt…";
     public const string StatusPaperOut = "Papier leer – bitte nachlegen";
     public const string StatusOffline = "Drucker offline";

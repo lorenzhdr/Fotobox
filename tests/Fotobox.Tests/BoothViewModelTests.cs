@@ -136,7 +136,7 @@ public class BoothViewModelTests
 
         Assert.Equal(BoothKeyAction.Trigger, h.ViewModel.HandleKey(Space));
         Assert.Equal(BoothKeyAction.OpenAdmin, h.ViewModel.HandleKey(new KeyChord(Key.A, ModifierKeys.Control | ModifierKeys.Alt)));
-        Assert.Equal(BoothKeyAction.CancelCountdown, h.ViewModel.HandleKey(new KeyChord(Key.Escape, ModifierKeys.None)));
+        Assert.Equal(BoothKeyAction.Cancel, h.ViewModel.HandleKey(new KeyChord(Key.Escape, ModifierKeys.None)));
         Assert.Equal(BoothKeyAction.None, h.ViewModel.HandleKey(new KeyChord(Key.X, ModifierKeys.None)));
         Assert.Equal(BoothKeyAction.None, h.ViewModel.HandleKey(new KeyChord(Key.A, ModifierKeys.None)));
         Assert.Equal(BoothKeyAction.None, h.ViewModel.HandleKey(new KeyChord(Key.A, ModifierKeys.Control)));
@@ -159,8 +159,8 @@ public class BoothViewModelTests
         Assert.Equal(BoothKeyAction.Trigger, h.ViewModel.HandleKey(new KeyChord(Key.F5, ModifierKeys.None)));
         Assert.Equal(BoothKeyAction.Trigger, h.ViewModel.HandleKey(new KeyChord(Key.P, ModifierKeys.Control | ModifierKeys.Shift)));
         Assert.Equal(BoothKeyAction.OpenAdmin, h.ViewModel.HandleKey(new KeyChord(Key.B, ModifierKeys.Control | ModifierKeys.Alt)));
-        Assert.Equal(BoothKeyAction.CancelCountdown, h.ViewModel.HandleKey(new KeyChord(Key.Back, ModifierKeys.None)));
-        Assert.Equal(BoothKeyAction.CancelCountdown, h.ViewModel.HandleKey(new KeyChord(Key.Q, ModifierKeys.None)));
+        Assert.Equal(BoothKeyAction.Cancel, h.ViewModel.HandleKey(new KeyChord(Key.Back, ModifierKeys.None)));
+        Assert.Equal(BoothKeyAction.Cancel, h.ViewModel.HandleKey(new KeyChord(Key.Q, ModifierKeys.None)));
         Assert.Equal(BoothKeyAction.None, h.ViewModel.HandleKey(Space));   // alte Belegung gilt nicht mehr
         Assert.Equal(BoothKeyAction.None, h.ViewModel.HandleKey(new KeyChord(Key.Escape, ModifierKeys.None)));
     }
@@ -452,7 +452,7 @@ public class BoothViewModelTests
         Assert.Equal(GuestLayout.Single, h.ViewModel.SelectedLayout);
         Assert.False(h.ViewModel.IsLayoutPreviewVisible);
 
-        h.ViewModel.TryCancelCountdown();
+        h.ViewModel.TryCancel();
         SpinWait.SpinUntil(() => h.Controller.State == BoothState.Idle, TimeSpan.FromSeconds(10));
     }
 
@@ -467,7 +467,7 @@ public class BoothViewModelTests
 
         Assert.True(SpinWait.SpinUntil(() => h.Composer.RequestedLayout is not null, TimeSpan.FromSeconds(10)));
         Assert.Same(h.Settings.Current.Layout, h.Composer.RequestedLayout);
-        h.ViewModel.TryCancelCountdown();
+        h.ViewModel.TryCancel();
         SpinWait.SpinUntil(() => h.Controller.State == BoothState.Idle, TimeSpan.FromSeconds(10));
     }
 
@@ -555,21 +555,21 @@ public class BoothViewModelTests
     public void FormatDuration_RoundsToSensibleUnits(int seconds, string expected) =>
         Assert.Equal(expected, BoothViewModel.FormatDuration(seconds));
 
-    // ---- Countdown abbrechen ----
+    // ---- Abbrechen (Countdown, Druck) ----
 
     [Fact]
-    public void TryCancelCountdown_CancelsRunningCountdown_ButNotWhenAdminIsOpen()
+    public void TryCancel_CancelsRunningCountdown_ButNotWhenAdminIsOpen()
     {
         var h = new Harness();
         h.Settings.Current.Flow.CountdownSeconds = 3;
-        Assert.False(h.ViewModel.TryCancelCountdown());   // Leerlauf
+        Assert.False(h.ViewModel.TryCancel());   // Leerlauf
 
         Assert.True(h.ViewModel.TryTrigger());
         h.ViewModel.IsAdminOpen = true;
-        Assert.False(h.ViewModel.TryCancelCountdown());
+        Assert.False(h.ViewModel.TryCancel());
         h.ViewModel.IsAdminOpen = false;
 
-        Assert.True(h.ViewModel.TryCancelCountdown());
+        Assert.True(h.ViewModel.TryCancel());
         SpinWait.SpinUntil(() => h.Controller.State == BoothState.Idle, TimeSpan.FromSeconds(10));
         Assert.Equal(BoothState.Idle, h.Controller.State);
         Assert.False(h.ViewModel.IsError);
@@ -631,6 +631,41 @@ public class BoothViewModelTests
         Assert.True(h.ViewModel.CanOpenAdmin);
     }
 
+    [Fact]
+    public void TryCancel_DuringPrinting_ShowsPrintCancelledCardThenIdle()
+    {
+        var h = new Harness();
+        var flow = h.Settings.Current.Flow;
+        flow.CountdownSeconds = 0;
+        flow.PreviewSeconds = 2;
+        h.Camera.Photo = CreateBitmap();
+        h.Composer.Result = CreateBitmap();
+        h.Storage.Works = true;
+        h.Printer.Pending = new TaskCompletionSource<PrintResult>();
+        h.Printer.CancelOutcome = PrintOutcome.UserCancelled;
+        Assert.True(h.ViewModel.TryTrigger());
+        Assert.True(SpinUntil(h, () => h.Controller.State == BoothState.Printing, advanceInPreview: true));
+
+        h.ViewModel.IsAdminOpen = true;
+        Assert.False(h.ViewModel.TryCancel());   // bei offener Admin-Ansicht wirkungslos
+        h.ViewModel.IsAdminOpen = false;
+        Assert.True(h.ViewModel.TryCancel());
+        Assert.True(SpinWait.SpinUntil(() => h.Controller.State == BoothState.PrintCancelled, TimeSpan.FromSeconds(10)));
+
+        Assert.True(h.ViewModel.ShowPrintCancelled);
+        Assert.Equal("Druck abgebrochen", h.ViewModel.PrintCancelledTitle);
+        Assert.Equal("Dein Foto ist trotzdem gespeichert.", h.ViewModel.PrintCancelledText);
+        Assert.False(h.ViewModel.ShowResult);
+        Assert.False(h.ViewModel.ShowDone);
+        Assert.False(h.ViewModel.IsError);
+        Assert.False(h.ViewModel.CanOpenAdmin);   // Admin öffnet nur in Idle/Starting/Error
+        Assert.False(h.ViewModel.TryTrigger());
+
+        Assert.True(SpinUntil(h, () => h.Controller.State == BoothState.Idle, advanceInPreview: false, advanceInPrinted: true));
+        Assert.False(h.ViewModel.ShowPrintCancelled);
+        Assert.True(h.ViewModel.CanOpenAdmin);
+    }
+
     private static bool SpinUntil(Harness h, Func<bool> condition, bool advanceInPreview, bool advanceInPrinted = false)
     {
         var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -639,7 +674,8 @@ public class BoothViewModelTests
             if (condition())
                 return true;
             var state = h.Controller.State;
-            if ((advanceInPreview && state == BoothState.Preview) || (advanceInPrinted && state == BoothState.Printed))
+            if ((advanceInPreview && state == BoothState.Preview) ||
+                (advanceInPrinted && state is BoothState.Printed or BoothState.PrintCancelled))
                 h.Time.Advance(TimeSpan.FromSeconds(1));
             Thread.Sleep(5);
         }
@@ -835,9 +871,16 @@ public class BoothViewModelTests
         public IReadOnlyList<PaperSizeInfo> GetPaperSizes(string? printerName) => [];
         public PageSpec GetPageSpec(PrinterSettings printer, LayoutKind layout) => PageSpec.Default;
 
+        /// <summary>Gesetzt: Ein Abbruchwunsch des Gastes beendet <see cref="Pending"/> mit diesem Ergebnis.</summary>
+        public PrintOutcome? CancelOutcome { get; set; }
+
         public Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer,
-            IProgress<string>? status = null, CancellationToken ct = default) =>
-            Pending?.Task ?? Task.FromResult(new PrintResult(PrintOutcome.Completed));
+            IProgress<string>? status = null, CancellationToken ct = default, CancellationToken userCancel = default)
+        {
+            if (Pending is { } pending && CancelOutcome is { } outcome)
+                userCancel.Register(() => pending.TrySetResult(new PrintResult(outcome)));
+            return Pending?.Task ?? Task.FromResult(new PrintResult(PrintOutcome.Completed));
+        }
     }
 
     private sealed class FakeStorage : IPhotoStorage

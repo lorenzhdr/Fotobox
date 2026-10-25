@@ -33,7 +33,12 @@ public sealed record PageSpec(double WidthMm, double HeightMm, int Dpi = 300)
     public static PageSpec Default { get; } = new(101.6, 152.4);
 }
 
-public enum PrintOutcome { Completed, Failed, TimedOut, Cancelled }
+/// <summary>
+/// Cancelled: nicht mehr warten (z. B. App-Ende), der Auftrag bleibt unberührt.
+/// UserCancelled: auf Wunsch des Gastes gestoppt (nichts gesendet bzw. Auftrag storniert).
+/// UserCancelFailed: Der Abbruch des Gastes ließ sich nicht ausführen (Auftrag nicht gefunden oder nicht stornierbar).
+/// </summary>
+public enum PrintOutcome { Completed, Failed, TimedOut, Cancelled, UserCancelled, UserCancelFailed }
 public sealed record PrintResult(PrintOutcome Outcome, string? Message = null)
 { public bool Success => Outcome == PrintOutcome.Completed; }
 

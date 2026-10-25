@@ -141,7 +141,7 @@ public class AdminViewTests
             RaiseKeyDown(window, source, System.Windows.Input.Key.Escape);
 
             Assert.True(vm.IsKeyCaptureActive);
-            Assert.Contains("Countdown abbrechen", vm.KeyMessage);
+            Assert.Contains("‚Abbrechen‘", vm.KeyMessage);
         });
     }
 

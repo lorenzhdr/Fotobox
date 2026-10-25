@@ -49,8 +49,14 @@ public interface IPrintService
     IReadOnlyList<PaperSizeInfo> GetPaperSizes(string? printerName);
     /// <summary>Seitengröße aus Einstellungen/Treiber, Ausrichtung aufgelöst (Auto: Strip → Hochformat, sonst Querformat). Fallback PageSpec.Default.</summary>
     PageSpec GetPageSpec(PrinterSettings printer, LayoutKind layout);
-    /// <summary>Druckt und wartet, bis der Job die Warteschlange verlassen hat (oder Fehler/Timeout). Wirft nicht (außer bei ct → Cancelled-Result).</summary>
-    Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer, IProgress<string>? status = null, CancellationToken ct = default);
+    /// <summary>
+    /// Druckt und wartet, bis der Job die Warteschlange verlassen hat (oder Fehler/Timeout). Wirft nicht.
+    /// <paramref name="ct"/>: nicht mehr warten (z. B. App-Ende) → Cancelled-Result, ein gesendeter Auftrag wird NICHT gelöscht.
+    /// <paramref name="userCancel"/>: der Gast bricht ab. Vor dem Senden → UserCancelled ohne Auftrag; danach wird der Auftrag
+    /// storniert (UserCancelled bzw. UserCancelFailed, wenn er nicht gefunden oder nicht storniert werden konnte).
+    /// </summary>
+    Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer, IProgress<string>? status = null,
+        CancellationToken ct = default, CancellationToken userCancel = default);
 }
 
 public interface IPhotoStorage

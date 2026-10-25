@@ -192,6 +192,7 @@ public sealed class InputSettings
 {
     public List<string> TriggerKeys { get; set; } = [DefaultTriggerKey];
     public List<string> AdminKeys { get; set; } = [DefaultAdminKey];
+    /// <summary>Tasten der Aktion „Abbrechen“ (Countdown oder Druck). Der JSON-Name bleibt aus Kompatibilitätsgründen.</summary>
     public List<string> CancelCountdownKeys { get; set; } = [DefaultCancelKey];
     /// <summary>Linksklick löst die Aufnahme aus.</summary>
     public bool TriggerOnLeftClick { get; set; } = true;

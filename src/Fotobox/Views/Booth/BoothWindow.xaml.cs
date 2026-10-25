@@ -7,7 +7,7 @@ using Fotobox.ViewModels.Booth;
 
 namespace Fotobox.Views.Booth;
 
-/// <summary>Vollbild-Gastansicht: Die eingestellten Tasten lösen ein Foto aus, brechen den Countdown ab bzw. öffnen die Admin-Ansicht.</summary>
+/// <summary>Vollbild-Gastansicht: Die eingestellten Tasten lösen ein Foto aus, brechen Countdown oder Druck ab bzw. öffnen die Admin-Ansicht.</summary>
 public sealed partial class BoothWindow : Window
 {
     private static readonly TimeSpan FocusReclaimDelay = TimeSpan.FromMilliseconds(400);
@@ -128,7 +128,7 @@ public sealed partial class BoothWindow : Window
             return;
         }
 
-        // Belegung (Auslösen, Countdown abbrechen, Admin) kommt aus den Einstellungen.
+        // Belegung (Auslösen, Abbrechen, Admin) kommt aus den Einstellungen.
         var chord = KeyChord.FromKeyEvent(e.Key, e.SystemKey, Keyboard.Modifiers);
         var action = _viewModel.HandleKey(chord);
         if (action == BoothKeyAction.None)
@@ -144,8 +144,8 @@ public sealed partial class BoothWindow : Window
                 if (_viewModel.CanOpenAdmin)
                     Dispatcher.BeginInvoke(OpenAdmin);
                 break;
-            case BoothKeyAction.CancelCountdown:
-                _viewModel.TryCancelCountdown();
+            case BoothKeyAction.Cancel:
+                _viewModel.TryCancel();
                 break;
             case BoothKeyAction.Trigger:
                 _viewModel.TryTrigger();

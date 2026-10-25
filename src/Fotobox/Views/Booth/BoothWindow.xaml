@@ -424,6 +424,29 @@
             </StackPanel>
         </Grid>
 
+        <!-- Druck abgebrochen: ruhige Meldung (kein Fehler), danach geht es zurück zum Leerlauf -->
+        <Grid x:Name="PrintCancelledOverlay" Style="{StaticResource FadeInOverlay}"
+              Visibility="{Binding ShowPrintCancelled, Converter={StaticResource BoolToVis}}">
+            <Grid.Background>
+                <RadialGradientBrush>
+                    <GradientStop Color="#F21B1633" Offset="0" />
+                    <GradientStop Color="#FA0B0D14" Offset="1" />
+                </RadialGradientBrush>
+            </Grid.Background>
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="1400">
+                <TextBlock Text="🖨️" Foreground="White" FontSize="200" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding PrintCancelledTitle}" Foreground="{StaticResource Gold}" FontSize="110"
+                           FontWeight="Bold" TextWrapping="Wrap" TextAlignment="Center"
+                           HorizontalAlignment="Center" Margin="0,16,0,0">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="50" ShadowDepth="0" Color="#F5C26B" Opacity="0.7" />
+                    </TextBlock.Effect>
+                </TextBlock>
+                <TextBlock Text="{Binding PrintCancelledText}" Foreground="White" FontSize="56"
+                           FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center" Margin="0,36,0,0" />
+            </StackPanel>
+        </Grid>
+
         <!-- Status-Banner (Foto wird erstellt) -->
         <Border HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,48"
                 Padding="40,18" CornerRadius="50" BorderThickness="2"

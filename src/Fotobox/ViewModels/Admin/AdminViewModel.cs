@@ -146,8 +146,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 "Startet den Countdown und das Foto.", isRequired: true),
             new KeyActionEditor(this, KeyAction.Admin, "Admin-Ansicht öffnen",
                 "Öffnet diese Einstellungen (nach PIN-Eingabe).", isRequired: true),
-            new KeyActionEditor(this, KeyAction.CancelCountdown, "Countdown abbrechen",
-                "Bricht einen laufenden Countdown ab.", isRequired: false),
+            new KeyActionEditor(this, KeyAction.Cancel, "Abbrechen",
+                "Bricht einen laufenden Countdown oder Druck ab.", isRequired: false),
         ];
         LoadKeysFromDraft();
         RebuildGuestOrder();
@@ -1519,7 +1519,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
     // ---------------------------------------------------------------- Tasten
 
-    /// <summary>Foto auslösen, Admin-Ansicht öffnen, Countdown abbrechen (in dieser Reihenfolge).</summary>
+    /// <summary>Foto auslösen, Admin-Ansicht öffnen, Abbrechen (in dieser Reihenfolge).</summary>
     public IReadOnlyList<KeyActionEditor> KeyEditors { get; }
 
     private KeyActionEditor Editor(KeyAction action) => KeyEditors.First(e => e.Action == action);
@@ -1598,7 +1598,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         SettingsNormalizer.NormalizeKeys(_draft.Input);
         Fill(Editor(KeyAction.Trigger), _draft.Input.TriggerKeys);
         Fill(Editor(KeyAction.Admin), _draft.Input.AdminKeys);
-        Fill(Editor(KeyAction.CancelCountdown), _draft.Input.CancelCountdownKeys);
+        Fill(Editor(KeyAction.Cancel), _draft.Input.CancelCountdownKeys);
 
         static void Fill(KeyActionEditor editor, IEnumerable<string> entries)
         {
@@ -1618,7 +1618,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
         _draft.Input.TriggerKeys = Texts(Editor(KeyAction.Trigger));
         _draft.Input.AdminKeys = Texts(Editor(KeyAction.Admin));
-        _draft.Input.CancelCountdownKeys = Texts(Editor(KeyAction.CancelCountdown));
+        _draft.Input.CancelCountdownKeys = Texts(Editor(KeyAction.Cancel));
         OnPropertyChanged(nameof(AdminKeysDisplay));
     }
 

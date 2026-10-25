@@ -983,8 +983,8 @@ public sealed class AdminViewModelTests : IDisposable
 
         Assert.Equal(["Leertaste"], Keys(vm, KeyAction.Trigger).Keys.Select(k => k.DisplayName));
         Assert.Equal(["Strg+Alt+A"], Keys(vm, KeyAction.Admin).Keys.Select(k => k.DisplayName));
-        Assert.Equal(["Esc"], Keys(vm, KeyAction.CancelCountdown).Keys.Select(k => k.DisplayName));
-        Assert.Equal(["Foto auslösen", "Admin-Ansicht öffnen", "Countdown abbrechen"], vm.KeyEditors.Select(e => e.Title));
+        Assert.Equal(["Esc"], Keys(vm, KeyAction.Cancel).Keys.Select(k => k.DisplayName));
+        Assert.Equal(["Foto auslösen", "Admin-Ansicht öffnen", "Abbrechen"], vm.KeyEditors.Select(e => e.Title));
         Assert.Equal("Strg+Alt+A", vm.AdminKeysDisplay);
     }
 
@@ -1070,13 +1070,13 @@ public sealed class AdminViewModelTests : IDisposable
     public void Keys_SystemReservedCombination_IsRejected(Key key, ModifierKeys modifiers)
     {
         var vm = CreateViewModel();
-        vm.BeginKeyCapture(KeyAction.CancelCountdown);
+        vm.BeginKeyCapture(KeyAction.Cancel);
 
         var ok = vm.CaptureKey(Chord(key, modifiers));
 
         Assert.False(ok);
         Assert.Equal("Diese Tastenkombination ist vom System belegt und kann nicht verwendet werden.", vm.KeyMessage);
-        Assert.Single(Keys(vm, KeyAction.CancelCountdown).Keys);
+        Assert.Single(Keys(vm, KeyAction.Cancel).Keys);
     }
 
     [Fact]
@@ -1135,7 +1135,7 @@ public sealed class AdminViewModelTests : IDisposable
     public void Keys_OptionalAction_CanBeEmptied()
     {
         var vm = CreateViewModel();
-        var cancel = Keys(vm, KeyAction.CancelCountdown);
+        var cancel = Keys(vm, KeyAction.Cancel);
 
         cancel.Keys[0].RemoveCommand.Execute(null);
 
@@ -1183,7 +1183,7 @@ public sealed class AdminViewModelTests : IDisposable
         vm.CaptureKey(Chord(Key.K, ModifierKeys.Shift | ModifierKeys.Control));
         vm.BeginKeyCapture(KeyAction.Admin);
         vm.CaptureKey(Chord(Key.PageDown, ModifierKeys.Alt));
-        vm.BeginKeyCapture(KeyAction.CancelCountdown);
+        vm.BeginKeyCapture(KeyAction.Cancel);
         vm.CaptureKey(Chord(Key.Back));
 
         vm.SaveCommand.Execute(null);
@@ -1200,7 +1200,7 @@ public sealed class AdminViewModelTests : IDisposable
         var vm = CreateViewModel();
         vm.BeginKeyCapture(KeyAction.Trigger);
         vm.CaptureKey(Chord(Key.Enter));
-        Keys(vm, KeyAction.CancelCountdown).Keys[0].RemoveCommand.Execute(null);
+        Keys(vm, KeyAction.Cancel).Keys[0].RemoveCommand.Execute(null);
 
         vm.ResetKeysCommand.Execute(null);
 
@@ -2327,7 +2327,8 @@ public sealed class AdminViewModelTests : IDisposable
             return PageSpecFor?.Invoke(printer) ?? PageSpec.Default;
         }
 
-        public Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer, IProgress<string>? status = null, CancellationToken ct = default)
+        public Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer, IProgress<string>? status = null,
+            CancellationToken ct = default, CancellationToken userCancel = default)
         {
             PrintedPage = page;
             PrintedSettings = printer;
