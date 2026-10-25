@@ -21,4 +21,4 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 - Die Installation erfolgt standardmäßig nur für den aktuellen Benutzer und benötigt keine Administratorrechte.
 - Einstellungen und Protokolle liegen in `%LOCALAPPDATA%\Fotobox`, Fotos standardmäßig unter `Bilder\Fotobox`. Beides bleibt bei einer Deinstallation erhalten.
 - Beim ersten Start wird eine Admin-PIN festgelegt. Die Admin-Ansicht öffnest du mit **Strg + Alt + A**.
-- Standardtasten: **Leertaste** löst das Foto aus, **Esc** bricht den Countdown ab, **Strg + Alt + A** öffnet die Admin-Ansicht. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
+- Standardtasten: **Leertaste** löst das Foto aus, **Esc** bricht den Countdown oder einen laufenden Druck ab, **Strg + Alt + A** öffnet die Admin-Ansicht. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
