@@ -10,6 +10,8 @@ public enum StripStyle { DoubleCut, Single }
 public enum GuestLayout { Single, StripDouble, StripSingle, Overlay }
 /// <summary>Auto: Strip → Hochformat, sonst Querformat.</summary>
 public enum PageOrientation { Auto, Portrait, Landscape }
+/// <summary>Darstellung des Hinweistexts in der Gastansicht: Pille mit Rahmen, schlichter Text mit Schatten oder Band über die volle Breite.</summary>
+public enum HintStyle { Pill, Plain, Banner }
 
 /// <summary>Gemeinsame Wertebereiche für Admin-UI, Validierung und Normalisierung.</summary>
 public static class SettingsLimits
@@ -32,6 +34,8 @@ public static class SettingsLimits
     public const int FilePrefixMaxLength = 40;
     /// <summary>Längste Bildunterschrift; längere Werte aus der settings.json werden beim Laden gekürzt.</summary>
     public const int CaptionMaxLength = 80;
+    /// <summary>Längster eigener Hinweistext der Gastansicht (mit Platzhaltern, vor dem Ersetzen); längere Werte aus der settings.json werden beim Laden gekürzt.</summary>
+    public const int HintTextMaxLength = 100;
 }
 
 /// <summary>
@@ -112,6 +116,7 @@ public sealed class AppSettings
     public StorageSettings Storage { get; set; } = new();
     public SecuritySettings Security { get; set; } = new();
     public InputSettings Input { get; set; } = new();
+    public GuestScreenSettings GuestScreen { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -156,6 +161,16 @@ public sealed class LayoutSettings
     public List<GuestLayout> GuestChoices { get; set; } = [];
 
     public const string DefaultCaptionFont = "Segoe UI";
+}
+
+/// <summary>Darstellung der Gastansicht im Leerlauf.</summary>
+public sealed class GuestScreenSettings
+{
+    /// <summary>
+    /// Eigener Hinweistext mit Platzhaltern (<see cref="HintTextFormatter"/>); null = automatischer Text aus den eingestellten Tasten.
+    /// </summary>
+    public string? HintText { get; set; }
+    public HintStyle HintStyle { get; set; } = HintStyle.Pill;
 }
 
 public sealed class PrinterSettings

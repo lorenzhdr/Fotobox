@@ -1590,6 +1590,195 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.True(_store.Current.Input.InvertMouseWheel);
     }
 
+    // ------------------------------------------------------------------ Gastansicht (Hinweistext, Darstellung, Vorschau)
+
+    [Fact]
+    public void GuestScreen_Defaults_AutomaticTextAndPill()
+    {
+        var vm = CreateViewModel();
+
+        Assert.Equal(string.Empty, vm.HintText);
+        Assert.Equal(HintStyle.Pill, vm.HintStyle);
+        Assert.True(vm.IsHintPill);
+        Assert.False(vm.IsHintPlain);
+        Assert.False(vm.IsHintBanner);
+        Assert.Equal("Drücke die Leertaste oder klicke für ein Foto 📸", vm.HintPreviewText);
+        Assert.False(vm.HasHintProblems);
+        Assert.Empty(vm.HintProblems);
+    }
+
+    [Fact]
+    public void HintText_WritesDraft_BlankBecomesNull_AndRaisesPreview()
+    {
+        var vm = CreateViewModel();
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.HintText = "Los geht's: {Fototaste_1}";
+
+        Assert.Equal("Los geht's: {Fototaste_1}", vm.Draft.GuestScreen.HintText);
+        Assert.Equal("Los geht's: Leertaste", vm.HintPreviewText);
+        Assert.Contains(nameof(AdminViewModel.HintPreviewText), raised);
+        Assert.Contains(nameof(AdminViewModel.HasHintProblems), raised);
+        Assert.Null(_store.Current.GuestScreen.HintText);   // Entwurf, noch nicht gespeichert
+
+        vm.HintText = "   ";
+        Assert.Null(vm.Draft.GuestScreen.HintText);
+        Assert.Equal("Drücke die Leertaste oder klicke für ein Foto 📸", vm.HintPreviewText);
+    }
+
+    [Fact]
+    public void HintStyle_Choice_WritesDraftAndKeepsExactlyOneSelected()
+    {
+        var vm = CreateViewModel();
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.IsHintBanner = true;
+
+        Assert.Equal(HintStyle.Banner, vm.Draft.GuestScreen.HintStyle);
+        Assert.Equal(HintStyle.Banner, vm.HintStyle);
+        Assert.True(vm.IsHintBanner);
+        Assert.False(vm.IsHintPill);
+        Assert.False(vm.IsHintPlain);
+        Assert.Contains(nameof(AdminViewModel.IsHintPill), raised);
+        Assert.Contains(nameof(AdminViewModel.HintStyle), raised);
+
+        // Das Abwählen durch die Radio-Gruppe ändert nichts; erst die neue Wahl.
+        vm.IsHintBanner = false;
+        Assert.Equal(HintStyle.Banner, vm.Draft.GuestScreen.HintStyle);
+        vm.IsHintPlain = true;
+        Assert.Equal(HintStyle.Plain, vm.Draft.GuestScreen.HintStyle);
+        Assert.True(vm.IsHintPlain);
+        Assert.False(vm.IsHintBanner);
+    }
+
+    [Fact]
+    public void GuestScreen_Save_WritesTextAndStyleToStore()
+    {
+        var vm = CreateViewModel();
+        vm.HintText = "Drücke {Fototasten}";
+        vm.IsHintPlain = true;
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.True(vm.SettingsSaved);
+        Assert.Equal("Drücke {Fototasten}", _store.Current.GuestScreen.HintText);
+        Assert.Equal(HintStyle.Plain, _store.Current.GuestScreen.HintStyle);
+    }
+
+    [Fact]
+    public void HintProblems_ReportUnassignedAndUnknownPlaceholders_AndUpdateWithKeys()
+    {
+        var vm = CreateViewModel();
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.HintText = "{Fototaste_2} {Fototaste_3} {Foo}";
+
+        Assert.True(vm.HasHintProblems);
+        Assert.Equal(3, vm.HintProblems.Count);
+        Assert.Contains("{Fototaste_2} ist nicht belegt (es ist 1 Fototaste belegt) und bleibt leer.", vm.HintProblems);
+        Assert.Contains("Unbekannter Platzhalter {Foo} wird unverändert angezeigt.", vm.HintProblems);
+        Assert.Equal(string.Join(Environment.NewLine, vm.HintProblems), vm.HintProblemsText);
+
+        raised.Clear();
+        vm.BeginKeyCapture(KeyAction.Trigger);
+        vm.CaptureKey(Chord(Key.Enter));
+
+        Assert.Contains(nameof(AdminViewModel.HasHintProblems), raised);
+        Assert.Equal(2, vm.HintProblems.Count);
+        Assert.DoesNotContain(vm.HintProblems, p => p.StartsWith("{Fototaste_2}"));
+    }
+
+    [Fact]
+    public void HintPreview_FollowsTriggerKeysAndMouseOptions()
+    {
+        var vm = CreateViewModel();
+        vm.HintText = "Drücke {Fototasten} {Klick}!";
+        Assert.Equal("Drücke Leertaste oder klicke!", vm.HintPreviewText);
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        // Taste hinzufügen
+        vm.BeginKeyCapture(KeyAction.Trigger);
+        vm.CaptureKey(Chord(Key.Enter));
+        Assert.Equal("Drücke Leertaste oder Eingabetaste oder klicke!", vm.HintPreviewText);
+        Assert.Contains(nameof(AdminViewModel.HintPreviewText), raised);
+
+        // Taste entfernen
+        raised.Clear();
+        Keys(vm, KeyAction.Trigger).Keys[0].RemoveCommand.Execute(null);
+        Assert.Equal("Drücke Eingabetaste oder klicke!", vm.HintPreviewText);
+        Assert.Contains(nameof(AdminViewModel.HintPreviewText), raised);
+
+        // Mausklicks
+        raised.Clear();
+        vm.TriggerOnLeftClick = false;
+        Assert.Equal("Drücke Eingabetaste oder klicke!", vm.HintPreviewText);   // rechts löst noch aus
+        vm.TriggerOnRightClick = false;
+        Assert.Equal("Drücke Eingabetaste!", vm.HintPreviewText);
+        Assert.Contains(nameof(AdminViewModel.HintPreviewText), raised);
+        vm.TriggerOnLeftClick = true;
+        Assert.Equal("Drücke Eingabetaste oder klicke!", vm.HintPreviewText);
+
+        // Standard-Tasten
+        raised.Clear();
+        vm.ResetKeysCommand.Execute(null);
+        Assert.Equal("Drücke Leertaste oder klicke!", vm.HintPreviewText);
+        Assert.Contains(nameof(AdminViewModel.HintPreviewText), raised);
+    }
+
+    [Fact]
+    public void HintPreview_LayoutLine_AppearsWithMultipleGuestChoices_AndNamesDefaultLayout()
+    {
+        var vm = CreateViewModel();
+        Assert.False(vm.HasGuestOrder);
+        Assert.Equal("Mausrad: Layout wechseln · Ein Foto", vm.HintPreviewLayoutText);
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.IsGuestStripDouble = true;
+        Assert.True(vm.HasGuestOrder);
+
+        vm.IsStripLayout = true;
+        Assert.Equal("Mausrad: Layout wechseln · 3 Fotos – 2 Streifen", vm.HintPreviewLayoutText);
+        Assert.Contains(nameof(AdminViewModel.HintPreviewLayoutText), raised);
+
+        raised.Clear();
+        vm.StripPhotoCount = 4;
+        Assert.Equal("Mausrad: Layout wechseln · 4 Fotos – 2 Streifen", vm.HintPreviewLayoutText);
+        Assert.Contains(nameof(AdminViewModel.HintPreviewLayoutText), raised);
+
+        vm.IsStripSingle = true;
+        Assert.Equal("Mausrad: Layout wechseln · 4 Fotos – 1 Streifen", vm.HintPreviewLayoutText);
+    }
+
+    [Fact]
+    public void Validate_HintTextOverLimit_IsReported()
+    {
+        var vm = CreateViewModel();
+        vm.HintText = new string('x', SettingsLimits.HintTextMaxLength);
+        Assert.DoesNotContain(vm.Validate(), e => e.Contains("Hinweistext"));
+
+        vm.HintText = new string('x', SettingsLimits.HintTextMaxLength + 1);
+
+        Assert.Contains(vm.Validate(), e => e.Contains("Hinweistext") && e.Contains(SettingsLimits.HintTextMaxLength.ToString()));
+    }
+
+    [Fact]
+    public void ResetKeys_LeavesGuestScreenUntouched()
+    {
+        var vm = CreateViewModel();
+        vm.HintText = "Mein Text";
+        vm.IsHintBanner = true;
+
+        vm.ResetKeysCommand.Execute(null);
+
+        Assert.Equal("Mein Text", vm.HintText);
+        Assert.Equal(HintStyle.Banner, vm.Draft.GuestScreen.HintStyle);
+    }
+
     // ------------------------------------------------------------------ Reihenfolge der Gastauswahl
 
     private static GuestLayout[] OrderOf(AdminViewModel vm) => vm.GuestOrder.Select(i => i.Layout).ToArray();
@@ -1761,6 +1950,8 @@ public sealed class AdminViewModelTests : IDisposable
         vm.JpegQuality = 70;
         vm.FilePrefix = "Party";
         vm.Draft.Storage.PhotoFolder = Path.Combine(_dir, "fotos");
+        vm.HintText = "Drücke {Fototaste_1} {Klick}";
+        vm.IsHintBanner = true;
         vm.TriggerOnLeftClick = false;
         vm.TriggerOnRightClick = false;
         vm.BeginKeyCapture(KeyAction.Trigger);
@@ -1808,6 +1999,8 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Equal(DefaultTriggerKeys, vm.Draft.Input.TriggerKeys);
         Assert.True(vm.Draft.Input.TriggerOnLeftClick);
         Assert.True(vm.Draft.Input.TriggerOnRightClick);
+        Assert.Null(vm.Draft.GuestScreen.HintText);
+        Assert.Equal(HintStyle.Pill, vm.Draft.GuestScreen.HintStyle);
     }
 
     [Fact]
@@ -1958,6 +2151,14 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Equal([InputSettings.DefaultCancelKey], vm.KeyEditors[2].Keys.Select(k => k.Chord.ToString()));
         Assert.True(vm.TriggerOnLeftClick);
         Assert.True(vm.TriggerOnRightClick);
+
+        // Gastansicht
+        Assert.Equal(string.Empty, vm.HintText);
+        Assert.Equal(HintStyle.Pill, vm.HintStyle);
+        Assert.True(vm.IsHintPill);
+        Assert.False(vm.IsHintBanner);
+        Assert.Equal("Drücke die Leertaste oder klicke für ein Foto 📸", vm.HintPreviewText);
+        Assert.False(vm.HasHintProblems);
 
         // Meldungen
         Assert.False(vm.HasValidationMessage);

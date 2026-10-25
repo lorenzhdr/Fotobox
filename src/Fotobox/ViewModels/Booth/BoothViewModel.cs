@@ -19,9 +19,6 @@ public sealed record LayoutOption(GuestLayout Layout, string Name, bool IsSelect
 /// <summary>Bindbare Sicht auf <see cref="BoothController"/> und Kamera für die Gastansicht.</summary>
 public sealed class BoothViewModel : ObservableObject
 {
-    /// <summary>Höchstens so viele Tastennamen nennt der Hinweistext.</summary>
-    private const int HintKeysMax = 3;
-
     /// <summary>So lange bleibt die Layout-Vorschauliste nach dem letzten Mausrad-Schritt sichtbar.</summary>
     private static readonly TimeSpan LayoutPreviewDuration = TimeSpan.FromSeconds(2);
 
@@ -177,34 +174,14 @@ public sealed class BoothViewModel : ObservableObject
     public bool ShowHint => IsIdle && Camera.Status == CameraStatus.Running;
 
     /// <summary>
-    /// Hinweistext mit den eingestellten Auslöser-Tasten: „Drücke die Leertaste für ein Foto 📸“,
-    /// bei mehreren Tasten „Drücke Leertaste oder Eingabetaste für ein Foto 📸“ (höchstens drei Namen).
-    /// Löst auch ein Mausklick aus, steht das dabei: „Drücke die Leertaste oder klicke für ein Foto 📸“.
+    /// Hinweistext: der eigene Text aus den Einstellungen mit eingesetzten Platzhaltern, sonst automatisch mit den eingestellten
+    /// Auslöser-Tasten („Drücke die Leertaste für ein Foto 📸“, siehe <see cref="HintTextFormatter"/>).
     /// </summary>
-    public string HintText
-    {
-        get
-        {
-            var keys = GetKeyMap().Trigger;
-            var click = TriggersOnClick;
-            if (keys.Count == 1)
-            {
-                var single = keys[0];
-                var name = single == new KeyChord(Key.Space, ModifierKeys.None) ? "die Leertaste" : single.DisplayName;
-                return click
-                    ? $"Drücke {name} oder klicke für ein Foto 📸"
-                    : $"Drücke {name} für ein Foto 📸";
-            }
+    public string HintText =>
+        HintTextFormatter.Format(Settings.Current.GuestScreen?.HintText, GetKeyMap().Trigger, TriggersOnClick);
 
-            var names = keys.Take(HintKeysMax).Select(k => k.DisplayName).ToList();
-            var list = names.Count <= 1
-                ? string.Concat(names)
-                : $"{string.Join(", ", names.Take(names.Count - 1))} oder {names[^1]}";
-            return click
-                ? $"Drücke {list} – oder klicke – für ein Foto 📸"
-                : $"Drücke {list} für ein Foto 📸";
-        }
-    }
+    /// <summary>Darstellung des Hinweistexts (Pille, schlichter Text oder Band).</summary>
+    public HintStyle HintStyle => Settings.Current.GuestScreen?.HintStyle ?? HintStyle.Pill;
 
     /// <summary>Mindestens eine Maustaste löst die Aufnahme aus.</summary>
     private bool TriggersOnClick =>
@@ -305,7 +282,7 @@ public sealed class BoothViewModel : ObservableObject
     /// <summary>Zusatzzeile unter dem Hinweistext; nur, wenn der Gast überhaupt wählen kann.</summary>
     public bool ShowLayoutHint => ShowHint && LayoutChoices.Count >= 2;
 
-    public string LayoutHintText => $"Mausrad: Layout wechseln · {SelectedLayoutName}";
+    public string LayoutHintText => GuestLayouts.WheelHint(SelectedLayout, Settings.Current.Layout.StripPhotoCount);
 
     /// <summary>
     /// Wählt das nächste (<paramref name="direction"/> &gt; 0) bzw. vorherige Layout, zyklisch, und blendet die Vorschauliste

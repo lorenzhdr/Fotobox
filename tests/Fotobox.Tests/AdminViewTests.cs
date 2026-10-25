@@ -2,6 +2,7 @@ using System.IO;
 using Fotobox.Core;
 using Fotobox.ViewModels.Admin;
 using Fotobox.Views.Admin;
+using Fotobox.Views.Booth;
 using Xunit;
 
 namespace Fotobox.Tests;
@@ -95,6 +96,93 @@ public class AdminViewTests
     }
 
     [StaFact]
+    public void AdminWindow_HasGuestScreenTab_AfterLayoutTab()
+    {
+        WithWindow((window, _) =>
+        {
+            var tabs = FindTabControl(window)!;
+            var headers = tabs.Items.OfType<System.Windows.Controls.TabItem>().Select(t => t.Header as string).ToList();
+
+            Assert.Contains("Gastansicht", headers);
+            Assert.Equal(headers.IndexOf("Layout") + 1, headers.IndexOf("Gastansicht"));
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_GuestScreenTab_ShowsPreviewOfDraftText()
+    {
+        WithWindow((window, vm) =>
+        {
+            vm.HintText = "Los: {Fototaste_1}";
+            vm.IsHintBanner = true;
+            var tabs = FindTabControl(window)!;
+            tabs.SelectedItem = tabs.Items.OfType<System.Windows.Controls.TabItem>().Single(t => t.Header as string == "Gastansicht");
+            var root = (System.Windows.FrameworkElement)window.Content;
+            root.Measure(new System.Windows.Size(1100, 750));
+            root.Arrange(new System.Windows.Rect(0, 0, 1100, 750));
+            root.UpdateLayout();
+
+            var hint = FindDescendant<GuestHint>(root);
+
+            Assert.NotNull(hint);
+            Assert.Equal("Los: Leertaste", hint!.Text);
+            Assert.Equal(HintStyle.Banner, hint.HintStyle);
+            Assert.False(hint.ShowLayoutHint);
+
+            vm.IsGuestStripDouble = true;
+            Assert.True(hint.ShowLayoutHint);
+            Assert.Equal("Mausrad: Layout wechseln · Ein Foto", hint.LayoutHintText);
+        });
+    }
+
+    [StaTheory]
+    [InlineData(HintStyle.Pill)]
+    [InlineData(HintStyle.Plain)]
+    [InlineData(HintStyle.Banner)]
+    public void GuestHint_CanBeCreated_AndShowsOnlyTheChosenStyle(HintStyle style)
+    {
+        var hint = new GuestHint
+        {
+            Text = "Drücke die Leertaste oder klicke für ein Foto 📸",
+            HintStyle = style,
+            LayoutHintText = "Mausrad: Layout wechseln · Ein Foto",
+            ShowLayoutHint = true,
+        };
+
+        hint.Measure(new System.Windows.Size(1920, 1080));
+        hint.Arrange(new System.Windows.Rect(0, 0, 1920, 1080));
+        hint.UpdateLayout();
+
+        var parts = ((System.Windows.Controls.Grid)hint.Content).Children.OfType<System.Windows.Controls.Grid>().ToList();
+        Assert.Equal(3, parts.Count);
+        for (var i = 0; i < parts.Count; i++)
+        {
+            var expected = i == (int)style ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+            Assert.Equal(expected, parts[i].Visibility);
+        }
+        Assert.False(hint.IsHitTestVisible);
+    }
+
+    [StaFact]
+    public void GuestHint_LongText_StaysWithinTwoLines()
+    {
+        var text = new string('W', SettingsLimits.HintTextMaxLength);
+        foreach (var style in Enum.GetValues<HintStyle>())
+        {
+            var hint = new GuestHint { Text = text, HintStyle = style };
+            hint.Measure(new System.Windows.Size(1920, 1080));
+            hint.Arrange(new System.Windows.Rect(0, 0, 1920, 1080));
+            hint.UpdateLayout();
+
+            // Die Bereiche stehen in der Reihenfolge des Enums (Pille, Schlicht, Banner).
+            var part = ((System.Windows.Controls.Grid)hint.Content).Children.OfType<System.Windows.Controls.Grid>().ElementAt((int)style);
+            var block = FindDescendants<System.Windows.Controls.TextBlock>(part).First(t => t.Text == text);
+            Assert.True(block.ActualHeight <= block.LineHeight * 2 + 0.5, $"{style}: {block.ActualHeight}");
+            Assert.True(block.ActualWidth <= 1500 + 0.5, $"{style}: {block.ActualWidth}");
+        }
+    }
+
+    [StaFact]
     public void AdminWindow_KeyCapture_TakesKeyAndSwallowsIt()
     {
         WithWindow((window, vm) =>
@@ -178,6 +266,23 @@ public class AdminViewTests
         finally
         {
             Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    private static T? FindDescendant<T>(System.Windows.DependencyObject parent) where T : System.Windows.DependencyObject =>
+        FindDescendants<T>(parent).FirstOrDefault();
+
+    /// <summary>Alle Nachfahren im visuellen Baum (für Inhalte, die über Tab-Vorlagen erst beim Layout entstehen).</summary>
+    private static IEnumerable<T> FindDescendants<T>(System.Windows.DependencyObject parent) where T : System.Windows.DependencyObject
+    {
+        var count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent);
+        for (var i = 0; i < count; i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is T match)
+                yield return match;
+            foreach (var nested in FindDescendants<T>(child))
+                yield return nested;
         }
     }
 

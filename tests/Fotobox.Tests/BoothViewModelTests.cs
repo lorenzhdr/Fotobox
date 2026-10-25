@@ -232,6 +232,56 @@ public class BoothViewModelTests
         Assert.Equal("Drücke Leertaste oder Eingabetaste – oder klicke – für ein Foto 📸", h.ViewModel.HintText);
     }
 
+    [Fact]
+    public void HintText_CustomTemplate_ReplacesPlaceholders_AndFollowsKeysAndClicks()
+    {
+        var h = new Harness();
+        DisableClicks(h);
+        h.Settings.Current.Input.TriggerKeys = ["Enter", "F5"];
+        h.Settings.Current.GuestScreen.HintText = "Mach ein Foto: {Fototaste_2} oder {fototaste_1} {Klick}!";
+        h.Settings.RaiseSettingsChanged();
+
+        Assert.Equal("Mach ein Foto: F5 oder Eingabetaste!", h.ViewModel.HintText);
+
+        h.Settings.Current.Input.TriggerOnLeftClick = true;
+        Assert.Equal("Mach ein Foto: F5 oder Eingabetaste oder klicke!", h.ViewModel.HintText);
+
+        h.Settings.Current.GuestScreen.HintText = "Alle: {Fototasten} / dritte: {Fototaste_3} / {Unbekannt}";
+        h.Settings.RaiseSettingsChanged();
+        Assert.Equal("Alle: Eingabetaste oder F5 / dritte: / {Unbekannt}", h.ViewModel.HintText);
+    }
+
+    [Fact]
+    public void HintText_WithoutCustomText_OrWithoutGuestScreen_IsAutomatic()
+    {
+        var h = new Harness();
+        DisableClicks(h);
+        h.Settings.Current.GuestScreen.HintText = null;
+        Assert.Equal("Drücke die Leertaste für ein Foto 📸", h.ViewModel.HintText);
+
+        h.Settings.Current.GuestScreen.HintText = "  ";
+        Assert.Equal("Drücke die Leertaste für ein Foto 📸", h.ViewModel.HintText);
+
+        h.Settings.Current.GuestScreen = null!;
+        Assert.Equal("Drücke die Leertaste für ein Foto 📸", h.ViewModel.HintText);
+        Assert.Equal(HintStyle.Pill, h.ViewModel.HintStyle);
+    }
+
+    [Theory]
+    [InlineData(HintStyle.Pill)]
+    [InlineData(HintStyle.Plain)]
+    [InlineData(HintStyle.Banner)]
+    public void HintStyle_FollowsSettings(HintStyle style)
+    {
+        var h = new Harness();
+        Assert.Equal(HintStyle.Pill, h.ViewModel.HintStyle);
+
+        h.Settings.Current.GuestScreen.HintStyle = style;
+        h.Settings.RaiseSettingsChanged();
+
+        Assert.Equal(style, h.ViewModel.HintStyle);
+    }
+
     private static void DisableClicks(Harness h)
     {
         h.Settings.Current.Input.TriggerOnLeftClick = false;

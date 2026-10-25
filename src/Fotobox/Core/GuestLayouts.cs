@@ -41,4 +41,8 @@ public static class GuestLayouts
         GuestLayout.Overlay => "Foto mit Rahmen",
         _ => "Ein Foto",
     };
+
+    /// <summary>Zusatzzeile der Gastansicht unter dem Hinweistext (auch in der Admin-Vorschau): „Mausrad: Layout wechseln · Ein Foto“.</summary>
+    public static string WheelHint(GuestLayout g, int stripPhotoCount) =>
+        $"Mausrad: Layout wechseln · {DisplayName(g, stripPhotoCount)}";
 }
