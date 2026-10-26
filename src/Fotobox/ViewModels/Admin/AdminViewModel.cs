@@ -1867,6 +1867,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _draft.Storage = defaults.Storage;
         _draft.Input = defaults.Input;
         _draft.GuestScreen = defaults.GuestScreen;
+        _draft.Appearance = defaults.Appearance;
         // Security (PIN) und Version bleiben bewusst unverändert.
 
         // UI-Zustand wie bei einer frisch geöffneten Admin-Ansicht mit Standard-Einstellungen.
