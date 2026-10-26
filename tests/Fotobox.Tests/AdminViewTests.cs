@@ -96,6 +96,107 @@ public class AdminViewTests
         });
     }
 
+    // ---- Farbschema
+
+    private static System.Windows.Media.Color BrushColor(System.Windows.FrameworkElement element, string key) =>
+        ((System.Windows.Media.SolidColorBrush)element.FindResource(key)).Color;
+
+    [StaFact]
+    public void AdminTheme_Apply_SwapsPalette_AndBack()
+    {
+        var limiter = new PinAttemptLimiter(TimeProvider.System);
+        var dialog = new PinDialog(_ => false, limiter, owner: null, AdminThemeMode.Light);
+        var light = BrushColor(dialog, "TextBrush");
+
+        AdminThemeManager.Apply(dialog, AdminThemeMode.Dark);
+        Assert.NotEqual(light, BrushColor(dialog, "TextBrush"));
+        Assert.True(AdminThemeManager.IsDarkPalette(dialog.Resources));
+
+        // Genau eine Palette, auch nach wiederholtem Umschalten.
+        AdminThemeManager.Apply(dialog, AdminThemeMode.Dark);
+        Assert.Single(dialog.Resources.MergedDictionaries, d => d.Source?.OriginalString.Contains("AdminColors.") == true);
+
+        AdminThemeManager.Apply(dialog, AdminThemeMode.Light);
+        Assert.Equal(light, BrushColor(dialog, "TextBrush"));
+        Assert.False(AdminThemeManager.IsDarkPalette(dialog.Resources));
+    }
+
+    [StaFact]
+    public void AdminTheme_PaletteFiles_DefineTheSameKeys()
+    {
+        var light = new System.Windows.ResourceDictionary
+        {
+            Source = new Uri("/Fotobox;component/Views/Admin/AdminColors.Light.xaml", UriKind.Relative)
+        };
+        var dark = new System.Windows.ResourceDictionary
+        {
+            Source = new Uri("/Fotobox;component/Views/Admin/AdminColors.Dark.xaml", UriKind.Relative)
+        };
+
+        var lightKeys = light.Keys.Cast<object>().Select(k => k.ToString()).Order().ToArray();
+        var darkKeys = dark.Keys.Cast<object>().Select(k => k.ToString()).Order().ToArray();
+
+        Assert.NotEmpty(lightKeys);
+        Assert.Equal(lightKeys, darkKeys);
+    }
+
+    [Fact]
+    public void AdminTheme_IsDark_ForExplicitModes()
+    {
+        Assert.True(AdminThemeManager.IsDark(AdminThemeMode.Dark));
+        Assert.False(AdminThemeManager.IsDark(AdminThemeMode.Light));
+    }
+
+    [StaFact]
+    public void AdminWindow_FollowsDraftTheme_AsLivePreview()
+    {
+        WithWindow((window, vm) =>
+        {
+            vm.IsAdminThemeLight = true;
+            Assert.False(AdminThemeManager.IsDarkPalette(window.Resources));
+
+            vm.IsAdminThemeDark = true;
+            Assert.True(AdminThemeManager.IsDarkPalette(window.Resources));
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_DarkTheme_AllTabsLayoutWithoutErrors()
+    {
+        // Jeder Tab einmal mit Layout im dunklen Schema (eigene ComboBox-Templates, DynamicResource-Auflösung).
+        WithWindow((window, vm) =>
+        {
+            vm.IsAdminThemeDark = true;
+            var tabs = FindTabControl(window)!;
+            var root = (System.Windows.FrameworkElement)window.Content;
+            foreach (var tab in tabs.Items.OfType<System.Windows.Controls.TabItem>().ToList())
+            {
+                tabs.SelectedItem = tab;
+                root.Measure(new System.Windows.Size(1100, 750));
+                root.Arrange(new System.Windows.Rect(0, 0, 1100, 750));
+                root.UpdateLayout();
+            }
+
+            tabs.SelectedItem = tabs.Items.OfType<System.Windows.Controls.TabItem>().Single(t => t.Header as string == "Kamera");
+            root.UpdateLayout();
+            var combo = FindDescendant<System.Windows.Controls.ComboBox>(root);
+            Assert.NotNull(combo);
+            Assert.NotNull(combo!.Template.FindName("PART_Popup", combo));
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_HasAppearanceTab_AfterGuestScreenTab()
+    {
+        WithWindow((window, _) =>
+        {
+            var tabs = FindTabControl(window)!;
+            var headers = tabs.Items.OfType<System.Windows.Controls.TabItem>().Select(t => t.Header as string).ToList();
+
+            Assert.Equal(headers.IndexOf("Gastansicht") + 1, headers.IndexOf("Darstellung"));
+        });
+    }
+
     [StaFact]
     public void AdminWindow_HasGuestScreenTab_AfterLayoutTab()
     {

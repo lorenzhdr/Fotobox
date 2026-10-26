@@ -1765,6 +1765,40 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsHintBanner));
     }
 
+    // ---------------------------------------------------------------- Darstellung (Admin-Ansicht)
+
+    /// <summary>Farbschema des Entwurfs; das Admin-Fenster wendet Änderungen sofort an (Vorschau).</summary>
+    public AdminThemeMode AdminTheme => _draft.Appearance.AdminTheme;
+
+    public bool IsAdminThemeSystem
+    {
+        get => _draft.Appearance.AdminTheme == AdminThemeMode.System;
+        set => SetAdminTheme(AdminThemeMode.System, value);
+    }
+
+    public bool IsAdminThemeLight
+    {
+        get => _draft.Appearance.AdminTheme == AdminThemeMode.Light;
+        set => SetAdminTheme(AdminThemeMode.Light, value);
+    }
+
+    public bool IsAdminThemeDark
+    {
+        get => _draft.Appearance.AdminTheme == AdminThemeMode.Dark;
+        set => SetAdminTheme(AdminThemeMode.Dark, value);
+    }
+
+    private void SetAdminTheme(AdminThemeMode mode, bool selected)
+    {
+        if (!selected || _draft.Appearance.AdminTheme == mode)
+            return;
+        _draft.Appearance.AdminTheme = mode;
+        OnPropertyChanged(nameof(AdminTheme));
+        OnPropertyChanged(nameof(IsAdminThemeSystem));
+        OnPropertyChanged(nameof(IsAdminThemeLight));
+        OnPropertyChanged(nameof(IsAdminThemeDark));
+    }
+
     /// <summary>
     /// Der Hinweistext, wie ihn die Gastansicht mit dem aktuellen Entwurf zeigt: Platzhalter ersetzt durch die im Entwurf
     /// belegten Auslöse-Tasten und die Maus-Einstellung.

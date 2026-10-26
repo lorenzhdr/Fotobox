@@ -24,6 +24,7 @@ internal static class SettingsNormalizer
         s.Security ??= new SecuritySettings();
         s.Input ??= new InputSettings();
         s.GuestScreen ??= new GuestScreenSettings();
+        s.Appearance ??= new AppearanceSettings();
 
         s.Flow.CountdownSeconds = Math.Clamp(s.Flow.CountdownSeconds, SettingsLimits.CountdownMin, SettingsLimits.CountdownMax);
         s.Flow.PreviewSeconds = Math.Clamp(s.Flow.PreviewSeconds, SettingsLimits.PreviewMin, SettingsLimits.PreviewMax);
@@ -59,6 +60,9 @@ internal static class SettingsNormalizer
         if (!Enum.IsDefined(s.GuestScreen.HintStyle))
             s.GuestScreen.HintStyle = HintStyle.Pill;
         s.GuestScreen.HintText = SanitizeHintText(s.GuestScreen.HintText);
+
+        if (!Enum.IsDefined(s.Appearance.AdminTheme))
+            s.Appearance.AdminTheme = AdminThemeMode.System;
 
         return s;
     }

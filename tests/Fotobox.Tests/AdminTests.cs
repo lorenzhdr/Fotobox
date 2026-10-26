@@ -1909,6 +1909,54 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Equal([GuestLayout.StripDouble, GuestLayout.StripSingle, GuestLayout.Single], _store.Current.Layout.GuestChoices);
     }
 
+    // ------------------------------------------------------------------ Darstellung (Farbschema)
+
+    [Fact]
+    public void AdminTheme_DefaultsToSystem()
+    {
+        var vm = CreateViewModel();
+
+        Assert.Equal(AdminThemeMode.System, vm.AdminTheme);
+        Assert.True(vm.IsAdminThemeSystem);
+        Assert.False(vm.IsAdminThemeLight);
+        Assert.False(vm.IsAdminThemeDark);
+    }
+
+    [Fact]
+    public void AdminTheme_Select_WritesDraft_AndRaisesChange()
+    {
+        var vm = CreateViewModel();
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.IsAdminThemeDark = true;
+
+        Assert.Equal(AdminThemeMode.Dark, vm.Draft.Appearance.AdminTheme);
+        Assert.True(vm.IsAdminThemeDark);
+        Assert.False(vm.IsAdminThemeSystem);
+        Assert.Contains(nameof(AdminViewModel.AdminTheme), raised);
+        Assert.Contains(nameof(AdminViewModel.IsAdminThemeSystem), raised);
+
+        raised.Clear();
+        vm.IsAdminThemeLight = false;   // Abwählen einer Karte ändert nichts
+        vm.IsAdminThemeDark = true;     // schon gewählt
+        Assert.Empty(raised);
+        Assert.Equal(AdminThemeMode.Dark, vm.Draft.Appearance.AdminTheme);
+    }
+
+    [Fact]
+    public void AdminTheme_IsWrittenToSavedSettings_OnlyOnSave()
+    {
+        var vm = CreateViewModel();
+        vm.IsAdminThemeLight = true;
+        Assert.Equal(AdminThemeMode.System, _store.Current.Appearance.AdminTheme);
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(1, _store.SaveCount);
+        Assert.Equal(AdminThemeMode.Light, _store.Current.Appearance.AdminTheme);
+    }
+
     // ------------------------------------------------------------------ Standardwerte wiederherstellen
 
     private static readonly string[] DefaultTriggerKeys = [InputSettings.DefaultTriggerKey];
@@ -1953,6 +2001,7 @@ public sealed class AdminViewModelTests : IDisposable
         vm.Draft.Storage.PhotoFolder = Path.Combine(_dir, "fotos");
         vm.HintText = "Drücke {Fototaste_1} {Klick}";
         vm.IsHintBanner = true;
+        vm.IsAdminThemeDark = true;
         vm.TriggerOnLeftClick = false;
         vm.TriggerOnRightClick = false;
         vm.BeginKeyCapture(KeyAction.Trigger);
@@ -1990,6 +2039,7 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.True(vm.Draft.Flow.PrintingEnabled);
         Assert.Equal(LayoutKind.SingleBorderless, vm.Draft.Layout.Kind);
         Assert.Empty(vm.Draft.Layout.GuestChoices);
+        Assert.Equal(AdminThemeMode.System, vm.Draft.Appearance.AdminTheme);
         Assert.Null(vm.Draft.Layout.OverlayFileName);
         Assert.Null(vm.Draft.Layout.CaptionText);
         Assert.Null(vm.Draft.Printer.PrinterName);

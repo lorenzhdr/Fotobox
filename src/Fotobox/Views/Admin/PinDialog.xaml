@@ -9,19 +9,20 @@
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="AdminColors.Light.xaml" />
                 <ResourceDictionary Source="AdminTheme.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Window.Resources>
-    <Border BorderBrush="#9AA5B5" BorderThickness="1" Padding="36,30,36,28">
+    <Border BorderBrush="{DynamicResource FrameBrush}" BorderThickness="1" Padding="36,30,36,28">
         <StackPanel Width="330">
             <TextBlock Text="Einstellungen" Style="{StaticResource SectionTitle}" HorizontalAlignment="Center" />
-            <TextBlock Text="Bitte PIN eingeben" FontSize="16" Foreground="{StaticResource MutedBrush}"
+            <TextBlock Text="Bitte PIN eingeben" FontSize="16" Foreground="{DynamicResource MutedBrush}"
                        HorizontalAlignment="Center" Margin="0,0,0,18" />
 
             <PasswordBox x:Name="PinBox" Style="{StaticResource PinBoxStyle}" />
 
-            <TextBlock x:Name="MessageText" Foreground="{StaticResource DangerBrush}" FontSize="14"
+            <TextBlock x:Name="MessageText" Foreground="{DynamicResource DangerBrush}" FontSize="14"
                        TextWrapping="Wrap" TextAlignment="Center" MinHeight="40" Margin="0,10,0,6"
                        VerticalAlignment="Center" />
 

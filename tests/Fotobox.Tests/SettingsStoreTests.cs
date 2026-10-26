@@ -731,4 +731,54 @@ public sealed class SettingsStoreTests : IDisposable
 
         Assert.Equal(HintStyle.Pill, store.Current.GuestScreen.HintStyle);
     }
+
+    // ---- Darstellung (Farbschema der Admin-Ansicht)
+
+    [Fact]
+    public void Appearance_DefaultsToSystem_AndSurvivesMissingOrNullObject()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, "{ \"Flow\": { \"CountdownSeconds\": 3 } }");
+        Assert.Equal(AdminThemeMode.System, new JsonSettingsStore(_dir).Current.Appearance.AdminTheme);
+
+        File.WriteAllText(SettingsPath, "{ \"Appearance\": null }");
+        Assert.Equal(AdminThemeMode.System, new JsonSettingsStore(_dir).Current.Appearance.AdminTheme);
+    }
+
+    [Fact]
+    public void Appearance_Roundtrip_WritesThemeAsName()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Appearance.AdminTheme = AdminThemeMode.Dark;
+        store.Save(s);
+
+        Assert.Equal(AdminThemeMode.Dark, new JsonSettingsStore(_dir).Current.Appearance.AdminTheme);
+        Assert.Contains("\"AdminTheme\": \"Dark\"", File.ReadAllText(SettingsPath));
+    }
+
+    [Fact]
+    public void Appearance_UnknownTheme_FallsBackToSystem_WithoutLosingTheFile()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath,
+            "{ \"Flow\": { \"CountdownSeconds\": 3 }, \"Appearance\": { \"AdminTheme\": \"Sepia\" } }");
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.Equal(AdminThemeMode.System, s.Appearance.AdminTheme);
+        Assert.Equal(3, s.Flow.CountdownSeconds);
+        Assert.Empty(Directory.GetFiles(_dir, "settings.json.bak-*"));
+    }
+
+    [Fact]
+    public void Appearance_Save_UndefinedThemeFallsBackToSystem()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Appearance.AdminTheme = (AdminThemeMode)42;
+        store.Save(s);
+
+        Assert.Equal(AdminThemeMode.System, store.Current.Appearance.AdminTheme);
+    }
 }
