@@ -156,6 +156,7 @@ public sealed class CameraFormatSelectorTests
     }
 }
 
+[Collection(WpfCollection.Name)]
 public sealed class CameraHardwareTests
 {
     [Fact]

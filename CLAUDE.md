@@ -75,7 +75,9 @@ Erledigt bis v1.2.0 (v1.2.0: Druck per Abbrechen-Taste stornierbar, eigener Gast
 3. **Reconnect-Pfad „Kamera ohne Bild“:** Nur per Unit-Test geprüft, nicht mit echter Hardware.
 4. **Tests schreiben ins echte App-Log** (`%LOCALAPPDATA%\Fotobox\logs`) statt in ein isoliertes Verzeichnis.
 5. **Virtuelle Kamera mit Platzhalterbild:** Eine virtuelle Kamera ohne verbundene Quelle liefert Frames mit einem einfarbigen Platzhalterbild. Der Watchdog erkennt nur ausbleibende Frames, nicht einfarbige Bilder, daher steht „Kamera läuft“. Ohne gespeicherte Kamera wird einfach das erste Gerät der Liste gewählt (das kann eine virtuelle Kamera sein). Abhilfe bisher: Kamera im Admin explizit wählen.
-6. **Parallele Testläufe können hängen:** Laufen zwei `dotnet test` gleichzeitig (z. B. aus mehreren Worktrees), blieben einzelne Läufe in WPF-Fenstertests hängen (`AdminViewTests.AdminWindow_CanBeCreated`, `CameraPreviewTests.Mirror_…`, `BoothViewModelTests.BoothWindow_LayoutList_…`). Einzelne Läufe und die CI sind stabil. Ursache ungeklärt; bis dahin Tests nie parallel starten.
+6. **Tastentests lesen echten Tastaturzustand:** `AdminWindow.xaml.cs` nutzt `Keyboard.Modifiers`; hält man lokal während des Testlaufs Strg/Alt gedrückt, schlagen die `AdminWindow_KeyCapture_*`-Tests fehl (CI unbetroffen). Fix bräuchte eine injizierbare Modifier-Quelle.
+
+Behoben in v1.2.0: Sporadische Hänger in WPF-Fenstertests (etwa jeder 12. Lauf, auch in der CI) kamen von parallel laufenden StaFact-Collections, die gleichzeitig BAML laden (Deadlock an der prozessweiten `WpfSharedBamlSchemaContext`-Sperre). Alle WPF-Testklassen laufen jetzt in der gemeinsamen Collection `[Collection(WpfCollection.Name)]` (`tests/Fotobox.Tests/WpfCollection.cs`) nacheinander; neue WPF-Testklassen brauchen dieses Attribut. Die Workflows brechen Hänger per `--blame-hang-timeout 5m` mit Testnamen ab.
 
 ### Bewusst nicht geändert (Audit v1.1.2, später entscheiden)
 

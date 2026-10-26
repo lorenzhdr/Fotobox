@@ -8,6 +8,7 @@ using Xunit;
 namespace Fotobox.Tests;
 
 /// <summary>Prüft, dass die XAML-Dateien der Admin-Ansicht zur Laufzeit ladbar sind (ohne sie anzuzeigen).</summary>
+[Collection(WpfCollection.Name)]
 public class AdminViewTests
 {
     [StaFact]

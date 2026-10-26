@@ -9,6 +9,7 @@ using Xunit;
 
 namespace Fotobox.Tests;
 
+[Collection(WpfCollection.Name)]
 public class BoothViewModelTests
 {
     [Fact]

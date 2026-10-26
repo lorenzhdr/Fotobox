@@ -187,6 +187,7 @@ public class PinRulesTests
     }
 }
 
+[Collection(WpfCollection.Name)]
 public sealed class AdminViewModelTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "fotobox-admin-tests-" + Guid.NewGuid().ToString("N"));

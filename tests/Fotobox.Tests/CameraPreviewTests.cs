@@ -10,6 +10,7 @@ using Xunit;
 namespace Fotobox.Tests;
 
 /// <summary>Prüft die Live-Vorschau (Spiegelung in allen Stretch-Modi, Statushinweis) ohne echte Kamera.</summary>
+[Collection(WpfCollection.Name)]
 public sealed class CameraPreviewTests
 {
     private const int Size = 400;
