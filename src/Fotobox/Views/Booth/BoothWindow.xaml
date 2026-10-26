@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:Fotobox.Views.Controls"
+        xmlns:booth="clr-namespace:Fotobox.Views.Booth"
         Title="Fotobox"
         WindowStyle="None" WindowState="Maximized" ResizeMode="NoResize"
         Background="#0B0D14" Cursor="None"
@@ -61,39 +62,10 @@
         </Style>
 
         <!--
-            Endlos-Animationen nur, solange das Element wirklich sichtbar ist (IsVisible, berücksichtigt auch
+            Endlos-Animationen laufen nur, solange das Element wirklich sichtbar ist (IsVisible, berücksichtigt auch
             eingeklappte Eltern). Sonst liefen sie unsichtbar weiter und kosten Render-Zeit über dem Livebild.
+            (Die Puls-Animation des Hinweises liegt in GuestHint.)
         -->
-        <Style x:Key="HintPillPulse" TargetType="Border">
-            <Style.Triggers>
-                <Trigger Property="IsVisible" Value="True">
-                    <Trigger.EnterActions>
-                        <BeginStoryboard x:Name="HintPillPulseStoryboard">
-                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
-                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
-                                                 From="1" To="1.05" Duration="0:0:1.1">
-                                    <DoubleAnimation.EasingFunction>
-                                        <SineEase EasingMode="EaseInOut" />
-                                    </DoubleAnimation.EasingFunction>
-                                </DoubleAnimation>
-                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
-                                                 From="1" To="1.05" Duration="0:0:1.1">
-                                    <DoubleAnimation.EasingFunction>
-                                        <SineEase EasingMode="EaseInOut" />
-                                    </DoubleAnimation.EasingFunction>
-                                </DoubleAnimation>
-                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                                 From="0.85" To="1" Duration="0:0:1.1" />
-                            </Storyboard>
-                        </BeginStoryboard>
-                    </Trigger.EnterActions>
-                    <Trigger.ExitActions>
-                        <StopStoryboard BeginStoryboardName="HintPillPulseStoryboard" />
-                    </Trigger.ExitActions>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
         <!-- Drehender Spinner (gestrichelter Kreis), läuft nur im sichtbaren Zustand. -->
         <Style x:Key="SpinnerWhenVisible" TargetType="Ellipse">
             <Style.Triggers>
@@ -284,27 +256,10 @@
             </Border.Background>
         </Border>
 
-        <!-- Hinweis-Pille -->
-        <Border x:Name="HintPill" Style="{StaticResource HintPillPulse}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,80"
-                Padding="56,22" CornerRadius="60" BorderThickness="2.5"
-                Background="{StaticResource PillBackground}" BorderBrush="{StaticResource GoldBorder}"
-                RenderTransformOrigin="0.5,0.5" IsHitTestVisible="False"
-                Visibility="{Binding ShowHint, Converter={StaticResource BoolToVis}}">
-            <Border.RenderTransform>
-                <ScaleTransform ScaleX="1" ScaleY="1" />
-            </Border.RenderTransform>
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="40" ShadowDepth="0" Color="#F5C26B" Opacity="0.45" />
-            </Border.Effect>
-            <TextBlock Text="{Binding HintText}" Foreground="White"
-                       FontSize="38" FontWeight="SemiBold" />
-        </Border>
-
-        <!-- Dezenter Zusatzhinweis: Layout per Mausrad wechseln (nur mit mehreren Wahlmöglichkeiten) -->
-        <TextBlock Text="{Binding LayoutHintText}" Foreground="#D9FFFFFF" FontSize="26"
-                   HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,30"
-                   IsHitTestVisible="False"
-                   Visibility="{Binding ShowLayoutHint, Converter={StaticResource BoolToVis}}" />
+        <!-- Hinweis (Pille, schlichter Text oder Band, je nach Einstellung) samt Zusatzzeile zur Layoutwahl per Mausrad -->
+        <booth:GuestHint Text="{Binding HintText}" HintStyle="{Binding HintStyle}"
+                         LayoutHintText="{Binding LayoutHintText}" ShowLayoutHint="{Binding ShowLayoutHint}"
+                         Visibility="{Binding ShowHint, Converter={StaticResource BoolToVis}}" />
 
         <!-- Layout-Vorschauliste: erscheint kurz beim Drehen des Mausrads, alle Layouts untereinander, das gewählte hervorgehoben -->
         <Border x:Name="LayoutCard" Style="{StaticResource LayoutListFade}"
@@ -421,6 +376,29 @@
                            FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center" Margin="0,36,0,0" />
                 <!-- Druck fertig: Balken springt auf 100 % -->
                 <ProgressBar Style="{StaticResource PrintProgressBar}" Value="1" Width="1100" Margin="0,48,0,0" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Druck abgebrochen: ruhige Meldung (kein Fehler), danach geht es zurück zum Leerlauf -->
+        <Grid x:Name="PrintCancelledOverlay" Style="{StaticResource FadeInOverlay}"
+              Visibility="{Binding ShowPrintCancelled, Converter={StaticResource BoolToVis}}">
+            <Grid.Background>
+                <RadialGradientBrush>
+                    <GradientStop Color="#F21B1633" Offset="0" />
+                    <GradientStop Color="#FA0B0D14" Offset="1" />
+                </RadialGradientBrush>
+            </Grid.Background>
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="1400">
+                <TextBlock Text="🖨️" Foreground="White" FontSize="200" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding PrintCancelledTitle}" Foreground="{StaticResource Gold}" FontSize="110"
+                           FontWeight="Bold" TextWrapping="Wrap" TextAlignment="Center"
+                           HorizontalAlignment="Center" Margin="0,16,0,0">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="50" ShadowDepth="0" Color="#F5C26B" Opacity="0.7" />
+                    </TextBlock.Effect>
+                </TextBlock>
+                <TextBlock Text="{Binding PrintCancelledText}" Foreground="White" FontSize="56"
+                           FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center" Margin="0,36,0,0" />
             </StackPanel>
         </Grid>
 

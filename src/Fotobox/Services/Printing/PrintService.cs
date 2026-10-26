@@ -144,15 +144,18 @@ public sealed class PrintService : IPrintService
         return PrintLayoutResolver.ResolvePageSpec(printer, layout, sizes, driverDefault);
     }
 
-    public async Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer, IProgress<string>? status = null, CancellationToken ct = default)
+    public async Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer, IProgress<string>? status = null,
+        CancellationToken ct = default, CancellationToken userCancel = default)
     {
         try
         {
             if (ct.IsCancellationRequested)
                 return new PrintResult(PrintOutcome.Cancelled);
+            if (userCancel.IsCancellationRequested)
+                return new PrintResult(PrintOutcome.UserCancelled);
 
             var frozen = EnsureFrozen(page);
-            return await RunSta(() => PrintCore(frozen, printer, status, ct)).ConfigureAwait(false);
+            return await RunSta(() => PrintCore(frozen, printer, status, ct, userCancel)).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -167,7 +170,8 @@ public sealed class PrintService : IPrintService
 
     // ---------------------------------------------------------------- Druck
 
-    private static PrintResult PrintCore(BitmapSource page, PrinterSettings settings, IProgress<string>? status, CancellationToken ct)
+    private static PrintResult PrintCore(BitmapSource page, PrinterSettings settings, IProgress<string>? status,
+        CancellationToken ct, CancellationToken userCancel)
     {
         // Die Frist läuft ab Beginn des Druckvorgangs (inkl. Ticket und Schreiben), damit sie vor dem äußeren Limit
         // des Controllers (Frist + Reserve ab Aufruf) greift und die Kulanzregel unten überhaupt zum Zug kommt.
@@ -201,14 +205,21 @@ public sealed class PrintService : IPrintService
         var visual = RenderVisual(page, mediaW, mediaH);
         var knownIds = SnapshotJobIds(queue);
 
-        // Wurde während Ticket/Rendern abgebrochen (z. B. Timeout des Controllers), darf nichts mehr gesendet werden.
-        // Bereits gesendete Aufträge werden bei Abbruch dagegen nicht storniert (laufender Gastdruck soll fertig werden).
+        // Wurde während Ticket/Rendern abgebrochen (z. B. Timeout des Controllers oder Wunsch des Gastes), darf nichts
+        // mehr gesendet werden. Bereits gesendete Aufträge werden bei ct-Abbruch dagegen nicht storniert (laufender
+        // Gastdruck soll fertig werden); nur ein Abbruchwunsch des Gastes (userCancel) storniert sie unten.
         if (ct.IsCancellationRequested)
             return new PrintResult(PrintOutcome.Cancelled);
+        if (userCancel.IsCancellationRequested)
+        {
+            AppLog.Info($"Druck vor dem Senden auf Wunsch des Gastes abgebrochen (Auftrag „{jobName}“ wurde nicht gesendet).");
+            return new PrintResult(PrintOutcome.UserCancelled);
+        }
 
         AppLog.Info(string.Create(CultureInfo.InvariantCulture,
             $"Sende Druckauftrag „{jobName}“ an „{queue.FullName}“ ({PrintLayoutResolver.DipToMm(mediaW):0.#} × {PrintLayoutResolver.DipToMm(mediaH):0.#} mm, {ticket.CopyCount} Kopie(n))."));
         queue.CurrentJobSettings.Description = jobName;
+        // Write ist synchron und nicht abbrechbar; ein Abbruchwunsch während des Sendens greift erst danach (unten).
         PrintQueue.CreateXpsDocumentWriter(queue).Write(visual, ticket);
 
         // Überwachung bis fertig (die Gesamtfrist läuft seit Beginn dieser Methode).
@@ -217,6 +228,7 @@ public sealed class PrintService : IPrintService
         var seenBefore = false;
         int? trackedId = null;
         long? errorSince = null;   // Stopwatch-Zeitstempel (monotone Uhr, unabhängig von Zeitumstellung/Uhrensprung)
+        long? userCancelSince = null;   // Zeitpunkt, an dem der Abbruchwunsch zuerst bemerkt wurde
         var queryFailures = 0;
 
         while (true)
@@ -274,6 +286,30 @@ public sealed class PrintService : IPrintService
                 }
             }
 
+            // Abbruchwunsch des Gastes: erst nach der Auswertung oben, damit ein inzwischen fertiger oder fehlgeschlagener
+            // Auftrag sein reguläres Ergebnis behält. Ist der Auftrag noch unbekannt, wird bis zu 5 s weiter gesucht.
+            if (userCancel.IsCancellationRequested)
+            {
+                userCancelSince ??= Stopwatch.GetTimestamp();
+                var step = PrintJobStateEvaluator.DecideUserCancel(
+                    cancelRequested: true, jobKnown: trackedId is not null, Stopwatch.GetElapsedTime(userCancelSince.Value));
+                switch (step)
+                {
+                    case UserCancelStep.CancelJob when trackedId is { } cancelId:
+                        if (TryCancelJob(queue, cancelId))
+                        {
+                            AppLog.Info($"Druckauftrag „{jobName}“ auf Wunsch des Gastes abgebrochen.");
+                            return new PrintResult(PrintOutcome.UserCancelled);
+                        }
+
+                        AppLog.Warn($"Druckauftrag „{jobName}“ ließ sich auf Wunsch des Gastes nicht abbrechen.");
+                        return new PrintResult(PrintOutcome.UserCancelFailed);
+                    case UserCancelStep.GiveUp:
+                        AppLog.Warn($"Druckauftrag „{jobName}“ für den Abbruch nicht in der Warteschlange gefunden.");
+                        return new PrintResult(PrintOutcome.UserCancelFailed);
+                }
+            }
+
             if (total.Elapsed >= timeout)
             {
                 AppLog.Warn($"Zeitüberschreitung beim Druckauftrag „{jobName}“ (letzter Status: {lastStatus}).");
@@ -289,7 +325,12 @@ public sealed class PrintService : IPrintService
                     $"Der Druck wurde nicht rechtzeitig fertig{detail}. Der Auftrag bleibt in der Warteschlange.");
             }
 
-            if (ct.WaitHandle.WaitOne(PollInterval))
+            // Auf beide Token warten, damit ein Abbruchwunsch sofort greift. Ist er schon gesetzt (Suche nach dem
+            // Auftrag läuft), nur auf ct warten – sonst kehrte WaitAny sofort zurück und die Schleife liefe heiß.
+            var cancelled = userCancel.IsCancellationRequested
+                ? ct.WaitHandle.WaitOne(PollInterval)
+                : WaitHandle.WaitAny([ct.WaitHandle, userCancel.WaitHandle], PollInterval) == 0;
+            if (cancelled)
                 return new PrintResult(PrintOutcome.Cancelled);
         }
     }

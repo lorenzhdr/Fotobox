@@ -222,6 +222,39 @@ public class PrintJobStateEvaluatorTests
     }
 }
 
+public class UserCancelDecisionTests
+{
+    [Fact]
+    public void NotRequested_DoesNothing() =>
+        Assert.Equal(UserCancelStep.NotRequested,
+            PrintJobStateEvaluator.DecideUserCancel(false, jobKnown: true, TimeSpan.FromMinutes(1)));
+
+    [Fact]
+    public void KnownJob_IsCancelledAtOnce() =>
+        Assert.Equal(UserCancelStep.CancelJob,
+            PrintJobStateEvaluator.DecideUserCancel(true, jobKnown: true, TimeSpan.Zero));
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2500)]
+    [InlineData(4999)]
+    public void UnknownJob_KeepsSearchingWithinFiveSeconds(int milliseconds) =>
+        Assert.Equal(UserCancelStep.KeepSearching,
+            PrintJobStateEvaluator.DecideUserCancel(true, jobKnown: false, TimeSpan.FromMilliseconds(milliseconds)));
+
+    [Theory]
+    [InlineData(5000)]
+    [InlineData(30000)]
+    public void UnknownJob_GivesUpAfterFiveSeconds(int milliseconds) =>
+        Assert.Equal(UserCancelStep.GiveUp,
+            PrintJobStateEvaluator.DecideUserCancel(true, jobKnown: false, TimeSpan.FromMilliseconds(milliseconds)));
+
+    [Fact]
+    public void KnownJob_IsCancelledEvenAfterSearchWindow() =>
+        Assert.Equal(UserCancelStep.CancelJob,
+            PrintJobStateEvaluator.DecideUserCancel(true, jobKnown: true, TimeSpan.FromSeconds(8)));
+}
+
 public class PrintLayoutResolverTests
 {
     private static readonly PaperSizeInfo Tenfifteen = new("NorthAmerica4x6", "10 × 15 cm (4 × 6 Zoll)", 101.6, 152.4);

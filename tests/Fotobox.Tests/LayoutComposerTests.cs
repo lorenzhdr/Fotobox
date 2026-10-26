@@ -173,6 +173,7 @@ public class LayoutMathTests
     }
 }
 
+[Collection(WpfCollection.Name)]
 public class LayoutComposerTests : IDisposable
 {
     private static readonly PageSpec Portrait = new(101.6, 152.4, 150);   // 600 × 900

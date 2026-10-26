@@ -8,7 +8,7 @@ using Fotobox.Services.Camera;
 namespace Fotobox.ViewModels.Booth;
 
 /// <summary>Aktion, die einer Taste in der Gastansicht zugeordnet ist.</summary>
-public enum BoothKeyAction { None, Trigger, OpenAdmin, CancelCountdown }
+public enum BoothKeyAction { None, Trigger, OpenAdmin, Cancel }
 
 /// <summary>
 /// Eintrag der Layout-Vorschauliste: gewählte Variante, Anzeigename, Hervorhebung und Platzhalter 1..n für die Fotofelder
@@ -19,9 +19,6 @@ public sealed record LayoutOption(GuestLayout Layout, string Name, bool IsSelect
 /// <summary>Bindbare Sicht auf <see cref="BoothController"/> und Kamera für die Gastansicht.</summary>
 public sealed class BoothViewModel : ObservableObject
 {
-    /// <summary>Höchstens so viele Tastennamen nennt der Hinweistext.</summary>
-    private const int HintKeysMax = 3;
-
     /// <summary>So lange bleibt die Layout-Vorschauliste nach dem letzten Mausrad-Schritt sichtbar.</summary>
     private static readonly TimeSpan LayoutPreviewDuration = TimeSpan.FromSeconds(2);
 
@@ -107,14 +104,21 @@ public sealed class BoothViewModel : ObservableObject
     /// <summary>Eigener „Fertig“-Bildschirm (Gast soll das Foto aus dem Drucker nehmen).</summary>
     public bool ShowDone => IsPrinted;
 
+    /// <summary>Ruhige Meldung nach einem Druckabbruch (bzw. wenn sich der Druck nicht mehr abbrechen ließ).</summary>
+    public bool ShowPrintCancelled => Controller.State == BoothState.PrintCancelled;
+    public string PrintCancelledTitle => Controller.PrintCancelTitle ?? "";
+    public string PrintCancelledText => Controller.PrintCancelText ?? "";
+
     /// <summary>Druckfortschritt 0..1 für den Balken.</summary>
     public double PrintProgress => Controller.PrintProgress;
     /// <summary>Erwartete Zeit ist um, der Druck läuft noch.</summary>
     public bool IsPrintOverdue => IsPrinting && Controller.PrintOverdue;
     public bool IsPrintOnTime => IsPrinting && !Controller.PrintOverdue;
-    public string PrintWaitText => IsPrintOverdue
-        ? "Gleich geschafft …"
-        : $"Der Drucker ist etwas langsam – dein Foto kommt in ca. {FormatDuration(Controller.ExpectedPrintSeconds)}.";
+    public string PrintWaitText => Controller.PrintCancelRequested
+        ? "Einen Moment …"
+        : IsPrintOverdue
+            ? "Gleich geschafft …"
+            : $"Der Drucker ist etwas langsam – dein Foto kommt in ca. {FormatDuration(Controller.ExpectedPrintSeconds)}.";
 
     /// <summary>„2 Minuten“, „1 Minute“, „45 Sekunden“ – Minuten kaufmännisch gerundet (90 s → 2 Minuten).</summary>
     public static string FormatDuration(int seconds)
@@ -170,34 +174,14 @@ public sealed class BoothViewModel : ObservableObject
     public bool ShowHint => IsIdle && Camera.Status == CameraStatus.Running;
 
     /// <summary>
-    /// Hinweistext mit den eingestellten Auslöser-Tasten: „Drücke die Leertaste für ein Foto 📸“,
-    /// bei mehreren Tasten „Drücke Leertaste oder Eingabetaste für ein Foto 📸“ (höchstens drei Namen).
-    /// Löst auch ein Mausklick aus, steht das dabei: „Drücke die Leertaste oder klicke für ein Foto 📸“.
+    /// Hinweistext: der eigene Text aus den Einstellungen mit eingesetzten Platzhaltern, sonst automatisch mit den eingestellten
+    /// Auslöser-Tasten („Drücke die Leertaste für ein Foto 📸“, siehe <see cref="HintTextFormatter"/>).
     /// </summary>
-    public string HintText
-    {
-        get
-        {
-            var keys = GetKeyMap().Trigger;
-            var click = TriggersOnClick;
-            if (keys.Count == 1)
-            {
-                var single = keys[0];
-                var name = single == new KeyChord(Key.Space, ModifierKeys.None) ? "die Leertaste" : single.DisplayName;
-                return click
-                    ? $"Drücke {name} oder klicke für ein Foto 📸"
-                    : $"Drücke {name} für ein Foto 📸";
-            }
+    public string HintText =>
+        HintTextFormatter.Format(Settings.Current.GuestScreen?.HintText, GetKeyMap().Trigger, TriggersOnClick);
 
-            var names = keys.Take(HintKeysMax).Select(k => k.DisplayName).ToList();
-            var list = names.Count <= 1
-                ? string.Concat(names)
-                : $"{string.Join(", ", names.Take(names.Count - 1))} oder {names[^1]}";
-            return click
-                ? $"Drücke {list} – oder klicke – für ein Foto 📸"
-                : $"Drücke {list} für ein Foto 📸";
-        }
-    }
+    /// <summary>Darstellung des Hinweistexts (Pille, schlichter Text oder Band).</summary>
+    public HintStyle HintStyle => Settings.Current.GuestScreen?.HintStyle ?? HintStyle.Pill;
 
     /// <summary>Mindestens eine Maustaste löst die Aufnahme aus.</summary>
     private bool TriggersOnClick =>
@@ -298,7 +282,7 @@ public sealed class BoothViewModel : ObservableObject
     /// <summary>Zusatzzeile unter dem Hinweistext; nur, wenn der Gast überhaupt wählen kann.</summary>
     public bool ShowLayoutHint => ShowHint && LayoutChoices.Count >= 2;
 
-    public string LayoutHintText => $"Mausrad: Layout wechseln · {SelectedLayoutName}";
+    public string LayoutHintText => GuestLayouts.WheelHint(SelectedLayout, Settings.Current.Layout.StripPhotoCount);
 
     /// <summary>
     /// Wählt das nächste (<paramref name="direction"/> &gt; 0) bzw. vorherige Layout, zyklisch, und blendet die Vorschauliste
@@ -358,14 +342,14 @@ public sealed class BoothViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Ordnet eine gedrückte Taste der eingestellten Belegung zu (Vorrang: Admin, Countdown abbrechen, Auslösen).
+    /// Ordnet eine gedrückte Taste der eingestellten Belegung zu (Vorrang: Admin, Abbrechen, Auslösen).
     /// Reine Zuordnung ohne Seiteneffekt; ausgeführt wird sie vom Fenster.
     /// </summary>
     public BoothKeyAction HandleKey(KeyChord chord)
     {
         var map = GetKeyMap();
         if (map.Admin.Contains(chord)) return BoothKeyAction.OpenAdmin;
-        if (map.Cancel.Contains(chord)) return BoothKeyAction.CancelCountdown;
+        if (map.Cancel.Contains(chord)) return BoothKeyAction.Cancel;
         if (map.Trigger.Contains(chord)) return BoothKeyAction.Trigger;
         return BoothKeyAction.None;
     }
@@ -439,8 +423,10 @@ public sealed class BoothViewModel : ObservableObject
         return true;
     }
 
-    /// <summary>Bricht den Countdown ab (nur im Zustand Countdown wirksam, sonst false).</summary>
-    public bool TryCancelCountdown() => !IsAdminOpen && Controller.TryCancelCountdown();
+    /// <summary>
+    /// Bricht den Countdown oder einen laufenden Druck ab (sonst false). Bei offener Admin-Ansicht wirkungslos.
+    /// </summary>
+    public bool TryCancel() => !IsAdminOpen && Controller.TryCancel();
 
     /// <summary>Beim Laden des Fensters: Controller freigeben und Kamera starten.</summary>
     public async Task InitializeAsync()

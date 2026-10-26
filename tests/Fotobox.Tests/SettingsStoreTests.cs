@@ -617,4 +617,118 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(SettingsLimits.ExpectedPrintMin, store.Current.Flow.ExpectedPrintSeconds);
         Assert.Equal(500, store.Current.Printer.TimeoutSeconds);
     }
+
+    // ---- Gastansicht (Hinweistext und Darstellung)
+
+    [Fact]
+    public void GuestScreen_HasDefaults_AndSurvivesMissingObjectInOldFile()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, "{ \"Flow\": { \"CountdownSeconds\": 3 } }");
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.NotNull(s.GuestScreen);
+        Assert.Null(s.GuestScreen.HintText);
+        Assert.Equal(HintStyle.Pill, s.GuestScreen.HintStyle);
+        Assert.Equal(3, s.Flow.CountdownSeconds);
+    }
+
+    [Fact]
+    public void GuestScreen_NullObject_IsReplacedWithDefaults()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, "{ \"GuestScreen\": null }");
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.NotNull(s.GuestScreen);
+        Assert.Equal(HintStyle.Pill, s.GuestScreen.HintStyle);
+    }
+
+    [Fact]
+    public void GuestScreen_Roundtrip_KeepsTextAndStyle_AndWritesStyleAsName()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.GuestScreen.HintText = "Drücke {Fototaste_1} {Klick}";
+        s.GuestScreen.HintStyle = HintStyle.Banner;
+        store.Save(s);
+
+        var reloaded = new JsonSettingsStore(_dir).Current;
+
+        Assert.Equal("Drücke {Fototaste_1} {Klick}", reloaded.GuestScreen.HintText);
+        Assert.Equal(HintStyle.Banner, reloaded.GuestScreen.HintStyle);
+        Assert.Contains("\"HintStyle\": \"Banner\"", File.ReadAllText(SettingsPath));
+    }
+
+    [Fact]
+    public void GuestScreen_UnknownStyle_FallsBackToPill_WithoutLosingTheFile()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath,
+            "{ \"Flow\": { \"CountdownSeconds\": 3 }, \"GuestScreen\": { \"HintStyle\": \"Neon\", \"HintText\": \"Hallo\" } }");
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.Equal(HintStyle.Pill, s.GuestScreen.HintStyle);
+        Assert.Equal("Hallo", s.GuestScreen.HintText);
+        Assert.Equal(3, s.Flow.CountdownSeconds);
+        Assert.Empty(Directory.GetFiles(_dir, "settings.json.bak-*"));
+    }
+
+    [Fact]
+    public void GuestScreen_HintText_IsTrimmedToLimit_SurrogateSafe()
+    {
+        Directory.CreateDirectory(_dir);
+        var tooLong = new string('h', SettingsLimits.HintTextMaxLength + 25);
+        File.WriteAllText(SettingsPath, $$"""{ "GuestScreen": { "HintText": "{{tooLong}}" } }""");
+        Assert.Equal(SettingsLimits.HintTextMaxLength, new JsonSettingsStore(_dir).Current.GuestScreen.HintText!.Length);
+
+        // Ein Emoji (Surrogatpaar) an der Grenze wird nicht zerschnitten.
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.GuestScreen.HintText = new string('h', SettingsLimits.HintTextMaxLength - 1) + "📸📸";
+        store.Save(s);
+
+        var text = store.Current.GuestScreen.HintText!;
+        Assert.Equal(SettingsLimits.HintTextMaxLength - 1, text.Length);
+        Assert.False(char.IsHighSurrogate(text[^1]));
+    }
+
+    [Fact]
+    public void GuestScreen_HintText_ReplacesControlCharactersAndLineBreaksWithSpaces()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.GuestScreen.HintText = "  Drücke\r\n{Fototaste_1}\tfür\u0007ein Foto \n";
+        store.Save(s);
+
+        Assert.Equal("Drücke  {Fototaste_1} für ein Foto", store.Current.GuestScreen.HintText);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(" \r\n\t ")]
+    public void GuestScreen_BlankHintText_BecomesNull(string text)
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.GuestScreen.HintText = text;
+        store.Save(s);
+
+        Assert.Null(store.Current.GuestScreen.HintText);
+    }
+
+    [Fact]
+    public void GuestScreen_Save_UndefinedStyleFallsBackToPill()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.GuestScreen.HintStyle = (HintStyle)42;
+        store.Save(s);
+
+        Assert.Equal(HintStyle.Pill, store.Current.GuestScreen.HintStyle);
+    }
 }

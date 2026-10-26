@@ -146,8 +146,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 "Startet den Countdown und das Foto.", isRequired: true),
             new KeyActionEditor(this, KeyAction.Admin, "Admin-Ansicht öffnen",
                 "Öffnet diese Einstellungen (nach PIN-Eingabe).", isRequired: true),
-            new KeyActionEditor(this, KeyAction.CancelCountdown, "Countdown abbrechen",
-                "Bricht einen laufenden Countdown ab.", isRequired: false),
+            new KeyActionEditor(this, KeyAction.Cancel, "Abbrechen",
+                "Bricht einen laufenden Countdown oder Druck ab.", isRequired: false),
         ];
         LoadKeysFromDraft();
         RebuildGuestOrder();
@@ -708,6 +708,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         RebuildGuestOrder();
         OnPropertyChanged(nameof(GuestOrder));
         OnPropertyChanged(nameof(HasGuestOrder));
+        // Die Vorschau der Gastansicht zeigt ab zwei Wahlmöglichkeiten die Layout-Zeile mit dem Namen des Standard-Layouts.
+        OnPropertyChanged(nameof(HintPreviewLayoutText));
     }
 
     private void RaiseGuestChoices()
@@ -1519,7 +1521,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
     // ---------------------------------------------------------------- Tasten
 
-    /// <summary>Foto auslösen, Admin-Ansicht öffnen, Countdown abbrechen (in dieser Reihenfolge).</summary>
+    /// <summary>Foto auslösen, Admin-Ansicht öffnen, Abbrechen (in dieser Reihenfolge).</summary>
     public IReadOnlyList<KeyActionEditor> KeyEditors { get; }
 
     private KeyActionEditor Editor(KeyAction action) => KeyEditors.First(e => e.Action == action);
@@ -1575,14 +1577,22 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     public bool TriggerOnLeftClick
     {
         get => _draft.Input.TriggerOnLeftClick;
-        set => SetProperty(_draft.Input.TriggerOnLeftClick, value, v => _draft.Input.TriggerOnLeftClick = v);
+        set
+        {
+            if (SetProperty(_draft.Input.TriggerOnLeftClick, value, v => _draft.Input.TriggerOnLeftClick = v))
+                RaiseHintPreview();
+        }
     }
 
     /// <summary>Die rechte Maustaste löst ein Foto aus.</summary>
     public bool TriggerOnRightClick
     {
         get => _draft.Input.TriggerOnRightClick;
-        set => SetProperty(_draft.Input.TriggerOnRightClick, value, v => _draft.Input.TriggerOnRightClick = v);
+        set
+        {
+            if (SetProperty(_draft.Input.TriggerOnRightClick, value, v => _draft.Input.TriggerOnRightClick = v))
+                RaiseHintPreview();
+        }
     }
 
     /// <summary>Mausrad-Richtung der Gast-Layoutwahl umkehren (nach oben scrollen = nächstes Layout).</summary>
@@ -1598,7 +1608,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         SettingsNormalizer.NormalizeKeys(_draft.Input);
         Fill(Editor(KeyAction.Trigger), _draft.Input.TriggerKeys);
         Fill(Editor(KeyAction.Admin), _draft.Input.AdminKeys);
-        Fill(Editor(KeyAction.CancelCountdown), _draft.Input.CancelCountdownKeys);
+        Fill(Editor(KeyAction.Cancel), _draft.Input.CancelCountdownKeys);
 
         static void Fill(KeyActionEditor editor, IEnumerable<string> entries)
         {
@@ -1618,8 +1628,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
         _draft.Input.TriggerKeys = Texts(Editor(KeyAction.Trigger));
         _draft.Input.AdminKeys = Texts(Editor(KeyAction.Admin));
-        _draft.Input.CancelCountdownKeys = Texts(Editor(KeyAction.CancelCountdown));
+        _draft.Input.CancelCountdownKeys = Texts(Editor(KeyAction.Cancel));
         OnPropertyChanged(nameof(AdminKeysDisplay));
+        RaiseHintPreview();   // Der Hinweistext der Gastansicht nennt die Auslöse-Tasten.
     }
 
     /// <summary>Startet den Aufnahmemodus für eine Aktion (die nächste Taste im Fenster wird übernommen).</summary>
@@ -1705,6 +1716,84 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         KeyMessage = "Die Tasten wurden auf die Standardbelegung zurückgesetzt. Sie gilt nach „Speichern“.";
     }
 
+    // ---------------------------------------------------------------- Gastansicht
+
+    /// <summary>Eigener Hinweistext mit Platzhaltern; leer = automatischer Text aus den Auslöse-Tasten.</summary>
+    public string HintText
+    {
+        get => _draft.GuestScreen.HintText ?? string.Empty;
+        set
+        {
+            if (SetProperty(_draft.GuestScreen.HintText ?? string.Empty, value ?? string.Empty,
+                    v => _draft.GuestScreen.HintText = string.IsNullOrWhiteSpace(v) ? null : v))
+                RaiseHintPreview();
+        }
+    }
+
+    /// <summary>Darstellung des Hinweises (für die Vorschau).</summary>
+    public HintStyle HintStyle => _draft.GuestScreen.HintStyle;
+
+    /// <summary>Darstellung „Pille“: Rahmen, Farbverlauf und sanftes Pulsieren.</summary>
+    public bool IsHintPill
+    {
+        get => _draft.GuestScreen.HintStyle == HintStyle.Pill;
+        set => SetHintStyle(HintStyle.Pill, value);
+    }
+
+    /// <summary>Darstellung „Schlicht“: weißer Text mit Schatten.</summary>
+    public bool IsHintPlain
+    {
+        get => _draft.GuestScreen.HintStyle == HintStyle.Plain;
+        set => SetHintStyle(HintStyle.Plain, value);
+    }
+
+    /// <summary>Darstellung „Banner“: dunkles Band über die volle Breite.</summary>
+    public bool IsHintBanner
+    {
+        get => _draft.GuestScreen.HintStyle == HintStyle.Banner;
+        set => SetHintStyle(HintStyle.Banner, value);
+    }
+
+    private void SetHintStyle(HintStyle style, bool selected)
+    {
+        if (!selected || _draft.GuestScreen.HintStyle == style)
+            return;
+        _draft.GuestScreen.HintStyle = style;
+        OnPropertyChanged(nameof(HintStyle));
+        OnPropertyChanged(nameof(IsHintPill));
+        OnPropertyChanged(nameof(IsHintPlain));
+        OnPropertyChanged(nameof(IsHintBanner));
+    }
+
+    /// <summary>
+    /// Der Hinweistext, wie ihn die Gastansicht mit dem aktuellen Entwurf zeigt: Platzhalter ersetzt durch die im Entwurf
+    /// belegten Auslöse-Tasten und die Maus-Einstellung.
+    /// </summary>
+    public string HintPreviewText =>
+        HintTextFormatter.Format(_draft.GuestScreen.HintText, TriggerChords(), TriggerOnLeftClick || TriggerOnRightClick);
+
+    /// <summary>Zusatzzeile der Vorschau mit dem Namen des Standard-Layouts (sichtbar bei <see cref="HasGuestOrder"/>).</summary>
+    public string HintPreviewLayoutText => GuestLayouts.WheelHint(DefaultGuestLayout, _draft.Layout.StripPhotoCount);
+
+    /// <summary>Hinweise zu den Platzhaltern im Hinweistext (leer = alles in Ordnung).</summary>
+    public IReadOnlyList<string> HintProblems =>
+        HintTextFormatter.FindProblems(_draft.GuestScreen.HintText, Editor(KeyAction.Trigger).Keys.Count);
+
+    public string HintProblemsText => string.Join(Environment.NewLine, HintProblems);
+
+    public bool HasHintProblems => HintProblems.Count > 0;
+
+    private List<KeyChord> TriggerChords() => Editor(KeyAction.Trigger).Keys.Select(k => k.Chord).ToList();
+
+    /// <summary>Text, Hinweise und Vorschau neu lesen (nach Änderung des Texts, der Auslöse-Tasten oder der Maus-Einstellung).</summary>
+    private void RaiseHintPreview()
+    {
+        OnPropertyChanged(nameof(HintPreviewText));
+        OnPropertyChanged(nameof(HintProblems));
+        OnPropertyChanged(nameof(HintProblemsText));
+        OnPropertyChanged(nameof(HasHintProblems));
+    }
+
     // ---------------------------------------------------------------- Standardwerte
 
     /// <summary>
@@ -1743,6 +1832,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _draft.Printer = defaults.Printer;
         _draft.Storage = defaults.Storage;
         _draft.Input = defaults.Input;
+        _draft.GuestScreen = defaults.GuestScreen;
         // Security (PIN) und Version bleiben bewusst unverändert.
 
         // UI-Zustand wie bei einer frisch geöffneten Admin-Ansicht mit Standard-Einstellungen.
@@ -1809,6 +1899,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
         if ((_draft.Layout.CaptionText?.Length ?? 0) > SettingsLimits.CaptionMaxLength)
             errors.Add($"Die Bildunterschrift darf höchstens {SettingsLimits.CaptionMaxLength} Zeichen lang sein.");
+
+        if ((_draft.GuestScreen.HintText?.Length ?? 0) > SettingsLimits.HintTextMaxLength)
+            errors.Add($"Der Hinweistext darf höchstens {SettingsLimits.HintTextMaxLength} Zeichen lang sein.");
 
         if (_draft.Printer.Copies is < SettingsLimits.CopiesMin or > SettingsLimits.CopiesMax)
             errors.Add($"Die Anzahl der Kopien muss zwischen {SettingsLimits.CopiesMin} und {SettingsLimits.CopiesMax} liegen.");

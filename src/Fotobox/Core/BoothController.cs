@@ -4,8 +4,11 @@ using System.Windows.Media.Imaging;
 
 namespace Fotobox.Core;
 
-/// <summary>Printed: Druck fertig, Gast wird kurz aufgefordert, das Foto aus dem Drucker zu nehmen.</summary>
-public enum BoothState { Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error }
+/// <summary>
+/// Printed: Druck fertig, Gast wird kurz aufgefordert, das Foto aus dem Drucker zu nehmen.
+/// PrintCancelled: Gast hat den Druck abgebrochen (bzw. der Abbruch ging nicht mehr), kurze ruhige Meldung statt Fehler.
+/// </summary>
+public enum BoothState { Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error, PrintCancelled }
 
 /// <summary>
 /// Ablaufsteuerung eines Foto-Durchgangs (Countdown → Aufnahme → Layout → Speichern → Vorschau/Druck → „Fertig“).
@@ -28,6 +31,10 @@ public sealed class BoothController(
     private static readonly TimeSpan SaveTimeout = TimeSpan.FromSeconds(30);
     /// <summary>So lange bleibt die „Fertig“-Meldung nach erfolgreichem Druck stehen.</summary>
     public static readonly TimeSpan PrintedDisplay = TimeSpan.FromSeconds(5);
+    /// <summary>So lange bleibt die Meldung „Druck abgebrochen“ (bzw. „Abbrechen nicht möglich“) stehen.</summary>
+    public static readonly TimeSpan PrintCancelledDisplay = TimeSpan.FromSeconds(3);
+    /// <summary>So lange wartet der Controller nach einem Abbruchwunsch auf den Druckdienst; danach gilt der Abbruch als gescheitert.</summary>
+    public static readonly TimeSpan PrintCancelTimeout = TimeSpan.FromSeconds(10);
     /// <summary>Takt, in dem <see cref="Changed"/> während des Drucks den Fortschritt meldet.</summary>
     private static readonly TimeSpan ProgressTick = TimeSpan.FromMilliseconds(250);
 
@@ -41,6 +48,10 @@ public sealed class BoothController(
     private volatile bool _printActive;
     private volatile bool _printDone;
     private int _expectedPrintSeconds = 240;
+    // Abbruchwunsch des Gastes für den Druck des laufenden Durchgangs (getrennt vom Sitzungs-Token, das den ganzen
+    // Durchgang beendet) und der zugehörige Druck, damit ein bereits fertiger Druck nicht mehr „abgebrochen“ wird.
+    private CancellationTokenSource? _printCancelCts;
+    private volatile Task<PrintResult>? _printTask;
 
     // Seitengröße: zuletzt erfolgreich ermittelter Wert je Schlüssel (Rückfall bei Zeitüberschreitung)
     // und die laufende Abfrage je Schlüssel. Vorabruf und Durchgang teilen sich dieselbe Abfrage, damit sich bei
@@ -54,6 +65,8 @@ public sealed class BoothController(
     private BitmapSource? _previewImage;
     private string? _statusMessage;
     private string? _errorMessage;
+    private string? _printCancelTitle;
+    private string? _printCancelText;
     private SavedPhotoSet? _lastSaved;
 
     public BoothState State
@@ -75,6 +88,12 @@ public sealed class BoothController(
     public BitmapSource? PreviewImage { get => _previewImage; private set => Set(ref _previewImage, value); }
     public string? StatusMessage { get => _statusMessage; private set => Set(ref _statusMessage, value); }
     public string? ErrorMessage { get => _errorMessage; private set => Set(ref _errorMessage, value); }
+    /// <summary>Überschrift der Meldung im Zustand <see cref="BoothState.PrintCancelled"/>.</summary>
+    public string? PrintCancelTitle { get => _printCancelTitle; private set => Set(ref _printCancelTitle, value); }
+    /// <summary>Text der Meldung im Zustand <see cref="BoothState.PrintCancelled"/>.</summary>
+    public string? PrintCancelText { get => _printCancelText; private set => Set(ref _printCancelText, value); }
+    /// <summary>Der Gast hat den Druck abbrechen wollen; der Druckdienst führt den Abbruch gerade aus.</summary>
+    public bool PrintCancelRequested => _printCancelCts is { IsCancellationRequested: true };
     public SavedPhotoSet? LastSaved { get => _lastSaved; private set => Set(ref _lastSaved, value); }
 
     /// <summary>
@@ -141,6 +160,8 @@ public sealed class BoothController(
         }
 
         ErrorMessage = null;
+        PrintCancelTitle = null;
+        PrintCancelText = null;
         StatusMessage = null;
         PreviewImage = null;
         CountdownValue = 0;
@@ -173,6 +194,36 @@ public sealed class BoothController(
         catch (ObjectDisposedException) { return false; }
         return true;
     }
+
+    /// <summary>
+    /// Bricht den laufenden Druck ab (Vorschau oder Druckanzeige): Die Vorschau endet sofort, der Druckdienst
+    /// storniert den Auftrag, danach zeigt <see cref="BoothState.PrintCancelled"/> kurz eine ruhige Meldung. Der Durchgang
+    /// (Foto ist gespeichert) wird nicht abgebrochen. Wirkungslos, solange der Druck noch nicht gestartet ist
+    /// (Aufnahme, Zusammenstellen, Speichern), schon fertig ist oder nicht läuft.
+    /// </summary>
+    public bool TryCancelPrint()
+    {
+        if (!_printActive || _state is not (BoothState.Preview or BoothState.Printing))
+            return false;
+
+        var task = _printTask;
+        var cts = _printCancelCts;
+        if (task is null || task.IsCompleted || cts is null || cts.IsCancellationRequested)
+            return false;
+
+        try
+        {
+            // Zuerst die Meldung, dann das Signal: Fortschrittsmeldungen des Dienstes werden ab dem Signal ignoriert.
+            StatusMessage = "Druck wird abgebrochen…";
+            cts.Cancel();
+        }
+        catch (ObjectDisposedException) { return false; }
+        AppLog.Info("Druck vom Gast abgebrochen (Abbruchwunsch).");
+        return true;
+    }
+
+    /// <summary>Taste „Abbrechen“: bricht den Countdown ab, sonst einen laufenden Druck; sonst wirkungslos.</summary>
+    public bool TryCancel() => TryCancelCountdown() || TryCancelPrint();
 
     /// <summary>Bricht einen laufenden Durchgang ab (z. B. beim Beenden der App).</summary>
     public void Cancel()
@@ -229,6 +280,8 @@ public sealed class BoothController(
             finally
             {
                 _sessionCts = null;
+                _printTask = null;
+                Interlocked.Exchange(ref _printCancelCts, null)?.Dispose();
                 cts.Dispose();
                 Volatile.Write(ref _busy, 0);
             }
@@ -350,16 +403,30 @@ public sealed class BoothController(
         // Vorschau; der Druck läuft parallel dazu.
         PreviewImage = layout;
         Task<PrintResult>? printTask = null;
+        var userCancel = CancellationToken.None;
         if (cfg.Flow.PrintingEnabled)
         {
             ResetPrintProgress(cfg.Flow.ExpectedPrintSeconds);
+            var printCancel = new CancellationTokenSource();
+            _printCancelCts = printCancel;
+            userCancel = printCancel.Token;
             _printStart = time.GetUtcNow();
             _printActive = true;
-            printTask = PrintGuardedAsync(layout, cfg.Printer, ct);
+            printTask = PrintGuardedAsync(layout, cfg.Printer, userCancel, ct);
+            _printTask = printTask;
         }
         State = BoothState.Preview;
 
-        await DelayAsync(cfg.Flow.PreviewSeconds, ct);
+        // Der Abbruchwunsch des Gastes beendet nur die Vorschau; das Sitzungs-Token bleibt unberührt.
+        try
+        {
+            using var previewCts = CancellationTokenSource.CreateLinkedTokenSource(ct, userCancel);
+            await DelayAsync(cfg.Flow.PreviewSeconds, previewCts.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && userCancel.IsCancellationRequested)
+        {
+            AppLog.Info("Vorschau auf Wunsch des Gastes beendet (Druck abgebrochen).");
+        }
 
         if (printTask is null)
             return null;
@@ -374,6 +441,21 @@ public sealed class BoothController(
         var result = await printTask;
         ct.ThrowIfCancellationRequested();
         _printActive = false;
+
+        if (result.Outcome is PrintOutcome.UserCancelled or PrintOutcome.UserCancelFailed)
+        {
+            var cancelled = result.Outcome == PrintOutcome.UserCancelled;
+            AppLog.Info(cancelled ? "Druck vom Gast abgebrochen." : "Abbruch des Drucks nicht mehr möglich.");
+            PrintCancelTitle = cancelled ? "Druck abgebrochen" : "Abbrechen nicht möglich";
+            PrintCancelText = cancelled
+                ? "Dein Foto ist trotzdem gespeichert."
+                : "Der Druck ließ sich nicht mehr abbrechen – dein Foto kommt gleich.";
+            StatusMessage = null;
+            Raise(Changed);
+            State = BoothState.PrintCancelled;
+            await Task.Delay(PrintCancelledDisplay, time, ct);
+            return null;
+        }
 
         if (result.Success)
         {
@@ -502,8 +584,12 @@ public sealed class BoothController(
         }
     }
 
-    /// <summary>Druckt mit hartem Timeout (Druckerzeitlimit + Reserve); wirft nie.</summary>
-    private async Task<PrintResult> PrintGuardedAsync(BitmapSource page, PrinterSettings printer, CancellationToken ct)
+    /// <summary>
+    /// Druckt mit hartem Timeout (Druckerzeitlimit + Reserve); wirft nie. <paramref name="userCancel"/> (Wunsch des Gastes)
+    /// geht an den Druckdienst; bestätigt der ihn nicht binnen <see cref="PrintCancelTimeout"/>, gilt
+    /// <see cref="PrintOutcome.UserCancelFailed"/>. <paramref name="ct"/> beendet nur das Warten (der Auftrag bleibt).
+    /// </summary>
+    private async Task<PrintResult> PrintGuardedAsync(BitmapSource page, PrinterSettings printer, CancellationToken userCancel, CancellationToken ct)
     {
         var limit = TimeSpan.FromSeconds(Math.Max(SettingsLimits.PrintTimeoutMin, printer.TimeoutSeconds) + 30);
         using var printCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -512,14 +598,41 @@ public sealed class BoothController(
         var sessionOver = false;
         var progress = new Progress<string>(message =>
         {
-            if (!Volatile.Read(ref sessionOver))
+            // Nach dem Abbruchwunsch bleibt „Druck wird abgebrochen…“ stehen.
+            if (!Volatile.Read(ref sessionOver) && !userCancel.IsCancellationRequested)
                 StatusMessage = message;
         });
         Task<PrintResult>? task = null;
         try
         {
-            task = print.PrintAsync(page, printer, progress, printCts.Token);
-            return await task.WaitAsync(limit, time, ct);
+            task = print.PrintAsync(page, printer, progress, printCts.Token, userCancel);
+            var work = task.WaitAsync(limit, time, ct);
+
+            // Bewusst ohne RunContinuationsAsynchronously: Die Frist unten startet im selben Zug wie der Abbruchwunsch.
+            var cancelRequested = new TaskCompletionSource();
+            using var registration = userCancel.Register(static state => ((TaskCompletionSource)state!).TrySetResult(), cancelRequested);
+            if (await Task.WhenAny(work, cancelRequested.Task) == work)
+                return await work;
+
+            // Abbruch angefordert: Der Dienst bekommt begrenzt Zeit, den Auftrag zu stornieren. Das harte Limit
+            // (in work) gilt weiter; endet es früher, wirft „await work“ wie sonst auch.
+            using var graceCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            try
+            {
+                if (await Task.WhenAny(work, Task.Delay(PrintCancelTimeout, time, graceCts.Token)) == work)
+                    return await work;
+            }
+            finally
+            {
+                graceCts.Cancel();
+            }
+
+            // Der Dienst hat sich nicht gemeldet: nicht länger warten (der Auftrag läuft evtl. weiter).
+            AppLog.Warn($"Druckabbruch nicht innerhalb von {PrintCancelTimeout.TotalSeconds:0} s bestätigt.");
+            printCts.Cancel();
+            ObserveFault(work);
+            ObserveFault(task);
+            return new PrintResult(PrintOutcome.UserCancelFailed);
         }
         catch (TimeoutException)
         {

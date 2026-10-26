@@ -698,6 +698,256 @@ public class BoothControllerTests
         h.RunToIdle();
     }
 
+    // ---- Druck abbrechen ----
+
+    [Fact]
+    public void TryCancel_DuringCountdown_StillCancelsSilently()
+    {
+        var h = new Harness();
+        var states = h.RecordStates();
+        h.Controller.TryTrigger();
+        h.Time.Advance(Second);
+
+        Assert.True(h.Controller.TryCancel());
+
+        h.WaitUntil(() => h.Controller.State == BoothState.Idle);
+        Assert.Equal([BoothState.Countdown, BoothState.Idle], states);
+        Assert.Null(h.Controller.ErrorMessage);
+        Assert.Equal(0, h.Printer.PrintCalls);
+    }
+
+    [Fact]
+    public void TryCancelPrint_DuringPreview_EndsPreviewAtOnce_ShowsCancelledThreeSeconds_ThenIdle()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PreviewSeconds = 20;
+        h.Printer.UserCancelResult = new PrintResult(PrintOutcome.UserCancelled);
+        var states = h.RecordStates();
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Preview);
+        var previewStart = h.Time.GetUtcNow();
+
+        Assert.True(h.Controller.TryCancel());
+
+        // Ohne dass Zeit vergeht: Die Vorschau (20 s) endet sofort. Nur der Druck wird abgebrochen, nicht der Durchgang.
+        h.WaitUntil(() => h.Controller.State == BoothState.PrintCancelled);
+        Assert.Equal(previewStart, h.Time.GetUtcNow());
+        Assert.Equal("Druck abgebrochen", h.Controller.PrintCancelTitle);
+        Assert.Equal("Dein Foto ist trotzdem gespeichert.", h.Controller.PrintCancelText);
+        Assert.Null(h.Controller.ErrorMessage);
+        Assert.Single(h.Storage.Saved);
+        Assert.Equal(1, h.Printer.CancelRequests);
+
+        // Danach (3 s) normal zurück zu Idle; weder Fehler noch „Fertig“.
+        h.Time.Advance(BoothController.PrintCancelledDisplay - Second);
+        h.Drain();
+        Assert.Equal(BoothState.PrintCancelled, h.Controller.State);
+        h.Time.Advance(Second);
+        h.WaitUntil(() => h.Controller.State == BoothState.Idle);
+
+        Assert.DoesNotContain(BoothState.Error, states);
+        Assert.DoesNotContain(BoothState.Printed, states);
+        Assert.Equal(BoothState.PrintCancelled, states[^2]);
+        Assert.Equal(0, h.Controller.PrintProgress);
+        Assert.True(h.Controller.TryTrigger());   // danach ist ein neuer Durchgang möglich
+    }
+
+    [Fact]
+    public void TryCancelPrint_DuringPrinting_ShowsCancelledThenIdle()
+    {
+        var h = new Harness();
+        h.Printer.UserCancelResult = new PrintResult(PrintOutcome.UserCancelled);
+        var states = h.RecordStates();
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printing);
+
+        Assert.True(h.Controller.TryCancelPrint());
+        Assert.True(h.Controller.PrintCancelRequested);
+        Assert.False(h.Controller.TryCancelPrint());   // zweiter Druck auf Esc: nichts mehr zu tun
+        h.WaitUntil(() => h.Controller.State == BoothState.PrintCancelled);
+
+        Assert.Equal("Druck abgebrochen", h.Controller.PrintCancelTitle);
+        Assert.False(h.Controller.TryCancel());   // in der Meldung wirkt Esc nicht mehr
+        h.RunToIdle();
+        Assert.Equal(
+            [BoothState.Countdown, BoothState.Capturing, BoothState.Preview, BoothState.Printing, BoothState.PrintCancelled, BoothState.Idle],
+            states);
+        Assert.Equal(1, h.Printer.CancelRequests);
+    }
+
+    [Fact]
+    public void TryCancelPrint_ShowsStatusAndIgnoresLaterProgress()
+    {
+        var h = new Harness();   // Der Dienst reagiert nicht: Der Zwischenstand „wird abgebrochen“ bleibt sichtbar.
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printing);
+
+        Assert.True(h.Controller.TryCancelPrint());
+        Assert.Equal("Druck wird abgebrochen…", h.Controller.StatusMessage);
+
+        h.Printer.Status?.Report("Warte auf den Drucker …");
+        h.Drain();
+        Assert.Equal("Druck wird abgebrochen…", h.Controller.StatusMessage);
+
+        h.Printer.Complete(new PrintResult(PrintOutcome.Completed));
+        h.WaitUntil(() => h.Controller.State == BoothState.Printed);
+        h.RunToIdle();
+    }
+
+    [Fact]
+    public void UserCancelFailed_ShowsFailureText_ThenIdle_WithoutErrorCard()
+    {
+        var h = new Harness();
+        h.Printer.UserCancelResult = new PrintResult(PrintOutcome.UserCancelFailed);
+        var states = h.RecordStates();
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printing);
+
+        Assert.True(h.Controller.TryCancel());
+        h.WaitUntil(() => h.Controller.State == BoothState.PrintCancelled);
+
+        Assert.Equal("Abbrechen nicht möglich", h.Controller.PrintCancelTitle);
+        Assert.Equal("Der Druck ließ sich nicht mehr abbrechen – dein Foto kommt gleich.", h.Controller.PrintCancelText);
+        Assert.Null(h.Controller.ErrorMessage);
+        h.RunToIdle();
+        Assert.DoesNotContain(BoothState.Error, states);
+    }
+
+    [Fact]
+    public void TryCancel_WhileCapturingOrProcessing_IsIgnored()
+    {
+        var h = new Harness();
+        var results = new List<(BoothState State, bool Cancelled)>();
+        var capturedInner = h.Camera.Captured;
+        h.Camera.Captured = () =>
+        {
+            capturedInner?.Invoke();
+            results.Add((h.Controller.State, h.Controller.TryCancel()));   // Aufnahme
+        };
+        var composingInner = h.Composer.Composing;
+        h.Composer.Composing = () =>
+        {
+            composingInner?.Invoke();
+            results.Add((h.Controller.State, h.Controller.TryCancel()));   // Zusammenstellen/Verarbeiten
+        };
+
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Preview);
+        h.Printer.Complete(new PrintResult(PrintOutcome.Completed));
+        h.RunToIdle();
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, r =>
+        {
+            Assert.Equal(BoothState.Capturing, r.State);
+            Assert.False(r.Cancelled);
+        });
+        Assert.Single(h.Storage.Saved);
+        Assert.Equal(1, h.Printer.PrintCalls);
+        Assert.Equal(0, h.Printer.CancelRequests);
+        Assert.Null(h.Controller.PrintCancelTitle);
+    }
+
+    [Fact]
+    public void TryCancelPrint_OutsideRunningPrint_IsIgnored()
+    {
+        var h = new Harness();
+        Assert.False(h.Controller.TryCancelPrint());   // Idle
+
+        h.Settings.Current.Flow.PrintingEnabled = false;
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Preview);
+        Assert.False(h.Controller.TryCancel());   // Vorschau ohne Druck
+        h.RunToIdle();
+
+        h.Settings.Current.Flow.PrintingEnabled = true;
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printing);
+        h.Printer.Complete(new PrintResult(PrintOutcome.Completed));
+        h.WaitUntil(() => h.Controller.State == BoothState.Printed);
+        Assert.False(h.Controller.TryCancel());   // Druck fertig, „Fertig“-Meldung
+        h.RunToIdle();
+        Assert.Equal(0, h.Printer.CancelRequests);
+    }
+
+    [Fact]
+    public void TryCancelPrint_AfterPrintFinishedDuringPreview_IsIgnored_AndShowsPrinted()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.PreviewSeconds = 6;
+        var states = h.RecordStates();
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Preview);
+        h.Printer.Complete(new PrintResult(PrintOutcome.Completed));
+
+        Assert.False(h.Controller.TryCancel());   // nichts mehr abzubrechen: Vorschau läuft zu Ende
+        h.RunToIdle();
+
+        Assert.Contains(BoothState.Printed, states);
+        Assert.DoesNotContain(BoothState.PrintCancelled, states);
+    }
+
+    [Fact]
+    public void PrintCompletesRegularly_BeforeCancelTakesEffect_ShowsPrinted()
+    {
+        var h = new Harness();
+        var states = h.RecordStates();
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printing);
+
+        Assert.True(h.Controller.TryCancelPrint());   // der Dienst reagiert nicht, …
+        h.Drain();
+        h.Printer.Complete(new PrintResult(PrintOutcome.Completed));   // … der Druck wird regulär fertig
+        h.WaitUntil(() => h.Controller.State == BoothState.Printed);
+        h.RunToIdle();
+
+        Assert.DoesNotContain(BoothState.PrintCancelled, states);
+        Assert.DoesNotContain(BoothState.Error, states);
+    }
+
+    [Fact]
+    public void HangingPrint_AfterCancel_GivesUpAfterTenSeconds_ShowsCancelFailed_ThenIdle()
+    {
+        var h = new Harness();   // Der Dienst reagiert nicht auf den Abbruch (wie ein blockierendes Write).
+        var states = h.RecordStates();
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printing);
+
+        Assert.True(h.Controller.TryCancel());
+        h.Drain();   // der Controller bemerkt den Wunsch und startet die Frist
+        Assert.Equal(1, h.Printer.CancelRequests);
+
+        h.AdvanceBy(BoothController.PrintCancelTimeout - Second, Second);
+        Assert.Equal(BoothState.Printing, h.Controller.State);
+        Assert.False(h.Printer.LastServiceToken.IsCancellationRequested);
+
+        h.Time.Advance(Second);
+        h.WaitUntil(() => h.Controller.State == BoothState.PrintCancelled);
+        Assert.Equal("Abbrechen nicht möglich", h.Controller.PrintCancelTitle);
+        Assert.True(h.Printer.LastServiceToken.IsCancellationRequested);   // hängender Druck wird nicht weiter abgewartet
+        Assert.Null(h.Controller.ErrorMessage);
+
+        h.RunToIdle();
+        Assert.DoesNotContain(BoothState.Error, states);
+        Assert.Equal(BoothState.Idle, h.Controller.State);
+    }
+
+    [Fact]
+    public void SessionCancel_DuringPrinting_DoesNotShowPrintCancelled()
+    {
+        var h = new Harness();
+        var states = h.RecordStates();
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printing);
+
+        h.Controller.Cancel();   // App-Ende: nicht mehr warten, kein Abbruchwunsch des Gastes
+        h.WaitUntil(() => h.Controller.State == BoothState.Idle);
+
+        Assert.DoesNotContain(BoothState.PrintCancelled, states);
+        Assert.DoesNotContain(BoothState.Error, states);
+        Assert.Equal(0, h.Printer.CancelRequests);
+    }
+
     [Fact]
     public void PageSpecTimeout_UsesLastGoodValueInsteadOfDefault()
     {
@@ -1145,6 +1395,14 @@ public class BoothControllerTests
 
         public void Complete(PrintResult result) => _result.TrySetResult(result);
 
+        /// <summary>Gesetzt: Ein Abbruchwunsch des Gastes beendet den Druck mit diesem Ergebnis; sonst reagiert der Dienst nicht (hängt).</summary>
+        public PrintResult? UserCancelResult { get; set; }
+        private int _cancelRequests;
+        /// <summary>Wie oft der Abbruchwunsch (userCancel) beim Druckdienst ankam.</summary>
+        public int CancelRequests => Volatile.Read(ref _cancelRequests);
+        /// <summary>Das „nicht mehr warten“-Token (ct) des letzten Aufrufs.</summary>
+        public CancellationToken LastServiceToken { get; private set; }
+
         public IReadOnlyList<PrinterInfo> GetPrinters() => [];
         public IReadOnlyList<PaperSizeInfo> GetPaperSizes(string? printerName) => [];
         private int _pageSpecCalls;
@@ -1172,12 +1430,19 @@ public class BoothControllerTests
         }
 
         public Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer,
-            IProgress<string>? status = null, CancellationToken ct = default)
+            IProgress<string>? status = null, CancellationToken ct = default, CancellationToken userCancel = default)
         {
             PrintCalls++;
             LastPage = page;
             Status = status;
+            LastServiceToken = ct;
             if (ThrowOnPrint) throw new InvalidOperationException("Drucker nicht erreichbar");
+            userCancel.Register(() =>
+            {
+                Interlocked.Increment(ref _cancelRequests);
+                if (UserCancelResult is { } cancelResult)
+                    _result.TrySetResult(cancelResult);
+            });
             return _result.Task;
         }
     }

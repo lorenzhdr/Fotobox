@@ -5,6 +5,7 @@
         xmlns:core="clr-namespace:Fotobox.Core"
         xmlns:vm="clr-namespace:Fotobox.ViewModels.Admin"
         xmlns:controls="clr-namespace:Fotobox.Views.Controls"
+        xmlns:booth="clr-namespace:Fotobox.Views.Booth"
         Title="Fotobox – Einstellungen"
         Width="1100" Height="750" MinWidth="900" MinHeight="620"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
@@ -300,6 +301,120 @@
                             </Border>
 
                             <CheckBox Content="Datum auf dem Ausdruck anzeigen" IsChecked="{Binding ShowDate}" Margin="0,18,0,0" />
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ============================== Gastansicht ============================== -->
+            <TabItem Header="Gastansicht" Tag="&#xE7F4;">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel MaxWidth="780" HorizontalAlignment="Left">
+                            <TextBlock Text="Gastansicht" Style="{StaticResource SectionTitle}" />
+
+                            <TextBlock Text="Hinweistext" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding HintText, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.HintTextMaxLength}"
+                                     Width="620" HorizontalAlignment="Left" AutomationProperties.Name="Hinweistext" />
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Leer lassen für den automatischen Text. Platzhalter: {Fototaste_1}, {Fototaste_2} … (einzelne Fototaste), {Fototasten} (alle Fototasten), {Klick} („oder klicke“, wenn ein Mausklick auslöst)." />
+                            <TextBlock Text="{Binding HintProblemsText}" Style="{StaticResource Hint}" Foreground="{StaticResource DangerBrush}"
+                                       Visibility="{Binding HasHintProblems, Converter={StaticResource BoolToVis}}" />
+
+                            <TextBlock Text="Darstellung" Style="{StaticResource FieldLabel}" />
+                            <UniformGrid Columns="3" Margin="0,0,-14,0">
+                                <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
+                                             IsChecked="{Binding IsHintPill}"
+                                             AutomationProperties.Name="Pille">
+                                    <StackPanel>
+                                        <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
+                                            <Border.Background>
+                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                    <GradientStop Color="#5A6478" Offset="0" />
+                                                    <GradientStop Color="#2B3347" Offset="1" />
+                                                </LinearGradientBrush>
+                                            </Border.Background>
+                                            <Border HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,9"
+                                                    Width="82" Height="18" CornerRadius="9" BorderThickness="1.2"
+                                                    BorderBrush="#F5C26B" Background="#3A1F52">
+                                                <Border Height="3" Width="50" Background="White" CornerRadius="1.5" />
+                                            </Border>
+                                        </Border>
+                                        <TextBlock Text="Pille" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                        <TextBlock Text="Goldener Rahmen, pulsiert sanft." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
+                                             IsChecked="{Binding IsHintPlain}"
+                                             AutomationProperties.Name="Schlicht">
+                                    <StackPanel>
+                                        <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
+                                            <Border.Background>
+                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                    <GradientStop Color="#5A6478" Offset="0" />
+                                                    <GradientStop Color="#2B3347" Offset="1" />
+                                                </LinearGradientBrush>
+                                            </Border.Background>
+                                            <Border Height="4" Width="62" Background="White" CornerRadius="2"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,16" />
+                                        </Border>
+                                        <TextBlock Text="Schlicht" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                        <TextBlock Text="Weißer Text mit Schatten." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
+                                             IsChecked="{Binding IsHintBanner}"
+                                             AutomationProperties.Name="Banner">
+                                    <StackPanel>
+                                        <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
+                                            <Border.Background>
+                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                    <GradientStop Color="#5A6478" Offset="0" />
+                                                    <GradientStop Color="#2B3347" Offset="1" />
+                                                </LinearGradientBrush>
+                                            </Border.Background>
+                                            <Border VerticalAlignment="Bottom" Height="26" Background="#CC101828"
+                                                    BorderBrush="#F5C26B" BorderThickness="0,1.2,0,0">
+                                                <Border Height="4" Width="62" Background="White" CornerRadius="2" />
+                                            </Border>
+                                        </Border>
+                                        <TextBlock Text="Banner" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                        <TextBlock Text="Dunkles Band über die ganze Breite." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                            </UniformGrid>
+
+                            <TextBlock Text="Vorschau" Style="{StaticResource FieldLabel}" />
+                            <!-- Die Gastansicht im Maßstab 1:3 (1920 × 1080): derselbe Hinweis wie am Gerät, mit angedeutetem Livebild -->
+                            <Border Width="642" Height="362" HorizontalAlignment="Left" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                                    AutomationProperties.Name="Vorschau der Gastansicht">
+                                <Viewbox Stretch="Uniform">
+                                    <Grid Width="1920" Height="1080" ClipToBounds="True">
+                                        <Grid.Background>
+                                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                <GradientStop Color="#566077" Offset="0" />
+                                                <GradientStop Color="#232A3B" Offset="1" />
+                                            </LinearGradientBrush>
+                                        </Grid.Background>
+                                        <!-- Angedeutete Person als Platzhalter für das Livebild -->
+                                        <Ellipse Width="270" Height="270" Fill="#2EFFFFFF" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,170,0,0" />
+                                        <Ellipse Width="780" Height="620" Fill="#2EFFFFFF" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,470,0,0" />
+                                        <!-- Wie in der Gastansicht: dezenter Verlauf unten für die Lesbarkeit -->
+                                        <Border VerticalAlignment="Bottom" Height="320">
+                                            <Border.Background>
+                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                    <GradientStop Color="#00000000" Offset="0" />
+                                                    <GradientStop Color="#B0000000" Offset="1" />
+                                                </LinearGradientBrush>
+                                            </Border.Background>
+                                        </Border>
+                                        <booth:GuestHint Text="{Binding HintPreviewText}" HintStyle="{Binding HintStyle}"
+                                                         LayoutHintText="{Binding HintPreviewLayoutText}" ShowLayoutHint="{Binding HasGuestOrder}" />
+                                    </Grid>
+                                </Viewbox>
+                            </Border>
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Die Vorschau zeigt den Hinweis mit den aktuell eingestellten Fototasten (Tab „Tasten“) und, wenn Gäste per Mausrad zwischen mehreren Layouts wählen können, die Zeile zur Layoutwahl. Das Livebild ist nur angedeutet." />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>

@@ -29,4 +29,4 @@ jobs:
         run: dotnet build Fotobox.sln -c Release
 
       - name: Tests (ohne Hardware)
-        run: dotnet test Fotobox.sln -c Release --no-build --filter "Category!=Hardware"
+        run: dotnet test Fotobox.sln -c Release --no-build --filter "Category!=Hardware" --blame-hang-timeout 5m --blame-hang-dump-type none

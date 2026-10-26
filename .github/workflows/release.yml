@@ -49,7 +49,7 @@ jobs:
           Write-Host "Version: $version"
 
       - name: Tests (ohne Hardware)
-        run: dotnet test Fotobox.sln -c Release --filter "Category!=Hardware"
+        run: dotnet test Fotobox.sln -c Release --filter "Category!=Hardware" --blame-hang-timeout 5m --blame-hang-dump-type none
 
       - name: Inno Setup sicherstellen
         shell: pwsh
