@@ -94,8 +94,6 @@ public sealed class BoothViewModel : ObservableObject
     public string StatusText => IsPrinting
         ? Controller.StatusMessage ?? "Wird gedruckt…"
         : IsProcessing ? "Einen Moment, dein Foto wird erstellt…" : "";
-    /// <summary>Banner „Foto wird erstellt“ (der Druck hat einen eigenen Bereich mit Fortschrittsbalken).</summary>
-    public bool ShowStatusBanner => IsPrinting || IsProcessing;
     public bool ShowProcessingBanner => IsProcessing;
 
     /// <summary>Bereich mit Fortschrittsbalken (Druck läuft).</summary>
@@ -113,7 +111,6 @@ public sealed class BoothViewModel : ObservableObject
     public double PrintProgress => Controller.PrintProgress;
     /// <summary>Erwartete Zeit ist um, der Druck läuft noch.</summary>
     public bool IsPrintOverdue => IsPrinting && Controller.PrintOverdue;
-    public bool IsPrintOnTime => IsPrinting && !Controller.PrintOverdue;
     public string PrintWaitText => Controller.PrintCancelRequested
         ? "Einen Moment …"
         : IsPrintOverdue
@@ -445,21 +442,14 @@ public sealed class BoothViewModel : ObservableObject
     /// <summary>Startet die Kamera mit den aktuellen Einstellungen neu (z. B. nach Admin-Änderungen).</summary>
     public Task RestartCameraAsync() => StartCameraAsync();
 
-    /// <summary>Bricht einen Ablauf ab und stoppt die Kamera (blockiert max. 3 s).</summary>
+    /// <summary>
+    /// Bricht einen Ablauf ab; die Kamera wird hier nicht gestoppt, das macht <c>App.OnExit</c> mit dem Freigeben
+    /// des Dienstes (Dispose stoppt ohnehin, so wartet das Beenden nur einmal und nicht doppelt im UI-Thread).
+    /// </summary>
     public void Shutdown()
     {
         _layoutPreviewTimer.Stop();
         Controller.Cancel();
-        try
-        {
-            // Auf dem Threadpool ausführen, damit kein UI-Thread-Deadlock entsteht.
-            if (!Task.Run(() => Camera.StopAsync()).Wait(TimeSpan.FromSeconds(3)))
-                AppLog.Warn("Kamera konnte nicht rechtzeitig gestoppt werden.");
-        }
-        catch (Exception ex)
-        {
-            AppLog.Error("Fehler beim Stoppen der Kamera.", ex);
-        }
     }
 
     private async Task StartCameraAsync()

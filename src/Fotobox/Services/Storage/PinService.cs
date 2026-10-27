@@ -8,8 +8,6 @@ public sealed class PinService(ISettingsStore settings) : IPinService
 {
     private const int SaltSize = 16;
     private const int HashSize = 32;
-    private const int MinLength = 4;
-    private const int MaxLength = 12;
 
     public bool HasPin
     {
@@ -22,8 +20,8 @@ public sealed class PinService(ISettingsStore settings) : IPinService
 
     public void SetPin(string pin)
     {
-        if (!IsValidPin(pin))
-            throw new ArgumentException($"Die PIN muss aus {MinLength} bis {MaxLength} Ziffern bestehen.", nameof(pin));
+        if (!PinRules.IsValid(pin))
+            throw new ArgumentException($"Die PIN muss aus {SettingsLimits.PinMinLength} bis {SettingsLimits.PinMaxLength} Ziffern bestehen.", nameof(pin));
 
         var copy = settings.Current.Clone();
         // Eine unplausibel hohe Zahl aus der Datei (z. B. bei fehlendem Hash) würde die Berechnung minutenlang blockieren.
@@ -73,9 +71,6 @@ public sealed class PinService(ISettingsStore settings) : IPinService
             return false;
         }
     }
-
-    private static bool IsValidPin(string? pin) =>
-        pin is { Length: >= MinLength and <= MaxLength } && pin.All(c => c is >= '0' and <= '9');
 
     private static byte[] Derive(string pin, byte[] salt, int iterations, int length) =>
         Rfc2898DeriveBytes.Pbkdf2(pin, salt, iterations, HashAlgorithmName.SHA256, length);

@@ -54,7 +54,7 @@ public class LayoutMathTests
     [InlineData(900, 600, 3)]
     public void ComputeStrips_CellsStayInsideStripsAndDoNotOverlap(int pw, int ph, int count)
     {
-        var geo = LayoutMath.ComputeStrips(pw, ph, count, true);
+        var geo = LayoutMath.ComputeStrips(pw, ph, count);
         Assert.Equal(2, geo.Strips.Count);
         for (var s = 0; s < 2; s++)
         {
@@ -78,7 +78,7 @@ public class LayoutMathTests
     {
         var safeBottom = LayoutMath.MmToPx(LayoutMath.SafeBottomMm, dpi);
         var safeSide = LayoutMath.MmToPx(LayoutMath.SafeSideMm, dpi);
-        var geo = LayoutMath.ComputeStrips(pw, ph, count, true, dpi);
+        var geo = LayoutMath.ComputeStrips(pw, ph, count, dpi);
 
         for (var s = 0; s < 2; s++)
         {
@@ -325,7 +325,7 @@ public class LayoutComposerTests : IDisposable
         var photos = colors.Take(count).Select(c => Solid(c)).ToList();
 
         var result = Compose(photos, Settings(LayoutKind.Strip, count), page);
-        var geo = LayoutMath.ComputeStrips(page.PixelWidth, page.PixelHeight, count, false);
+        var geo = LayoutMath.ComputeStrips(page.PixelWidth, page.PixelHeight, count, hasCaption: false, hasDate: false);
 
         AssertColor(Colors.White, Pixel(result, 1, 1));
         AssertColor(Colors.White, Pixel(result, result.PixelWidth - 2, result.PixelHeight - 2));
@@ -350,7 +350,7 @@ public class LayoutComposerTests : IDisposable
         var half = result.PixelWidth / 2;
 
         // Zellmitte links vs. rechts auf gleicher Höhe.
-        var geo = LayoutMath.ComputeStrips(result.PixelWidth, result.PixelHeight, 3, false);
+        var geo = LayoutMath.ComputeStrips(result.PixelWidth, result.PixelHeight, 3, hasCaption: false, hasDate: false);
         for (var i = 0; i < 3; i++)
         {
             var c0 = geo.Cells[0][i];
@@ -365,7 +365,7 @@ public class LayoutComposerTests : IDisposable
     public void Strip_FewerPhotosThanRequired_RepeatsAndDoesNotThrow()
     {
         var result = Compose([Solid(Colors.Red)], Settings(LayoutKind.Strip, 4), Portrait);
-        var geo = LayoutMath.ComputeStrips(result.PixelWidth, result.PixelHeight, 4, false);
+        var geo = LayoutMath.ComputeStrips(result.PixelWidth, result.PixelHeight, 4, hasCaption: false, hasDate: false);
         foreach (var cell in geo.Cells[0])
             AssertColor(Colors.Red, Pixel(result, (int)(cell.X + cell.Width / 2), (int)(cell.Y + cell.Height / 2)));
     }
@@ -462,7 +462,7 @@ public class LayoutComposerTests : IDisposable
         var result = Compose(photos, layout, page);
         var geo = style == StripStyle.Single
             ? LayoutMath.ComputeSingleStrip(page.PixelWidth, page.PixelHeight, [4.0 / 3, 4.0 / 3, 4.0 / 3], true, true, page.Dpi)
-            : LayoutMath.ComputeStrips(page.PixelWidth, page.PixelHeight, 3, true, page.Dpi);
+            : LayoutMath.ComputeStrips(page.PixelWidth, page.PixelHeight, 3, page.Dpi);
         var safe = LayoutMath.MmToPx(LayoutMath.SafeBottomMm, page.Dpi);
         Func<byte, byte, byte, bool> notWhite = (r, g, b) => r < 235 || g < 235 || b < 235;
 

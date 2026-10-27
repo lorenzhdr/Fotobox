@@ -746,7 +746,7 @@ public class BoothViewModelTests
     public void BoothWindow_Close_IsCancelledUnlessAllowed()
     {
         var h = new Harness();
-        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new NoDisplays());
+        var window = new BoothWindow(h.ViewModel, new FakeAdminLauncher(), h.Settings, new NoDisplays());
         var closed = false;
         var closingRaised = false;
         var cancelled = false;
@@ -766,7 +766,7 @@ public class BoothViewModelTests
     {
         var h = new Harness();
         var monitor = new DisplayMonitor("mon-x", "Testbildschirm", 1, true, 800, 600, new MonitorRect(200, 100, 800, 600));
-        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new FixedDisplays(monitor));
+        var window = new BoothWindow(h.ViewModel, new FakeAdminLauncher(), h.Settings, new FixedDisplays(monitor));
 
         window.PlaceOnTargetMonitor([monitor]);   // ohne Handle: nichts zu tun
         Assert.Equal(System.Windows.WindowState.Maximized, window.WindowState);
@@ -804,7 +804,7 @@ public class BoothViewModelTests
     public void BoothWindow_PlaceOnTargetMonitor_SwallowsDisplayServiceErrors()
     {
         var h = new Harness();
-        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new ThrowingDisplays());
+        var window = new BoothWindow(h.ViewModel, new FakeAdminLauncher(), h.Settings, new ThrowingDisplays());
         new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();   // Startabfrage wirft: wird verschluckt
 
         Pump(() => window.RefreshPlacementAsync());   // asynchroner Weg: ebenfalls kein Fehler
@@ -817,7 +817,7 @@ public class BoothViewModelTests
     {
         var h = new Harness();
         var monitor = new DisplayMonitor("mon-x", "Testbildschirm", 1, true, 800, 600, new MonitorRect(200, 100, 800, 600));
-        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new FixedDisplays(monitor));
+        var window = new BoothWindow(h.ViewModel, new FakeAdminLauncher(), h.Settings, new FixedDisplays(monitor));
         new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
 
         Pump(() => window.RefreshPlacementAsync());
@@ -849,7 +849,7 @@ public class BoothViewModelTests
     public void BoothWindow_PrintProgressBar_FillsTrackProportionally()
     {
         var h = new Harness();
-        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new NoDisplays());
+        var window = new BoothWindow(h.ViewModel, new FakeAdminLauncher(), h.Settings, new NoDisplays());
         var bar = new System.Windows.Controls.ProgressBar
         {
             Style = (System.Windows.Style)window.Resources["PrintProgressBar"],
@@ -872,7 +872,7 @@ public class BoothViewModelTests
     public void BoothWindow_LayoutList_ShowsAllLayouts_WithExactlyOneHighlighted()
     {
         var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.StripSingle, GuestLayout.Overlay);
-        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new NoDisplays());
+        var window = new BoothWindow(h.ViewModel, new FakeAdminLauncher(), h.Settings, new NoDisplays());
         var card = (System.Windows.FrameworkElement)window.FindName("LayoutCard");
         Assert.Equal("Layout-Auswahl", System.Windows.Automation.AutomationProperties.GetName(card));
         Assert.False(card.IsHitTestVisible);

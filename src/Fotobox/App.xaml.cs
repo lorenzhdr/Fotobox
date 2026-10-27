@@ -26,7 +26,33 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        _singleInstanceMutex = new Mutex(initiallyOwned: true, MutexName, out var createdNew);
+        bool createdNew;
+        try
+        {
+            _singleInstanceMutex = new Mutex(initiallyOwned: true, MutexName, out createdNew);
+        }
+        catch (Exception ex)
+        {
+            // Ohne Eintrag bliebe ein Absturz hier unbemerkt.
+            AppLog.Initialize();
+            AppLog.Error("Die Einzelinstanz-Sperre konnte nicht angelegt werden.", ex);
+            try
+            {
+                MessageBox.Show(
+                    "Die Fotobox konnte nicht gestartet werden." + Environment.NewLine + Environment.NewLine +
+                    "Einzelheiten stehen im Protokoll im Ordner %LOCALAPPDATA%\\Fotobox\\logs.",
+                    "Fotobox",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            catch (Exception msgEx)
+            {
+                AppLog.Error("Fehlermeldung konnte nicht angezeigt werden.", msgEx);
+            }
+            Shutdown(1);
+            return;
+        }
+
         _ownsMutex = createdNew;
         if (!createdNew)
         {
@@ -110,23 +136,29 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // Zweite Instanz (Mutex belegt): nichts gestartet, nichts zu beenden und nichts zu loggen.
+        if (!_ownsMutex)
+        {
+            ReleaseMutex();
+            base.OnExit(e);
+            return;
+        }
+
         try
         {
-            if (_services is not null)
+            if (_services is { } services)
             {
-                var camera = _services.GetService<ICameraService>();
-                if (camera is not null)
+                try
                 {
-                    try
-                    {
-                        // Auf dem Threadpool ausführen, damit kein UI-Thread-Deadlock entsteht.
-                        if (!Task.Run(async () => await camera.DisposeAsync()).Wait(TimeSpan.FromSeconds(5)))
-                            AppLog.Warn("Kamera konnte nicht rechtzeitig freigegeben werden.");
-                    }
-                    catch (Exception ex)
-                    {
-                        AppLog.Error("Fehler beim Freigeben der Kamera.", ex);
-                    }
+                    // Gibt nur bereits erzeugte Dienste frei (die Kamera wird nicht neu erzeugt, z. B. nach abgebrochener
+                    // PIN-Einrichtung); ihr Dispose stoppt die Kamera. Einmalig mit Frist, auf dem Threadpool, damit kein
+                    // UI-Thread-Deadlock entsteht.
+                    if (!Task.Run(async () => await services.DisposeAsync()).Wait(TimeSpan.FromSeconds(5)))
+                        AppLog.Warn("Kamera konnte nicht rechtzeitig freigegeben werden.");
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Error("Fehler beim Freigeben der Kamera.", ex);
                 }
             }
         }
@@ -139,23 +171,27 @@ public partial class App : Application
         {
             AppLog.Info("Fotobox beendet.");
             AppLog.Flush();
-
-            if (_singleInstanceMutex is not null)
-            {
-                try
-                {
-                    if (_ownsMutex)
-                        _singleInstanceMutex.ReleaseMutex();
-                }
-                catch (ApplicationException)
-                {
-                    // Mutex gehört nicht diesem Thread – beim Prozessende ohnehin freigegeben.
-                }
-                _singleInstanceMutex.Dispose();
-            }
+            ReleaseMutex();
         }
 
         base.OnExit(e);
+    }
+
+    private void ReleaseMutex()
+    {
+        if (_singleInstanceMutex is null)
+            return;
+
+        try
+        {
+            if (_ownsMutex)
+                _singleInstanceMutex.ReleaseMutex();
+        }
+        catch (ApplicationException)
+        {
+            // Mutex gehört nicht diesem Thread – beim Prozessende ohnehin freigegeben.
+        }
+        _singleInstanceMutex.Dispose();
     }
 
     private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

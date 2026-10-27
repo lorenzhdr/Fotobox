@@ -14,7 +14,6 @@ namespace Fotobox.Services.Printing;
 public sealed class PrintService : IPrintService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
-    private const int DefaultTimeoutSeconds = 120;
     /// <summary>Frist für Druckerliste und Papiergrößen (Admin): ein hängender Spooler darf die Ansicht nicht blockieren.</summary>
     private static readonly TimeSpan QueryTimeout = TimeSpan.FromSeconds(10);
 
@@ -35,7 +34,6 @@ public sealed class PrintService : IPrintService
 
     private sealed class JobSnapshot
     {
-        public required int Id { get; init; }
         public required PrintJobFlags Flags { get; init; }
     }
 
@@ -46,7 +44,7 @@ public sealed class PrintService : IPrintService
             return RunSta(() =>
             {
                 using var server = new LocalPrintServer();
-                var defaultName = TryGetDefaultQueueName(server);
+                var defaultName = TryGetDefaultQueueName();
                 var result = new List<PrinterInfo>();
                 using var queues = server.GetPrintQueues([EnumeratedPrintQueueTypes.Local, EnumeratedPrintQueueTypes.Connections]);
                 foreach (var queue in queues)
@@ -176,7 +174,8 @@ public sealed class PrintService : IPrintService
         // Die Frist läuft ab Beginn des Druckvorgangs (inkl. Ticket und Schreiben), damit sie vor dem äußeren Limit
         // des Controllers (Frist + Reserve ab Aufruf) greift und die Kulanzregel unten überhaupt zum Zug kommt.
         var total = Stopwatch.StartNew();
-        var timeout = TimeSpan.FromSeconds(settings.TimeoutSeconds > 0 ? settings.TimeoutSeconds : DefaultTimeoutSeconds);
+        // Gleiche Untergrenze wie beim harten Limit des Controllers (er addiert dort seine Reserve darauf).
+        var timeout = TimeSpan.FromSeconds(Math.Max(SettingsLimits.PrintTimeoutMin, settings.TimeoutSeconds));
         var lastStatus = PrintJobStateEvaluator.StatusPrinting;
         status?.Report(lastStatus);
 
@@ -327,10 +326,19 @@ public sealed class PrintService : IPrintService
 
             // Auf beide Token warten, damit ein Abbruchwunsch sofort greift. Ist er schon gesetzt (Suche nach dem
             // Auftrag läuft), nur auf ct warten – sonst kehrte WaitAny sofort zurück und die Schleife liefe heiß.
-            var cancelled = userCancel.IsCancellationRequested
-                ? ct.WaitHandle.WaitOne(PollInterval)
-                : WaitHandle.WaitAny([ct.WaitHandle, userCancel.WaitHandle], PollInterval) == 0;
-            if (cancelled)
+            bool cancelled;
+            try
+            {
+                cancelled = userCancel.IsCancellationRequested
+                    ? ct.WaitHandle.WaitOne(PollInterval)
+                    : WaitHandle.WaitAny([ct.WaitHandle, userCancel.WaitHandle], PollInterval) == 0;
+            }
+            catch (ObjectDisposedException)
+            {
+                // Der Controller hat nach hartem Limit bzw. Abbruch die Token-Quelle schon freigegeben: wie Abbruch behandeln.
+                cancelled = true;
+            }
+            if (cancelled || ct.IsCancellationRequested)
                 return new PrintResult(PrintOutcome.Cancelled);
         }
     }
@@ -367,13 +375,13 @@ public sealed class PrintService : IPrintService
                 ?? new PageMediaSize(PrintLayoutResolver.MmToDip(paper.WidthMm), PrintLayoutResolver.MmToDip(paper.HeightMm));
         }
 
-        ticket.CopyCount = Math.Clamp(settings.Copies, 1, 99);
+        ticket.CopyCount = Math.Clamp(settings.Copies, SettingsLimits.CopiesMin, SettingsLimits.CopiesMax);
         if (caps?.PageBorderlessCapability.Contains(PageBorderless.Borderless) == true)
             ticket.PageBorderless = PageBorderless.Borderless;
         // Inhalt wird immer in der nativen Medienausrichtung gesendet (Bild wird bei Bedarf selbst gedreht).
         ticket.PageOrientation = System.Printing.PageOrientation.Portrait;
 
-        var merge = queue.MergeAndValidatePrintTicket(queue.DefaultPrintTicket, ticket);
+        var merge = queue.MergeAndValidatePrintTicket(defaultTicket, ticket);
         if (merge.ConflictStatus != ConflictStatus.NoConflict)
             AppLog.Info("PrintTicket wurde vom Treiber angepasst.");
         var validated = merge.ValidatedPrintTicket;
@@ -489,7 +497,7 @@ public sealed class PrintService : IPrintService
 
             match.Refresh();
             trackedId = match.JobIdentifier;
-            return new JobSnapshot { Id = match.JobIdentifier, Flags = ReadJobFlags(match) };
+            return new JobSnapshot { Flags = ReadJobFlags(match) };
         }
         finally
         {
@@ -650,7 +658,7 @@ public sealed class PrintService : IPrintService
         }
     }
 
-    private static string? TryGetDefaultQueueName(LocalPrintServer server)
+    private static string? TryGetDefaultQueueName()
     {
         try
         {

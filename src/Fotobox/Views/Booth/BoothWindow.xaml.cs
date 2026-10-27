@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -34,7 +35,7 @@ public sealed partial class BoothWindow : Window
     // Noch nicht verbrauchte Mausrad-Deltas (kleiner als eine Stufe).
     private int _wheelRemainder;
 
-    public BoothWindow(BoothViewModel viewModel, ICameraService camera, IAdminLauncher adminLauncher, ISettingsStore settings,
+    public BoothWindow(BoothViewModel viewModel, IAdminLauncher adminLauncher, ISettingsStore settings,
         IDisplayService displays)
     {
         _viewModel = viewModel;
@@ -235,7 +236,7 @@ public sealed partial class BoothWindow : Window
             var b = target.Bounds;
             if (!DisplayNative.SetWindowPos(hwnd, IntPtr.Zero, b.Left, b.Top, b.Width, b.Height,
                     DisplayNative.SwpNoZOrder | DisplayNative.SwpNoActivate))
-                AppLog.Warn("Gastansicht konnte nicht auf den gewählten Bildschirm gesetzt werden.");
+                AppLog.Warn($"Gastansicht konnte nicht auf den gewählten Bildschirm gesetzt werden (Win32-Fehler {Marshal.GetLastPInvokeError()}).");
             else
                 AppLog.Info($"Gastansicht auf Bildschirm {target.Number} gesetzt.");
         }
@@ -416,7 +417,7 @@ public sealed partial class BoothWindow : Window
         if (!_viewModel.CanOpenAdmin) return;
         _viewModel.IsAdminOpen = true;
 
-        var result = new AdminResult(false, false, false);
+        var result = new AdminResult(false, false);
         Cursor = Cursors.Arrow;
         try
         {

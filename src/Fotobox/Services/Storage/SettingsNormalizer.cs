@@ -37,7 +37,7 @@ internal static class SettingsNormalizer
         s.Layout.StripPhotoCount = Math.Clamp(s.Layout.StripPhotoCount, SettingsLimits.StripPhotosMin, SettingsLimits.StripPhotosMax);
         if (!Enum.IsDefined(s.Layout.StripStyle))
             s.Layout.StripStyle = StripStyle.DoubleCut;
-        s.Layout.CaptionText = TrimToLength(s.Layout.CaptionText, SettingsLimits.CaptionMaxLength);
+        s.Layout.CaptionText = SanitizeCaption(s.Layout.CaptionText);
         s.Layout.CaptionFontFamily = SanitizeFontName(s.Layout.CaptionFontFamily);
         s.Layout.GuestChoices = NormalizeGuestChoices(s.Layout);
 
@@ -52,8 +52,7 @@ internal static class SettingsNormalizer
         s.Storage.JpegQuality = Math.Clamp(s.Storage.JpegQuality, SettingsLimits.JpegQualityMin, SettingsLimits.JpegQualityMax);
         s.Storage.FilePrefix = SanitizePrefix(s.Storage.FilePrefix);
 
-        if (s.Security.PinIterations < MinPinIterations)
-            s.Security.PinIterations = MinPinIterations;
+        // PinIterations wird bewusst nicht geklemmt: Ein anderer Wert passte nicht mehr zum gespeicherten Hash (siehe PinService).
 
         NormalizeKeys(s.Input);
 
@@ -116,20 +115,32 @@ internal static class SettingsNormalizer
     /// </summary>
     private static string? SanitizeHintText(string? text)
     {
+        var cleaned = CleanLine(text, SettingsLimits.HintTextMaxLength);
+        return cleaned is null || cleaned.Length == 0 ? null : cleaned;
+    }
+
+    /// <summary>
+    /// Bildunterschrift: Steuerzeichen und Zeilenumbrüche werden zu Leerzeichen, Ränder abgeschnitten, Länge auf
+    /// <see cref="SettingsLimits.CaptionMaxLength"/> begrenzt. Nur Leerraum → leerer Text (wie eine nicht gesetzte Unterschrift);
+    /// null bleibt null.
+    /// </summary>
+    private static string? SanitizeCaption(string? text) => CleanLine(text, SettingsLimits.CaptionMaxLength);
+
+    /// <summary>Steuerzeichen → Leerzeichen, trimmen, kürzen (ohne Surrogatpaar zu zerschneiden), erneut trimmen. null bleibt null.</summary>
+    private static string? CleanLine(string? text, int maxLength)
+    {
         if (text is null)
             return null;
 
         var cleaned = new string(text.Select(c => char.IsControl(c) ? ' ' : c).ToArray()).Trim();
-        cleaned = TrimToLength(cleaned, SettingsLimits.HintTextMaxLength)!.TrimEnd();
-        return cleaned.Length == 0 ? null : cleaned;
+        return TrimToLength(cleaned, maxLength)!.TrimEnd();
     }
 
     /// <summary>Leer → Segoe UI; Steuerzeichen raus, Länge begrenzt.</summary>
     public static string SanitizeFontName(string? name)
     {
         var cleaned = new string((name ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
-        if (cleaned.Length > SettingsLimits.FontNameMaxLength)
-            cleaned = cleaned[..SettingsLimits.FontNameMaxLength].TrimEnd();
+        cleaned = TrimToLength(cleaned, SettingsLimits.FontNameMaxLength)!.TrimEnd();
         return cleaned.Length == 0 ? LayoutSettings.DefaultCaptionFont : cleaned;
     }
 
@@ -145,16 +156,24 @@ internal static class SettingsNormalizer
         var trigger = Clean(input.TriggerKeys, used);
         var cancel = Clean(input.CancelCountdownKeys, used);
 
+        // Erst Admin, dann Auslösen: Der Admin-Ersatz nimmt Strg+Alt+A ggf. aus der Auslöseliste, der Auslöse-Ersatz (Leertaste)
+        // nimmt die Leertaste ggf. aus Admin – und gibt Admin dann wieder seinen Standard. Beide Ersatztasten sind verschieden,
+        // so behalten am Ende immer beide Aktionen mindestens eine Taste (und ein zweiter Durchlauf ändert nichts mehr).
+        var adminDefault = Parse(InputSettings.DefaultAdminKey);
+        var space = Parse(InputSettings.DefaultTriggerKey);
+        if (admin.Count == 0)
+            SetAdminDefault();
         if (trigger.Count == 0)
         {
-            var space = Parse(InputSettings.DefaultTriggerKey);
             admin.Remove(space);
             cancel.Remove(space);
             trigger.Add(space);
+            if (admin.Count == 0)
+                SetAdminDefault();
         }
-        if (admin.Count == 0)
+
+        void SetAdminDefault()
         {
-            var adminDefault = Parse(InputSettings.DefaultAdminKey);
             trigger.Remove(adminDefault);
             cancel.Remove(adminDefault);
             admin.Add(adminDefault);
@@ -189,8 +208,7 @@ internal static class SettingsNormalizer
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(prefix.Where(c => !char.IsControl(c) && Array.IndexOf(invalid, c) < 0).ToArray())
             .Trim().TrimEnd('.');
-        if (cleaned.Length > SettingsLimits.FilePrefixMaxLength)
-            cleaned = cleaned[..SettingsLimits.FilePrefixMaxLength].TrimEnd();
+        cleaned = TrimToLength(cleaned, SettingsLimits.FilePrefixMaxLength)!.TrimEnd();
         return cleaned.Length == 0 ? DefaultFilePrefix : cleaned;
     }
 }

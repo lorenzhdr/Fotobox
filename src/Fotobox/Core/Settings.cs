@@ -43,6 +43,8 @@ public static class SettingsLimits
     public const int MonitorIdMaxLength = 512;
     /// <summary>Längster gespeicherter Monitorname (nur Anzeige); längere Werte aus der settings.json werden gekürzt.</summary>
     public const int MonitorNameMaxLength = 200;
+    /// <summary>Länge der PIN (Ziffern).</summary>
+    public const int PinMinLength = 4, PinMaxLength = 12;
 }
 
 /// <summary>
@@ -138,6 +140,25 @@ public sealed class CameraSettings
     public int? ResolutionHeight { get; set; }
     public bool MirrorPreview { get; set; } = true;
     public bool MirrorPhoto { get; set; } = false;
+
+    /// <summary>Kopie aller Felder.</summary>
+    public CameraSettings Clone() => new()
+    {
+        DeviceId = DeviceId,
+        ResolutionWidth = ResolutionWidth,
+        ResolutionHeight = ResolutionHeight,
+        MirrorPreview = MirrorPreview,
+        MirrorPhoto = MirrorPhoto,
+    };
+
+    /// <summary>
+    /// Muss die Kamera neu gestartet werden, damit <paramref name="other"/> gilt? Nur bei anderem Gerät oder anderer Auflösung;
+    /// Spiegeln wirkt ohne Neustart (Vorschau live per Bindung, Foto liest der Controller je Durchgang).
+    /// </summary>
+    public bool RequiresRestartComparedTo(CameraSettings other) =>
+        DeviceId != other.DeviceId
+        || ResolutionWidth != other.ResolutionWidth
+        || ResolutionHeight != other.ResolutionHeight;
 }
 
 public sealed class FlowSettings

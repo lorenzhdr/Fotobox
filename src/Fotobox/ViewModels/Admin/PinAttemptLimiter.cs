@@ -32,9 +32,6 @@ public sealed class PinAttemptLimiter
     /// <summary>Grunddauer der ersten Sperre.</summary>
     public TimeSpan LockoutDuration { get; }
 
-    /// <summary>Längste Sperrdauer (letzte Eskalationsstufe).</summary>
-    public TimeSpan MaxLockoutDuration => LockoutDuration * LockoutFactors[^1];
-
     public bool IsLockedOut => RemainingLockout > TimeSpan.Zero;
 
     /// <summary>Verbleibende Sperrzeit (<see cref="TimeSpan.Zero"/>, wenn nicht gesperrt).</summary>

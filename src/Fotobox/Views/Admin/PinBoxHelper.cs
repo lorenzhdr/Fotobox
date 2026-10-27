@@ -11,7 +11,7 @@ internal static class PinBoxHelper
     private static readonly MethodInfo? SelectMethod =
         typeof(PasswordBox).GetMethod("Select", BindingFlags.Instance | BindingFlags.NonPublic);
 
-    /// <summary>Beschränkt das Feld auf Ziffern (Tippen und Einfügen).</summary>
+    /// <summary>Beschränkt das Feld auf Ziffern (Tippen; Einfügen ist gesperrt).</summary>
     public static void Configure(PasswordBox box)
     {
         box.PreviewTextInput += (_, e) => e.Handled = !e.Text.All(char.IsAsciiDigit);

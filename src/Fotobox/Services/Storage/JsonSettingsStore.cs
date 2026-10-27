@@ -70,7 +70,7 @@ public sealed class JsonSettingsStore : ISettingsStore
         }
 
         AppLog.Info("settings.json konnte nach einem Fehler erneut gelesen werden.");
-        SettingsChanged?.Invoke(this, EventArgs.Empty);
+        RaiseSettingsChanged();
         return true;
     }
 
@@ -110,7 +110,7 @@ public sealed class JsonSettingsStore : ISettingsStore
             _current = copy;
         }
 
-        SettingsChanged?.Invoke(this, EventArgs.Empty);
+        RaiseSettingsChanged();
     }
 
     /// <summary>
@@ -250,6 +250,26 @@ public sealed class JsonSettingsStore : ISettingsStore
         {
             AppLog.Warn("Defekte settings.json konnte nicht gesichert werden.", ex);
             return false;
+        }
+    }
+
+    /// <summary>Ruft die Handler einzeln auf: Ein werfender Handler darf weder <see cref="Save"/> scheitern lassen (Datei und Zustand sind dann schon aktuell) noch die übrigen Handler verhindern.</summary>
+    private void RaiseSettingsChanged()
+    {
+        var handlers = SettingsChanged;
+        if (handlers is null)
+            return;
+
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                ((EventHandler)handler)(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("Ein Handler für geänderte Einstellungen ist fehlgeschlagen.", ex);
+            }
         }
     }
 

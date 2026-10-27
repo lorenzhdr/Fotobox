@@ -776,6 +776,37 @@ public class BoothControllerTests
     }
 
     [Fact]
+    public void TryCancelPrint_ServiceThrowsOperationCanceled_CountsAsUserCancelled_NotAsPrintError()
+    {
+        var h = new Harness();
+        h.Printer.UserCancelThrows = true;
+        var states = h.RecordStates();
+        h.Controller.TryTrigger();
+        h.AdvanceUntil(() => h.Controller.State == BoothState.Printing);
+
+        Assert.True(h.Controller.TryCancelPrint());
+        h.WaitUntil(() => h.Controller.State == BoothState.PrintCancelled);
+
+        Assert.Equal("Druck abgebrochen", h.Controller.PrintCancelTitle);
+        h.RunToIdle();
+        Assert.DoesNotContain(BoothState.Error, states);
+        Assert.Null(h.Controller.ErrorMessage);
+    }
+
+    [Fact]
+    public void TryTrigger_FailureWhileStarting_ReleasesTheBoothForTheNextTrigger()
+    {
+        var h = new Harness();
+        h.Settings.ThrowOnCurrent = true;
+
+        Assert.False(h.Controller.TryTrigger());
+        Assert.Equal(BoothState.Idle, h.Controller.State);
+
+        h.Settings.ThrowOnCurrent = false;
+        Assert.True(h.Controller.TryTrigger());
+    }
+
+    [Fact]
     public void TryCancelPrint_ShowsStatusAndIgnoresLaterProgress()
     {
         var h = new Harness();   // Der Dienst reagiert nicht: Der Zwischenstand „wird abgebrochen“ bleibt sichtbar.
@@ -1397,6 +1428,8 @@ public class BoothControllerTests
 
         /// <summary>Gesetzt: Ein Abbruchwunsch des Gastes beendet den Druck mit diesem Ergebnis; sonst reagiert der Dienst nicht (hängt).</summary>
         public PrintResult? UserCancelResult { get; set; }
+        /// <summary>Gesetzt: Der Abbruchwunsch des Gastes lässt die Druckaufgabe mit einer OperationCanceledException enden.</summary>
+        public bool UserCancelThrows { get; set; }
         private int _cancelRequests;
         /// <summary>Wie oft der Abbruchwunsch (userCancel) beim Druckdienst ankam.</summary>
         public int CancelRequests => Volatile.Read(ref _cancelRequests);
@@ -1440,7 +1473,9 @@ public class BoothControllerTests
             userCancel.Register(() =>
             {
                 Interlocked.Increment(ref _cancelRequests);
-                if (UserCancelResult is { } cancelResult)
+                if (UserCancelThrows)
+                    _result.TrySetCanceled();
+                else if (UserCancelResult is { } cancelResult)
                     _result.TrySetResult(cancelResult);
             });
             return _result.Task;
@@ -1476,7 +1511,10 @@ public class BoothControllerTests
     {
         public string ConfigDirectory => "fake";
         public string OverlayDirectory => "fake/overlays";
-        public AppSettings Current { get; } = new();
+        private readonly AppSettings _current = new();
+        /// <summary>Gesetzt: Der Zugriff auf <see cref="Current"/> wirft (simuliert einen Fehler beim Start eines Durchgangs).</summary>
+        public bool ThrowOnCurrent { get; set; }
+        public AppSettings Current => ThrowOnCurrent ? throw new InvalidOperationException("Einstellungen nicht lesbar") : _current;
         public event EventHandler? SettingsChanged;
         public void Save(AppSettings settings) { }
         public void RaiseSettingsChanged() => SettingsChanged?.Invoke(this, EventArgs.Empty);
