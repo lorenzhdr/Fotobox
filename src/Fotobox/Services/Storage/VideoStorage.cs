@@ -152,16 +152,9 @@ public sealed class VideoStorage : IVideoStorage
         }
     }
 
-    // Leerer oder nach dem Bereinigen leerer Präfix → Video-Standard (SanitizePrefix würde auf den Foto-Standard fallen).
-    internal static string ResolvePrefix(string? prefix)
-    {
-        if (string.IsNullOrWhiteSpace(prefix))
-            return VideoSettings.DefaultFilePrefix;
-        var sanitized = SettingsNormalizer.SanitizePrefix(prefix);
-        return sanitized == SettingsNormalizer.DefaultFilePrefix && prefix.Trim() != sanitized
-            ? VideoSettings.DefaultFilePrefix
-            : sanitized;
-    }
+    // Leerer oder nach dem Bereinigen leerer Präfix → Video-Standard.
+    internal static string ResolvePrefix(string? prefix) =>
+        SettingsNormalizer.SanitizePrefix(prefix, VideoSettings.DefaultFilePrefix);
 
     public async Task<string> CommitAsync(VideoTarget target, CancellationToken ct = default)
     {
