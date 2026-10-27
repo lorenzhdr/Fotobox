@@ -80,7 +80,8 @@ public sealed class PhotoStorage : IPhotoStorage
         string prefix, int quality, DateTime timestamp, CancellationToken ct) =>
         Task.Run(() => SaveCore(layout, sources, folder, prefix, quality, timestamp, ct), ct);
 
-    private static bool SamePath(string a, string b)
+    // internal: Auch VideoStorage nutzt dieselbe Pfad- und Fehlererkennung.
+    internal static bool SamePath(string a, string b)
     {
         try
         {
@@ -92,7 +93,7 @@ public sealed class PhotoStorage : IPhotoStorage
         }
     }
 
-    private static bool IsStorageError(Exception ex) =>
+    internal static bool IsStorageError(Exception ex) =>
         ex is UnauthorizedAccessException or IOException or NotSupportedException or ArgumentException or SecurityException;
 
     private static SavedPhotoSet SaveCore(BitmapSource layout, List<BitmapSource> originals, string folder,
