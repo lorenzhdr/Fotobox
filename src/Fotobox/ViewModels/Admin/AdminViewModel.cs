@@ -29,6 +29,18 @@ public sealed record MonitorOption(string? Id, string Display)
     public override string ToString() => Display;
 }
 
+/// <summary>Eintrag der Mikrofon-Auswahl; <c>Id == null</c> bedeutet Windows-Standardmikrofon.</summary>
+public sealed record MicrophoneOption(string? Id, string Display)
+{
+    public override string ToString() => Display;
+}
+
+/// <summary>Eintrag der Videoqualität-Auswahl.</summary>
+public sealed record VideoQualityOption(VideoQuality Quality, string Display)
+{
+    public override string ToString() => Display;
+}
+
 /// <summary>Eintrag der Papiergrößen-Auswahl; <c>Info == null</c> bedeutet Standard des Druckers.</summary>
 public sealed record PaperOption(PaperSizeInfo? Info, string Display)
 {
@@ -98,6 +110,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private CameraSettings? _lastAppliedCamera;
     // Speicherordner beim Öffnen: Nur ein geänderter Ordner wird beim Speichern per Schreibtest geprüft.
     private readonly string? _initialPhotoFolder;
+    private readonly string? _initialVideoFolder;
 
     private CameraDevice? _selectedDevice;
     private ResolutionOption? _selectedResolution;
@@ -112,6 +125,14 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private string? _monitorHint;
     // Name des beim Öffnen gespeicherten, aber nicht angeschlossenen Monitors (für den Eintrag „… (nicht angeschlossen)“).
     private string? _missingMonitorName;
+
+    // Mikrofonwahl (Tab Video): wie bei den Monitoren – zuletzt geladene Liste, damit „Standardwerte wiederherstellen“ sie neu aufbauen kann.
+    private IReadOnlyList<MicrophoneDevice> _microphoneList = [];
+    private MicrophoneOption? _selectedMicrophone;
+    private string? _microphoneHint;
+    // Name des beim Öffnen gespeicherten, aber nicht angeschlossenen Mikrofons (für den Eintrag „… (nicht angeschlossen)“).
+    private string? _missingMicrophoneName;
+    private VideoQualityOption _selectedVideoQuality;
 
     private string _validationMessage = string.Empty;
     private string _newPin = string.Empty;
@@ -161,6 +182,17 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _ui = ui;
         _draft = store.Current.Clone();
         _initialPhotoFolder = _draft.Storage.PhotoFolder;
+        _initialVideoFolder = _draft.Video.Folder;
+
+        VideoQualities =
+        [
+            new(VideoQuality.High, "Hoch (beste Bildqualität, große Dateien)"),
+            new(VideoQuality.Medium, "Mittel"),
+            new(VideoQuality.Low, "Niedrig (kleine Dateien)"),
+        ];
+        _selectedVideoQuality = VideoQualities.First(q => q.Quality == _draft.Video.Quality);
+        // Bis die Mikrofone geladen sind, zeigt die Auswahl das gespeicherte Mikrofon (bzw. das Standardmikrofon).
+        RebuildMicrophoneOptions([]);
 
         Orientations =
         [
@@ -182,6 +214,12 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 "Öffnet diese Einstellungen (nach PIN-Eingabe).", isRequired: true),
             new KeyActionEditor(this, KeyAction.Cancel, "Abbrechen",
                 "Bricht einen laufenden Countdown oder Druck ab.", isRequired: false),
+            new KeyActionEditor(this, KeyAction.VideoStart, "Video starten",
+                "Startet die Videoaufnahme (nur bei aktivem Videomodus). Dieselbe Taste bei Start und Beenden schaltet die Aufnahme um.",
+                isRequired: false),
+            new KeyActionEditor(this, KeyAction.VideoStop, "Video beenden",
+                "Beendet die laufende Videoaufnahme. Dieselbe Taste bei Start und Beenden schaltet die Aufnahme um.",
+                isRequired: false),
         ];
         LoadKeysFromDraft();
         RebuildGuestOrder();
@@ -194,6 +232,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         ChooseFolderCommand = new RelayCommand(ChooseFolder);
         ResetFolderCommand = new RelayCommand(ResetFolder);
         OpenFolderCommand = new AsyncRelayCommand(OpenFolderAsync);
+        ChooseVideoFolderCommand = new RelayCommand(ChooseVideoFolder);
+        ResetVideoFolderCommand = new RelayCommand(ResetVideoFolder);
+        OpenVideoFolderCommand = new AsyncRelayCommand(OpenVideoFolderAsync);
         ChangePinCommand = new RelayCommand(ChangePin);
         TestPrintCommand = new AsyncRelayCommand(TestPrintAsync, () => !IsTestPrinting);
         CancelKeyCaptureCommand = new RelayCommand(CancelKeyCapture);
@@ -220,6 +261,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     public IRelayCommand ChooseFolderCommand { get; }
     public IRelayCommand ResetFolderCommand { get; }
     public IAsyncRelayCommand OpenFolderCommand { get; }
+    public IRelayCommand ChooseVideoFolderCommand { get; }
+    public IRelayCommand ResetVideoFolderCommand { get; }
+    public IAsyncRelayCommand OpenVideoFolderCommand { get; }
     public IRelayCommand ChangePinCommand { get; }
     public IAsyncRelayCommand TestPrintCommand { get; }
     public IRelayCommand CancelKeyCaptureCommand { get; }
@@ -253,7 +297,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
     // ---------------------------------------------------------------- Initialisierung
 
-    /// <summary>Lädt Kamera-, Drucker-, Monitor- und Schriftenliste sowie die Seitengröße. Wirft nicht.</summary>
+    /// <summary>Lädt Kamera-, Drucker-, Monitor-, Mikrofon- und Schriftenliste sowie die Seitengröße. Wirft nicht.</summary>
     public async Task InitializeAsync()
     {
         // Kamera-, Drucker- und Schriftenliste (die nur einmal pro Prozess geladen wird) laden und wenden sich unabhängig
@@ -263,6 +307,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             Guard(LoadCameraListsAsync(), "Kameraliste"),
             Guard(LoadPrintersAsync(), "Druckerliste"),
             Guard(LoadMonitorsAsync(), "Monitorliste"),
+            Guard(LoadMicrophonesAsync(), "Mikrofonliste"),
             Guard(ApplyFontsAsync(FontCatalog.GetAsync()), "Schriftenliste"),
             Guard(RefreshPageSpecAsync(), "Seitengröße"));
         // Das Overlay-Vorschaubild hat bereits der Konstruktor geladen.
@@ -1630,14 +1675,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             ? AppInfo.DefaultPhotoFolder
             : _draft.Storage.PhotoFolder;
 
-    private void ChooseFolder()
-    {
-        var folder = _ui.PickFolder(EffectivePhotoFolder);
-        if (string.IsNullOrWhiteSpace(folder))
-            return;
-        _draft.Storage.PhotoFolder = folder;
-        RaiseFolder();
-    }
+    private void ChooseFolder() =>
+        ChooseFolderCore(EffectivePhotoFolder, "Speicherordner für die Fotos auswählen",
+            folder => _draft.Storage.PhotoFolder = folder, RaiseFolder);
 
     private void ResetFolder()
     {
@@ -1651,10 +1691,25 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsDefaultPhotoFolder));
     }
 
-    private async Task OpenFolderAsync()
+    private Task OpenFolderAsync() => OpenFolderCore(EffectivePhotoFolder, "Foto");
+
+    /// <summary>Ordnerdialog für einen Speicherordner (Fotos oder Videos); ein gewählter Ordner geht an <paramref name="apply"/>.</summary>
+    private void ChooseFolderCore(string current, string dialogTitle, Action<string> apply, Action raise)
     {
-        var folder = EffectivePhotoFolder;
-        // Nur öffnen, was existiert (PhotoStorage legt den Ordner beim ersten Foto an). Die Abfrage hat ein Timeout.
+        var folder = _ui.PickFolder(current, dialogTitle);
+        if (string.IsNullOrWhiteSpace(folder))
+            return;
+        apply(folder);
+        raise();
+    }
+
+    /// <summary>
+    /// Öffnet einen Speicherordner im Explorer. <paramref name="item"/> („Foto“, „Video“) steht im Hinweis, dass der Ordner erst
+    /// beim ersten Eintrag angelegt wird.
+    /// </summary>
+    private async Task OpenFolderCore(string folder, string item)
+    {
+        // Nur öffnen, was existiert (PhotoStorage/VideoStorage legen den Ordner beim ersten Foto bzw. Video an). Die Abfrage hat ein Timeout.
         var exists = await FolderProbe.ExistsAsync(folder, FolderProbeTimeout);
         if (_disposed)
             return;
@@ -1666,7 +1721,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
         if (!exists.Value)
         {
-            ValidationMessage = "Der Ordner existiert noch nicht. Er wird beim ersten Foto angelegt.";
+            ValidationMessage = $"Der Ordner existiert noch nicht. Er wird beim ersten {item} angelegt.";
             return;
         }
 
@@ -1820,6 +1875,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         Fill(Editor(KeyAction.Trigger), _draft.Input.TriggerKeys);
         Fill(Editor(KeyAction.Admin), _draft.Input.AdminKeys);
         Fill(Editor(KeyAction.Cancel), _draft.Input.CancelCountdownKeys);
+        Fill(Editor(KeyAction.VideoStart), _draft.Input.VideoStartKeys);
+        Fill(Editor(KeyAction.VideoStop), _draft.Input.VideoStopKeys);
 
         static void Fill(KeyActionEditor editor, IEnumerable<string> entries)
         {
@@ -1840,8 +1897,12 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _draft.Input.TriggerKeys = Texts(Editor(KeyAction.Trigger));
         _draft.Input.AdminKeys = Texts(Editor(KeyAction.Admin));
         _draft.Input.CancelCountdownKeys = Texts(Editor(KeyAction.Cancel));
+        _draft.Input.VideoStartKeys = Texts(Editor(KeyAction.VideoStart));
+        _draft.Input.VideoStopKeys = Texts(Editor(KeyAction.VideoStop));
         OnPropertyChanged(nameof(AdminKeysDisplay));
-        RaiseHintPreview();   // Der Hinweistext der Gastansicht nennt die Auslöse-Tasten.
+        RaiseHintPreview();   // Die Hinweistexte der Gastansicht nennen die Auslöse- und Video-Tasten.
+        OnPropertyChanged(nameof(VideoStartKeyHint));
+        OnPropertyChanged(nameof(HasVideoStartKeyHint));
     }
 
     /// <summary>Startet den Aufnahmemodus für eine Aktion (die nächste Taste im Fenster wird übernommen).</summary>
@@ -1884,7 +1945,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             return false;
         }
 
-        var other = KeyEditors.FirstOrDefault(e => !ReferenceEquals(e, target) && e.Contains(chord));
+        // Dieselbe Taste darf bei „Video starten“ und „Video beenden“ stehen (schaltet die Aufnahme um); sonst gehört sie einer Aktion.
+        var other = KeyEditors.FirstOrDefault(e => !ReferenceEquals(e, target) && !IsVideoPair(e, target) && e.Contains(chord));
         if (other is not null)
         {
             KeyMessage = $"Diese Taste ist bereits ‚{other.Title}‘ zugeordnet.";
@@ -1903,6 +1965,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         CapturingEditor = null;
         return true;
     }
+
+    private static bool IsVideoPair(KeyActionEditor a, KeyActionEditor b) =>
+        (a.Action is KeyAction.VideoStart or KeyAction.VideoStop) && (b.Action is KeyAction.VideoStart or KeyAction.VideoStop);
 
     internal void RemoveKey(KeyChordItem item)
     {
@@ -2015,14 +2080,14 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     /// belegten Auslöse-Tasten und die Maus-Einstellung.
     /// </summary>
     public string HintPreviewText =>
-        HintTextFormatter.Format(_draft.GuestScreen.HintText, TriggerChords(), TriggerOnLeftClick || TriggerOnRightClick);
+        HintTextFormatter.Format(_draft.GuestScreen.HintText, TriggerChords(), TriggerOnLeftClick || TriggerOnRightClick, VideoStartChords());
 
     /// <summary>Zusatzzeile der Vorschau mit dem Namen des Standard-Layouts (sichtbar bei <see cref="HasGuestOrder"/>).</summary>
     public string HintPreviewLayoutText => GuestLayouts.WheelHint(DefaultGuestLayout, _draft.Layout.StripPhotoCount);
 
     /// <summary>Hinweise zu den Platzhaltern im Hinweistext (leer = alles in Ordnung).</summary>
     public IReadOnlyList<string> HintProblems =>
-        HintTextFormatter.FindProblems(_draft.GuestScreen.HintText, Editor(KeyAction.Trigger).Keys.Count);
+        HintTextFormatter.FindProblems(_draft.GuestScreen.HintText, Editor(KeyAction.Trigger).Keys.Count, Editor(KeyAction.VideoStart).Keys.Count);
 
     public string HintProblemsText => string.Join(Environment.NewLine, HintProblems);
 
@@ -2030,13 +2095,381 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
     private List<KeyChord> TriggerChords() => Editor(KeyAction.Trigger).Keys.Select(k => k.Chord).ToList();
 
-    /// <summary>Text, Hinweise und Vorschau neu lesen (nach Änderung des Texts, der Auslöse-Tasten oder der Maus-Einstellung).</summary>
+    private List<KeyChord> VideoStartChords() => Editor(KeyAction.VideoStart).Keys.Select(k => k.Chord).ToList();
+
+    // ---- Video-Hinweis (oben im Bild, nur bei aktivem Videomodus)
+
+    /// <summary>Eigener Text der Video-Hinweiszeile mit Platzhaltern; leer = automatischer Text aus den Video-Starttasten.</summary>
+    public string VideoHintText
+    {
+        get => _draft.GuestScreen.VideoHintText ?? string.Empty;
+        set
+        {
+            if (SetProperty(_draft.GuestScreen.VideoHintText ?? string.Empty, value ?? string.Empty,
+                    v => _draft.GuestScreen.VideoHintText = string.IsNullOrWhiteSpace(v) ? null : v))
+                RaiseHintPreview();
+        }
+    }
+
+    /// <summary>Darstellung des Video-Hinweises (für die Vorschau).</summary>
+    public HintStyle VideoHintStyle => _draft.GuestScreen.VideoHintStyle;
+
+    public bool IsVideoHintPill
+    {
+        get => _draft.GuestScreen.VideoHintStyle == HintStyle.Pill;
+        set => SetVideoHintStyle(HintStyle.Pill, value);
+    }
+
+    public bool IsVideoHintPlain
+    {
+        get => _draft.GuestScreen.VideoHintStyle == HintStyle.Plain;
+        set => SetVideoHintStyle(HintStyle.Plain, value);
+    }
+
+    public bool IsVideoHintBanner
+    {
+        get => _draft.GuestScreen.VideoHintStyle == HintStyle.Banner;
+        set => SetVideoHintStyle(HintStyle.Banner, value);
+    }
+
+    private void SetVideoHintStyle(HintStyle style, bool selected)
+    {
+        if (!selected || _draft.GuestScreen.VideoHintStyle == style)
+            return;
+        _draft.GuestScreen.VideoHintStyle = style;
+        OnPropertyChanged(nameof(VideoHintStyle));
+        OnPropertyChanged(nameof(IsVideoHintPill));
+        OnPropertyChanged(nameof(IsVideoHintPlain));
+        OnPropertyChanged(nameof(IsVideoHintBanner));
+    }
+
+    /// <summary>Die Video-Hinweiszeile, wie die Gastansicht sie mit dem aktuellen Entwurf zeigt (leer ohne Video-Starttaste).</summary>
+    public string VideoHintPreviewText =>
+        HintTextFormatter.FormatVideo(_draft.GuestScreen.VideoHintText, VideoStartChords(), click: false, TriggerChords());
+
+    /// <summary>Die Vorschau zeigt die Video-Zeile: Videomodus aktiv und Text nicht leer (ohne Starttaste entfällt die Zeile).</summary>
+    public bool ShowVideoHintPreview => _draft.Video.Enabled && VideoHintPreviewText.Length > 0;
+
+    /// <summary>Hinweise zu den Platzhaltern im Video-Hinweistext (leer = alles in Ordnung).</summary>
+    public IReadOnlyList<string> VideoHintProblems =>
+        HintTextFormatter.FindVideoProblems(_draft.GuestScreen.VideoHintText, Editor(KeyAction.VideoStart).Keys.Count, Editor(KeyAction.Trigger).Keys.Count);
+
+    public string VideoHintProblemsText => string.Join(Environment.NewLine, VideoHintProblems);
+
+    public bool HasVideoHintProblems => VideoHintProblems.Count > 0;
+
+    /// <summary>Text, Hinweise und Vorschau neu lesen (nach Änderung der Texte, der Auslöse- oder Video-Tasten, der Maus-Einstellung oder des Videomodus).</summary>
     private void RaiseHintPreview()
     {
         OnPropertyChanged(nameof(HintPreviewText));
         OnPropertyChanged(nameof(HintProblems));
         OnPropertyChanged(nameof(HintProblemsText));
         OnPropertyChanged(nameof(HasHintProblems));
+        OnPropertyChanged(nameof(VideoHintPreviewText));
+        OnPropertyChanged(nameof(ShowVideoHintPreview));
+        OnPropertyChanged(nameof(VideoHintProblems));
+        OnPropertyChanged(nameof(VideoHintProblemsText));
+        OnPropertyChanged(nameof(HasVideoHintProblems));
+    }
+
+    // ---------------------------------------------------------------- Video
+
+    private const string DefaultMicrophoneDisplay = "Windows-Standardmikrofon";
+    private const string UnknownMicrophoneName = "Gewähltes Mikrofon";
+
+    /// <summary>Länger darf die Mikrofonabfrage nicht dauern (der Kameradienst gibt intern ebenfalls nach 5 s auf).</summary>
+    private static readonly TimeSpan MicrophoneListTimeout = TimeSpan.FromSeconds(5);
+
+    private bool _microphonesLoaded;
+
+    /// <summary>Der Videomodus ist aktiv; alle weiteren Einstellungen des Tabs „Video“ sind sonst ausgegraut.</summary>
+    public bool VideoEnabled
+    {
+        get => _draft.Video.Enabled;
+        set
+        {
+            if (!SetProperty(_draft.Video.Enabled, value, v => _draft.Video.Enabled = v))
+                return;
+            RaiseHintPreview();   // Die Video-Zeile der Vorschau hängt am Videomodus.
+            OnPropertyChanged(nameof(VideoStartKeyHint));
+            OnPropertyChanged(nameof(HasVideoStartKeyHint));
+        }
+    }
+
+    /// <summary>Hinweis, wenn der Videomodus aktiv, aber keine Taste für „Video starten“ belegt ist (kein Fehler, nur Hinweis).</summary>
+    public string VideoStartKeyHint =>
+        _draft.Video.Enabled && Editor(KeyAction.VideoStart).Keys.Count == 0
+            ? "Ohne Taste für „Video starten“ können Gäste kein Video aufnehmen."
+            : string.Empty;
+
+    public bool HasVideoStartKeyHint => VideoStartKeyHint.Length > 0;
+
+    public int VideoMaxDurationSeconds
+    {
+        get => _draft.Video.MaxDurationSeconds;
+        set
+        {
+            if (SetProperty(_draft.Video.MaxDurationSeconds, value, v => _draft.Video.MaxDurationSeconds = v))
+                OnPropertyChanged(nameof(VideoMaxDurationText));
+        }
+    }
+
+    /// <summary>Höchstdauer lesbar, z. B. „5:00 Minuten“ bzw. „45 Sekunden“.</summary>
+    public string VideoMaxDurationText
+    {
+        get
+        {
+            var seconds = _draft.Video.MaxDurationSeconds;
+            return seconds < 60
+                ? $"Das sind {seconds} Sekunden."
+                : $"Das sind {seconds / 60}:{seconds % 60:00} Minuten.";
+        }
+    }
+
+    public int VideoCountdownSeconds
+    {
+        get => _draft.Video.CountdownSeconds;
+        set => SetProperty(_draft.Video.CountdownSeconds, value, v => _draft.Video.CountdownSeconds = v);
+    }
+
+    public int VideoMinDurationSeconds
+    {
+        get => _draft.Video.MinDurationSeconds;
+        set => SetProperty(_draft.Video.MinDurationSeconds, value, v => _draft.Video.MinDurationSeconds = v);
+    }
+
+    public bool VideoShowRecDot
+    {
+        get => _draft.Video.ShowRecDot;
+        set => SetProperty(_draft.Video.ShowRecDot, value, v => _draft.Video.ShowRecDot = v);
+    }
+
+    public bool VideoShowElapsed
+    {
+        get => _draft.Video.ShowElapsed;
+        set => SetProperty(_draft.Video.ShowElapsed, value, v => _draft.Video.ShowElapsed = v);
+    }
+
+    public bool VideoShowRemaining
+    {
+        get => _draft.Video.ShowRemaining;
+        set => SetProperty(_draft.Video.ShowRemaining, value, v => _draft.Video.ShowRemaining = v);
+    }
+
+    public int VideoWarningSeconds
+    {
+        get => _draft.Video.WarningSeconds;
+        set => SetProperty(_draft.Video.WarningSeconds, value, v => _draft.Video.WarningSeconds = v);
+    }
+
+    public int VideoSuccessDisplaySeconds
+    {
+        get => _draft.Video.SuccessDisplaySeconds;
+        set => SetProperty(_draft.Video.SuccessDisplaySeconds, value, v => _draft.Video.SuccessDisplaySeconds = v);
+    }
+
+    /// <summary>Eigener Erfolgstext; leer = <see cref="VideoSuccessTextPlaceholder"/>.</summary>
+    public string VideoSuccessText
+    {
+        get => _draft.Video.SuccessText ?? string.Empty;
+        set => SetProperty(_draft.Video.SuccessText ?? string.Empty, value ?? string.Empty,
+            v => _draft.Video.SuccessText = string.IsNullOrWhiteSpace(v) ? null : v);
+    }
+
+    /// <summary>Der Text, der bei leerem Feld gilt (Platzhalter im Eingabefeld).</summary>
+    public string VideoSuccessTextPlaceholder => VideoSettings.DefaultSuccessText;
+
+    public IReadOnlyList<VideoQualityOption> VideoQualities { get; }
+
+    public VideoQualityOption SelectedVideoQuality
+    {
+        get => _selectedVideoQuality;
+        set
+        {
+            if (value is null || value == _selectedVideoQuality)
+                return;
+            _selectedVideoQuality = value;
+            _draft.Video.Quality = value.Quality;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>Ton aufnehmen (öffnet beim Start der Kamera-Session das Mikrofon).</summary>
+    public bool VideoRecordAudio
+    {
+        get => _draft.Video.RecordAudio;
+        set => SetProperty(_draft.Video.RecordAudio, value, v => _draft.Video.RecordAudio = v);
+    }
+
+    public bool VideoDateSubfolder
+    {
+        get => _draft.Video.DateSubfolder;
+        set => SetProperty(_draft.Video.DateSubfolder, value, v => _draft.Video.DateSubfolder = v);
+    }
+
+    public string VideoFilePrefix
+    {
+        get => _draft.Video.FilePrefix;
+        set
+        {
+            if (SetProperty(_draft.Video.FilePrefix, value ?? string.Empty, v => _draft.Video.FilePrefix = v))
+                OnPropertyChanged(nameof(VideoFileNameExample));
+        }
+    }
+
+    /// <summary>Beispiel für einen Dateinamen mit dem aktuellen Präfix (leeres Präfix: Standard).</summary>
+    public string VideoFileNameExample
+    {
+        get
+        {
+            var prefix = string.IsNullOrWhiteSpace(_draft.Video.FilePrefix) ? VideoSettings.DefaultFilePrefix : _draft.Video.FilePrefix;
+            return $"Dateien heißen zum Beispiel „{prefix}_20261028_153000.mp4“.";
+        }
+    }
+
+    // ---- Speicherordner der Videos
+
+    /// <summary>Anzuzeigender Zielordner (Standard: Videos\Fotobox+).</summary>
+    public string VideoFolderDisplay => EffectiveVideoFolder;
+
+    public bool IsDefaultVideoFolder => string.IsNullOrWhiteSpace(_draft.Video.Folder);
+
+    private string EffectiveVideoFolder =>
+        string.IsNullOrWhiteSpace(_draft.Video.Folder) ? AppInfo.DefaultVideoFolder : _draft.Video.Folder;
+
+    private void ChooseVideoFolder() =>
+        ChooseFolderCore(EffectiveVideoFolder, "Speicherordner für die Videos auswählen",
+            folder => _draft.Video.Folder = folder, RaiseVideoFolder);
+
+    private void ResetVideoFolder()
+    {
+        _draft.Video.Folder = null;
+        RaiseVideoFolder();
+    }
+
+    private void RaiseVideoFolder()
+    {
+        OnPropertyChanged(nameof(VideoFolderDisplay));
+        OnPropertyChanged(nameof(IsDefaultVideoFolder));
+    }
+
+    private Task OpenVideoFolderAsync() => OpenFolderCore(EffectiveVideoFolder, "Video");
+
+    // ---- Mikrofon
+
+    public ObservableCollection<MicrophoneOption> Microphones { get; } = [];
+
+    public MicrophoneOption? SelectedMicrophone
+    {
+        get => _selectedMicrophone;
+        set
+        {
+            if (value is null || value == _selectedMicrophone)
+                return;
+            _selectedMicrophone = value;
+            OnPropertyChanged();
+            if (IsLoading)
+                return;
+
+            // Nur eine echte Nutzeränderung schreibt in den Entwurf (Id und Name zusammen; Standardmikrofon löscht beide).
+            if (value.Id is null)
+            {
+                _draft.Video.MicrophoneId = null;
+                _draft.Video.MicrophoneName = null;
+            }
+            else
+            {
+                // Zurück auf das nicht angeschlossene Mikrofon: gespeicherte Wahl wiederherstellen.
+                var device = _microphoneList.FirstOrDefault(m => m.Id == value.Id);
+                _draft.Video.MicrophoneId = value.Id;
+                _draft.Video.MicrophoneName = device?.Name ?? _missingMicrophoneName;
+            }
+
+            UpdateMicrophoneHint();
+        }
+    }
+
+    /// <summary>Hinweis unter der Mikrofon-Auswahl (null = keiner).</summary>
+    public string? MicrophoneHint
+    {
+        get => _microphoneHint;
+        private set
+        {
+            if (SetProperty(ref _microphoneHint, value))
+                OnPropertyChanged(nameof(HasMicrophoneHint));
+        }
+    }
+
+    public bool HasMicrophoneHint => !string.IsNullOrEmpty(_microphoneHint);
+
+    private async Task LoadMicrophonesAsync()
+    {
+        IReadOnlyList<MicrophoneDevice> microphones;
+        try
+        {
+            microphones = await Task.Run(() => Camera.GetMicrophonesAsync()).WaitAsync(MicrophoneListTimeout, _time);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Mikrofonliste konnte nicht geladen werden.", ex);
+            microphones = [];
+        }
+
+        if (_disposed)
+            return;
+        _microphonesLoaded = true;
+        RebuildMicrophoneOptions(microphones);
+    }
+
+    /// <summary>
+    /// Baut Liste und Auswahl aus den gefundenen Mikrofonen und der gespeicherten Wahl im Entwurf auf. Der Entwurf selbst bleibt
+    /// dabei unverändert. Erster Eintrag ist immer das Windows-Standardmikrofon (Id null).
+    /// </summary>
+    private void RebuildMicrophoneOptions(IReadOnlyList<MicrophoneDevice> microphones)
+    {
+        _microphoneList = microphones;
+        var savedId = _draft.Video.MicrophoneId;
+        _missingMicrophoneName = _draft.Video.MicrophoneName;
+
+        BeginLoading();
+        try
+        {
+            Microphones.Clear();
+            Microphones.Add(new MicrophoneOption(null, DefaultMicrophoneDisplay));
+            foreach (var m in microphones)
+                Microphones.Add(new MicrophoneOption(m.Id, m.Name));
+
+            var selected = savedId is null ? null : Microphones.FirstOrDefault(o => o.Id == savedId);
+            if (selected is null && savedId is not null)
+            {
+                // Gespeichertes Mikrofon nicht gefunden: Eintrag trotzdem zeigen, damit nichts stillschweigend wechselt.
+                // Solange die Liste noch nicht geladen ist, lässt sich „nicht angeschlossen“ nicht behaupten.
+                var name = _missingMicrophoneName ?? UnknownMicrophoneName;
+                selected = new MicrophoneOption(savedId, _microphonesLoaded ? $"{name} (nicht angeschlossen)" : name);
+                Microphones.Add(selected);
+            }
+
+            _selectedMicrophone = selected ?? Microphones[0];
+            UpdateMicrophoneHint();
+            OnPropertyChanged(nameof(SelectedMicrophone));
+        }
+        finally
+        {
+            EndLoading();
+        }
+    }
+
+    private void UpdateMicrophoneHint()
+    {
+        var savedId = _draft.Video.MicrophoneId;
+        if (!_microphonesLoaded)
+            MicrophoneHint = null;
+        else if (savedId is not null && _microphoneList.All(m => m.Id != savedId))
+            MicrophoneHint = $"Das gewählte Mikrofon „{_draft.Video.MicrophoneName ?? UnknownMicrophoneName}“ ist nicht angeschlossen. Bis dahin wird ohne Ton aufgenommen.";
+        else if (_microphoneList.Count == 0)
+            MicrophoneHint = "Es wurde kein Mikrofon gefunden. Es wird ohne Ton aufgenommen.";
+        else
+            MicrophoneHint = null;
     }
 
     // ---------------------------------------------------------------- Standardwerte
@@ -2079,8 +2512,11 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _draft.Input = defaults.Input;
         _draft.GuestScreen = defaults.GuestScreen;
         _draft.Appearance = defaults.Appearance;
+        _draft.Video = defaults.Video;
         // Security (PIN) und Version bleiben bewusst unverändert.
         RebuildMonitorOptions(_monitorList);
+        RebuildMicrophoneOptions(_microphoneList);
+        _selectedVideoQuality = VideoQualities.First(q => q.Quality == _draft.Video.Quality);
 
         // UI-Zustand wie bei einer frisch geöffneten Admin-Ansicht mit Standard-Einstellungen.
         CapturingEditor = null;
@@ -2097,6 +2533,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _selectedPaper = PaperSizes.FirstOrDefault();
         UpdateOverlay();
         RaiseFolder();
+        RaiseVideoFolder();
         RaisePrintTimeoutHint();
         // Alle gebundenen Eigenschaften neu lesen (Werte kommen direkt aus dem Entwurf).
         OnPropertyChanged(string.Empty);
@@ -2125,19 +2562,25 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     /// </summary>
     public async Task<IReadOnlyList<string>> ValidateAsync()
     {
-        var errors = ValidateCore(out var folderToProbe);
-        if (folderToProbe is not null)
+        var errors = ValidateCore(out var foldersToProbe);
+        if (foldersToProbe.Count > 0)
         {
-            var folderError = await ProbeFolderAsync(folderToProbe);
-            if (folderError is not null)
-                errors.Add(folderError);
+            // Parallel, damit der schlimmste Fall (zwei hängende Netzpfade) ein Timeout dauert, nicht zwei.
+            var folderErrors = await Task.WhenAll(foldersToProbe.Select(f => ProbeFolderAsync(f.Folder, f.Name)));
+            errors.AddRange(folderErrors.OfType<string>());
         }
 
         return errors;
     }
 
+    /// <summary>Ein Speicherordner, der beim Speichern per Schreibtest geprüft wird; <c>Name</c> steht in der Fehlermeldung („Speicherordner“, „Videoordner“).</summary>
+    private sealed record FolderToProbe(string Folder, string Name);
+
+    private const string PhotoFolderName = "Speicherordner";
+    private const string VideoFolderName = "Videoordner";
+
     /// <summary>Fehlermeldung zum Speicherordner oder null, wenn er beschreibbar ist.</summary>
-    private async Task<string?> ProbeFolderAsync(string folder)
+    private async Task<string?> ProbeFolderAsync(string folder, string name)
     {
         var check = FolderWriteCheck;
         try
@@ -2146,18 +2589,18 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             var error = await Task.Run(() => check(folder)).WaitAsync(FolderProbeTimeout, _time);
             return error is null
                 ? null
-                : $"In den Speicherordner kann nicht geschrieben werden ({error}). Bitte wählen Sie einen anderen Ordner aus.";
+                : $"In den {name} kann nicht geschrieben werden ({error}). Bitte wählen Sie einen anderen Ordner aus.";
         }
         catch (TimeoutException)
         {
-            AppLog.Warn("Schreibtest des Speicherordners: Zeitüberschreitung.");
-            return "Der Speicherordner ist nicht erreichbar (Zeitüberschreitung). Bitte wählen Sie einen anderen Ordner aus.";
+            AppLog.Warn($"Schreibtest des {name}s: Zeitüberschreitung.");
+            return $"Der {name} ist nicht erreichbar (Zeitüberschreitung). Bitte wählen Sie einen anderen Ordner aus.";
         }
     }
 
-    private List<string> ValidateCore(out string? folderToProbe)
+    private List<string> ValidateCore(out List<FolderToProbe> foldersToProbe)
     {
-        folderToProbe = null;
+        foldersToProbe = [];
         var errors = new List<string>();
 
         CheckRange(_draft.Flow.CountdownSeconds, SettingsLimits.CountdownMin, SettingsLimits.CountdownMax, "Der Countdown", errors);
@@ -2204,18 +2647,14 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         else if (prefix.Length > SettingsLimits.FilePrefixMaxLength || prefix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             errors.Add($"Das Dateipräfix darf höchstens {SettingsLimits.FilePrefixMaxLength} Zeichen lang sein und keine Zeichen wie \\ / : * ? \" < > | enthalten.");
 
-        var folder = _draft.Storage.PhotoFolder;
-        if (!string.IsNullOrWhiteSpace(folder))
-        {
-            // Echter Schreibtest (ValidateAsync), damit ein Fehler nicht erst bei der ersten Session auffällt (und dann nicht
-            // gedruckt wird). Nur bei geändertem Ordner: Ein unveränderter, aber gerade nicht erreichbarer Netzpfad würde das
-            // Speichern sonst verzögern (der Betrieb fällt dann ohnehin auf Bilder\Fotobox aus, siehe PhotoStorage).
-            var folderChanged = !string.Equals(folder, _initialPhotoFolder, StringComparison.OrdinalIgnoreCase);
-            if (!IsUsablePath(folder))
-                errors.Add("Der Speicherordner ist kein gültiger Pfad. Bitte wählen Sie einen Ordner aus.");
-            else if (folderChanged)
-                folderToProbe = folder;
-        }
+        // Echter Schreibtest (ValidateAsync), damit ein Fehler nicht erst bei der ersten Session auffällt (und dann nicht
+        // gedruckt wird). Nur bei geändertem Ordner: Ein unveränderter, aber gerade nicht erreichbarer Netzpfad würde das
+        // Speichern sonst verzögern (der Betrieb fällt dann ohnehin auf Bilder\Fotobox aus, siehe PhotoStorage).
+        CheckFolder(_draft.Storage.PhotoFolder, _initialPhotoFolder, PhotoFolderName, errors, foldersToProbe);
+
+        // Videoeinstellungen nur bei aktivem Videomodus: Im ausgegrauten Zustand lassen sich Fehler nicht beheben.
+        if (_draft.Video.Enabled)
+            ValidateVideo(errors, foldersToProbe);
 
         if (_newPin.Length > 0 || _repeatPin.Length > 0)
         {
@@ -2225,6 +2664,47 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
 
         return errors;
+    }
+
+    /// <summary>Prüft einen gewählten Speicherordner: gültiger Pfad, und bei geändertem Ordner Schreibtest vormerken.</summary>
+    private static void CheckFolder(string? folder, string? initialFolder, string name, List<string> errors, List<FolderToProbe> foldersToProbe)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+            return;
+
+        var folderChanged = !string.Equals(folder, initialFolder, StringComparison.OrdinalIgnoreCase);
+        if (!IsUsablePath(folder))
+            errors.Add($"Der {name} ist kein gültiger Pfad. Bitte wählen Sie einen Ordner aus.");
+        else if (folderChanged)
+            foldersToProbe.Add(new FolderToProbe(folder, name));
+    }
+
+    private void ValidateVideo(List<string> errors, List<FolderToProbe> foldersToProbe)
+    {
+        var v = _draft.Video;
+        CheckRange(v.MaxDurationSeconds, SettingsLimits.VideoMaxDurationMin, SettingsLimits.VideoMaxDurationMax, "Die Höchstdauer des Videos", errors);
+        CheckRange(v.CountdownSeconds, SettingsLimits.VideoCountdownMin, SettingsLimits.VideoCountdownMax, "Der Countdown vor dem Video", errors);
+        CheckRange(v.MinDurationSeconds, SettingsLimits.VideoMinDurationMin, SettingsLimits.VideoMinDurationMax, "Die Mindestlänge des Videos", errors);
+        CheckRange(v.WarningSeconds, SettingsLimits.VideoWarningMin, SettingsLimits.VideoWarningMax, "Die Warnung vor dem Ende des Videos", errors);
+        CheckRange(v.SuccessDisplaySeconds, SettingsLimits.VideoSuccessDisplayMin, SettingsLimits.VideoSuccessDisplayMax, "Die Anzeigedauer der Meldung nach dem Video", errors);
+
+        // Der Normalisierer würde die Mindestlänge stillschweigend verkürzen; die Admin-Ansicht meldet es stattdessen.
+        if (v.MinDurationSeconds >= v.MaxDurationSeconds)
+            errors.Add($"Die Mindestlänge des Videos ({v.MinDurationSeconds} s) muss kürzer sein als die Höchstdauer ({v.MaxDurationSeconds} s).");
+
+        if ((v.SuccessText?.Length ?? 0) > SettingsLimits.VideoSuccessTextMaxLength)
+            errors.Add($"Der Text nach dem Video darf höchstens {SettingsLimits.VideoSuccessTextMaxLength} Zeichen lang sein.");
+
+        if ((_draft.GuestScreen.VideoHintText?.Length ?? 0) > SettingsLimits.HintTextMaxLength)
+            errors.Add($"Der Video-Hinweistext darf höchstens {SettingsLimits.HintTextMaxLength} Zeichen lang sein.");
+
+        var prefix = v.FilePrefix;
+        if (string.IsNullOrWhiteSpace(prefix))
+            errors.Add("Das Dateipräfix der Videos darf nicht leer sein.");
+        else if (prefix.Length > SettingsLimits.FilePrefixMaxLength || prefix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            errors.Add($"Das Dateipräfix der Videos darf höchstens {SettingsLimits.FilePrefixMaxLength} Zeichen lang sein und keine Zeichen wie \\ / : * ? \" < > | enthalten.");
+
+        CheckFolder(v.Folder, _initialVideoFolder, VideoFolderName, errors, foldersToProbe);
     }
 
     private static void CheckRange(int value, int min, int max, string label, List<string> errors)

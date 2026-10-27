@@ -1093,7 +1093,7 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Equal(["Leertaste"], Keys(vm, KeyAction.Trigger).Keys.Select(k => k.DisplayName));
         Assert.Equal(["Strg+Alt+A"], Keys(vm, KeyAction.Admin).Keys.Select(k => k.DisplayName));
         Assert.Equal(["Esc"], Keys(vm, KeyAction.Cancel).Keys.Select(k => k.DisplayName));
-        Assert.Equal(["Foto auslösen", "Admin-Ansicht öffnen", "Abbrechen"], vm.KeyEditors.Select(e => e.Title));
+        Assert.Equal(["Foto auslösen", "Admin-Ansicht öffnen", "Abbrechen", "Video starten", "Video beenden"], vm.KeyEditors.Select(e => e.Title));
         Assert.Equal("Strg+Alt+A", vm.AdminKeysDisplay);
     }
 
@@ -1118,12 +1118,12 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.True(vm.IsKeyCaptureActive);
         Assert.True(trigger.IsCapturing);
 
-        Assert.True(vm.CaptureKey(Chord(Key.Enter)));
+        Assert.True(vm.CaptureKey(Chord(Key.F9)));
 
         Assert.False(vm.IsKeyCaptureActive);
         Assert.False(trigger.IsCapturing);
-        Assert.Equal(["Space", "Enter"], vm.Draft.Input.TriggerKeys);
-        Assert.Equal(["Leertaste", "Eingabetaste"], trigger.Keys.Select(k => k.DisplayName));
+        Assert.Equal(["Space", "F9"], vm.Draft.Input.TriggerKeys);
+        Assert.Equal(["Leertaste", "F9"], trigger.Keys.Select(k => k.DisplayName));
         Assert.False(vm.HasKeyMessage);
     }
 
@@ -1230,12 +1230,12 @@ public sealed class AdminViewModelTests : IDisposable
         var trigger = Keys(vm, KeyAction.Trigger);
         var first = trigger.Keys[0];
         vm.BeginKeyCapture(KeyAction.Trigger);
-        vm.CaptureKey(Chord(Key.Enter));
+        vm.CaptureKey(Chord(Key.F9));
         Assert.True(first.RemoveCommand.CanExecute(null));
 
         first.RemoveCommand.Execute(null);
 
-        Assert.Equal(["Enter"], vm.Draft.Input.TriggerKeys);
+        Assert.Equal(["F9"], vm.Draft.Input.TriggerKeys);
         Assert.False(trigger.Keys[0].RemoveCommand.CanExecute(null)); // jetzt die letzte
     }
 
@@ -1307,7 +1307,7 @@ public sealed class AdminViewModelTests : IDisposable
     {
         var vm = CreateViewModel();
         vm.BeginKeyCapture(KeyAction.Trigger);
-        vm.CaptureKey(Chord(Key.Enter));
+        vm.CaptureKey(Chord(Key.F9));
         Keys(vm, KeyAction.Cancel).Keys[0].RemoveCommand.Execute(null);
 
         vm.ResetKeysCommand.Execute(null);
@@ -1854,7 +1854,7 @@ public sealed class AdminViewModelTests : IDisposable
 
         raised.Clear();
         vm.BeginKeyCapture(KeyAction.Trigger);
-        vm.CaptureKey(Chord(Key.Enter));
+        vm.CaptureKey(Chord(Key.F9));
 
         Assert.Contains(nameof(AdminViewModel.HasHintProblems), raised);
         Assert.Equal(2, vm.HintProblems.Count);
@@ -1872,25 +1872,25 @@ public sealed class AdminViewModelTests : IDisposable
 
         // Taste hinzufügen
         vm.BeginKeyCapture(KeyAction.Trigger);
-        vm.CaptureKey(Chord(Key.Enter));
-        Assert.Equal("Drücke Leertaste oder Eingabetaste oder klicke!", vm.HintPreviewText);
+        vm.CaptureKey(Chord(Key.F9));
+        Assert.Equal("Drücke Leertaste oder F9 oder klicke!", vm.HintPreviewText);
         Assert.Contains(nameof(AdminViewModel.HintPreviewText), raised);
 
         // Taste entfernen
         raised.Clear();
         Keys(vm, KeyAction.Trigger).Keys[0].RemoveCommand.Execute(null);
-        Assert.Equal("Drücke Eingabetaste oder klicke!", vm.HintPreviewText);
+        Assert.Equal("Drücke F9 oder klicke!", vm.HintPreviewText);
         Assert.Contains(nameof(AdminViewModel.HintPreviewText), raised);
 
         // Mausklicks
         raised.Clear();
         vm.TriggerOnLeftClick = false;
-        Assert.Equal("Drücke Eingabetaste oder klicke!", vm.HintPreviewText);   // rechts löst noch aus
+        Assert.Equal("Drücke F9 oder klicke!", vm.HintPreviewText);   // rechts löst noch aus
         vm.TriggerOnRightClick = false;
-        Assert.Equal("Drücke Eingabetaste!", vm.HintPreviewText);
+        Assert.Equal("Drücke F9!", vm.HintPreviewText);
         Assert.Contains(nameof(AdminViewModel.HintPreviewText), raised);
         vm.TriggerOnLeftClick = true;
-        Assert.Equal("Drücke Eingabetaste oder klicke!", vm.HintPreviewText);
+        Assert.Equal("Drücke F9 oder klicke!", vm.HintPreviewText);
 
         // Standard-Tasten
         raised.Clear();
@@ -3025,6 +3025,24 @@ public sealed class AdminViewModelTests : IDisposable
 
         public Task StopAsync() => Task.CompletedTask;
 
+        /// <summary>Mikrofone, die <see cref="GetMicrophonesAsync"/> liefert (Fantasienamen).</summary>
+        public List<MicrophoneDevice> Microphones { get; set; } = [new("mic-a", "Testmikrofon A"), new("mic-b", "Testmikrofon B")];
+
+        /// <summary>Gesetzt: <see cref="GetMicrophonesAsync"/> wirft diese Ausnahme.</summary>
+        public Exception? MicrophonesError { get; set; }
+
+        /// <summary>Gesetzt: <see cref="GetMicrophonesAsync"/> wartet vor der Antwort auf diese Aufgabe.</summary>
+        public Task? MicrophonesGate { get; set; }
+
+        public async Task<IReadOnlyList<MicrophoneDevice>> GetMicrophonesAsync()
+        {
+            if (MicrophonesGate is not null)
+                await MicrophonesGate;
+            if (MicrophonesError is not null)
+                throw MicrophonesError;
+            return Microphones;
+        }
+
         public Task<BitmapSource> CapturePhotoAsync(CancellationToken ct = default) =>
             throw new InvalidOperationException();
 
@@ -3107,7 +3125,14 @@ public sealed class AdminViewModelTests : IDisposable
         public BitmapSource? LastTestPage { get; private set; }
 
         public string? PickOverlayFile() => null;
-        public string? PickFolder(string? initialFolder) => FolderToPick;
+        public string? LastPickTitle { get; private set; }
+        public string? LastPickInitial { get; private set; }
+        public string? PickFolder(string? initialFolder, string title)
+        {
+            LastPickTitle = title;
+            LastPickInitial = initialFolder;
+            return FolderToPick;
+        }
         /// <summary>Gesetzt: <see cref="Confirm"/> wirft diese Ausnahme.</summary>
         public Exception? ConfirmException { get; set; }
         public bool Confirm(string title, string message)

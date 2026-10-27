@@ -104,6 +104,136 @@
                 </ScrollViewer>
             </TabItem>
 
+            <!-- ============================== Video ============================== -->
+            <TabItem Header="Video" Tag="&#xE714;">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel MaxWidth="700" HorizontalAlignment="Left">
+                            <TextBlock Text="Video" Style="{StaticResource SectionTitle}" />
+
+                            <CheckBox Content="Videomodus aktiv" IsChecked="{Binding VideoEnabled}" Margin="0,12,0,0"
+                                      FontWeight="SemiBold" AutomationProperties.Name="Videomodus aktiv" />
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Gäste können dann mit den Tasten „Video starten“ und „Video beenden“ (Tab „Tasten“) ein Video aufnehmen. Videos werden nur gespeichert, nicht angezeigt oder gedruckt." />
+                            <TextBlock Text="{Binding VideoStartKeyHint}" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}"
+                                       Visibility="{Binding HasVideoStartKeyHint, Converter={StaticResource BoolToVis}}" />
+
+                            <!-- Alles Weitere ist bei ausgeschaltetem Videomodus ausgegraut. -->
+                            <StackPanel x:Name="VideoSettingsPanel" IsEnabled="{Binding VideoEnabled}">
+                                <StackPanel.Style>
+                                    <Style TargetType="StackPanel">
+                                        <Style.Triggers>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter Property="Opacity" Value="0.55" />
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </StackPanel.Style>
+
+                                <TextBlock Text="Höchstdauer eines Videos" Style="{StaticResource FieldLabel}" />
+                                <local:NumberStepper Value="{Binding VideoMaxDurationSeconds}" Minimum="{x:Static core:SettingsLimits.VideoMaxDurationMin}" Maximum="{x:Static core:SettingsLimits.VideoMaxDurationMax}" Step="10" Suffix=" s" />
+                                <TextBlock Text="{Binding VideoMaxDurationText}" Style="{StaticResource Hint}" />
+
+                                <TextBlock Text="Countdown vor dem Video" Style="{StaticResource FieldLabel}" />
+                                <local:NumberStepper Value="{Binding VideoCountdownSeconds}" Minimum="{x:Static core:SettingsLimits.VideoCountdownMin}" Maximum="{x:Static core:SettingsLimits.VideoCountdownMax}" Suffix=" s" />
+                                <TextBlock Text="Bei 0 beginnt die Aufnahme sofort." Style="{StaticResource Hint}" />
+
+                                <TextBlock Text="Mindestlänge" Style="{StaticResource FieldLabel}" />
+                                <local:NumberStepper Value="{Binding VideoMinDurationSeconds}" Minimum="{x:Static core:SettingsLimits.VideoMinDurationMin}" Maximum="{x:Static core:SettingsLimits.VideoMinDurationMax}" Suffix=" s" />
+                                <TextBlock Text="So lange läuft die Aufnahme mindestens; ein früheres „Video beenden“ wird ignoriert. Die Mindestlänge muss kürzer sein als die Höchstdauer."
+                                           Style="{StaticResource Hint}" />
+
+                                <TextBlock Text="Videoqualität" Style="{StaticResource FieldLabel}" />
+                                <ComboBox ItemsSource="{Binding VideoQualities}" SelectedItem="{Binding SelectedVideoQuality}"
+                                          DisplayMemberPath="Display" AutomationProperties.Name="Videoqualität" />
+
+                                <!-- Anzeige während der Aufnahme -->
+                                <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="18,14" Margin="0,24,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Anzeige während der Aufnahme" Style="{StaticResource FieldLabel}" Margin="0" />
+                                        <CheckBox Content="Roter Aufnahmepunkt" IsChecked="{Binding VideoShowRecDot}" Margin="0,10,0,0" />
+                                        <CheckBox Content="Laufzeit" IsChecked="{Binding VideoShowElapsed}" />
+                                        <CheckBox Content="Restzeit" IsChecked="{Binding VideoShowRemaining}" />
+
+                                        <TextBlock Text="Warnung vor dem Ende ab … Sekunden (0 = aus)" Style="{StaticResource FieldLabel}" />
+                                        <local:NumberStepper Value="{Binding VideoWarningSeconds}" Minimum="{x:Static core:SettingsLimits.VideoWarningMin}" Maximum="{x:Static core:SettingsLimits.VideoWarningMax}" Step="5" Suffix=" s" />
+                                        <TextBlock Text="Ab dieser Restzeit weist die Gastansicht darauf hin, dass die Aufnahme gleich endet." Style="{StaticResource Hint}" />
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Nach der Aufnahme -->
+                                <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="18,14" Margin="0,16,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Nach der Aufnahme" Style="{StaticResource FieldLabel}" Margin="0" />
+
+                                        <TextBlock Text="Text nach dem Speichern" Style="{StaticResource FieldLabel}" />
+                                        <Grid HorizontalAlignment="Left" Width="520">
+                                            <TextBox Text="{Binding VideoSuccessText, UpdateSourceTrigger=PropertyChanged}"
+                                                     MaxLength="{x:Static core:SettingsLimits.VideoSuccessTextMaxLength}"
+                                                     AutomationProperties.Name="Text nach dem Speichern" />
+                                            <!-- Platzhalter: der Standardtext, solange das Feld leer ist -->
+                                            <TextBlock Text="{Binding VideoSuccessTextPlaceholder}" IsHitTestVisible="False"
+                                                       Foreground="{DynamicResource MutedBrush}" FontSize="15"
+                                                       VerticalAlignment="Center" Margin="12,0,12,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding VideoSuccessText}" Value="">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Grid>
+                                        <TextBlock Text="Leer lassen für den Standardtext. Die Gastansicht zeigt ihn nach jedem gespeicherten Video." Style="{StaticResource Hint}" />
+
+                                        <TextBlock Text="Anzeigedauer" Style="{StaticResource FieldLabel}" />
+                                        <local:NumberStepper Value="{Binding VideoSuccessDisplaySeconds}" Minimum="{x:Static core:SettingsLimits.VideoSuccessDisplayMin}" Maximum="{x:Static core:SettingsLimits.VideoSuccessDisplayMax}" Suffix=" s" />
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Ton -->
+                                <TextBlock Text="Ton" Style="{StaticResource FieldLabel}" Margin="0,24,0,6" />
+                                <CheckBox Content="Ton aufnehmen" IsChecked="{Binding VideoRecordAudio}" />
+                                <TextBlock Text="Mikrofon" Style="{StaticResource FieldLabel}" />
+                                <ComboBox ItemsSource="{Binding Microphones}" SelectedItem="{Binding SelectedMicrophone}"
+                                          DisplayMemberPath="Display" IsEnabled="{Binding VideoRecordAudio}"
+                                          AutomationProperties.Name="Mikrofon" />
+                                <TextBlock Text="{Binding MicrophoneHint}" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}"
+                                           Visibility="{Binding HasMicrophoneHint, Converter={StaticResource BoolToVis}}" />
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Fehlt das Mikrofon oder ist der Zugriff in Windows gesperrt, wird ohne Ton aufgenommen. Eine Änderung beim Ton wirkt nach „Speichern“ (die Kamera startet dabei kurz neu)." />
+
+                                <!-- Speicherort -->
+                                <TextBlock Text="Speicherordner der Videos" Style="{StaticResource FieldLabel}" Margin="0,24,0,6" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" Text="{Binding VideoFolderDisplay, Mode=OneWay}" IsReadOnly="True"
+                                             AutomationProperties.Name="Speicherordner der Videos" />
+                                    <Button Grid.Column="1" Content="Ändern …" Command="{Binding ChooseVideoFolderCommand}" Margin="10,0,0,0" />
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <Button Content="Ordner öffnen" Command="{Binding OpenVideoFolderCommand}" />
+                                    <Button Content="Standardordner verwenden" Command="{Binding ResetVideoFolderCommand}" Margin="10,0,0,0" />
+                                </StackPanel>
+
+                                <CheckBox Content="Unterordner pro Tag anlegen (JJJJ-MM-TT)" IsChecked="{Binding VideoDateSubfolder}" Margin="0,18,0,0" />
+
+                                <TextBlock Text="Dateipräfix der Videos" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding VideoFilePrefix, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.FilePrefixMaxLength}"
+                                         HorizontalAlignment="Left" Width="320" AutomationProperties.Name="Dateipräfix der Videos" />
+                                <TextBlock Text="{Binding VideoFileNameExample}" Style="{StaticResource Hint}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+
             <!-- ============================== Layout ============================== -->
             <TabItem Header="Layout" Tag="&#xE8A9;">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -323,11 +453,13 @@
                         <StackPanel MaxWidth="780" HorizontalAlignment="Left">
                             <TextBlock Text="Gastansicht" Style="{StaticResource SectionTitle}" />
 
+                            <TextBlock Text="Foto-Hinweis (unten)" FontSize="18" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" Margin="0,6,0,0" />
+
                             <TextBlock Text="Hinweistext" Style="{StaticResource FieldLabel}" />
                             <TextBox Text="{Binding HintText, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.HintTextMaxLength}"
                                      Width="620" HorizontalAlignment="Left" AutomationProperties.Name="Hinweistext" />
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Leer lassen für den automatischen Text. Platzhalter: {Fototaste_1}, {Fototaste_2} … (einzelne Fototaste), {Fototasten} (alle Fototasten), {Klick} („oder klicke“, wenn ein Mausklick auslöst)." />
+                                       Text="Leer lassen für den automatischen Text. Platzhalter: {Fototaste_1}, {Fototaste_2} … (einzelne Fototaste), {Fototasten} (alle Fototasten), {Klick} („oder klicke“, wenn ein Mausklick auslöst), außerdem {Videotaste_1}, {Videotasten} (Tasten für „Video starten“)." />
                             <TextBlock Text="{Binding HintProblemsText}" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}"
                                        Visibility="{Binding HasHintProblems, Converter={StaticResource BoolToVis}}" />
 
@@ -394,6 +526,96 @@
                                 </RadioButton>
                             </UniformGrid>
 
+                            <!-- Video-Hinweis (oben im Bild) -->
+                            <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,28,0,0" Padding="0,22,0,0">
+                                <StackPanel x:Name="VideoHintPanel" IsEnabled="{Binding VideoEnabled}">
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Style.Triggers>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Opacity" Value="0.55" />
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
+
+                                    <TextBlock Text="Video-Hinweis (oben)" FontSize="18" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Eigene Zeile oben im Bild, die auf die Videoaufnahme hinweist. Sie erscheint nur bei aktivem Videomodus (Tab „Video“)." />
+
+                                    <TextBlock Text="Video-Hinweistext" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding VideoHintText, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.HintTextMaxLength}"
+                                             Width="620" HorizontalAlignment="Left" AutomationProperties.Name="Video-Hinweistext" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Leer lassen für den automatischen Text. Platzhalter: {Videotaste_1}, {Videotaste_2} … (einzelne Videotaste), {Videotasten} (alle Tasten für „Video starten“), dazu {Fototaste_N}, {Fototasten} und {Klick} wie beim Foto-Hinweis. Ohne Taste für „Video starten“ entfällt die Zeile." />
+                                    <TextBlock Text="{Binding VideoHintProblemsText}" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}"
+                                               Visibility="{Binding HasVideoHintProblems, Converter={StaticResource BoolToVis}}" />
+
+                                    <TextBlock Text="Darstellung" Style="{StaticResource FieldLabel}" />
+                                    <UniformGrid Columns="3" Margin="0,0,-14,0">
+                                        <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding IsVideoHintPill}"
+                                                     AutomationProperties.Name="Video-Hinweis: Pille">
+                                            <StackPanel>
+                                                <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
+                                                    <Border.Background>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                            <GradientStop Color="#5A6478" Offset="0" />
+                                                            <GradientStop Color="#2B3347" Offset="1" />
+                                                        </LinearGradientBrush>
+                                                    </Border.Background>
+                                                    <Border HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,9,0,0"
+                                                            Width="82" Height="18" CornerRadius="9" BorderThickness="1.2"
+                                                            BorderBrush="#F5C26B" Background="#3A1F52">
+                                                        <Border Height="3" Width="50" Background="White" CornerRadius="1.5" />
+                                                    </Border>
+                                                </Border>
+                                                <TextBlock Text="Pille" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Goldener Rahmen, pulsiert sanft." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding IsVideoHintPlain}"
+                                                     AutomationProperties.Name="Video-Hinweis: Schlicht">
+                                            <StackPanel>
+                                                <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
+                                                    <Border.Background>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                            <GradientStop Color="#5A6478" Offset="0" />
+                                                            <GradientStop Color="#2B3347" Offset="1" />
+                                                        </LinearGradientBrush>
+                                                    </Border.Background>
+                                                    <Border Height="4" Width="62" Background="White" CornerRadius="2"
+                                                            HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16,0,0" />
+                                                </Border>
+                                                <TextBlock Text="Schlicht" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Weißer Text mit Schatten." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding IsVideoHintBanner}"
+                                                     AutomationProperties.Name="Video-Hinweis: Banner">
+                                            <StackPanel>
+                                                <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
+                                                    <Border.Background>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                            <GradientStop Color="#5A6478" Offset="0" />
+                                                            <GradientStop Color="#2B3347" Offset="1" />
+                                                        </LinearGradientBrush>
+                                                    </Border.Background>
+                                                    <Border VerticalAlignment="Top" Height="26" Background="#CC101828"
+                                                            BorderBrush="#F5C26B" BorderThickness="0,0,0,1.2">
+                                                        <Border Height="4" Width="62" Background="White" CornerRadius="2" />
+                                                    </Border>
+                                                </Border>
+                                                <TextBlock Text="Banner" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Dunkles Band über die ganze Breite." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Border>
+
                             <TextBlock Text="Vorschau" Style="{StaticResource FieldLabel}" />
                             <!-- Die Gastansicht im Maßstab 1:3 (1920 × 1080): derselbe Hinweis wie am Gerät, mit angedeutetem Livebild -->
                             <Border Width="642" Height="362" HorizontalAlignment="Left" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
@@ -420,11 +642,15 @@
                                         </Border>
                                         <booth:GuestHint Text="{Binding HintPreviewText}" HintStyle="{Binding HintStyle}"
                                                          LayoutHintText="{Binding HintPreviewLayoutText}" ShowLayoutHint="{Binding HasGuestOrder}" />
+                                        <!-- Video-Zeile oben im Bild (nur bei aktivem Videomodus und vorhandener Starttaste) -->
+                                        <booth:GuestHint Text="{Binding VideoHintPreviewText}" HintStyle="{Binding VideoHintStyle}"
+                                                         Position="Top" x:Name="VideoHintPreview"
+                                                         Visibility="{Binding ShowVideoHintPreview, Converter={StaticResource BoolToVis}}" />
                                     </Grid>
                                 </Viewbox>
                             </Border>
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Die Vorschau zeigt den Hinweis mit den aktuell eingestellten Fototasten (Tab „Tasten“) und, wenn Gäste per Mausrad zwischen mehreren Layouts wählen können, die Zeile zur Layoutwahl. Das Livebild ist nur angedeutet." />
+                                       Text="Die Vorschau zeigt den Hinweis mit den aktuell eingestellten Fototasten (Tab „Tasten“) und, wenn Gäste per Mausrad zwischen mehreren Layouts wählen können, die Zeile zur Layoutwahl. Bei aktivem Videomodus erscheint oben die Video-Zeile. Das Livebild ist nur angedeutet." />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>
@@ -568,7 +794,7 @@
                         <StackPanel MaxWidth="760" HorizontalAlignment="Left">
                             <TextBlock Text="Tasten" Style="{StaticResource SectionTitle}" />
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Legen Sie fest, mit welchen Tasten die Fotobox bedient wird. Jede Taste kann nur einer Aktion zugeordnet werden." />
+                                       Text="Legen Sie fest, mit welchen Tasten die Fotobox bedient wird. Jede Taste kann nur einer Aktion zugeordnet werden; nur „Video starten“ und „Video beenden“ dürfen sich dieselbe Taste teilen." />
 
                             <ItemsControl ItemsSource="{Binding KeyEditors}" Focusable="False">
                                 <ItemsControl.ItemTemplate>
@@ -638,6 +864,10 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+
+                            <TextBlock Text="{Binding VideoStartKeyHint}" Style="{StaticResource Hint}" Margin="0,12,0,0"
+                                       Foreground="{DynamicResource DangerBrush}"
+                                       Visibility="{Binding HasVideoStartKeyHint, Converter={StaticResource BoolToVis}}" />
 
                             <TextBlock Text="{Binding KeyMessage}" Style="{StaticResource Hint}" Margin="0,12,0,0"
                                        Visibility="{Binding ShowKeyMessageBelow, Converter={StaticResource BoolToVis}}" />
