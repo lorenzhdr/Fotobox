@@ -64,6 +64,15 @@ internal static class SettingsNormalizer
         if (!Enum.IsDefined(s.Appearance.AdminTheme))
             s.Appearance.AdminTheme = AdminThemeMode.System;
 
+        // Id exakt lassen (Geräte-Pfad); zu lang → verwerfen, denn gekürzt passte sie nie. Name nur zur Anzeige, gehört zur Id.
+        var monitorId = s.Appearance.GuestMonitorId;
+        if (string.IsNullOrWhiteSpace(monitorId) || monitorId.Length > SettingsLimits.MonitorIdMaxLength)
+            monitorId = null;
+        s.Appearance.GuestMonitorId = monitorId;
+        s.Appearance.GuestMonitorName = monitorId is null || string.IsNullOrWhiteSpace(s.Appearance.GuestMonitorName)
+            ? null
+            : TrimToLength(s.Appearance.GuestMonitorName, SettingsLimits.MonitorNameMaxLength);
+
         return s;
     }
 

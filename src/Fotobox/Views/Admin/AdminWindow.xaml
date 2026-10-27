@@ -436,6 +436,14 @@
                     <Border Style="{StaticResource Card}">
                         <StackPanel MaxWidth="780" HorizontalAlignment="Left">
                             <TextBlock Text="Darstellung" Style="{StaticResource SectionTitle}" />
+
+                            <TextBlock Text="Monitor der Gastansicht" Style="{StaticResource FieldLabel}" />
+                            <ComboBox ItemsSource="{Binding Monitors}" SelectedItem="{Binding SelectedMonitor}"
+                                      DisplayMemberPath="Display" IsEnabled="{Binding IsMonitorSelectable}"
+                                      AutomationProperties.Name="Monitor der Gastansicht" />
+                            <TextBlock Style="{StaticResource Hint}" Text="{Binding MonitorHint}"
+                                       Visibility="{Binding HasMonitorHint, Converter={StaticResource BoolToVis}}" />
+
                             <TextBlock Text="Farbschema der Einstellungen" Style="{StaticResource FieldLabel}" />
                             <!-- Die Skizzen zeigen das jeweilige Schema und sind deshalb fest eingefärbt. -->
                             <UniformGrid Columns="3" Margin="0,0,-14,0">
@@ -501,7 +509,7 @@
                                 </RadioButton>
                             </UniformGrid>
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Gilt für die Einstellungen und die PIN-Abfrage, nicht für die Gastansicht. Die Änderung ist sofort sichtbar und wird mit „Speichern“ übernommen." />
+                                       Text="Das Farbschema gilt für die Einstellungen und die PIN-Abfrage, nicht für die Gastansicht. Die Änderung ist sofort sichtbar und wird mit „Speichern“ übernommen." />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>

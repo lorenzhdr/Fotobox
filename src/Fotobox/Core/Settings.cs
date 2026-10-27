@@ -39,6 +39,10 @@ public static class SettingsLimits
     public const int CaptionMaxLength = 80;
     /// <summary>Längster eigener Hinweistext der Gastansicht (mit Platzhaltern, vor dem Ersetzen); längere Werte aus der settings.json werden beim Laden gekürzt.</summary>
     public const int HintTextMaxLength = 100;
+    /// <summary>Längste gespeicherte Monitor-Id (Geräte-Pfad); längere Werte aus der settings.json werden verworfen (gekürzt passte die Id nie).</summary>
+    public const int MonitorIdMaxLength = 512;
+    /// <summary>Längster gespeicherter Monitorname (nur Anzeige); längere Werte aus der settings.json werden gekürzt.</summary>
+    public const int MonitorNameMaxLength = 200;
 }
 
 /// <summary>
@@ -177,10 +181,15 @@ public sealed class GuestScreenSettings
     public HintStyle HintStyle { get; set; } = HintStyle.Pill;
 }
 
-/// <summary>Darstellung der Admin-Ansicht (nicht der Gastansicht).</summary>
+/// <summary>Darstellung: Farbschema der Admin-Ansicht und Monitor der Gastansicht.</summary>
 public sealed class AppearanceSettings
 {
+    /// <summary>Gilt für Admin-Fenster und PIN-Dialoge, nicht für die Gastansicht.</summary>
     public AdminThemeMode AdminTheme { get; set; } = AdminThemeMode.System;
+    /// <summary>Monitor der Gastansicht (<see cref="DisplayMonitor.Id"/>); null = Hauptbildschirm. Fehlt er, läuft die Gastansicht auf dem Hauptbildschirm.</summary>
+    public string? GuestMonitorId { get; set; }
+    /// <summary>Letzter bekannter Anzeigename des gewählten Monitors, nur für den Hinweis „nicht angeschlossen“.</summary>
+    public string? GuestMonitorName { get; set; }
 }
 
 public sealed class PrinterSettings

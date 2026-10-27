@@ -401,6 +401,12 @@ public sealed class BoothViewModel : ObservableObject
     public bool CanOpenAdmin =>
         !IsAdminOpen && Controller.State is BoothState.Idle or BoothState.Starting or BoothState.Error;
 
+    /// <summary>
+    /// Die Gastansicht darf auf einen anderen Bildschirm verschoben werden: nur im Leerlauf, beim Start und im
+    /// Fehlerzustand, nie mitten in Countdown, Aufnahme, Vorschau oder Druck.
+    /// </summary>
+    public bool CanMoveWindow => Controller.State is BoothState.Idle or BoothState.Starting or BoothState.Error;
+
     /// <summary>Ein Kamerastart/-neustart dieser Ansicht läuft gerade.</summary>
     public bool IsCameraBusy => _cameraGate.CurrentCount == 0;
 

@@ -746,7 +746,7 @@ public class BoothViewModelTests
     public void BoothWindow_Close_IsCancelledUnlessAllowed()
     {
         var h = new Harness();
-        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings);
+        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new NoDisplays());
         var closed = false;
         var closingRaised = false;
         var cancelled = false;
@@ -762,10 +762,94 @@ public class BoothViewModelTests
     }
 
     [StaFact]
+    public void BoothWindow_PlaceOnTargetMonitor_NeverThrows_AndEndsMaximized()
+    {
+        var h = new Harness();
+        var monitor = new DisplayMonitor("mon-x", "Testbildschirm", 1, true, 800, 600, new MonitorRect(200, 100, 800, 600));
+        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new FixedDisplays(monitor));
+
+        window.PlaceOnTargetMonitor([monitor]);   // ohne Handle: nichts zu tun
+        Assert.Equal(System.Windows.WindowState.Maximized, window.WindowState);
+
+        // Handle erzeugen (löst SourceInitialized und damit die Platzierung aus), ohne das Fenster anzuzeigen.
+        new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+        Assert.Equal(System.Windows.WindowState.Maximized, window.WindowState);
+
+        window.PlaceOnTargetMonitor([monitor]);   // erneut: darf nichts kaputt machen
+        window.PlaceOnTargetMonitor([]);          // leere Liste: nichts verschieben
+        Assert.Equal(System.Windows.WindowState.Maximized, window.WindowState);
+    }
+
+    /// <summary>Führt eine Task-Methode im aktuellen STA-Thread aus und pumpt den Dispatcher, bis sie fertig ist (Fortsetzungen landen im UI-Thread).</summary>
+    private static void Pump(Func<Task> action)
+    {
+        var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext(dispatcher));
+        try
+        {
+            var task = action();
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            _ = task.ContinueWith(_ => dispatcher.BeginInvoke(() => frame.Continue = false), TaskScheduler.Default);
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+            task.GetAwaiter().GetResult();
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+    }
+
+    [StaFact]
+    public void BoothWindow_PlaceOnTargetMonitor_SwallowsDisplayServiceErrors()
+    {
+        var h = new Harness();
+        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new ThrowingDisplays());
+        new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();   // Startabfrage wirft: wird verschluckt
+
+        Pump(() => window.RefreshPlacementAsync());   // asynchroner Weg: ebenfalls kein Fehler
+
+        Assert.Equal(System.Windows.WindowState.Maximized, window.WindowState);
+    }
+
+    [StaFact]
+    public void BoothWindow_RefreshPlacementAsync_PlacesWindow_AndSurvivesMidSessionState()
+    {
+        var h = new Harness();
+        var monitor = new DisplayMonitor("mon-x", "Testbildschirm", 1, true, 800, 600, new MonitorRect(200, 100, 800, 600));
+        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new FixedDisplays(monitor));
+        new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+
+        Pump(() => window.RefreshPlacementAsync());
+        Assert.Equal(System.Windows.WindowState.Maximized, window.WindowState);
+
+        // Mitten im Durchgang wird nicht verschoben (stattdessen später erneut geprüft); es darf nichts werfen.
+        h.Settings.Current.Flow.CountdownSeconds = 3;
+        Assert.True(h.ViewModel.TryTrigger());
+        Assert.False(h.ViewModel.CanMoveWindow);
+        Pump(() => window.RefreshPlacementAsync(requireMovable: true));
+        Assert.Equal(System.Windows.WindowState.Maximized, window.WindowState);
+    }
+
+    [Fact]
+    public void CanMoveWindow_InIdleStartingAndError_ButNotMidSession()
+    {
+        var h = new Harness(markReady: false);
+        Assert.True(h.ViewModel.CanMoveWindow);   // Starting
+
+        h.Controller.MarkReady();
+        Assert.True(h.ViewModel.CanMoveWindow);   // Idle
+
+        h.Settings.Current.Flow.CountdownSeconds = 3;
+        Assert.True(h.ViewModel.TryTrigger());
+        Assert.False(h.ViewModel.CanMoveWindow);  // Countdown
+    }
+
+    [StaFact]
     public void BoothWindow_PrintProgressBar_FillsTrackProportionally()
     {
         var h = new Harness();
-        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings);
+        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new NoDisplays());
         var bar = new System.Windows.Controls.ProgressBar
         {
             Style = (System.Windows.Style)window.Resources["PrintProgressBar"],
@@ -788,7 +872,7 @@ public class BoothViewModelTests
     public void BoothWindow_LayoutList_ShowsAllLayouts_WithExactlyOneHighlighted()
     {
         var h = LayoutHarness(GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.StripSingle, GuestLayout.Overlay);
-        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings);
+        var window = new BoothWindow(h.ViewModel, h.Camera, new FakeAdminLauncher(), h.Settings, new NoDisplays());
         var card = (System.Windows.FrameworkElement)window.FindName("LayoutCard");
         Assert.Equal("Layout-Auswahl", System.Windows.Automation.AutomationProperties.GetName(card));
         Assert.False(card.IsHitTestVisible);
@@ -954,6 +1038,22 @@ public class BoothViewModelTests
         public event EventHandler? SettingsChanged;
         public void Save(AppSettings settings) { }
         public void RaiseSettingsChanged() => SettingsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Keine Monitore bekannt: Das Fenster wird nie verschoben (Tests dürfen das Entwicklerfenster nicht bewegen).</summary>
+    private sealed class NoDisplays : IDisplayService
+    {
+        public IReadOnlyList<DisplayMonitor> GetMonitors() => [];
+    }
+
+    private sealed class FixedDisplays(params DisplayMonitor[] monitors) : IDisplayService
+    {
+        public IReadOnlyList<DisplayMonitor> GetMonitors() => monitors;
+    }
+
+    private sealed class ThrowingDisplays : IDisplayService
+    {
+        public IReadOnlyList<DisplayMonitor> GetMonitors() => throw new InvalidOperationException("Test");
     }
 
     private sealed class FakeAdminLauncher : IAdminLauncher

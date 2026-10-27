@@ -13,19 +13,23 @@ public sealed class AdminLauncher : IAdminLauncher
     private readonly IPinService _pinService;
     private readonly ICameraService _camera;
     private readonly IPrintService _print;
+    private readonly IDisplayService _displays;
     private readonly PinAttemptLimiter _limiter;
 
-    public AdminLauncher(ISettingsStore settings, IPinService pinService, ICameraService camera, IPrintService print)
-        : this(settings, pinService, camera, print, TimeProvider.System)
+    public AdminLauncher(ISettingsStore settings, IPinService pinService, ICameraService camera, IPrintService print,
+        IDisplayService displays)
+        : this(settings, pinService, camera, print, displays, TimeProvider.System)
     {
     }
 
-    public AdminLauncher(ISettingsStore settings, IPinService pinService, ICameraService camera, IPrintService print, TimeProvider time)
+    public AdminLauncher(ISettingsStore settings, IPinService pinService, ICameraService camera, IPrintService print,
+        IDisplayService displays, TimeProvider time)
     {
         _settings = settings;
         _pinService = pinService;
         _camera = camera;
         _print = print;
+        _displays = displays;
         // Ein Limiter pro Prozess: Die Sperre überdauert das Schließen des PIN-Dialogs.
         _limiter = new PinAttemptLimiter(time, maxAttempts: 5, lockoutDuration: TimeSpan.FromSeconds(30));
     }
@@ -86,10 +90,11 @@ public sealed class AdminLauncher : IAdminLauncher
         var cameraBefore = CloneCamera(_settings.Current.Camera);
 
         var ui = new WpfAdminUi();
-        using var viewModel = new AdminViewModel(_settings, _pinService, _camera, _print, ui);
+        using var viewModel = new AdminViewModel(_settings, _pinService, _camera, _print, ui, displays: _displays);
         var window = new AdminWindow(viewModel);
         if (owner.IsLoaded)
             window.Owner = owner;
+        window.LimitSizeToOwnerMonitor();
         ui.Owner = window;
 
         window.ShowDialog();

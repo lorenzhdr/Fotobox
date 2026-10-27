@@ -196,6 +196,7 @@ public sealed class AdminViewModelTests : IDisposable
     private readonly FakeCamera _camera = new();
     private readonly FakePrint _print = new();
     private readonly FakeUi _ui = new();
+    private readonly FakeDisplays _displays = new(AdminMonitors.Primary);
 
     public AdminViewModelTests()
     {
@@ -215,7 +216,7 @@ public sealed class AdminViewModelTests : IDisposable
         }
     }
 
-    private AdminViewModel CreateViewModel(TimeProvider? time = null) => new(_store, _pin, _camera, _print, _ui, time);
+    private AdminViewModel CreateViewModel(TimeProvider? time = null) => new(_store, _pin, _camera, _print, _ui, time, _displays);
 
     [Fact]
     public void EditsApplyToClone_NotToStoreSettings()
@@ -2048,6 +2049,227 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Equal(AdminThemeMode.Light, _store.Current.Appearance.AdminTheme);
     }
 
+    // ------------------------------------------------------------------ Monitor der Gastansicht
+
+    [Fact]
+    public async Task Monitor_SingleMonitor_IsNotSelectable_AndShowsItsLabel()
+    {
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.False(vm.IsMonitorSelectable);
+        var option = Assert.Single(vm.Monitors);
+        Assert.Same(option, vm.SelectedMonitor);
+        Assert.Equal(GuestMonitors.Label(AdminMonitors.Primary), option.Display);
+        Assert.Contains("Hauptbildschirm", option.Display);
+        Assert.Contains("weiteren Bildschirm", vm.MonitorHint);
+        Assert.True(vm.HasMonitorHint);
+        Assert.Null(vm.Draft.Appearance.GuestMonitorId);
+    }
+
+    [Fact]
+    public async Task Monitor_TwoMonitors_AreSelectable_AndSelectionWritesDraftOnlyOnSave()
+    {
+        _displays.Monitors = [AdminMonitors.Primary, AdminMonitors.Second];
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.True(vm.IsMonitorSelectable);
+        Assert.Equal(2, vm.Monitors.Count);
+        Assert.Equal(AdminMonitors.Primary.Id, vm.SelectedMonitor!.Id);   // ohne gespeicherte Wahl: Hauptbildschirm
+        Assert.Null(vm.Draft.Appearance.GuestMonitorId);                  // ... aber unverändert (null)
+
+        vm.SelectedMonitor = vm.Monitors[1];
+
+        Assert.Equal(AdminMonitors.Second.Id, vm.Draft.Appearance.GuestMonitorId);
+        Assert.Equal(AdminMonitors.Second.Name, vm.Draft.Appearance.GuestMonitorName);
+        Assert.Null(_store.Current.Appearance.GuestMonitorId);
+        Assert.Equal(0, _store.SaveCount);
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(1, _store.SaveCount);
+        Assert.Equal(AdminMonitors.Second.Id, _store.Current.Appearance.GuestMonitorId);
+        Assert.Equal(AdminMonitors.Second.Name, _store.Current.Appearance.GuestMonitorName);
+    }
+
+    [Fact]
+    public async Task Monitor_WithoutUserChange_KeepsNullDefault_OnSave()
+    {
+        _displays.Monitors = [AdminMonitors.Primary, AdminMonitors.Second];
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Null(_store.Current.Appearance.GuestMonitorId);
+        Assert.Null(_store.Current.Appearance.GuestMonitorName);
+    }
+
+    [Fact]
+    public async Task Monitor_SavedMonitorConnected_IsSelected()
+    {
+        _displays.Monitors = [AdminMonitors.Primary, AdminMonitors.Second];
+        _store.Current.Appearance.GuestMonitorId = AdminMonitors.Second.Id;
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.Equal(AdminMonitors.Second.Id, vm.SelectedMonitor!.Id);
+        Assert.Equal(2, vm.Monitors.Count);
+        Assert.DoesNotContain("nicht angeschlossen", vm.MonitorHint);
+    }
+
+    [Fact]
+    public async Task Monitor_SavedMonitorMissing_WithTwoMonitors_ShowsDisconnectedEntry_AndCanBeRestored()
+    {
+        _displays.Monitors = [AdminMonitors.Primary, AdminMonitors.Second];
+        _store.Current.Appearance.GuestMonitorId = "gone";
+        _store.Current.Appearance.GuestMonitorName = "Altbildschirm";
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.True(vm.IsMonitorSelectable);
+        Assert.Equal(3, vm.Monitors.Count);
+        Assert.Equal("gone", vm.SelectedMonitor!.Id);
+        Assert.Equal("Altbildschirm (nicht angeschlossen)", vm.SelectedMonitor.Display);
+        Assert.Equal("Der gewählte Bildschirm „Altbildschirm“ ist nicht angeschlossen. Die Fotobox nutzt bis dahin den Hauptbildschirm.",
+            vm.MonitorHint);
+        Assert.Equal("gone", vm.Draft.Appearance.GuestMonitorId);   // Entwurf unverändert
+        Assert.Equal("Altbildschirm", vm.Draft.Appearance.GuestMonitorName);
+
+        // Ein angeschlossener Monitor ersetzt die Wahl, der Hinweis verschwindet ...
+        vm.SelectedMonitor = vm.Monitors[1];
+        Assert.Equal(AdminMonitors.Second.Id, vm.Draft.Appearance.GuestMonitorId);
+        Assert.DoesNotContain("nicht angeschlossen", vm.MonitorHint);
+
+        // ... und die Rückkehr zum fehlenden Eintrag stellt Id und ursprünglichen Namen wieder her.
+        vm.SelectedMonitor = vm.Monitors[2];
+        Assert.Equal("gone", vm.Draft.Appearance.GuestMonitorId);
+        Assert.Equal("Altbildschirm", vm.Draft.Appearance.GuestMonitorName);
+        Assert.Contains("Altbildschirm", vm.MonitorHint);
+    }
+
+    [Fact]
+    public async Task Monitor_SavedMonitorMissing_WithOneMonitor_IsNotSelectable_AndKeepsDraft()
+    {
+        _store.Current.Appearance.GuestMonitorId = "gone";
+        _store.Current.Appearance.GuestMonitorName = "Altbildschirm";
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.False(vm.IsMonitorSelectable);
+        var option = Assert.Single(vm.Monitors);
+        Assert.Equal(AdminMonitors.Primary.Id, option.Id);
+        Assert.Same(option, vm.SelectedMonitor);
+        Assert.Contains("„Altbildschirm“ ist nicht angeschlossen", vm.MonitorHint);
+        Assert.Equal("gone", vm.Draft.Appearance.GuestMonitorId);
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal("gone", _store.Current.Appearance.GuestMonitorId);
+        Assert.Equal("Altbildschirm", _store.Current.Appearance.GuestMonitorName);
+    }
+
+    [Fact]
+    public async Task Monitor_SavedMonitorMissing_WithoutKnownName_UsesGenericName()
+    {
+        _displays.Monitors = [AdminMonitors.Primary, AdminMonitors.Second];
+        _store.Current.Appearance.GuestMonitorId = "gone";
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.Equal("Gewählter Bildschirm (nicht angeschlossen)", vm.SelectedMonitor!.Display);
+        Assert.Contains("„Gewählter Bildschirm“", vm.MonitorHint);
+    }
+
+    [Fact]
+    public async Task Monitor_NoMonitorsKnown_ShowsMainScreen_NotSelectable()
+    {
+        _displays.Monitors = [];
+        _store.Current.Appearance.GuestMonitorId = "gone";
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.False(vm.IsMonitorSelectable);
+        var option = Assert.Single(vm.Monitors);
+        Assert.Equal("Hauptbildschirm", option.Display);
+        Assert.Same(option, vm.SelectedMonitor);
+        Assert.True(vm.HasMonitorHint);
+        Assert.Equal(
+            "Die angeschlossenen Bildschirme konnten nicht ermittelt werden. Gespeichert ist „Gewählter Bildschirm“.",
+            vm.MonitorHint);
+        Assert.Equal("gone", vm.Draft.Appearance.GuestMonitorId);
+    }
+
+    [Fact]
+    public async Task Monitor_NoMonitorsKnown_WithSavedName_HintNamesSavedMonitor()
+    {
+        _displays.Monitors = [];
+        _store.Current.Appearance.GuestMonitorId = "gone";
+        _store.Current.Appearance.GuestMonitorName = "Altbildschirm";
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.Equal(
+            "Die angeschlossenen Bildschirme konnten nicht ermittelt werden. Gespeichert ist „Altbildschirm“.",
+            vm.MonitorHint);
+    }
+
+    [Fact]
+    public async Task Monitor_NoMonitorsKnown_WithoutSavedChoice_HintHasNoSavedPart()
+    {
+        _displays.Monitors = [];
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.Equal("Die angeschlossenen Bildschirme konnten nicht ermittelt werden.", vm.MonitorHint);
+    }
+
+    [Fact]
+    public async Task Monitor_DisplayServiceThrows_FallsBackToMainScreen()
+    {
+        _displays.Error = new InvalidOperationException("Test");
+        _store.Current.Appearance.GuestMonitorId = "gone";
+        _store.Current.Appearance.GuestMonitorName = "Altbildschirm";
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        Assert.False(vm.IsMonitorSelectable);
+        Assert.Equal("Hauptbildschirm", Assert.Single(vm.Monitors).Display);
+        Assert.Contains("konnten nicht ermittelt werden", vm.MonitorHint);
+        Assert.Contains("„Altbildschirm“", vm.MonitorHint);
+    }
+
+    [Fact]
+    public async Task Monitor_WithoutDisplayService_BehavesLikeEmptyList()
+    {
+        var vm = new AdminViewModel(_store, _pin, _camera, _print, _ui);
+        await vm.InitializeAsync();
+
+        Assert.False(vm.IsMonitorSelectable);
+        Assert.Equal("Hauptbildschirm", Assert.Single(vm.Monitors).Display);
+    }
+
+    [Fact]
+    public async Task Monitor_ResetToDefaults_SelectsMainScreen_AndClearsSavedChoice()
+    {
+        _displays.Monitors = [AdminMonitors.Primary, AdminMonitors.Second];
+        _store.Current.Appearance.GuestMonitorId = "gone";
+        _store.Current.Appearance.GuestMonitorName = "Altbildschirm";
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        Assert.Equal(3, vm.Monitors.Count);
+        _ui.ConfirmResult = true;
+
+        await vm.ResetToDefaultsAsync();
+
+        Assert.Null(vm.Draft.Appearance.GuestMonitorId);
+        Assert.Equal(2, vm.Monitors.Count);
+        Assert.Equal(AdminMonitors.Primary.Id, vm.SelectedMonitor!.Id);
+        Assert.True(vm.IsMonitorSelectable);
+        Assert.DoesNotContain("nicht angeschlossen", vm.MonitorHint);
+    }
+
     // ------------------------------------------------------------------ Standardwerte wiederherstellen
 
     private static readonly string[] DefaultTriggerKeys = [InputSettings.DefaultTriggerKey];
@@ -2633,6 +2855,26 @@ public sealed class AdminViewModelTests : IDisposable
             throw new InvalidOperationException();
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>Monitore für Tests (Fantasienamen).</summary>
+    internal static class AdminMonitors
+    {
+        public static readonly DisplayMonitor Primary =
+            new("mon-a", "Testbildschirm A", 1, true, 1920, 1080, new MonitorRect(0, 0, 1920, 1080));
+
+        public static readonly DisplayMonitor Second =
+            new("mon-b", "Testbildschirm B", 2, false, 1280, 1024, new MonitorRect(1920, 0, 1280, 1024));
+    }
+
+    internal sealed class FakeDisplays(params DisplayMonitor[] monitors) : IDisplayService
+    {
+        public IReadOnlyList<DisplayMonitor> Monitors { get; set; } = monitors;
+
+        /// <summary>Gesetzt: <see cref="GetMonitors"/> wirft diese Ausnahme.</summary>
+        public Exception? Error { get; set; }
+
+        public IReadOnlyList<DisplayMonitor> GetMonitors() => Error is null ? Monitors : throw Error;
     }
 
     internal sealed class FakePrint : IPrintService

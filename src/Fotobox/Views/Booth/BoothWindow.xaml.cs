@@ -1,8 +1,11 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using Fotobox.Core;
+using Fotobox.Services.Display;
 using Fotobox.ViewModels.Booth;
 
 namespace Fotobox.Views.Booth;
@@ -11,25 +14,40 @@ namespace Fotobox.Views.Booth;
 public sealed partial class BoothWindow : Window
 {
     private static readonly TimeSpan FocusReclaimDelay = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan DisplayChangeDebounce = TimeSpan.FromSeconds(1);
+    /// <summary>Länger darf die Monitorabfrage nie dauern (sie ist eigentlich sofort fertig); danach bleibt das Fenster, wo es ist.</summary>
+    private static readonly TimeSpan MonitorQueryTimeout = TimeSpan.FromSeconds(3);
 
     private readonly BoothViewModel _viewModel;
     private readonly IAdminLauncher _adminLauncher;
+    private readonly ISettingsStore _settings;
+    private readonly IDisplayService _displays;
+    // Fasst mehrere WM_DISPLAYCHANGE zusammen (beim Ein-/Ausstecken kommen oft mehrere in kurzer Folge).
+    private DispatcherTimer? _displayChangeTimer;
+    // Jede Platzierungsanfrage erhöht den Zähler; eine überholte Antwort wird verworfen.
+    private int _placementGeneration;
+    // Zuletzt ermittelter Zielmonitor (OnLoaded prüft damit nur noch, ohne erneut aufzuzählen).
+    private DisplayMonitor? _target;
     // Schließen ist nur über „Fotobox beenden“ in der Admin-Ansicht (oder Abmeldung/App-Shutdown) erlaubt.
     private bool _allowClose;
     private bool _focusReclaimPending;
     // Noch nicht verbrauchte Mausrad-Deltas (kleiner als eine Stufe).
     private int _wheelRemainder;
 
-    public BoothWindow(BoothViewModel viewModel, ICameraService camera, IAdminLauncher adminLauncher, ISettingsStore settings)
+    public BoothWindow(BoothViewModel viewModel, ICameraService camera, IAdminLauncher adminLauncher, ISettingsStore settings,
+        IDisplayService displays)
     {
         _viewModel = viewModel;
         _adminLauncher = adminLauncher;
+        _settings = settings;
+        _displays = displays;
         DataContext = viewModel;
         InitializeComponent();
 
         viewModel.CountdownTicked += (_, _) => PlayCountdownTick();
         viewModel.FlashRequested += (_, _) => PlayFlash();
 
+        SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
         Closing += OnClosing;
         Activated += (_, _) => Focus();
@@ -45,8 +63,208 @@ public sealed partial class BoothWindow : Window
 
     private bool IsShuttingDown => _allowClose || Dispatcher.HasShutdownStarted;
 
+    /// <summary>
+    /// Das Fenster hat jetzt ein Handle, ist aber noch nicht sichtbar: direkt auf den gewählten Monitor setzen
+    /// (kein Aufblitzen auf dem Hauptbildschirm) und auf Monitoränderungen (Ein-/Ausstecken, Auflösung) lauschen.
+    /// </summary>
+    private void OnSourceInitialized(object? sender, EventArgs e)
+    {
+        try
+        {
+            if (PresentationSource.FromVisual(this) is HwndSource source)
+                source.AddHook(WndProc);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Monitoränderungen können nicht überwacht werden.", ex);
+        }
+
+        // Das Fenster ist noch unsichtbar: begrenzt synchron warten, damit es nicht erst auf dem falschen Monitor erscheint.
+        // Bei Zeitüberschreitung oder Fehler bleibt es maximiert auf dem Standardmonitor (OnLoaded versucht es noch einmal).
+        _placementGeneration++;
+        PlaceOnTargetMonitor(QueryMonitorsBlocking());
+    }
+
+    private IReadOnlyList<DisplayMonitor> QueryMonitorsBlocking()
+    {
+        try
+        {
+            var task = Task.Run(() => _displays.GetMonitors());
+            if (task.Wait(MonitorQueryTimeout))
+                return task.Result;
+
+            AppLog.Warn("Die Monitorabfrage beim Start dauert zu lange; die Gastansicht bleibt auf dem Standardbildschirm.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Die Monitorabfrage beim Start ist fehlgeschlagen; die Gastansicht bleibt auf dem Standardbildschirm.", ex);
+        }
+        return [];
+    }
+
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == DisplayNative.WmDisplayChange)
+            ScheduleReplace();
+        return IntPtr.Zero;
+    }
+
+    private void ScheduleReplace()
+    {
+        if (_displayChangeTimer is null)
+        {
+            _displayChangeTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = DisplayChangeDebounce };
+            _displayChangeTimer.Tick += (timer, _) =>
+            {
+                ((DispatcherTimer)timer!).Stop();
+                // Bei offenem Admin nicht verschieben; OpenAdmin platziert nach dem Schließen ohnehin neu.
+                if (IsShuttingDown || _viewModel.IsAdminOpen)
+                    return;
+
+                // Mitten im Durchgang (Countdown bis Druck) nicht verschieben: später erneut prüfen.
+                if (!_viewModel.CanMoveWindow)
+                {
+                    ((DispatcherTimer)timer).Start();
+                    return;
+                }
+
+                RefreshPlacement();
+            };
+        }
+
+        _displayChangeTimer.Stop();
+        _displayChangeTimer.Start();
+    }
+
+    /// <summary>Fire-and-forget für Ereignishandler: <see cref="RefreshPlacementAsync"/> wirft nie.</summary>
+    private async void RefreshPlacement()
+    {
+        try
+        {
+            await RefreshPlacementAsync(requireMovable: true);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Gastansicht konnte nicht neu platziert werden.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Fragt die Monitore im Hintergrund ab (mit Zeitlimit) und platziert die Gastansicht danach im UI-Thread.
+    /// Eine überholte Anfrage (inzwischen eine neuere gestartet), ein geschlossenes Fenster, eine offene Admin-Ansicht
+    /// oder (mit <paramref name="requireMovable"/>) ein laufender Durchgang verwerfen das Ergebnis. Bei Fehler oder
+    /// Zeitüberschreitung bleibt das Fenster, wo es ist. Wirft nie.
+    /// </summary>
+    public async Task RefreshPlacementAsync(bool requireMovable = false)
+    {
+        try
+        {
+            var generation = ++_placementGeneration;
+            IReadOnlyList<DisplayMonitor> monitors;
+            try
+            {
+                monitors = await Task.Run(() => _displays.GetMonitors()).WaitAsync(MonitorQueryTimeout);
+            }
+            catch (TimeoutException)
+            {
+                AppLog.Warn("Die Monitorabfrage dauert zu lange; die Gastansicht wird nicht verschoben.");
+                return;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Die Monitorabfrage ist fehlgeschlagen; die Gastansicht wird nicht verschoben.", ex);
+                return;
+            }
+
+            if (generation != _placementGeneration || IsShuttingDown || _viewModel.IsAdminOpen)
+                return;
+
+            if (requireMovable && !_viewModel.CanMoveWindow)
+            {
+                // Währenddessen hat ein Durchgang begonnen: später erneut versuchen.
+                ScheduleReplace();
+                return;
+            }
+
+            PlaceOnTargetMonitor(monitors);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Gastansicht konnte nicht neu platziert werden.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Zeigt die Gastansicht als Vollbild auf dem gewählten Monitor der übergebenen Liste (Hauptbildschirm, falls dieser fehlt;
+    /// bei leerer Liste bleibt das Fenster, wo es ist). Liegt sie bereits maximiert dort, geschieht nichts.
+    /// Läuft im UI-Thread, wirft nie; am Ende ist das Fenster immer maximiert.
+    /// </summary>
+    public void PlaceOnTargetMonitor(IReadOnlyList<DisplayMonitor> monitors)
+    {
+        DisplayMonitor? target = null;
+        try
+        {
+            target = GuestMonitors.Resolve(monitors, _settings.Current.Appearance.GuestMonitorId);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Zielbildschirm der Gastansicht konnte nicht bestimmt werden.", ex);
+        }
+
+        _target = target;
+        ApplyPlacement(target);
+    }
+
+    /// <summary>Setzt das Fenster auf <paramref name="target"/> (null = nichts verschieben) und maximiert es. Wirft nie.</summary>
+    private void ApplyPlacement(DisplayMonitor? target)
+    {
+        try
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (target is null || hwnd == IntPtr.Zero)
+                return;
+
+            if (WindowState == WindowState.Maximized
+                && WindowMonitor.TryGetRects(hwnd, out var current, out _)
+                && current == target.Bounds)
+                return;
+
+            // Erst aus dem Maximiert-Zustand lösen, ins Monitor-Rechteck setzen, dann wieder maximieren:
+            // Windows maximiert auf dem Monitor, auf dem das (normale) Fenster liegt.
+            WindowState = WindowState.Normal;
+            var b = target.Bounds;
+            if (!DisplayNative.SetWindowPos(hwnd, IntPtr.Zero, b.Left, b.Top, b.Width, b.Height,
+                    DisplayNative.SwpNoZOrder | DisplayNative.SwpNoActivate))
+                AppLog.Warn("Gastansicht konnte nicht auf den gewählten Bildschirm gesetzt werden.");
+            else
+                AppLog.Info($"Gastansicht auf Bildschirm {target.Number} gesetzt.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Gastansicht konnte nicht auf den gewählten Bildschirm gesetzt werden.", ex);
+        }
+        finally
+        {
+            try
+            {
+                if (WindowState != WindowState.Maximized)
+                    WindowState = WindowState.Maximized;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Gastansicht konnte nicht maximiert werden.", ex);
+            }
+        }
+    }
+
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // Falls das Platzieren vor dem Anzeigen nicht gegriffen hat (macht nichts, wenn alles stimmt) – ohne erneute Abfrage,
+        // mit dem beim Start ermittelten Ziel. Fehlt es (Abfrage fehlgeschlagen), jetzt im Hintergrund noch einmal versuchen.
+        if (_target is null)
+            RefreshPlacement();
+        else
+            ApplyPlacement(_target);
         Activate();
         Focus();
         try
@@ -68,6 +286,7 @@ public sealed partial class BoothWindow : Window
             return;
         }
 
+        _displayChangeTimer?.Stop();
         _viewModel.Shutdown();
     }
 
@@ -211,8 +430,6 @@ public sealed partial class BoothWindow : Window
         {
             Cursor = Cursors.None;
             _viewModel.IsAdminOpen = false;
-            Activate();
-            Focus();
         }
 
         if (result.ExitRequested)
@@ -221,6 +438,11 @@ public sealed partial class BoothWindow : Window
             Application.Current.Shutdown();
             return;
         }
+
+        // Immer neu platzieren: deckt einen geänderten Monitor und ein Ein-/Ausstecken während der Admin-Ansicht ab.
+        await RefreshPlacementAsync();
+        Activate();
+        Focus();
 
         // Kamera nur neu starten, wenn sich ihre Einstellungen geändert haben oder sie nicht läuft –
         // ein unnötiger Neustart war früher die Ursache für Abstürze nach dem Speichern.

@@ -186,6 +186,57 @@ public class AdminViewTests
     }
 
     [StaFact]
+    public void AdminWindow_AppearanceTab_MonitorBox_IsDisabledForOneMonitor_AndEnabledForTwo()
+    {
+        var one = ReadMonitorBox(AdminViewModelTests.AdminMonitors.Primary);
+        Assert.False(one.Enabled);
+        Assert.Equal(1, one.Count);
+        Assert.Contains("Hauptbildschirm", one.Text);
+
+        var two = ReadMonitorBox(AdminViewModelTests.AdminMonitors.Primary, AdminViewModelTests.AdminMonitors.Second);
+        Assert.True(two.Enabled);
+        Assert.Equal(2, two.Count);
+    }
+
+    private static (bool Enabled, int Count, string? Text) ReadMonitorBox(params DisplayMonitor[] monitors)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "fotobox-admin-view-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var store = new AdminViewModelTests.FakeStore(dir);
+            var vm = new AdminViewModel(store, new AdminViewModelTests.FakePinService(store),
+                new AdminViewModelTests.FakeCamera(), new AdminViewModelTests.FakePrint(), new AdminViewModelTests.FakeUi(),
+                displays: new AdminViewModelTests.FakeDisplays(monitors));
+            try
+            {
+                // Vor dem Fenster laden (ohne Synchronisationskontext läuft alles auf dem Aufrufer-/Threadpool-Thread, es gibt noch keine Bindung).
+                vm.InitializeAsync().GetAwaiter().GetResult();
+                var window = new AdminWindow(vm);
+
+                var tabs = FindTabControl(window)!;
+                tabs.SelectedItem = tabs.Items.OfType<System.Windows.Controls.TabItem>().Single(t => t.Header as string == "Darstellung");
+                var root = (System.Windows.FrameworkElement)window.Content;
+                root.Measure(new System.Windows.Size(1100, 750));
+                root.Arrange(new System.Windows.Rect(0, 0, 1100, 750));
+                root.UpdateLayout();
+
+                var combo = FindDescendants<System.Windows.Controls.ComboBox>(root)
+                    .Single(c => System.Windows.Automation.AutomationProperties.GetName(c) == "Monitor der Gastansicht");
+                return (combo.IsEnabled, combo.Items.Count, (combo.SelectedItem as MonitorOption)?.Display);
+            }
+            finally
+            {
+                vm.Dispose();
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [StaFact]
     public void AdminWindow_HasAppearanceTab_AfterGuestScreenTab()
     {
         WithWindow((window, _) =>

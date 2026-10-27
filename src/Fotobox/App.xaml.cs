@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Threading;
 using Fotobox.Core;
 using Fotobox.Services.Camera;
+using Fotobox.Services.Display;
 using Fotobox.Services.Layout;
 using Fotobox.Services.Printing;
 using Fotobox.Services.Storage;
@@ -97,6 +98,7 @@ public partial class App : Application
         services.AddSingleton<ILayoutComposer, LayoutComposer>();
         services.AddSingleton<IPrintService, PrintService>();
         services.AddSingleton<IPhotoStorage, PhotoStorage>();
+        services.AddSingleton<IDisplayService, Win32DisplayService>();
         services.AddSingleton<IAdminLauncher, AdminLauncher>();
 
         services.AddSingleton<BoothController>();

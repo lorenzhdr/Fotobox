@@ -781,4 +781,119 @@ public sealed class SettingsStoreTests : IDisposable
 
         Assert.Equal(AdminThemeMode.System, store.Current.Appearance.AdminTheme);
     }
+
+    // ---- Darstellung (Monitor der Gastansicht)
+
+    [Fact]
+    public void GuestMonitor_DefaultsToNull_AndSurvivesMissingOrNullAppearance()
+    {
+        var fresh = new AppSettings();
+        Assert.Null(fresh.Appearance.GuestMonitorId);
+        Assert.Null(fresh.Appearance.GuestMonitorName);
+
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, "{ \"Flow\": { \"CountdownSeconds\": 3 } }");
+        var missing = new JsonSettingsStore(_dir).Current;
+        Assert.Null(missing.Appearance.GuestMonitorId);
+        Assert.Null(missing.Appearance.GuestMonitorName);
+
+        File.WriteAllText(SettingsPath, "{ \"Appearance\": null }");
+        var nulled = new JsonSettingsStore(_dir).Current;
+        Assert.Null(nulled.Appearance.GuestMonitorId);
+        Assert.Null(nulled.Appearance.GuestMonitorName);
+    }
+
+    [Fact]
+    public void GuestMonitor_Roundtrip_KeepsIdExactly()
+    {
+        var id = @"\\?\DISPLAY#TST0001#5&1a2b3c&0&UID1#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Appearance.GuestMonitorId = id;
+        s.Appearance.GuestMonitorName = "Testmonitor";
+        store.Save(s);
+
+        var reloaded = new JsonSettingsStore(_dir).Current;
+        Assert.Equal(id, reloaded.Appearance.GuestMonitorId);
+        Assert.Equal("Testmonitor", reloaded.Appearance.GuestMonitorName);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t \n")]
+    public void GuestMonitor_WhitespaceId_BecomesNull_AndTakesNameWithIt(string whitespace)
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Appearance.GuestMonitorId = whitespace;
+        s.Appearance.GuestMonitorName = "Testmonitor";
+        store.Save(s);
+
+        Assert.Null(store.Current.Appearance.GuestMonitorId);
+        Assert.Null(store.Current.Appearance.GuestMonitorName);
+    }
+
+    [Fact]
+    public void GuestMonitor_WhitespaceName_BecomesNull_ButIdStays()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Appearance.GuestMonitorId = @"\\.\DISPLAY2";
+        s.Appearance.GuestMonitorName = "   ";
+        store.Save(s);
+
+        Assert.Equal(@"\\.\DISPLAY2", store.Current.Appearance.GuestMonitorId);
+        Assert.Null(store.Current.Appearance.GuestMonitorName);
+    }
+
+    [Fact]
+    public void GuestMonitor_TooLongId_IsDropped_WithItsName()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Appearance.GuestMonitorId = new string('x', SettingsLimits.MonitorIdMaxLength + 1);
+        s.Appearance.GuestMonitorName = "Testmonitor";
+        store.Save(s);
+
+        Assert.Null(store.Current.Appearance.GuestMonitorId);
+        Assert.Null(store.Current.Appearance.GuestMonitorName);
+    }
+
+    [Fact]
+    public void GuestMonitor_IdAtLimit_IsKept()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Appearance.GuestMonitorId = new string('x', SettingsLimits.MonitorIdMaxLength);
+        store.Save(s);
+
+        Assert.Equal(SettingsLimits.MonitorIdMaxLength, store.Current.Appearance.GuestMonitorId!.Length);
+    }
+
+    [Fact]
+    public void GuestMonitor_TooLongName_IsTruncated()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Appearance.GuestMonitorId = @"\\.\DISPLAY2";
+        s.Appearance.GuestMonitorName = new string('n', SettingsLimits.MonitorNameMaxLength + 50);
+        store.Save(s);
+
+        Assert.Equal(new string('n', SettingsLimits.MonitorNameMaxLength), store.Current.Appearance.GuestMonitorName);
+    }
+
+    [Fact]
+    public void GuestMonitor_NameWithoutId_BecomesNull_WhenLoadedFromFile()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath,
+            "{ \"Flow\": { \"CountdownSeconds\": 3 }, \"Appearance\": { \"GuestMonitorName\": \"Testmonitor\" } }");
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.Null(s.Appearance.GuestMonitorId);
+        Assert.Null(s.Appearance.GuestMonitorName);
+        Assert.Equal(3, s.Flow.CountdownSeconds);
+    }
 }

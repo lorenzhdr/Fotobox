@@ -23,6 +23,12 @@ public sealed record PrinterOption(string? Name, string Display)
     public override string ToString() => Display;
 }
 
+/// <summary>Eintrag der Monitor-Auswahl der Gastansicht; <c>Id == null</c> bedeutet „kein Monitor bekannt“ (Hauptbildschirm).</summary>
+public sealed record MonitorOption(string? Id, string Display)
+{
+    public override string ToString() => Display;
+}
+
 /// <summary>Eintrag der Papiergrößen-Auswahl; <c>Info == null</c> bedeutet Standard des Druckers.</summary>
 public sealed record PaperOption(PaperSizeInfo? Info, string Display)
 {
@@ -75,6 +81,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private readonly ISettingsStore _store;
     private readonly IPinService _pin;
     private readonly IPrintService _print;
+    private readonly IDisplayService? _displays;
     private readonly IAdminUi _ui;
     private readonly SynchronizationContext? _sync = SynchronizationContext.Current;
     private readonly TimeProvider _time;
@@ -97,6 +104,14 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private PrinterOption? _selectedPrinter;
     private PaperOption? _selectedPaper;
     private OrientationOption _selectedOrientation;
+
+    // Monitorwahl der Gastansicht: zuletzt geladene Liste, damit „Standardwerte wiederherstellen“ sie neu aufbauen kann.
+    private IReadOnlyList<DisplayMonitor> _monitorList = [];
+    private MonitorOption? _selectedMonitor;
+    private bool _isMonitorSelectable;
+    private string? _monitorHint;
+    // Name des beim Öffnen gespeicherten, aber nicht angeschlossenen Monitors (für den Eintrag „… (nicht angeschlossen)“).
+    private string? _missingMonitorName;
 
     private string _validationMessage = string.Empty;
     private string _newPin = string.Empty;
@@ -125,13 +140,14 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private static readonly TimeSpan PageSpecTimeout = TimeSpan.FromSeconds(10);
 
     public AdminViewModel(ISettingsStore store, IPinService pin, ICameraService camera, IPrintService print, IAdminUi ui,
-        TimeProvider? time = null)
+        TimeProvider? time = null, IDisplayService? displays = null)
     {
         _time = time ?? TimeProvider.System;
         _store = store;
         _pin = pin;
         Camera = camera;
         _print = print;
+        _displays = displays;
         _ui = ui;
         _draft = store.Current.Clone();
         _initialPhotoFolder = _draft.Storage.PhotoFolder;
@@ -236,6 +252,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         await Task.WhenAll(
             Guard(LoadCameraListsAsync(), "Kameraliste"),
             Guard(LoadPrintersAsync(), "Druckerliste"),
+            Guard(LoadMonitorsAsync(), "Monitorliste"),
             Guard(ApplyFontsAsync(FontCatalog.GetAsync()), "Schriftenliste"),
             Guard(RefreshPageSpecAsync(), "Seitengröße"));
         // Das Overlay-Vorschaubild hat bereits der Konstruktor geladen.
@@ -1180,6 +1197,159 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         return (image, width, height);
     }
 
+    // ---------------------------------------------------------------- Monitor der Gastansicht
+
+    private const string FallbackMonitorDisplay = "Hauptbildschirm";
+    private const string UnknownMonitorName = "Gewählter Bildschirm";
+
+    /// <summary>Länger darf die Monitorabfrage nicht dauern (sie ist eigentlich sofort fertig).</summary>
+    private static readonly TimeSpan MonitorListTimeout = TimeSpan.FromSeconds(5);
+
+    public ObservableCollection<MonitorOption> Monitors { get; } = [];
+
+    public MonitorOption? SelectedMonitor
+    {
+        get => _selectedMonitor;
+        set
+        {
+            if (value is null || value == _selectedMonitor)
+                return;
+            _selectedMonitor = value;
+            OnPropertyChanged();
+            if (IsLoading)
+                return;
+
+            // Nur eine echte Nutzeränderung schreibt in den Entwurf. Ohne gespeicherte Wahl bleibt die Id also null.
+            var monitor = value.Id is null ? null : _monitorList.FirstOrDefault(m => m.Id == value.Id);
+            if (monitor is not null)
+            {
+                _draft.Appearance.GuestMonitorId = monitor.Id;
+                _draft.Appearance.GuestMonitorName = monitor.Name;
+            }
+            else if (value.Id is not null)
+            {
+                // Zurück auf den nicht angeschlossenen Monitor: gespeicherte Wahl wiederherstellen.
+                _draft.Appearance.GuestMonitorId = value.Id;
+                _draft.Appearance.GuestMonitorName = _missingMonitorName;
+            }
+            UpdateMonitorHint();
+        }
+    }
+
+    /// <summary>Mehr als ein Monitor angeschlossen: Die Auswahl ist bedienbar, sonst ausgegraut.</summary>
+    public bool IsMonitorSelectable
+    {
+        get => _isMonitorSelectable;
+        private set => SetProperty(ref _isMonitorSelectable, value);
+    }
+
+    /// <summary>Hinweis unter der Monitor-Auswahl (null = keiner).</summary>
+    public string? MonitorHint
+    {
+        get => _monitorHint;
+        private set
+        {
+            if (SetProperty(ref _monitorHint, value))
+                OnPropertyChanged(nameof(HasMonitorHint));
+        }
+    }
+
+    public bool HasMonitorHint => !string.IsNullOrEmpty(_monitorHint);
+
+    private async Task LoadMonitorsAsync()
+    {
+        IReadOnlyList<DisplayMonitor> monitors = [];
+        try
+        {
+            if (_displays is { } displays)
+                monitors = await Task.Run(displays.GetMonitors).WaitAsync(MonitorListTimeout, _time);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Monitorliste konnte nicht geladen werden.", ex);
+            monitors = [];
+        }
+
+        if (_disposed)
+            return;
+        RebuildMonitorOptions(monitors);
+    }
+
+    /// <summary>
+    /// Baut Liste und Auswahl aus den angeschlossenen Monitoren und der gespeicherten Wahl im Entwurf auf.
+    /// Der Entwurf selbst bleibt dabei unverändert.
+    /// </summary>
+    private void RebuildMonitorOptions(IReadOnlyList<DisplayMonitor> monitors)
+    {
+        _monitorList = monitors;
+        var savedId = _draft.Appearance.GuestMonitorId;
+        _missingMonitorName = _draft.Appearance.GuestMonitorName;
+
+        BeginLoading();
+        try
+        {
+            Monitors.Clear();
+            if (monitors.Count == 0)
+            {
+                // Keine Monitorliste (Fehler): Die Gastansicht bleibt auf dem Hauptbildschirm.
+                var fallback = new MonitorOption(null, FallbackMonitorDisplay);
+                Monitors.Add(fallback);
+                _selectedMonitor = fallback;
+            }
+            else
+            {
+                foreach (var m in monitors)
+                    Monitors.Add(new MonitorOption(m.Id, GuestMonitors.Label(m)));
+
+                var missing = savedId is not null && monitors.All(m => m.Id != savedId);
+                if (missing && monitors.Count > 1)
+                {
+                    var option = new MonitorOption(savedId, $"{_missingMonitorName ?? UnknownMonitorName} (nicht angeschlossen)");
+                    Monitors.Add(option);
+                    _selectedMonitor = option;
+                }
+                else
+                {
+                    // Gespeicherter Monitor, sonst Hauptbildschirm. Bei nur einem Monitor zeigt die ausgegraute Box diesen.
+                    var target = GuestMonitors.Resolve(monitors, savedId)!;
+                    _selectedMonitor = Monitors.First(o => o.Id == target.Id);
+                }
+            }
+
+            IsMonitorSelectable = monitors.Count > 1;
+            UpdateMonitorHint();
+            OnPropertyChanged(nameof(SelectedMonitor));
+        }
+        finally
+        {
+            EndLoading();
+        }
+    }
+
+    private void UpdateMonitorHint()
+    {
+        var savedId = _draft.Appearance.GuestMonitorId;
+        if (_monitorList.Count == 0)
+        {
+            // Fehler oder keine Liste: Die Auswahl ist gesperrt, also sagen, warum – und was gespeichert bleibt.
+            MonitorHint = "Die angeschlossenen Bildschirme konnten nicht ermittelt werden."
+                + (savedId is null ? "" : $" Gespeichert ist „{_draft.Appearance.GuestMonitorName ?? UnknownMonitorName}“.");
+        }
+        else if (savedId is not null && _monitorList.All(m => m.Id != savedId))
+        {
+            var name = _draft.Appearance.GuestMonitorName ?? UnknownMonitorName;
+            MonitorHint = $"Der gewählte Bildschirm „{name}“ ist nicht angeschlossen. Die Fotobox nutzt bis dahin den Hauptbildschirm.";
+        }
+        else if (_monitorList.Count == 1)
+        {
+            MonitorHint = "Schließen Sie einen weiteren Bildschirm an, um die Gastansicht dort anzuzeigen.";
+        }
+        else
+        {
+            MonitorHint = "Die Wahl gilt nach „Speichern“. Die Einstellungen und die PIN-Abfrage öffnen auf demselben Bildschirm.";
+        }
+    }
+
     // ---------------------------------------------------------------- Drucker
 
     public ObservableCollection<PrinterOption> Printers { get; } = [];
@@ -1897,6 +2067,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _draft.GuestScreen = defaults.GuestScreen;
         _draft.Appearance = defaults.Appearance;
         // Security (PIN) und Version bleiben bewusst unverändert.
+        RebuildMonitorOptions(_monitorList);
 
         // UI-Zustand wie bei einer frisch geöffneten Admin-Ansicht mit Standard-Einstellungen.
         CapturingEditor = null;
