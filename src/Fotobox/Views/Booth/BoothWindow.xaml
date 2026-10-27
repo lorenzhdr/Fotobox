@@ -266,7 +266,7 @@
                 HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,120" Padding="40,22" CornerRadius="36"
                 Background="#E6101420" BorderBrush="#66FFFFFF" BorderThickness="2"
                 IsHitTestVisible="False" AutomationProperties.Name="Layout-Auswahl">
-            <ItemsControl x:Name="LayoutList" ItemsSource="{Binding LayoutOptions}" ItemTemplate="{StaticResource LayoutOptionTemplate}"
+            <ItemsControl ItemsSource="{Binding LayoutOptions}" ItemTemplate="{StaticResource LayoutOptionTemplate}"
                           Focusable="False" IsHitTestVisible="False" />
         </Border>
 
@@ -291,7 +291,7 @@
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        RenderTransformOrigin="0.5,0.5">
                 <TextBlock.RenderTransform>
-                    <ScaleTransform x:Name="CountdownScale" ScaleX="1" ScaleY="1" />
+                    <ScaleTransform ScaleX="1" ScaleY="1" />
                 </TextBlock.RenderTransform>
                 <TextBlock.Effect>
                     <DropShadowEffect BlurRadius="60" ShadowDepth="0" Color="#F5C26B" Opacity="0.8" />
@@ -334,7 +334,7 @@
             <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Stretch" MaxWidth="1400"
                         Margin="120,0,120,30"
                         Visibility="{Binding ShowPrintInfo, Converter={StaticResource BoolToVis}}">
-                <StackPanel Visibility="{Binding IsPrinting, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                         <Ellipse Style="{StaticResource SpinnerWhenVisible}" Width="30" Height="30" Stroke="{StaticResource Gold}" StrokeThickness="4"
                                  StrokeDashArray="3.5 4" StrokeDashCap="Round" Margin="0,0,20,0"
@@ -356,7 +356,7 @@
         </Grid>
 
         <!-- „Fertig“: eigener Bildschirm, sobald der Druck abgeschlossen ist -->
-        <Grid x:Name="DoneOverlay" Style="{StaticResource FadeInOverlay}"
+        <Grid Style="{StaticResource FadeInOverlay}"
               Visibility="{Binding ShowDone, Converter={StaticResource BoolToVis}}">
             <Grid.Background>
                 <RadialGradientBrush>
@@ -380,7 +380,7 @@
         </Grid>
 
         <!-- Druck abgebrochen: ruhige Meldung (kein Fehler), danach geht es zurück zum Leerlauf -->
-        <Grid x:Name="PrintCancelledOverlay" Style="{StaticResource FadeInOverlay}"
+        <Grid Style="{StaticResource FadeInOverlay}"
               Visibility="{Binding ShowPrintCancelled, Converter={StaticResource BoolToVis}}">
             <Grid.Background>
                 <RadialGradientBrush>

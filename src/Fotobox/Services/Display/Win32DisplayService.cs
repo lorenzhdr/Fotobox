@@ -57,7 +57,6 @@ public sealed class Win32DisplayService : IDisplayService
             var gdiMonitors = _enumerateGdi();
 
             Dictionary<string, TargetInfo> targets;
-            var configOk = true;
             try
             {
                 targets = _queryTargets();
@@ -66,13 +65,12 @@ public sealed class Win32DisplayService : IDisplayService
             {
                 AppLog.Warn("Monitornamen konnten nicht ermittelt werden (DisplayConfig); es werden die zuletzt bekannten bzw. Ersatznamen verwendet.", ex);
                 targets = new Dictionary<string, TargetInfo>(StringComparer.OrdinalIgnoreCase);
-                configOk = false;
             }
 
-            // Bei einem vorübergehenden DisplayConfig-Fehler würden sonst alle Ids auf GDI-Namen zurückfallen; die gespeicherte
-            // Id passte dann nicht mehr und die Gastansicht spränge auf den Hauptbildschirm. Daher: letzte erfolgreiche Zuordnung
-            // GDI-Name -> (Id, Name) verwenden; nur unbekannte GDI-Namen bekommen den GDI-Namen als Id.
-            var known = configOk ? null : SnapshotKnown();
+            // Scheitert DisplayConfig ganz oder nur für einzelne Pfade, würden die Ids auf GDI-Namen zurückfallen; die gespeicherte
+            // Id passte dann nicht mehr und die Gastansicht spränge auf den Hauptbildschirm. Daher je GDI-Name ohne Geräte-Pfad
+            // die letzte erfolgreiche Zuordnung GDI-Name -> (Id, Name) verwenden; nur unbekannte GDI-Namen bekommen den GDI-Namen als Id.
+            var known = SnapshotKnown();
 
             var usedIds = new HashSet<string>(StringComparer.Ordinal);
             var result = new List<DisplayMonitor>(gdiMonitors.Count);
@@ -83,35 +81,42 @@ public sealed class Win32DisplayService : IDisplayService
                 running++;
                 targets.TryGetValue(g.GdiName, out var target);
 
+                var hasDevicePath = !string.IsNullOrWhiteSpace(target?.DevicePath)
+                    && target.DevicePath.Length <= SettingsLimits.MonitorIdMaxLength;
+                known.TryGetValue(g.GdiName, out var cached);
+
                 string id;
                 string name;
-                if (known is not null && known.TryGetValue(g.GdiName, out var cached))
+                if (!hasDevicePath && cached is not null)
                 {
                     id = cached.Id;
-                    name = cached.Name;
+                    name = !string.IsNullOrWhiteSpace(target?.FriendlyName) ? target.FriendlyName.Trim() : cached.Name;
                 }
                 else
                 {
-                    id = !string.IsNullOrWhiteSpace(target?.DevicePath) && target.DevicePath.Length <= SettingsLimits.MonitorIdMaxLength
-                        ? target.DevicePath
-                        : g.GdiName;
+                    id = hasDevicePath ? target!.DevicePath! : g.GdiName;
                     name = !string.IsNullOrWhiteSpace(target?.FriendlyName)
                         ? target.FriendlyName.Trim()
                         : target is not null && IsInternalTechnology(target.OutputTechnology) ? InternalMonitorName : UnknownMonitorName;
                 }
 
+                var reliableId = hasDevicePath || cached is not null;
                 if (!usedIds.Add(id))
                 {
                     id = g.GdiName;
                     usedIds.Add(id);
+                    reliableId = false;
                 }
-                fresh[g.GdiName] = new KnownMonitor(id, name);
+                // Nur echte Geräte-Pfade merken; ein GDI-Name als Ersatz-Id überschreibt keine gute Zuordnung.
+                if (reliableId)
+                    fresh[g.GdiName] = new KnownMonitor(id, name);
 
                 var (pixelWidth, pixelHeight) = GetCurrentResolution(g.GdiName, g.Bounds);
                 result.Add(new DisplayMonitor(id, name, ParseNumber(g.GdiName, running), g.IsPrimary, pixelWidth, pixelHeight, g.Bounds));
             }
 
-            if (configOk)
+            // Eine leere Aufzählung (vorübergehender Fehler) löscht die bekannte Zuordnung nicht.
+            if (gdiMonitors.Count > 0)
                 RememberKnown(fresh);
 
             result.Sort((a, b) => a.Number.CompareTo(b.Number));

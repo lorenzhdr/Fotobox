@@ -19,32 +19,43 @@ public static class CameraFormatSelector
     /// <summary>
     /// Liefert den Index des besten Formats oder -1 (leere Liste).
     /// Gewünschte Auflösung, falls angeboten; sonst höchste Auflösung bis 1920 × 1080 mit mindestens 15 fps (16:9 bevorzugt).
+    /// Komprimierte Videoformate (H264/HEVC, <see cref="SubtypeRank"/> 0) kommen nur infrage, wenn die Kamera sonst nichts anbietet.
     /// </summary>
     public static int SelectIndex(IReadOnlyList<CameraFormatCandidate> formats, int? preferredWidth, int? preferredHeight)
     {
         if (formats.Count == 0)
             return -1;
 
+        // Der Frame-Reader liefert für komprimierte Formate kein Bild: erst nur Formate mit Rang > 0, dann Rückfall auf alle.
+        var best = SelectCore(formats, preferredWidth, preferredHeight, f => SubtypeRank(f.Subtype) > 0);
+        return best >= 0 ? best : SelectCore(formats, preferredWidth, preferredHeight, _ => true);
+    }
+
+    private static int SelectCore(IReadOnlyList<CameraFormatCandidate> formats, int? preferredWidth, int? preferredHeight,
+        Func<CameraFormatCandidate, bool> allowed)
+    {
         if (preferredWidth is > 0 && preferredHeight is > 0)
         {
-            var match = BestBy(formats, f => f.Width == preferredWidth && f.Height == preferredHeight, CompareFormat);
+            var match = BestBy(formats, f => allowed(f) && f.Width == preferredWidth && f.Height == preferredHeight, CompareFormat);
             if (match >= 0)
                 return match;
         }
 
         // Bevorzugt: <= 1080p und >= 15 fps; dann <= 1080p ohne fps-Bedingung; zuletzt das kleinste Format.
-        var best = BestBy(formats, f => FitsLimit(f) && f.FrameRate >= MinFrameRate, CompareAuto);
+        var best = BestBy(formats, f => allowed(f) && FitsLimit(f) && f.FrameRate >= MinFrameRate, CompareAuto);
         if (best >= 0)
             return best;
 
-        best = BestBy(formats, FitsLimit, CompareAuto);
+        best = BestBy(formats, f => allowed(f) && FitsLimit(f), CompareAuto);
         if (best >= 0)
             return best;
 
-        best = 0;
-        for (var i = 1; i < formats.Count; i++)
+        best = -1;
+        for (var i = 0; i < formats.Count; i++)
         {
-            if (Pixels(formats[i]) < Pixels(formats[best]) ||
+            if (!allowed(formats[i]))
+                continue;
+            if (best < 0 || Pixels(formats[i]) < Pixels(formats[best]) ||
                 (Pixels(formats[i]) == Pixels(formats[best]) && CompareFormat(formats[i], formats[best]) > 0))
                 best = i;
         }

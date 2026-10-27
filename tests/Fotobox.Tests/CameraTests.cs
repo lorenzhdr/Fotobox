@@ -133,9 +133,33 @@ public sealed class CameraFormatSelectorTests
         var byRate = new[] { S(1280, 720, 10, "NV12"), S(1280, 720, 30, "MJPG") };
         Assert.Equal(1, CameraFormatSelector.SelectIndex(byRate, 1280, 720));
 
-        // Ein komprimiertes Format bleibt wählbar, wenn es das einzige mit der gewünschten Auflösung ist.
+        // Ein komprimiertes Format ist nur Rückfall: Die gewünschte Auflösung gibt es nur als H264 (kein Bild), also das nutzbare Format.
         var onlyCompressed = new[] { S(1280, 720, 30, "NV12"), S(1920, 1080, 30, "H264") };
-        Assert.Equal(1, CameraFormatSelector.SelectIndex(onlyCompressed, 1920, 1080));
+        Assert.Equal(0, CameraFormatSelector.SelectIndex(onlyCompressed, 1920, 1080));
+    }
+
+    [Fact]
+    public void Auto_PrefersUsableFormat_OverHigherResolutionCompressed()
+    {
+        // 1080p gibt es nur als H264 (der Frame-Reader liefert dafür kein Bild), also 720p MJPG.
+        var formats = new[] { S(1920, 1080, 30, "H264"), S(1280, 720, 30, "MJPG") };
+        Assert.Equal(1, CameraFormatSelector.SelectIndex(formats, null, null));
+    }
+
+    [Fact]
+    public void ConfiguredResolution_PrefersUsableFormat_OverCompressedWithHigherFrameRate()
+    {
+        var formats = new[] { S(1280, 720, 30, "H264"), S(1280, 720, 15, "MJPG") };
+        Assert.Equal(1, CameraFormatSelector.SelectIndex(formats, 1280, 720));
+        Assert.Equal(1, CameraFormatSelector.SelectIndex(formats, null, null));
+    }
+
+    [Fact]
+    public void OnlyCompressedFormats_StillSelectsOne()
+    {
+        var formats = new[] { S(1280, 720, 30, "H264"), S(1920, 1080, 30, "H264"), S(640, 480, 30, "HEVC") };
+        Assert.Equal(1, CameraFormatSelector.SelectIndex(formats, null, null));
+        Assert.Equal(0, CameraFormatSelector.SelectIndex(formats, 1280, 720));
     }
 
     [Fact]

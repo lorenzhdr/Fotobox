@@ -33,7 +33,7 @@ public interface ICameraService : IAsyncDisposable
     Task<IReadOnlyList<CameraResolution>> GetResolutionsAsync(string deviceId);
     Task StartAsync(CameraSettings settings, CancellationToken ct = default); // stoppt ggf. laufende Session zuerst; wirft nicht bei Gerätefehlern, sondern setzt Status
     Task StopAsync();
-    Task<BitmapSource> CapturePhotoAsync(CancellationToken ct = default); // höchste verfügbare Auflösung der aktiven Session, Bgra32, Frozen, UNgespiegelt; InvalidOperationException wenn nicht Running
+    Task<BitmapSource> CapturePhotoAsync(CancellationToken ct = default); // aktuelles Bild des Livestreams (Auflösung/Format der aktiven Session, nicht die höchste der Kamera), Bgra32, Frozen, UNgespiegelt; InvalidOperationException wenn nicht Running
 }
 
 public interface IDisplayService
