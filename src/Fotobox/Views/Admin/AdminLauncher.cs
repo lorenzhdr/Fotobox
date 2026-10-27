@@ -88,6 +88,8 @@ public sealed class AdminLauncher : IAdminLauncher
 
         // Stand vor dem Öffnen: Daran erkennt das Hauptfenster, ob nach dem Speichern ein Kamera-Neustart nötig ist.
         var cameraBefore = _settings.Current.Camera.Clone();
+        // Der Ton (Mikrofon an/aus bzw. anderes Mikrofon) wird beim Sessionstart festgelegt: Auch das erfordert einen Kamera-Neustart.
+        var videoBefore = _settings.Current.Clone().Video;
 
         var ui = new WpfAdminUi();
         using var viewModel = new AdminViewModel(_settings, _pinService, _camera, _print, ui, displays: _displays);
@@ -107,7 +109,8 @@ public sealed class AdminLauncher : IAdminLauncher
         }
 
         var cameraChanged = viewModel.SettingsSaved
-            && CameraNeedsRestart(cameraBefore, viewModel.LastAppliedCamera, _settings.Current.Camera);
+            && (CameraNeedsRestart(cameraBefore, viewModel.LastAppliedCamera, _settings.Current.Camera)
+                || videoBefore.RequiresCameraRestartComparedTo(_settings.Current.Video));
         AppLog.Info($"Admin-Ansicht geschlossen (gespeichert: {viewModel.SettingsSaved}, Kamera geändert: {cameraChanged}, beenden: {viewModel.ExitRequested}).");
         return new AdminResult(viewModel.SettingsSaved, viewModel.ExitRequested, cameraChanged);
     }

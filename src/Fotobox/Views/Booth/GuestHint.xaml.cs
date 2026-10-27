@@ -4,6 +4,9 @@ using Fotobox.Core;
 
 namespace Fotobox.Views.Booth;
 
+/// <summary>Lage der Hinweiszeile im Bild.</summary>
+public enum HintPosition { Bottom, Top }
+
 /// <summary>
 /// Hinweis der Gastansicht („Drücke die Leertaste für ein Foto 📸“) in einer von drei Darstellungen (<see cref="HintStyle"/>),
 /// dazu die Zusatzzeile zur Layoutwahl. Wird in der Gastansicht und in der Admin-Vorschau verwendet, damit beide gleich aussehen.
@@ -23,9 +26,19 @@ public sealed partial class GuestHint : UserControl
     public static readonly DependencyProperty ShowLayoutHintProperty = DependencyProperty.Register(
         nameof(ShowLayoutHint), typeof(bool), typeof(GuestHint), new PropertyMetadata(false));
 
+    /// <summary>Lage in der Gastansicht: <see cref="HintPosition.Bottom"/> (Foto-Zeile) oder <see cref="HintPosition.Top"/> (Video-Zeile).</summary>
+    public static readonly DependencyProperty PositionProperty = DependencyProperty.Register(
+        nameof(Position), typeof(HintPosition), typeof(GuestHint), new PropertyMetadata(HintPosition.Bottom));
+
     public GuestHint()
     {
         InitializeComponent();
+    }
+
+    public HintPosition Position
+    {
+        get => (HintPosition)GetValue(PositionProperty);
+        set => SetValue(PositionProperty, value);
     }
 
     /// <summary>Der Hinweistext (bereits mit eingesetzten Platzhaltern).</summary>
