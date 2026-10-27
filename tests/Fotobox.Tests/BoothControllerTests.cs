@@ -9,7 +9,7 @@ using Xunit;
 
 namespace Fotobox.Tests;
 
-public class BoothControllerTests
+public partial class BoothControllerTests
 {
     private static readonly TimeSpan Second = TimeSpan.FromSeconds(1);
 
@@ -1223,6 +1223,7 @@ public class BoothControllerTests
         public FakeComposer Composer { get; } = new();
         public FakePrinter Printer { get; } = new();
         public FakeStorage Storage { get; } = new();
+        public FakeVideoStorage VideoStorage { get; } = new();
         public FakeSettingsStore Settings { get; } = new();
         public BoothController Controller { get; }
 
@@ -1239,7 +1240,12 @@ public class BoothControllerTests
             Settings.Current.Flow.PreviewSeconds = 2;
             Settings.Current.Flow.PauseBetweenShotsSeconds = 1;
             Settings.Current.Flow.ErrorDisplaySeconds = 4;
-            Controller = new BoothController(Camera, Composer, Printer, Storage, Settings, Time) { PrefetchPageSpec = prefetch };
+            Settings.Current.Video.CountdownSeconds = 3;
+            Controller = new BoothController(Camera, Composer, Printer, Storage, Settings, Time, VideoStorage)
+            {
+                PrefetchPageSpec = prefetch,
+                ShutdownVideoWait = TimeSpan.FromMilliseconds(500),
+            };
             // Hängt bereits eine Abfrage (wird wiederverwendet), gibt es keinen Task.Run-Sprung des Durchgangs mehr.
             Camera.Captured = () => _hopPending = Camera.CaptureCount % Composer.RequiredPhotoCount == 0 && !Printer.IsParked;
             Composer.Composing = () => _hopPending = false; // Der Sprung ist beendet, sobald der Controller zusammensetzt.
@@ -1352,6 +1358,25 @@ public class BoothControllerTests
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public int StartRecordingCalls { get; private set; }
+        public VideoRecordingRequest? LastRecordingRequest { get; private set; }
+        /// <summary>Die zuletzt gelieferte Standard-Aufnahme.</summary>
+        public FakeRecording? LastRecording { get; private set; }
+        /// <summary>Ersetzt das Standardverhalten (sofort eine <see cref="FakeRecording"/> liefern).</summary>
+        public Func<VideoRecordingRequest, CancellationToken, Task<IVideoRecording>>? RecordingStarter { get; set; }
+        /// <summary>Wird statt einer neuen <see cref="FakeRecording"/> geliefert (zum Vorkonfigurieren).</summary>
+        public FakeRecording? RecordingToReturn { get; set; }
+
+        public Task<IVideoRecording> StartRecordingAsync(VideoRecordingRequest request, CancellationToken ct = default)
+        {
+            StartRecordingCalls++;
+            LastRecordingRequest = request;
+            if (RecordingStarter is not null)
+                return RecordingStarter(request, ct);
+            LastRecording = RecordingToReturn ?? new FakeRecording();
+            return Task.FromResult<IVideoRecording>(LastRecording);
+        }
 
         /// <summary>2 × 1 Pixel: links Rot, rechts Blau.</summary>
         private static BitmapSource CreatePhoto()
