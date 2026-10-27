@@ -67,12 +67,12 @@ public static class LayoutMath
     /// Berechnet das Doppelstreifen-Layout für eine Seite mit <paramref name="count"/> Fotos je Streifen.
     /// Mit Text liegt das Textrechteck mindestens <see cref="SafeBottomMm"/> über der Streifenunterkante.
     /// </summary>
-    public static StripGeometry ComputeStrips(int pageW, int pageH, int count, bool hasFooterText, int dpi = 300,
+    public static StripGeometry ComputeStrips(int pageW, int pageH, int count, int dpi = 300,
         bool hasCaption = true, bool hasDate = true)
     {
         count = Math.Max(1, count);
         var landscape = pageW > pageH;
-        var hasText = hasFooterText && (hasCaption || hasDate);
+        var hasText = hasCaption || hasDate;
 
         Rect[] strips;
         if (landscape)

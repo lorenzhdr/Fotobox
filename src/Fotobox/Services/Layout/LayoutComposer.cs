@@ -39,7 +39,10 @@ public sealed class LayoutComposer : ILayoutComposer
     private BitmapSource? _overlayBitmap;
 
     public int GetRequiredPhotoCount(LayoutSettings layout) =>
-        layout.Kind == LayoutKind.Strip ? Math.Clamp(layout.StripPhotoCount, 2, 4) : 1;
+        layout.Kind == LayoutKind.Strip ? ClampStripPhotoCount(layout) : 1;
+
+    private static int ClampStripPhotoCount(LayoutSettings layout) =>
+        Math.Clamp(layout.StripPhotoCount, SettingsLimits.StripPhotosMin, SettingsLimits.StripPhotosMax);
 
     public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page, string overlayDirectory, DateTime timestamp)
     {
@@ -119,7 +122,7 @@ public sealed class LayoutComposer : ILayoutComposer
         List<FittedText> texts;
         if (layout.Kind == LayoutKind.Strip)
         {
-            var count = Math.Clamp(layout.StripPhotoCount, 2, 4);
+            var count = ClampStripPhotoCount(layout);
             var geo = BuildStripGeometry(layout.StripStyle, count, pw, ph, caption, date, page.Dpi, Enumerable.Repeat(1.5, count).ToList());
             texts = LayoutFooterTexts(geo.Footers[0], caption, date, face, page.Dpi, StripTextBrush);
         }
@@ -193,7 +196,7 @@ public sealed class LayoutComposer : ILayoutComposer
         int dpi, IReadOnlyList<double> aspects) =>
         style == StripStyle.Single
             ? LayoutMath.ComputeSingleStrip(pw, ph, aspects, caption is not null, date is not null, dpi)
-            : LayoutMath.ComputeStrips(pw, ph, count, caption is not null || date is not null, dpi, caption is not null, date is not null);
+            : LayoutMath.ComputeStrips(pw, ph, count, dpi, caption is not null, date is not null);
 
     private static void DrawStrips(DrawingContext dc, IReadOnlyList<BitmapSource> photos, StripStyle style, int count, int pw, int ph,
         string? caption, string? date, int dpi, Typeface face)

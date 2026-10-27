@@ -182,4 +182,17 @@ public class HintTextFormatterTests
 
         Assert.Equal(2, problems.Count);
     }
+
+    [Fact]
+    public void BuildAutomatic_NoKeys_HasNoDoubleSpaces()
+    {
+        Assert.Equal("Klicke für ein Foto 📸", HintTextFormatter.BuildAutomatic([], true));
+        Assert.Equal("Mach ein Foto 📸", HintTextFormatter.BuildAutomatic([], false));
+        Assert.DoesNotContain("  ", HintTextFormatter.BuildAutomatic([], true));
+        Assert.DoesNotContain("  ", HintTextFormatter.BuildAutomatic([], false));
+    }
+
+    [Fact]
+    public void Format_EmptyTemplateAndNoKeys_FallsBackToTextWithoutDoubleSpaces() =>
+        Assert.Equal("Klicke für ein Foto 📸", HintTextFormatter.Format(null, [], true));
 }

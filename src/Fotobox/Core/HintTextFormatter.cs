@@ -24,17 +24,21 @@ public static class HintTextFormatter
 
     // Eingesetzte Werte stehen während der Bereinigung nur als Marke (Privatzeichen + Index), damit Leerzeichen oder
     // Satzzeichen in Tastennamen (z. B. „Ziffernblock ,“) von der Bereinigung unberührt bleiben.
-    private const char MarkStart = '';
-    private const char MarkEnd = '';
-    private static readonly Regex MarkPattern = new("(\\d+)", RegexOptions.CultureInvariant);
+    private const char MarkStart = '\uE000';
+    private const char MarkEnd = '\uE001';
+    private static readonly Regex MarkPattern = new($"{MarkStart}(\\d+){MarkEnd}", RegexOptions.CultureInvariant);
 
     /// <summary>
     /// Der automatische Text: „Drücke die Leertaste für ein Foto 📸“, bei mehreren Tasten „Drücke A, B oder C für ein Foto 📸“
     /// (höchstens <see cref="AutomaticKeysMax"/> Namen). Löst auch ein Mausklick aus: „… oder klicke für ein Foto 📸“
-    /// bzw. „Drücke A, B – oder klicke – für ein Foto 📸“.
+    /// bzw. „Drücke A, B – oder klicke – für ein Foto 📸“. Ohne Taste: „Klicke für ein Foto 📸“ (mit Mausauslöser) bzw.
+    /// „Mach ein Foto 📸“ (kein Auslöser konfiguriert; in der Praxis ersetzt der Normalizer eine leere Tastenliste).
     /// </summary>
     public static string BuildAutomatic(IReadOnlyList<KeyChord> keys, bool click)
     {
+        if (keys.Count == 0)
+            return click ? "Klicke für ein Foto 📸" : "Mach ein Foto 📸";
+
         if (keys.Count == 1)
         {
             var single = keys[0];
