@@ -2526,7 +2526,7 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Null(vm.Draft.Printer.PrinterName);
         Assert.Null(vm.Draft.Printer.PaperSizeName);
         Assert.Equal(1, vm.Draft.Printer.Copies);
-        Assert.Equal("Fotobox", vm.Draft.Storage.FilePrefix);
+        Assert.Equal("Fotobox+", vm.Draft.Storage.FilePrefix);
         Assert.Null(vm.Draft.Storage.PhotoFolder);
         Assert.Equal(DefaultTriggerKeys, vm.Draft.Input.TriggerKeys);
         Assert.True(vm.Draft.Input.TriggerOnLeftClick);
@@ -2600,7 +2600,7 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Equal(240, saved.Flow.ExpectedPrintSeconds);
         Assert.Equal(LayoutKind.SingleBorderless, saved.Layout.Kind);
         Assert.Empty(saved.Layout.GuestChoices);
-        Assert.Equal("Fotobox", saved.Storage.FilePrefix);
+        Assert.Equal("Fotobox+", saved.Storage.FilePrefix);
         Assert.Equal(DefaultTriggerKeys, saved.Input.TriggerKeys);
         Assert.Null(saved.Camera.DeviceId);
         Assert.Null(saved.Printer.PrinterName);
@@ -2656,7 +2656,7 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Equal(5, vm.CountdownSeconds);
         Assert.Equal(240, vm.ExpectedPrintSeconds);
         Assert.True(vm.PrintingEnabled);
-        Assert.Equal("Fotobox", vm.FilePrefix);
+        Assert.Equal("Fotobox+", vm.FilePrefix);
         Assert.Equal(92, vm.JpegQuality);
         Assert.Equal("92 %", vm.JpegQualityText);
         Assert.True(vm.DateSubfolder);

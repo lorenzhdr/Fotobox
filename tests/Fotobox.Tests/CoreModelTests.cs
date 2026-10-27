@@ -74,7 +74,8 @@ public class AppSettingsTests
     {
         var s = new AppSettings();
 
-        Assert.Equal(1, s.Version);
+        Assert.Equal(2, s.Version);
+        Assert.Equal(AppSettings.CurrentVersion, s.Version);
         Assert.Null(s.Camera.DeviceId);
         Assert.Null(s.Camera.ResolutionWidth);
         Assert.Null(s.Camera.ResolutionHeight);
@@ -106,11 +107,46 @@ public class AppSettingsTests
         Assert.True(s.Storage.DateSubfolder);
         Assert.True(s.Storage.SaveOriginals);
         Assert.Equal(92, s.Storage.JpegQuality);
-        Assert.Equal("Fotobox", s.Storage.FilePrefix);
+        Assert.Equal("Fotobox+", s.Storage.FilePrefix);
 
         Assert.Null(s.Security.PinHash);
         Assert.Null(s.Security.PinSalt);
         Assert.Equal(100_000, s.Security.PinIterations);
+    }
+
+    [Fact]
+    public void VideoDefaults_MatchSpecification()
+    {
+        var v = new AppSettings().Video;
+
+        Assert.True(v.Enabled);
+        Assert.Equal(300, v.MaxDurationSeconds);
+        Assert.Equal(3, v.CountdownSeconds);
+        Assert.Equal(2, v.MinDurationSeconds);
+        Assert.Equal(10, v.WarningSeconds);
+        Assert.True(v.ShowRecDot);
+        Assert.True(v.ShowElapsed);
+        Assert.True(v.ShowRemaining);
+        Assert.Equal(3, v.SuccessDisplaySeconds);
+        Assert.Null(v.SuccessText);
+        Assert.Equal(VideoQuality.High, v.Quality);
+        Assert.True(v.RecordAudio);
+        Assert.Null(v.MicrophoneId);
+        Assert.Null(v.MicrophoneName);
+        Assert.Null(v.Folder);
+        Assert.True(v.DateSubfolder);
+        Assert.Equal("Fotobox+_Video", v.FilePrefix);
+    }
+
+    [Fact]
+    public void VideoInputDefaults_BothUseEnter_AndGuestHintDefaultsToAutomaticPill()
+    {
+        var s = new AppSettings();
+
+        Assert.Equal(["Enter"], s.Input.VideoStartKeys);
+        Assert.Equal(["Enter"], s.Input.VideoStopKeys);
+        Assert.Null(s.GuestScreen.VideoHintText);
+        Assert.Equal(HintStyle.Pill, s.GuestScreen.VideoHintStyle);
     }
 
     [Fact]
