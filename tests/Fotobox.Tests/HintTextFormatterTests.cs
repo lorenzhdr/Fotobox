@@ -195,4 +195,136 @@ public class HintTextFormatterTests
     [Fact]
     public void Format_EmptyTemplateAndNoKeys_FallsBackToTextWithoutDoubleSpaces() =>
         Assert.Equal("Klicke für ein Foto 📸", HintTextFormatter.Format(null, [], true));
+
+    // ---- Video-Hinweiszeile
+
+    [Fact]
+    public void BuildAutomaticVideo_SingleKey_UsesArticleForEnterAndSpaceOnly()
+    {
+        Assert.Equal("Drücke die Eingabetaste für ein Video 🎬", HintTextFormatter.BuildAutomaticVideo([Enter]));
+        Assert.Equal("Drücke die Leertaste für ein Video 🎬", HintTextFormatter.BuildAutomaticVideo([Space]));
+        Assert.Equal("Drücke F5 für ein Video 🎬", HintTextFormatter.BuildAutomaticVideo([F5]));
+        Assert.Equal("Drücke Strg+F5 für ein Video 🎬", HintTextFormatter.BuildAutomaticVideo([K(Key.F5, ModifierKeys.Control)]));
+    }
+
+    [Fact]
+    public void BuildAutomaticVideo_MultipleKeys_ListsAtMostThree()
+    {
+        Assert.Equal("Drücke Eingabetaste oder F5 für ein Video 🎬", HintTextFormatter.BuildAutomaticVideo([Enter, F5]));
+        Assert.Equal("Drücke Eingabetaste, F5 oder F6 für ein Video 🎬", HintTextFormatter.BuildAutomaticVideo([Enter, F5, F6, Space]));
+    }
+
+    [Fact]
+    public void BuildAutomaticVideo_NoKeys_IsEmpty()
+    {
+        Assert.Equal("", HintTextFormatter.BuildAutomaticVideo([]));
+        Assert.Equal("", HintTextFormatter.FormatVideo(null, []));
+        Assert.Equal("", HintTextFormatter.FormatVideo("   ", [], true));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void FormatVideo_WithoutTemplate_IsAutomatic(string? template) =>
+        Assert.Equal(HintTextFormatter.BuildAutomaticVideo([Enter, F5]), HintTextFormatter.FormatVideo(template, [Enter, F5]));
+
+    [Fact]
+    public void FormatVideo_Placeholders_UseVideoKeys_CaseInsensitive()
+    {
+        Assert.Equal("Video mit Eingabetaste oder F5 – Taste 2: F5",
+            HintTextFormatter.FormatVideo("Video mit {Videotasten} – Taste 2: {VIDEOTASTE_2}", [Enter, F5]));
+        Assert.Equal("Eingabetaste", HintTextFormatter.FormatVideo("{videotaste_1}", [Enter, F5]));
+    }
+
+    [Fact]
+    public void FormatVideo_UnassignedNumber_BecomesEmpty_WithoutDoubleSpaces()
+    {
+        Assert.Equal("Video mit Eingabetaste!", HintTextFormatter.FormatVideo("Video mit {Videotaste_1} {Videotaste_2} !", [Enter]));
+        Assert.Equal("Drücke Eingabetaste, F5!", HintTextFormatter.FormatVideo("Drücke {Videotaste_1}, {Videotaste_2} {Videotaste_3}!", [Enter, F5]));
+    }
+
+    [Fact]
+    public void FormatVideo_OnlyUnassignedPlaceholder_FallsBackToAutomatic()
+    {
+        Assert.Equal("Drücke die Eingabetaste für ein Video 🎬", HintTextFormatter.FormatVideo("{Videotaste_5}", [Enter]));
+        Assert.Equal("", HintTextFormatter.FormatVideo("{Videotaste_1}", []));
+    }
+
+    [Fact]
+    public void FormatVideo_UnknownPlaceholder_StaysLiteral()
+    {
+        Assert.Equal("Los {Foo} Eingabetaste", HintTextFormatter.FormatVideo("Los {Foo} {Videotaste_1}", [Enter]));
+    }
+
+    [Fact]
+    public void FormatVideo_PhotoPlaceholders_AndClick_WorkInVideoLine()
+    {
+        Assert.Equal("Foto: Leertaste, Video: Eingabetaste",
+            HintTextFormatter.FormatVideo("Foto: {Fototaste_1}, Video: {Videotaste_1}", [Enter], false, [Space]));
+        Assert.Equal("Foto: Leertaste oder F5 | Eingabetaste",
+            HintTextFormatter.FormatVideo("Foto: {Fototasten} | {Videotasten}", [Enter], false, [Space, F5]));
+        // Ohne Fototasten: leer.
+        Assert.Equal("Video Eingabetaste", HintTextFormatter.FormatVideo("Video {Fototaste_1} {Videotaste_1}", [Enter]));
+        Assert.Equal("Eingabetaste oder klicke", HintTextFormatter.FormatVideo("{Videotaste_1} {Klick}", [Enter], true));
+        Assert.Equal("Eingabetaste", HintTextFormatter.FormatVideo("{Videotaste_1} {Klick}", [Enter], false));
+    }
+
+    [Fact]
+    public void Format_VideoPlaceholders_WorkInPhotoLine_AndAreEmptyWithoutVideoKeys()
+    {
+        Assert.Equal("Foto Leertaste, Video Eingabetaste",
+            HintTextFormatter.Format("Foto {Fototaste_1}, Video {Videotaste_1}", [Space], false, [Enter]));
+        Assert.Equal("Leertaste | Eingabetaste oder F5",
+            HintTextFormatter.Format("{Fototasten} | {Videotasten}", [Space], false, [Enter, F5]));
+        Assert.Equal("Foto Leertaste", HintTextFormatter.Format("Foto {Fototaste_1} {Videotaste_1}", [Space], false));
+    }
+
+    [Fact]
+    public void FindVideoProblems_ValidTemplate_HasNone()
+    {
+        Assert.Empty(HintTextFormatter.FindVideoProblems("{Videotaste_1} {Videotaste_2} {Videotasten} {Klick}", 2));
+        Assert.Empty(HintTextFormatter.FindVideoProblems(null, 0));
+        Assert.Empty(HintTextFormatter.FindVideoProblems("Foto {Fototaste_1}", 1, 1));
+    }
+
+    [Fact]
+    public void FindVideoProblems_UnassignedNumber_NamesPlaceholderAndCount()
+    {
+        Assert.Equal(["{Videotaste_3} ist nicht belegt (es sind 2 Videotasten belegt) und bleibt leer."],
+            HintTextFormatter.FindVideoProblems("Drücke {Videotaste_3}", 2));
+    }
+
+    [Theory]
+    [InlineData(1, "es ist 1 Videotaste belegt")]
+    [InlineData(0, "es ist keine Videotaste belegt")]
+    [InlineData(5, "es sind 5 Videotasten belegt")]
+    public void FindVideoProblems_CountWording(int keyCount, string expected) =>
+        Assert.Equal([$"{{Videotaste_9}} ist nicht belegt ({expected}) und bleibt leer."],
+            HintTextFormatter.FindVideoProblems("{Videotaste_9}", keyCount));
+
+    [Fact]
+    public void FindVideoProblems_PhotoPlaceholderInVideoLine_UsesPhotoKeyCount()
+    {
+        Assert.Equal(["{Fototaste_2} ist nicht belegt (es ist 1 Fototaste belegt) und bleibt leer."],
+            HintTextFormatter.FindVideoProblems("{Fototaste_2}", 3, 1));
+    }
+
+    [Fact]
+    public void FindProblems_VideoPlaceholderInPhotoLine_UsesVideoKeyCount()
+    {
+        Assert.Empty(HintTextFormatter.FindProblems("{Videotaste_1}", 1, 1));
+        Assert.Equal(["{Videotaste_2} ist nicht belegt (es ist 1 Videotaste belegt) und bleibt leer."],
+            HintTextFormatter.FindProblems("{Videotaste_2}", 1, 1));
+    }
+
+    [Fact]
+    public void FindVideoProblems_UnknownPlaceholder_AndZeroNumber_AreReported()
+    {
+        Assert.Equal(
+        [
+            "Unbekannter Platzhalter {Videotaste_0} wird unverändert angezeigt.",
+            "Unbekannter Platzhalter {Videotaster} wird unverändert angezeigt.",
+        ], HintTextFormatter.FindVideoProblems("{Videotaste_0} {Videotaster}", 1));
+    }
 }
