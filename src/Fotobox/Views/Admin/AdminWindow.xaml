@@ -95,7 +95,7 @@
 
                             <TextBlock Text="Erwartete Druckdauer" Style="{StaticResource FieldLabel}" />
                             <local:NumberStepper Value="{Binding ExpectedPrintSeconds}" Minimum="{x:Static core:SettingsLimits.ExpectedPrintMin}" Maximum="{x:Static core:SettingsLimits.ExpectedPrintMax}" Step="10" Suffix=" s" />
-                            <TextBlock Text="So lange läuft der Fortschrittsbalken in der Gastansicht. Das Druck-Timeout liegt automatisch mindestens 60 s darüber."
+                            <TextBlock Text="{Binding ExpectedPrintHint}"
                                        Style="{StaticResource Hint}" />
                             <TextBlock Text="{Binding PrintTimeoutHint}" Style="{StaticResource Hint}" Foreground="{DynamicResource AccentBrush}"
                                        Visibility="{Binding HasPrintTimeoutHint, Converter={StaticResource BoolToVis}}" />
@@ -136,7 +136,7 @@
                                             </UniformGrid>
                                         </Border>
                                         <TextBlock Text="Fotostreifen" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
-                                        <TextBlock Text="2 bis 4 Fotos untereinander." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                        <TextBlock Text="{Binding StripPhotosHint}" Style="{StaticResource Hint}" TextAlignment="Center" />
                                     </StackPanel>
                                 </RadioButton>
                                 <RadioButton GroupName="LayoutKind" Style="{StaticResource CardRadio}"
@@ -677,7 +677,8 @@
 
                             <TextBlock Text="JPEG-Qualität" Style="{StaticResource FieldLabel}" />
                             <StackPanel Orientation="Horizontal">
-                                <Slider Width="340" Minimum="50" Maximum="100" TickFrequency="1" SmallChange="1" LargeChange="5"
+                                <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.JpegQualityMin}, Mode=OneTime}"
+                                        Maximum="{Binding Source={x:Static core:SettingsLimits.JpegQualityMax}, Mode=OneTime}" TickFrequency="1" SmallChange="1" LargeChange="5"
                                         IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
                                         Value="{Binding JpegQuality}" />
                                 <TextBlock Text="{Binding JpegQualityText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0"
@@ -702,7 +703,7 @@
                             <TextBlock Text="{Binding AdminKeysDisplay, StringFormat='Mit {0} öffnen Sie diese Einstellungen. Der Zugang ist durch eine PIN geschützt.'}"
                                        Style="{StaticResource Hint}" />
 
-                            <TextBlock Text="Neue PIN (4 bis 12 Ziffern)" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Text="{Binding Source={x:Static core:PinRules.LengthText}, StringFormat='Neue PIN ({0})'}" Style="{StaticResource FieldLabel}" />
                             <PasswordBox x:Name="NewPinBox" PasswordChanged="OnNewPinChanged" />
                             <TextBlock Text="Neue PIN wiederholen" Style="{StaticResource FieldLabel}" />
                             <PasswordBox x:Name="RepeatPinBox" PasswordChanged="OnRepeatPinChanged" />

@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:core="clr-namespace:Fotobox.Core">
 
     <!-- Farben kommen aus AdminColors.Light.xaml bzw. AdminColors.Dark.xaml (im Fenster gemergt, AdminThemeManager);
          deshalb hier immer DynamicResource. -->
@@ -138,7 +139,7 @@
         <Setter Property="FontSize" Value="30" />
         <Setter Property="MinHeight" Value="62" />
         <Setter Property="Padding" Value="10,6" />
-        <Setter Property="MaxLength" Value="12" />
+        <Setter Property="MaxLength" Value="{x:Static core:SettingsLimits.PinMaxLength}" />
         <Setter Property="PasswordChar" Value="●" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -153,7 +154,7 @@
         <Setter Property="FontSize" Value="18" />
         <Setter Property="MinHeight" Value="42" />
         <Setter Property="Padding" Value="10,6" />
-        <Setter Property="MaxLength" Value="12" />
+        <Setter Property="MaxLength" Value="{x:Static core:SettingsLimits.PinMaxLength}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Background" Value="{DynamicResource InputBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />

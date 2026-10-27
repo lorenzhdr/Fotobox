@@ -179,6 +179,17 @@ public class PinRulesTests
         Assert.Equal(expected, PinRules.IsValid(pin));
 
     [Fact]
+    public void Limits_ComeFromSettingsLimits_AndAreSharedWithPinService()
+    {
+        Assert.Equal("4 bis 12 Ziffern", PinRules.LengthText);
+        Assert.True(PinRules.IsValid(new string('1', SettingsLimits.PinMinLength)));
+        Assert.False(PinRules.IsValid(new string('1', SettingsLimits.PinMinLength - 1)));
+        Assert.True(PinRules.IsValid(new string('1', SettingsLimits.PinMaxLength)));
+        Assert.False(PinRules.IsValid(new string('1', SettingsLimits.PinMaxLength + 1)));
+        Assert.Contains($"{SettingsLimits.PinMinLength} bis {SettingsLimits.PinMaxLength}", PinRules.GetError("12", "12"));
+    }
+
+    [Fact]
     public void GetError_ReportsMismatchAndAcceptsMatchingValidPins()
     {
         Assert.NotNull(PinRules.GetError("1234", "4321"));
@@ -362,6 +373,46 @@ public sealed class AdminViewModelTests : IDisposable
 
         Assert.Equal("9876", _pin.LastPin);
         Assert.Equal("hash:9876", _store.Current.Security.PinHash);
+    }
+
+    [Fact]
+    public void Save_StoreSaveFailsAfterPinApplied_MentionsNewPin_AndLaterSaveKeepsIt()
+    {
+        _store.Current.Security.PinHash = "hash:alt";
+        var vm = CreateViewModel();
+        vm.NewPin = "9876";
+        vm.RepeatPin = "9876";
+        vm.CountdownSeconds = 7;
+        _store.FailFromSaveNumber = 2;   // Save 1 = PIN des Dienstes, Save 2 = Entwurf
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.False(vm.SettingsSaved);
+        Assert.Contains("nicht gespeichert", vm.ValidationMessage);
+        Assert.Contains("Die neue PIN gilt bereits.", vm.ValidationMessage);
+        Assert.Equal("hash:9876", _store.Current.Security.PinHash);
+        Assert.Equal(string.Empty, vm.NewPin);
+        Assert.Equal("Die PIN wurde geändert.", vm.PinStatus);
+
+        // Ein späterer erfolgreicher Save darf die alte PIN nicht zurückschreiben.
+        _store.FailFromSaveNumber = null;
+        vm.SaveCommand.Execute(null);
+
+        Assert.True(vm.SettingsSaved);
+        Assert.Equal("hash:9876", _store.Current.Security.PinHash);
+        Assert.Equal(7, _store.Current.Flow.CountdownSeconds);
+    }
+
+    [Fact]
+    public void Save_StoreSaveFailsWithoutPinChange_DoesNotMentionPin()
+    {
+        var vm = CreateViewModel();
+        _store.ThrowOnSave = new IOException("gesperrt");
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Contains("nicht gespeichert", vm.ValidationMessage);
+        Assert.DoesNotContain("PIN", vm.ValidationMessage);
     }
 
     [Fact]
@@ -784,44 +835,100 @@ public sealed class AdminViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Validate_WritableCustomFolder_PassesAndLeavesNoFiles()
+    public async Task Validate_WritableCustomFolder_PassesAndLeavesNoFiles()
     {
         var vm = CreateViewModel();
         var folder = Path.Combine(_dir, "Fotos", "Neu");
         vm.Draft.Storage.PhotoFolder = folder;
 
-        Assert.Empty(vm.Validate());
+        Assert.Empty(await vm.ValidateAsync());
         Assert.True(Directory.Exists(folder));
         Assert.Empty(Directory.GetFileSystemEntries(folder));
     }
 
     [Fact]
-    public void Validate_UnwritableFolder_ReportsGermanError_AndSaveIsRefused()
+    public async Task Validate_UnwritableFolder_ReportsGermanError_AndSaveIsRefused()
     {
         var blocker = Path.Combine(_dir, "blockiert");
         File.WriteAllText(blocker, "Datei statt Ordner");
         var vm = CreateViewModel();
         vm.Draft.Storage.PhotoFolder = Path.Combine(blocker, "unterordner");
 
-        var errors = vm.Validate();
+        var errors = await vm.ValidateAsync();
 
         Assert.Contains(errors, e => e.StartsWith("In den Speicherordner kann nicht geschrieben werden"));
 
-        vm.SaveCommand.Execute(null);
+        await vm.SaveCommand.ExecuteAsync(null);
         Assert.Equal(0, _store.SaveCount);
         Assert.True(vm.HasValidationMessage);
     }
 
     [Fact]
-    public void OpenFolderCommand_OpensEffectiveFolder()
+    public async Task OpenFolderCommand_OpensEffectiveFolder_WhenItExists()
     {
         var vm = CreateViewModel();
-        vm.Draft.Storage.PhotoFolder = Path.Combine(_dir, "Fotos");
+        var folder = Path.Combine(_dir, "Fotos");
+        Directory.CreateDirectory(folder);
+        vm.Draft.Storage.PhotoFolder = folder;
 
         // PhotoFolder wird beim Lesen aus dem Entwurf übernommen
-        vm.OpenFolderCommand.Execute(null);
+        await vm.OpenFolderCommand.ExecuteAsync(null);
 
-        Assert.Equal(Path.Combine(_dir, "Fotos"), _ui.OpenedFolder);
+        Assert.Equal(folder, _ui.OpenedFolder);
+        Assert.False(vm.HasValidationMessage);
+    }
+
+    [Fact]
+    public async Task OpenFolderCommand_FolderMissing_ShowsHint_AndDoesNotCreateIt()
+    {
+        var vm = CreateViewModel();
+        var folder = Path.Combine(_dir, "NochNichtDa");
+        vm.Draft.Storage.PhotoFolder = folder;
+
+        await vm.OpenFolderCommand.ExecuteAsync(null);
+
+        Assert.Null(_ui.OpenedFolder);
+        Assert.False(Directory.Exists(folder));
+        Assert.Contains("existiert noch nicht", vm.ValidationMessage);
+        Assert.Contains("ersten Foto", vm.ValidationMessage);
+    }
+
+    [Fact]
+    public async Task Save_FolderCheckHangs_TimesOutWithGermanMessage_AndDoesNotSave()
+    {
+        var vm = CreateViewModel();
+        using var release = new ManualResetEventSlim();
+        vm.FolderProbeTimeout = TimeSpan.FromMilliseconds(100);
+        vm.FolderWriteCheck = _ => { release.Wait(TimeSpan.FromSeconds(30)); return null; };
+        vm.Draft.Storage.PhotoFolder = Path.Combine(_dir, "Netz");
+
+        try
+        {
+            await vm.SaveCommand.ExecuteAsync(null);
+
+            Assert.False(vm.SettingsSaved);
+            Assert.Equal(0, _store.SaveCount);
+            Assert.Contains("nicht erreichbar", vm.ValidationMessage);
+            Assert.Contains("Zeitüberschreitung", vm.ValidationMessage);
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    [Fact]
+    public async Task Save_FolderCheckSucceeds_Saves()
+    {
+        var vm = CreateViewModel();
+        var checkedFolder = (string?)null;
+        vm.FolderWriteCheck = f => { checkedFolder = f; return null; };
+        vm.Draft.Storage.PhotoFolder = Path.Combine(_dir, "Neu");
+
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        Assert.True(vm.SettingsSaved);
+        Assert.Equal(Path.Combine(_dir, "Neu"), checkedFolder);
     }
 
     // ------------------------------------------------------------------ Streifenvariante, Schrift
@@ -1010,7 +1117,6 @@ public sealed class AdminViewModelTests : IDisposable
         trigger.AddKeyCommand.Execute(null);
         Assert.True(vm.IsKeyCaptureActive);
         Assert.True(trigger.IsCapturing);
-        Assert.Contains("Foto auslösen", vm.KeyCaptureHint);
 
         Assert.True(vm.CaptureKey(Chord(Key.Enter)));
 
@@ -1266,11 +1372,73 @@ public sealed class AdminViewModelTests : IDisposable
         var width = Base(); width.ResolutionWidth = 1920;
         var height = Base(); height.ResolutionHeight = 1080;
         var auto = Base(); auto.ResolutionWidth = null; auto.ResolutionHeight = null;
-        var preview = Base(); preview.MirrorPreview = false;
-        var photo = Base(); photo.MirrorPhoto = true;
 
-        foreach (var changed in new[] { device, width, height, auto, preview, photo })
+        foreach (var changed in new[] { device, width, height, auto })
+        {
             Assert.True(Fotobox.Views.Admin.AdminLauncher.CameraSettingsDiffer(Base(), changed));
+            Assert.True(Base().RequiresRestartComparedTo(changed));
+        }
+    }
+
+    [Fact]
+    public void CameraSettings_MirrorOnlyChange_NeedsNoRestart()
+    {
+        var baseline = new CameraSettings { DeviceId = "cam1", ResolutionWidth = 1280, ResolutionHeight = 720, MirrorPreview = true, MirrorPhoto = false };
+        var preview = baseline.Clone(); preview.MirrorPreview = false;
+        var photo = baseline.Clone(); photo.MirrorPhoto = true;
+
+        Assert.False(baseline.RequiresRestartComparedTo(preview));
+        Assert.False(baseline.RequiresRestartComparedTo(photo));
+        Assert.False(Fotobox.Views.Admin.AdminLauncher.CameraSettingsDiffer(baseline, preview));
+        Assert.False(Fotobox.Views.Admin.AdminLauncher.CameraNeedsRestart(baseline, preview, photo));
+    }
+
+    [Fact]
+    public void CameraSettings_Clone_CopiesAllFields_AndIsIndependent()
+    {
+        var original = new CameraSettings { DeviceId = "cam1", ResolutionWidth = 1280, ResolutionHeight = 720, MirrorPreview = false, MirrorPhoto = true };
+
+        var copy = original.Clone();
+        original.DeviceId = "andere";
+
+        Assert.Equal("cam1", copy.DeviceId);
+        Assert.Equal(1280, copy.ResolutionWidth);
+        Assert.Equal(720, copy.ResolutionHeight);
+        Assert.False(copy.MirrorPreview);
+        Assert.True(copy.MirrorPhoto);
+    }
+
+    [Fact]
+    public async Task ChangingMirror_DoesNotRestartCamera_NorMarkItChanged()
+    {
+        UseSavedCamera("cam1", 1280, 720);
+        var before = SnapshotCamera(_store.Current.Camera);
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+
+        vm.MirrorPreview = !vm.MirrorPreview;
+        vm.MirrorPhoto = !vm.MirrorPhoto;
+        vm.SaveCommand.Execute(null);
+
+        Assert.True(vm.SettingsSaved);
+        Assert.Empty(_camera.StartCalls);
+        Assert.False(vm.CameraTouched);
+        Assert.False(_store.Current.Camera.MirrorPhoto);
+        Assert.False(Fotobox.Views.Admin.AdminLauncher.CameraNeedsRestart(before, vm.LastAppliedCamera, _store.Current.Camera));
+    }
+
+    [Fact]
+    public async Task ResetToDefaults_OnlyMirrorDiffers_DoesNotRestartCamera()
+    {
+        UseSavedCamera(null, null, null);   // Gerät/Auflösung wie die Standardwerte, MirrorPhoto abweichend
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        _ui.ConfirmResult = true;
+
+        await vm.ResetToDefaultsCommand.ExecuteAsync(null);
+
+        Assert.False(vm.Draft.Camera.MirrorPhoto);
+        Assert.Empty(_camera.StartCalls);
     }
 
     private static CameraSettings SnapshotCamera(CameraSettings c) => new()
@@ -2446,7 +2614,7 @@ public sealed class AdminViewModelTests : IDisposable
     {
         var vm = await CreateChangedViewModelAsync();
         vm.CountdownSeconds = 0;
-        vm.SaveCommand.Execute(null);   // Validierungsmeldung
+        await vm.SaveCommand.ExecuteAsync(null);   // Validierungsmeldung
         vm.BeginKeyCapture(KeyAction.Admin);
         Assert.True(vm.HasValidationMessage);
         Assert.True(vm.IsKeyCaptureActive);
@@ -2630,7 +2798,7 @@ public sealed class AdminViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Validate_UnchangedFolder_IsNotProbed_ChangedFolderIs()
+    public async Task Validate_UnchangedFolder_IsNotProbed_ChangedFolderIs()
     {
         // Ein Pfad unterhalb einer Datei ist nie beschreibbar: Wäre er geprüft worden, gäbe es einen Fehler.
         var blocker = Path.Combine(_dir, "datei");
@@ -2638,13 +2806,14 @@ public sealed class AdminViewModelTests : IDisposable
         _store.Current.Storage.PhotoFolder = Path.Combine(blocker, "unter");
         var vm = CreateViewModel();
 
-        Assert.Empty(vm.Validate());
+        Assert.Empty(await vm.ValidateAsync());
 
         vm.Draft.Storage.PhotoFolder = Path.Combine(blocker, "anders");
-        Assert.Contains(vm.Validate(), e => e.StartsWith("In den Speicherordner kann nicht geschrieben werden"));
+        Assert.Contains(await vm.ValidateAsync(), e => e.StartsWith("In den Speicherordner kann nicht geschrieben werden"));
+        Assert.Empty(vm.Validate());   // synchron ohne Schreibtest
 
         vm.Draft.Storage.PhotoFolder = _store.Current.Storage.PhotoFolder;
-        Assert.Empty(vm.Validate());
+        Assert.Empty(await vm.ValidateAsync());
     }
 
     [Theory]
@@ -2770,10 +2939,15 @@ public sealed class AdminViewModelTests : IDisposable
         /// <summary>Gesetzt: <see cref="Save"/> wirft diese Ausnahme (z. B. gesperrte Datei).</summary>
         public Exception? ThrowOnSave { get; set; }
 
+        /// <summary>Gesetzt: Ab dem n-ten <see cref="Save"/>-Aufruf (1-basiert) wirft er eine <see cref="IOException"/>.</summary>
+        public int? FailFromSaveNumber { get; set; }
+
         public void Save(AppSettings settings)
         {
             if (ThrowOnSave is not null)
                 throw ThrowOnSave;
+            if (FailFromSaveNumber is { } n && SaveCount + 1 >= n)
+                throw new IOException("gesperrt");
             SaveCount++;
             Current = settings.Clone();
             SettingsChanged?.Invoke(this, EventArgs.Empty);

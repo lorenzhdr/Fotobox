@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using Fotobox.Core;
+using Fotobox.Services.Storage;
 using Fotobox.ViewModels.Admin;
 using Microsoft.Win32;
 
@@ -29,15 +30,10 @@ public sealed class WpfAdminUi : IAdminUi
     public string? PickFolder(string? initialFolder)
     {
         var dialog = new OpenFolderDialog { Title = "Speicherordner für die Fotos auswählen" };
-        if (!string.IsNullOrWhiteSpace(initialFolder))
-        {
-            // Existiert der Ordner noch nicht, den nächsten vorhandenen übergeordneten verwenden.
-            var probe = initialFolder;
-            while (!string.IsNullOrEmpty(probe) && !Directory.Exists(probe))
-                probe = Path.GetDirectoryName(probe);
-            if (!string.IsNullOrEmpty(probe))
-                dialog.InitialDirectory = probe;
-        }
+        // Existiert der Ordner noch nicht, den nächsten vorhandenen übergeordneten verwenden (mit Timeout: Netzpfad).
+        var start = FolderProbe.FindExistingFolderOrParent(initialFolder, TimeSpan.FromSeconds(3));
+        if (start is not null)
+            dialog.InitialDirectory = start;
         return (Owner is null ? dialog.ShowDialog() : dialog.ShowDialog(Owner)) == true ? dialog.FolderName : null;
     }
 
@@ -49,7 +45,6 @@ public sealed class WpfAdminUi : IAdminUi
 
     public void OpenFolder(string path)
     {
-        Directory.CreateDirectory(path);
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
     }
 
