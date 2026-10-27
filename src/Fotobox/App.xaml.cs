@@ -39,9 +39,9 @@ public partial class App : Application
             try
             {
                 MessageBox.Show(
-                    "Die Fotobox konnte nicht gestartet werden." + Environment.NewLine + Environment.NewLine +
+                    AppInfo.DisplayName + " konnte nicht gestartet werden." + Environment.NewLine + Environment.NewLine +
                     "Einzelheiten stehen im Protokoll im Ordner %LOCALAPPDATA%\\Fotobox\\logs.",
-                    "Fotobox",
+                    AppInfo.DisplayName,
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
@@ -57,8 +57,8 @@ public partial class App : Application
         if (!createdNew)
         {
             MessageBox.Show(
-                "Die Fotobox läuft bereits.",
-                "Fotobox",
+                AppInfo.DisplayName + " läuft bereits.",
+                AppInfo.DisplayName,
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
             Shutdown();
@@ -98,10 +98,10 @@ public partial class App : Application
             try
             {
                 MessageBox.Show(
-                    "Die Fotobox konnte nicht gestartet werden." + Environment.NewLine + Environment.NewLine +
+                    AppInfo.DisplayName + " konnte nicht gestartet werden." + Environment.NewLine + Environment.NewLine +
                     "Einzelheiten stehen im Protokoll im Ordner %LOCALAPPDATA%\\Fotobox\\logs." + Environment.NewLine +
                     "Prüfen Sie dort bzw. im Ordner %LOCALAPPDATA%, ob Dateien oder Rechte den Start blockieren.",
-                    "Fotobox",
+                    AppInfo.DisplayName,
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }

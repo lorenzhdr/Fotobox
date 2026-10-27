@@ -6,7 +6,7 @@
         xmlns:vm="clr-namespace:Fotobox.ViewModels.Admin"
         xmlns:controls="clr-namespace:Fotobox.Views.Controls"
         xmlns:booth="clr-namespace:Fotobox.Views.Booth"
-        Title="Fotobox – Einstellungen"
+        Title="Fotobox+ – Einstellungen"
         Width="1100" Height="750" MinWidth="900" MinHeight="620"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
         Background="{DynamicResource BgBrush}" FontFamily="Segoe UI"
@@ -738,7 +738,7 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <Button Grid.Column="0" Content="Fotobox beenden" Command="{Binding ExitCommand}"
+            <Button Grid.Column="0" Content="Fotobox+ beenden" Command="{Binding ExitCommand}"
                     Style="{StaticResource DangerButton}" VerticalAlignment="Bottom" />
 
             <Border Grid.Column="1" Margin="16,0" Background="{DynamicResource DangerSoftBrush}" CornerRadius="10"

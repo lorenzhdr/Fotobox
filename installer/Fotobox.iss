@@ -1,4 +1,4 @@
-; Inno Setup 6.3+ Skript fuer die Fotobox.
+; Inno Setup 6.3+ Skript fuer Fotobox+.
 ; Aufruf (siehe build/publish.ps1):
 ;   ISCC /DAppVersion=1.0.0 /DArch=x64 /DSourceDir=<publish-ordner> /O<ausgabeordner> installer\Fotobox.iss
 
@@ -20,8 +20,10 @@
 #define VersionNoPre Copy(VersionText, 1, Pos("-", VersionText + "-") - 1)
 #define NumericVersion Copy(VersionNoPre, 1, Pos("+", VersionNoPre + "+") - 1) + ".0"
 
-#define AppName "Fotobox"
+#define AppName "Fotobox+"
 #define AppExe "Fotobox.exe"
+; Dateiname des Installers ohne "+" (GitHub-Release-Assets: Sonderzeichen werden evtl. umbenannt).
+#define FileBase "FotoboxPlus"
 
 [Setup]
 ; Feste GUID - niemals aendern (identifiziert die Installation fuer Updates/Deinstallation).
@@ -29,7 +31,7 @@ AppId={{53A1DE88-5A3F-4B7B-90D0-6BA0D8091438}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
-AppPublisher=Fotobox
+AppPublisher=Fotobox+
 VersionInfoVersion={#NumericVersion}
 VersionInfoProductName={#AppName}
 DefaultDirName={autopf}\{#AppName}
@@ -38,7 +40,7 @@ DisableProgramGroupPage=yes
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 SetupIconFile=..\src\Fotobox\Assets\fotobox.ico
-OutputBaseFilename=Fotobox-Setup-{#AppVersion}-{#Arch}
+OutputBaseFilename={#FileBase}-Setup-{#AppVersion}-{#Arch}
 ; OutputDir wird per /O von build/publish.ps1 gesetzt.
 OutputDir=..\artifacts
 Compression=lzma2
@@ -71,6 +73,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; Update ueber Version 1.x: alte Startmenue-Verknuepfung "Fotobox" entfernen, sonst gaebe es neben "Fotobox+" ein Duplikat.
+Type: files; Name: "{autoprograms}\Fotobox.lnk"
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"

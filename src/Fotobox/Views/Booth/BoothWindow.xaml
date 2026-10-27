@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:Fotobox.Views.Controls"
         xmlns:booth="clr-namespace:Fotobox.Views.Booth"
-        Title="Fotobox"
+        Title="Fotobox+"
         WindowStyle="None" WindowState="Maximized" ResizeMode="NoResize"
         Background="#0B0D14" Cursor="None"
         FontFamily="Segoe UI Variable Display, Segoe UI"

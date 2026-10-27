@@ -1,10 +1,12 @@
-# Fotobox
+# Fotobox+
 
-Fotobox ist eine Windows-App für Fotoboxen auf Veranstaltungen. Sie zeigt das Live-Bild einer Webcam im Vollbild. Per Tastendruck (Standard: Leertaste) startet ein Gast den Ablauf:
+Fotobox+ (bis Version 1.4.1 „Fotobox“) ist eine Windows-App für Fotoboxen auf Veranstaltungen. Sie zeigt das Live-Bild einer Webcam im Vollbild. Per Tastendruck (Standard: Leertaste) startet ein Gast den Ablauf:
 
 **Taste → Countdown → Foto(s) → Speichern im Ordner → Druck auf einem USB-/Fotodrucker → Warten aufs Druckende → bereit für das nächste Foto**
 
 Es gibt eine Gastansicht und eine PIN-geschützte Admin-Ansicht für alle Einstellungen.
+
+Neu in 2.0.0-beta (Beta): Videomodus mit eigener Start-/Stopptaste (Standard Eingabetaste), Clips bis 5 Minuten (einstellbar) mit Ton, gespeichert in `Videos\Fotobox+`.
 
 ## Download und Installation
 
@@ -12,9 +14,9 @@ Die aktuelle Version steht unter **GitHub → Releases**:
 
 | Datei | Für welchen PC? |
 | --- | --- |
-| `Fotobox-Setup-<Version>-x64.exe` | Installer für Windows-PCs mit Intel- oder AMD-Prozessor (x64) |
-| `Fotobox-Setup-<Version>-arm64.exe` | Installer für Windows-on-ARM-PCs (ARM64) |
-| `Fotobox-<Version>-x64-portable.zip` / `-arm64-portable.zip` | Portable Version ohne Installation: entpacken und `Fotobox.exe` starten |
+| `FotoboxPlus-Setup-<Version>-x64.exe` | Installer für Windows-PCs mit Intel- oder AMD-Prozessor (x64) |
+| `FotoboxPlus-Setup-<Version>-arm64.exe` | Installer für Windows-on-ARM-PCs (ARM64) |
+| `FotoboxPlus-<Version>-x64-portable.zip` / `-arm64-portable.zip` | Portable Version ohne Installation: entpacken und `Fotobox.exe` starten |
 
 Welcher Typ der eigene PC ist, steht unter *Einstellungen → System → Info* bei „Systemtyp“.
 
@@ -47,14 +49,14 @@ Die Admin-Ansicht hat diese Bereiche. Änderungen gelten erst nach „Speichern�
 - **Gastansicht:** Eigener Hinweistext für die Gastansicht (bis 100 Zeichen; leer = automatischer Text) mit den Platzhaltern `{Fototaste_1}`, `{Fototaste_2}` … (die jeweilige Taste), `{Fototasten}` (alle Auslösetasten) und `{Klick}` (Mausklick). Drei Darstellungsstile: Pille, Schlicht (weißer Text mit Schatten) und Banner (Band über die volle Breite). Eine Live-Vorschau zeigt das Ergebnis.
 - **Drucker:** Drucker (Standard: Windows-Standarddrucker), Papiergröße (für randlosen Druck die randlose Größe des Fotodruckers wählen, z. B. „10 x 15 cm randlos“), Ausrichtung, Kopien (1–20), Zeitlimit für den Druck (10–900 s, Standard 300; automatisch mindestens erwartete Druckdauer + 60 s), Testseite drucken (mit den aktuellen, noch nicht gespeicherten Einstellungen).
 - **Tasten:** Belegung der Tasten für „Foto auslösen“ (Standard Leertaste), „Admin-Ansicht öffnen“ (Standard `Strg` + `Alt` + `A`) und „Abbrechen“ (Countdown oder Druck, Standard `Esc`). Pro Aktion sind mehrere Tasten möglich (bis zu 8). Systemkombinationen wie Alt+F4, Alt+Tab oder die Windows-Taste sind nicht erlaubt. Merke dir die Admin-Taste, sonst kommst du nicht mehr in die Einstellungen.
-- **Speicher:** Speicherordner (ändern, öffnen, Standardordner), Unterordner pro Tag, Originalfotos zusätzlich speichern, JPEG-Qualität (50–100, Standard 92), Dateipräfix (Standard „Fotobox“).
+- **Speicher:** Speicherordner (ändern, öffnen, Standardordner), Unterordner pro Tag, Originalfotos zusätzlich speichern, JPEG-Qualität (50–100, Standard 92), Dateipräfix (Standard „Fotobox+“).
 - **Sicherheit:** PIN ändern (4–12 Ziffern, gilt sofort). „Standardwerte wiederherstellen …“ setzt alle Einstellungen außer der PIN zurück (nach Bestätigung, gilt erst nach „Speichern“; Fotos und Overlay-Dateien bleiben erhalten).
 - **Darstellung:** Farbschema der Admin-Ansicht und der PIN-Abfrage: „Wie Windows“ (Standard, folgt dem hellen bzw. dunklen App-Modus von Windows), „Hell“ oder „Dunkel“. Die Wahl wirkt sofort als Vorschau. Die Gastansicht bleibt davon unverändert. Außerdem „Monitor der Gastansicht“: Bei mehreren Monitoren lässt sich wählen, auf welchem die Gastansicht läuft (Standard: Hauptbildschirm); die Admin-Ansicht öffnet auf demselben Monitor. Der Wechsel erfolgt nach „Speichern“. Ist der gewählte Monitor nicht angeschlossen, erscheint ein Hinweis und die Gastansicht läuft vorübergehend auf dem Hauptbildschirm; sobald der Monitor wieder angeschlossen ist, wechselt sie automatisch zurück. Bei nur einem Monitor ist die Auswahl ausgegraut.
-- **Fotobox beenden:** Button unten links in der Admin-Ansicht.
+- **Fotobox+ beenden:** Button unten links in der Admin-Ansicht.
 
 ## Wo liegt was?
 
-- **Fotos:** standardmäßig `Bilder\Fotobox`, mit Unterordner pro Tag (`JJJJ-MM-TT`, abschaltbar). Dateinamen: `<Präfix>_<JJJJMMTT_HHMMSS>.jpg`, Originale zusätzlich als `…_orig1.jpg` usw. Ist der gewählte Ordner nicht beschreibbar, weicht die Fotobox auf `Bilder\Fotobox` aus.
+- **Fotos:** standardmäßig `Bilder\Fotobox+` (bis 1.4.1: `Bilder\Fotobox`), mit Unterordner pro Tag (`JJJJ-MM-TT`, abschaltbar). Dateinamen: `<Präfix>_<JJJJMMTT_HHMMSS>.jpg`, Originale zusätzlich als `…_orig1.jpg` usw. Ist der gewählte Ordner nicht beschreibbar, weicht Fotobox+ auf `Bilder\Fotobox+` aus.
 - **Einstellungen:** `%LOCALAPPDATA%\Fotobox\settings.json` (Overlay-Grafiken in `%LOCALAPPDATA%\Fotobox\overlays`).
 - **Logs:** `%LOCALAPPDATA%\Fotobox\logs\fotobox-JJJJMMTT.log`
 

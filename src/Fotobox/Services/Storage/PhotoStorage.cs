@@ -8,7 +8,7 @@ namespace Fotobox.Services.Storage;
 
 /// <summary>
 /// Speichert Layout und Originale als JPEG (zuerst temporäre Datei, dann Umbenennen). Ist der konfigurierte Ordner
-/// nicht beschreibbar oder nicht vorhanden, wird auf den Standardordner (Bilder\Fotobox) ausgewichen; die Pfade im
+/// nicht beschreibbar oder nicht vorhanden, wird auf den Standardordner (Bilder\Fotobox+) ausgewichen; die Pfade im
 /// Ergebnis nennen den tatsächlich verwendeten Ordner. Ordner- und Dateinamen sind kulturunabhängig.
 /// </summary>
 public sealed class PhotoStorage : IPhotoStorage
@@ -18,11 +18,11 @@ public sealed class PhotoStorage : IPhotoStorage
 
     private readonly string _defaultRoot;
 
-    /// <param name="defaultRoot">Standard- bzw. Ausweichordner (null = Bilder\Fotobox); nur für Tests gedacht.</param>
+    /// <param name="defaultRoot">Standard- bzw. Ausweichordner (null = Bilder\Fotobox+); nur für Tests gedacht.</param>
     public PhotoStorage(string? defaultRoot = null)
     {
         _defaultRoot = string.IsNullOrWhiteSpace(defaultRoot)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Fotobox")
+            ? AppInfo.DefaultPhotoFolder
             : defaultRoot;
     }
 

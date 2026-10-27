@@ -1,12 +1,12 @@
 ﻿<#
 .SYNOPSIS
-    Erstellt self-contained Publish-Ordner, portable ZIPs und (optional) Inno-Setup-Installer der Fotobox.
+    Erstellt self-contained Publish-Ordner, portable ZIPs und (optional) Inno-Setup-Installer von Fotobox+.
 
 .DESCRIPTION
     Je Architektur (x64, arm64):
       1. dotnet publish (Release, self-contained) nach artifacts/publish/<arch>
-      2. ZIP:       artifacts/Fotobox-<Version>-<arch>-portable.zip
-      3. Installer: artifacts/Fotobox-Setup-<Version>-<arch>.exe (nur wenn ISCC.exe gefunden wird)
+      2. ZIP:       artifacts/FotoboxPlus-<Version>-<arch>-portable.zip
+      3. Installer: artifacts/FotoboxPlus-Setup-<Version>-<arch>.exe (nur wenn ISCC.exe gefunden wird)
 
     Kompatibel mit PowerShell 7 und Windows PowerShell 5.1. Exit-Code ungleich 0 bei Fehlern.
 
@@ -107,10 +107,10 @@ try {
     foreach ($a in $Arch) {
         $rid = "win-$a"
         $publishDir = Join-Path $artifacts "publish\$a"
-        $zipPath = Join-Path $artifacts "Fotobox-$Version-$a-portable.zip"
+        $zipPath = Join-Path $artifacts "FotoboxPlus-$Version-$a-portable.zip"
 
         Write-Host ''
-        Write-Host "=== Fotobox $Version ($rid) ===" -ForegroundColor Cyan
+        Write-Host "=== Fotobox+ $Version ($rid) ===" -ForegroundColor Cyan
 
         if (Test-Path -LiteralPath $publishDir) { Remove-Item -LiteralPath $publishDir -Recurse -Force }
 

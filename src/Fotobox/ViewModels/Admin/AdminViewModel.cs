@@ -1613,7 +1613,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         set => SetProperty(_draft.Storage.FilePrefix, value ?? string.Empty, v => _draft.Storage.FilePrefix = v);
     }
 
-    /// <summary>Anzuzeigender Zielordner (Standard: Bilder\Fotobox).</summary>
+    /// <summary>Anzuzeigender Zielordner (Standard: Bilder\Fotobox+).</summary>
     /// <summary>Hinweis auf der Layout-Karte „Fotostreifen“.</summary>
     public string StripPhotosHint => $"{SettingsLimits.StripPhotosMin} bis {SettingsLimits.StripPhotosMax} Fotos untereinander.";
 
@@ -1627,7 +1627,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
     private string EffectivePhotoFolder =>
         string.IsNullOrWhiteSpace(_draft.Storage.PhotoFolder)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Fotobox")
+            ? AppInfo.DefaultPhotoFolder
             : _draft.Storage.PhotoFolder;
 
     private void ChooseFolder()
@@ -2324,8 +2324,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
     private void RequestExit()
     {
-        if (!_ui.Confirm("Fotobox beenden",
-                "Soll die Fotobox wirklich beendet werden?\nNicht gespeicherte Änderungen gehen verloren."))
+        if (!_ui.Confirm("Fotobox+ beenden",
+                "Soll Fotobox+ wirklich beendet werden?\nNicht gespeicherte Änderungen gehen verloren."))
             return;
 
         ExitRequested = true;

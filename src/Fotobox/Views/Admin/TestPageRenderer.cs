@@ -50,7 +50,7 @@ public static class TestPageRenderer
             var typeface = new Typeface("Segoe UI");
             var scale = Math.Min(width, height) / 400.0; // Textgröße relativ zur kurzen Seite
 
-            DrawCentered(dc, "Fotobox Testdruck", typeface, 26 * scale, FontWeights.Bold, width, height * 0.42, pixelsPerDip, culture);
+            DrawCentered(dc, $"{AppInfo.DisplayName} Testdruck", typeface, 26 * scale, FontWeights.Bold, width, height * 0.42, pixelsPerDip, culture);
             DrawCentered(dc, DateTime.Now.ToString("dd.MM.yyyy HH:mm", culture), typeface, 16 * scale, FontWeights.Normal, width, height * 0.52, pixelsPerDip, culture);
             DrawCentered(dc, string.Create(culture, $"{page.WidthMm:0.#} × {page.HeightMm:0.#} mm  ·  {page.PixelWidth} × {page.PixelHeight} px  ·  {page.Dpi} dpi"),
                 typeface, 11 * scale, FontWeights.Normal, width, height * 0.58, pixelsPerDip, culture);

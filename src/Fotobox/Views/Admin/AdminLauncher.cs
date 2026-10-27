@@ -44,7 +44,7 @@ public sealed class AdminLauncher : IAdminLauncher
                 "Die Einstellungsdatei (settings.json) konnte nicht gelesen werden.\n\n" +
                 "Vermutlich greift gerade ein anderes Programm darauf zu (z. B. Virenscanner oder Datensicherung). " +
                 "Die gespeicherten Einstellungen und die PIN bleiben unverändert erhalten.\n\n" +
-                "Klicken Sie auf „OK“, um es erneut zu versuchen, oder auf „Abbrechen“, um die Fotobox zu beenden.");
+                "Klicken Sie auf „OK“, um es erneut zu versuchen, oder auf „Abbrechen“, um Fotobox+ zu beenden.");
             if (!retry)
                 return false;
             if (_settings.TryReload())
@@ -127,16 +127,16 @@ public sealed class AdminLauncher : IAdminLauncher
     private static bool ShowRetry(Window? owner, string message)
     {
         var result = owner is { IsLoaded: true }
-            ? MessageBox.Show(owner, message, "Fotobox", MessageBoxButton.OKCancel, MessageBoxImage.Error)
-            : MessageBox.Show(message, "Fotobox", MessageBoxButton.OKCancel, MessageBoxImage.Error);
+            ? MessageBox.Show(owner, message, AppInfo.DisplayName, MessageBoxButton.OKCancel, MessageBoxImage.Error)
+            : MessageBox.Show(message, AppInfo.DisplayName, MessageBoxButton.OKCancel, MessageBoxImage.Error);
         return result == MessageBoxResult.OK;
     }
 
     private static void ShowError(Window? owner, string message)
     {
         if (owner is { IsLoaded: true })
-            MessageBox.Show(owner, message, "Fotobox", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(owner, message, AppInfo.DisplayName, MessageBoxButton.OK, MessageBoxImage.Error);
         else
-            MessageBox.Show(message, "Fotobox", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(message, AppInfo.DisplayName, MessageBoxButton.OK, MessageBoxImage.Error);
     }
 }
