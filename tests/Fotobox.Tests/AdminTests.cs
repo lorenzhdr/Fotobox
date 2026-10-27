@@ -1909,6 +1909,97 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Equal([GuestLayout.StripDouble, GuestLayout.StripSingle, GuestLayout.Single], _store.Current.Layout.GuestChoices);
     }
 
+    // ------------------------------------------------------------------ Standard per ★ in der Reihenfolge
+
+    [Fact]
+    public void GuestOrder_MarksStandardWithStar()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        vm.IsGuestOverlay = true;   // Einzelfoto (Standard), 2 Streifen, Overlay
+
+        Assert.Equal([true, false, false], vm.GuestOrder.Select(i => i.IsDefault));
+        Assert.Equal([false, true, true], vm.GuestOrder.Select(i => i.IsNotDefault));
+        Assert.Equal([false, true, true], vm.GuestOrder.Select(i => i.MakeDefaultCommand.CanExecute(null)));
+    }
+
+    [Fact]
+    public void GuestOrder_MakeDefault_SetsLayoutKindAndStripStyle_KeepsOrder()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        vm.IsGuestStripSingle = true;   // Einzelfoto, 2 Streifen, 1 Streifen
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.GuestOrder[2].MakeDefaultCommand.Execute(null);
+
+        Assert.Equal(LayoutKind.Strip, vm.Draft.Layout.Kind);
+        Assert.Equal(StripStyle.Single, vm.Draft.Layout.StripStyle);
+        Assert.True(vm.IsStripLayout);
+        Assert.True(vm.IsStripSingle);
+        Assert.False(vm.IsSingleLayout);
+        Assert.Equal([GuestLayout.Single, GuestLayout.StripDouble, GuestLayout.StripSingle], vm.Draft.Layout.GuestChoices);
+        Assert.Equal([false, false, true], vm.GuestOrder.Select(i => i.IsDefault));
+
+        // Der alte Standard bleibt angehakt, ist jetzt aber abwählbar; der neue ist gesperrt.
+        Assert.True(vm.IsGuestSingle);
+        Assert.True(vm.IsGuestSingleEnabled);
+        Assert.False(vm.IsGuestStripSingleEnabled);
+
+        Assert.Contains(nameof(AdminViewModel.IsSingleLayout), raised);
+        Assert.Contains(nameof(AdminViewModel.IsStripLayout), raised);
+        Assert.Contains(nameof(AdminViewModel.IsStripSingle), raised);
+        Assert.Contains(nameof(AdminViewModel.IsStripDoubleCut), raised);
+        Assert.Contains(nameof(AdminViewModel.IsGuestSingleEnabled), raised);
+        Assert.Contains(nameof(AdminViewModel.GuestOrder), raised);
+    }
+
+    [Fact]
+    public void GuestOrder_MakeDefault_Overlay_AndBackToSingle()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestOverlay = true;   // Einzelfoto, Overlay
+
+        vm.MakeGuestLayoutDefault(GuestLayout.Overlay);
+        Assert.True(vm.IsOverlayLayout);
+        Assert.Equal([false, true], vm.GuestOrder.Select(i => i.IsDefault));
+
+        vm.GuestOrder[0].MakeDefaultCommand.Execute(null);
+        Assert.True(vm.IsSingleLayout);
+        Assert.Equal([true, false], vm.GuestOrder.Select(i => i.IsDefault));
+        Assert.Equal([GuestLayout.Single, GuestLayout.Overlay], vm.Draft.Layout.GuestChoices);
+    }
+
+    [Fact]
+    public void GuestOrder_MakeDefault_OnStandard_DoesNothing()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.MakeGuestLayoutDefault(GuestLayout.Single);
+
+        Assert.True(vm.IsSingleLayout);
+        Assert.Empty(raised);
+    }
+
+    [Fact]
+    public void GuestOrder_MakeDefault_IsWrittenToSavedSettings()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripSingle = true;   // Einzelfoto, 1 Streifen
+        vm.GuestOrder[1].MakeDefaultCommand.Execute(null);
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(1, _store.SaveCount);
+        Assert.Equal(LayoutKind.Strip, _store.Current.Layout.Kind);
+        Assert.Equal(StripStyle.Single, _store.Current.Layout.StripStyle);
+        Assert.Equal([GuestLayout.Single, GuestLayout.StripSingle], _store.Current.Layout.GuestChoices);
+    }
+
     // ------------------------------------------------------------------ Standardwerte wiederherstellen
 
     private static readonly string[] DefaultTriggerKeys = [InputSettings.DefaultTriggerKey];
