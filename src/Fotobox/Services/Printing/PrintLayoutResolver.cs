@@ -34,7 +34,7 @@ public static class PrintLayoutResolver
     {
         if (!string.IsNullOrWhiteSpace(mediaSizeName) && !string.Equals(mediaSizeName, "Unknown", StringComparison.OrdinalIgnoreCase))
             return mediaSizeName;
-        return string.Create(CultureInfo.InvariantCulture, $"{Math.Round(widthMm):0.#}x{Math.Round(heightMm):0.#}mm");
+        return string.Create(CultureInfo.InvariantCulture, $"{Math.Round(widthMm):0}x{Math.Round(heightMm):0}mm");
     }
 
     /// <summary>Lesbarer deutscher Name, z. B. "10 × 15 cm (4 × 6 Zoll)" oder "A4 (210 × 297 mm)".</summary>

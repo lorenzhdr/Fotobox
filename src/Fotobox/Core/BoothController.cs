@@ -29,6 +29,8 @@ public sealed class BoothController(
     private static readonly TimeSpan PageSpecTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Obergrenze für das Speichern (z. B. hängende Netzwerkfreigabe, abgezogener USB-Stick).</summary>
     private static readonly TimeSpan SaveTimeout = TimeSpan.FromSeconds(30);
+    /// <summary>Reserve des harten Druck-Limits über dem Druck-Timeout der Einstellungen (der Druckdienst bricht vorher von selbst ab).</summary>
+    private static readonly TimeSpan PrintHardLimitReserve = TimeSpan.FromSeconds(30);
     /// <summary>So lange bleibt die „Fertig“-Meldung nach erfolgreichem Druck stehen.</summary>
     public static readonly TimeSpan PrintedDisplay = TimeSpan.FromSeconds(5);
     /// <summary>So lange bleibt die Meldung „Druck abgebrochen“ (bzw. „Abbrechen nicht möglich“) stehen.</summary>
@@ -47,7 +49,7 @@ public sealed class BoothController(
     private DateTimeOffset _printStart;
     private volatile bool _printActive;
     private volatile bool _printDone;
-    private int _expectedPrintSeconds = 240;
+    private int _expectedPrintSeconds = new FlowSettings().ExpectedPrintSeconds;
     // Abbruchwunsch des Gastes für den Druck des laufenden Durchgangs (getrennt vom Sitzungs-Token, das den ganzen
     // Durchgang beendet) und der zugehörige Druck, damit ein bereits fertiger Druck nicht mehr „abgebrochen“ wird.
     private CancellationTokenSource? _printCancelCts;
@@ -141,7 +143,8 @@ public sealed class BoothController(
     /// <summary>
     /// Startet einen Durchgang. Nur im Zustand Idle und bei laufender Kamera.
     /// <paramref name="layout"/>: vom Gast gewählte Variante; <c>null</c> oder gleich dem Standard = Einstellungen unverändert.
-    /// Die gespeicherten Einstellungen werden nie verändert, der Durchgang arbeitet mit einer Kopie.
+    /// Die gespeicherten Einstellungen werden nie verändert; nur bei einem vom Standard abweichenden Gast-Layout arbeitet
+    /// der Durchgang auf einer angepassten Kopie.
     /// </summary>
     public bool TryTrigger(GuestLayout? layout = null)
     {
@@ -151,30 +154,44 @@ public sealed class BoothController(
             return false;
 
         var cts = new CancellationTokenSource();
-        _sessionCts = cts;
-        var cfg = settings.Current;
-        if (layout is { } chosen && chosen != GuestLayouts.From(cfg.Layout))
+        try
         {
-            cfg = cfg.Clone();
-            GuestLayouts.ApplyTo(cfg.Layout, chosen);
+            _sessionCts = cts;
+            var cfg = settings.Current;
+            if (layout is { } chosen && chosen != GuestLayouts.From(cfg.Layout))
+            {
+                cfg = cfg.Clone();
+                GuestLayouts.ApplyTo(cfg.Layout, chosen);
+            }
+
+            ErrorMessage = null;
+            PrintCancelTitle = null;
+            PrintCancelText = null;
+            StatusMessage = null;
+            PreviewImage = null;
+            CountdownValue = 0;
+            ShotIndex = 0;
+            ShotCount = 0;
+            ResetPrintProgress(cfg.Flow.ExpectedPrintSeconds);
+            State = BoothState.Countdown;
+
+            // Bis zur Komposition vergeht der Countdown: genug Zeit, die Seitengröße vorab zu holen.
+            StartPageSpecPrefetch(cfg.Layout.Kind);
+
+            _ = RunSessionAsync(cfg, cts);
+            return true;
         }
-
-        ErrorMessage = null;
-        PrintCancelTitle = null;
-        PrintCancelText = null;
-        StatusMessage = null;
-        PreviewImage = null;
-        CountdownValue = 0;
-        ShotIndex = 0;
-        ShotCount = 0;
-        ResetPrintProgress(cfg.Flow.ExpectedPrintSeconds);
-        State = BoothState.Countdown;
-
-        // Bis zur Komposition vergeht der Countdown: genug Zeit, die Seitengröße vorab zu holen.
-        StartPageSpecPrefetch(cfg.Layout.Kind);
-
-        _ = RunSessionAsync(cfg, cts);
-        return true;
+        catch (Exception ex)
+        {
+            // Der Durchgang läuft noch nicht (RunSessionAsync wirft nicht synchron): Sperre freigeben, sonst bliebe die Box dauerhaft belegt.
+            AppLog.Error("Durchgang konnte nicht gestartet werden.", ex);
+            _sessionCts = null;
+            cts.Dispose();
+            if (_state == BoothState.Countdown)
+                State = BoothState.Idle;
+            Volatile.Write(ref _busy, 0);
+            return false;
+        }
     }
 
     /// <summary>
@@ -591,7 +608,7 @@ public sealed class BoothController(
     /// </summary>
     private async Task<PrintResult> PrintGuardedAsync(BitmapSource page, PrinterSettings printer, CancellationToken userCancel, CancellationToken ct)
     {
-        var limit = TimeSpan.FromSeconds(Math.Max(SettingsLimits.PrintTimeoutMin, printer.TimeoutSeconds) + 30);
+        var limit = TimeSpan.FromSeconds(Math.Max(SettingsLimits.PrintTimeoutMin, printer.TimeoutSeconds)) + PrintHardLimitReserve;
         using var printCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         // Der Druck kann nach hartem Timeout noch weiterlaufen und später Status melden; sobald dieser Durchgang
         // vorbei ist, dürfen solche Meldungen den Status des nächsten Durchgangs nicht mehr überschreiben.
@@ -637,12 +654,16 @@ public sealed class BoothController(
         catch (TimeoutException)
         {
             printCts.Cancel();
-            _ = task?.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+            if (task is not null)
+                ObserveFault(task);
             return new PrintResult(PrintOutcome.TimedOut);
         }
         catch (OperationCanceledException)
         {
-            return new PrintResult(PrintOutcome.Cancelled);
+            // Wirft der Dienst auf den Abbruchwunsch des Gastes eine OCE (statt UserCancelled zu melden), ist es dennoch dessen Abbruch.
+            return new PrintResult(userCancel.IsCancellationRequested && !ct.IsCancellationRequested
+                ? PrintOutcome.UserCancelled
+                : PrintOutcome.Cancelled);
         }
         catch (Exception ex)
         {

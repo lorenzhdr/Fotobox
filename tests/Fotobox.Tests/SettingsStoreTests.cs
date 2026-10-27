@@ -382,7 +382,7 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(240 + SettingsLimits.PrintTimeoutReserveSeconds, s.Printer.TimeoutSeconds);
         Assert.Equal(50, s.Storage.JpegQuality);
         Assert.Equal("abcd", s.Storage.FilePrefix);
-        Assert.Equal(10_000, s.Security.PinIterations);
+        Assert.Equal(5, s.Security.PinIterations);   // gespeicherte Iterationen nie klemmen (sonst passt der Hash nicht mehr)
     }
 
     [Fact]
@@ -407,7 +407,7 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(1, store.Current.Printer.Copies);
         Assert.Equal(240 + SettingsLimits.PrintTimeoutReserveSeconds, store.Current.Printer.TimeoutSeconds);
         Assert.Equal(50, store.Current.Storage.JpegQuality);
-        Assert.Equal(10_000, store.Current.Security.PinIterations);
+        Assert.Equal(0, store.Current.Security.PinIterations);   // nicht geklemmt; SetPin erzwingt das Minimum für neue PINs
 
         var high = new AppSettings();
         high.Flow.CountdownSeconds = SettingsLimits.CountdownMax + 1;
@@ -895,5 +895,101 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Null(s.Appearance.GuestMonitorId);
         Assert.Null(s.Appearance.GuestMonitorName);
         Assert.Equal(3, s.Flow.CountdownSeconds);
+    }
+
+    [Fact]
+    public void Keys_AdminEmptyAndTriggerHoldsAdminDefault_BothKeepAKey_AndNormalizingIsIdempotent()
+    {
+        var input = new InputSettings { AdminKeys = [], TriggerKeys = ["Ctrl+Alt+A"], CancelCountdownKeys = [] };
+
+        SettingsNormalizer.NormalizeKeys(input);
+
+        Assert.Equal(["Space"], input.TriggerKeys);
+        Assert.Equal(["Ctrl+Alt+A"], input.AdminKeys);
+
+        SettingsNormalizer.NormalizeKeys(input);
+
+        Assert.Equal(["Space"], input.TriggerKeys);
+        Assert.Equal(["Ctrl+Alt+A"], input.AdminKeys);
+    }
+
+    [Fact]
+    public void Keys_OnlySpaceInAdminAndTriggerEmpty_BothKeepAKey_AndCancelStaysClean()
+    {
+        var input = new InputSettings { AdminKeys = ["Space"], TriggerKeys = [], CancelCountdownKeys = ["Ctrl+Alt+A", "Escape"] };
+
+        SettingsNormalizer.NormalizeKeys(input);
+
+        Assert.Equal(["Space"], input.TriggerKeys);
+        Assert.Equal(["Ctrl+Alt+A"], input.AdminKeys);
+        Assert.Equal(["Escape"], input.CancelCountdownKeys);
+    }
+
+    [Fact]
+    public void Normalize_KeepsStoredPinIterations_SoTheHashStillVerifies()
+    {
+        const string pin = "4711";
+        const int iterations = 5000;
+        var salt = new byte[16];
+        for (var i = 0; i < salt.Length; i++)
+            salt[i] = (byte)(i + 1);
+        var hash = System.Security.Cryptography.Rfc2898DeriveBytes.Pbkdf2(
+            pin, salt, iterations, System.Security.Cryptography.HashAlgorithmName.SHA256, 32);
+
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Security.PinIterations = iterations;
+        s.Security.PinSalt = Convert.ToBase64String(salt);
+        s.Security.PinHash = Convert.ToBase64String(hash);
+        store.Save(s);
+
+        Assert.Equal(iterations, store.Current.Security.PinIterations);
+        Assert.True(new PinService(store).Verify(pin));
+        Assert.Equal(iterations, new JsonSettingsStore(_dir).Current.Security.PinIterations);
+    }
+
+    [Fact]
+    public void Save_ThrowingSettingsChangedHandler_DoesNotFailSave_AndOthersStillRun()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var secondCalled = 0;
+        store.SettingsChanged += (_, _) => throw new InvalidOperationException("Handler kaputt");
+        store.SettingsChanged += (_, _) => secondCalled++;
+        var s = store.Current.Clone();
+        s.Flow.CountdownSeconds = 9;
+
+        store.Save(s);
+
+        Assert.Equal(1, secondCalled);
+        Assert.Equal(9, store.Current.Flow.CountdownSeconds);
+        Assert.Equal(9, new JsonSettingsStore(_dir).Current.Flow.CountdownSeconds);
+    }
+
+    [Fact]
+    public void Normalize_CaptionControlCharactersBecomeSpaces_AndIsTrimmed()
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Layout.CaptionText = "  Hochzeit\r\nAnna\t& Ben \n";
+        store.Save(s);
+        Assert.Equal("Hochzeit  Anna & Ben", store.Current.Layout.CaptionText);
+
+        s.Layout.CaptionText = " \r\n\t ";
+        store.Save(s);
+        Assert.True(string.IsNullOrWhiteSpace(store.Current.Layout.CaptionText));
+    }
+
+    [Fact]
+    public void Normalize_FontNameAndPrefix_AreCutWithoutSplittingSurrogatePairs()
+    {
+        // Das Paar 😀 (zwei UTF-16-Zeichen) würde genau an der Grenze zerschnitten.
+        var font = new string('f', SettingsLimits.FontNameMaxLength - 1) + "😀";
+        var prefix = new string('p', SettingsLimits.FilePrefixMaxLength - 1) + "😀";
+
+        var cleanFont = SettingsNormalizer.SanitizeFontName(font);
+        var cleanPrefix = SettingsNormalizer.SanitizePrefix(prefix);
+
+        Assert.Equal(new string('f', SettingsLimits.FontNameMaxLength - 1), cleanFont);
+        Assert.Equal(new string('p', SettingsLimits.FilePrefixMaxLength - 1), cleanPrefix);
     }
 }

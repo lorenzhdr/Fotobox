@@ -10,16 +10,6 @@ public static class AppLog
     private static readonly object Gate = new();
     private static string? _directory;
 
-    /// <summary>Aktueller Log-Ordner.</summary>
-    public static string Directory
-    {
-        get
-        {
-            lock (Gate)
-                return _directory ??= DefaultDirectory();
-        }
-    }
-
     /// <summary>Setzt den Log-Ordner (null = %LOCALAPPDATA%\Fotobox\logs) und legt ihn an. Wirft nie.</summary>
     public static void Initialize(string? directory = null)
     {
