@@ -42,9 +42,19 @@ public partial class AdminWindow : Window
     /// </summary>
     public void LimitSizeToOwnerMonitor()
     {
-        var area = WindowMonitor.GetWorkAreaSize(Owner);
-        Height = Math.Min(Height, area.Height - 20);
-        Width = Math.Min(Width, area.Width - 20);
+        LimitSizeToArea(WindowMonitor.GetWorkAreaSize(Owner));
+    }
+
+    internal void LimitSizeToArea(Size area)
+    {
+        var maxHeight = area.Height - 20;
+        var maxWidth = area.Width - 20;
+        // Auch die Mindestgröße begrenzen: MinHeight/MinWidth haben in WPF Vorrang vor Height/Width, sonst ragt das Fenster
+        // auf kleinen Bildschirmen über den Rand und die Fußleiste (Speichern/Abbrechen) wäre nicht erreichbar.
+        MinHeight = Math.Min(MinHeight, maxHeight);
+        MinWidth = Math.Min(MinWidth, maxWidth);
+        Height = Math.Min(Height, maxHeight);
+        Width = Math.Min(Width, maxWidth);
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)

@@ -139,6 +139,16 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     /// <summary>Länger darf die Abfrage der Seitengröße nicht dauern (der Druckdienst selbst gibt nach 5 s auf).</summary>
     private static readonly TimeSpan PageSpecTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// Länger darf eine Prüfung des Speicherordners (Schreibtest, Existenz) nicht dauern: Ein hängender Netzpfad friert die
+    /// Oberfläche sonst bis zum SMB-Timeout ein. Für Tests austauschbar.
+    /// </summary>
+    internal TimeSpan FolderProbeTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>Schreibtest des Speicherordners: Fehlertext oder null, wenn beschreibbar. Für Tests austauschbar.</summary>
+    internal Func<string, string?> FolderWriteCheck { get; set; } =
+        folder => FolderProbe.TryEnsureWritable(folder, out var error) ? null : error ?? "unbekannter Fehler";
+
     public AdminViewModel(ISettingsStore store, IPinService pin, ICameraService camera, IPrintService print, IAdminUi ui,
         TimeProvider? time = null, IDisplayService? displays = null)
     {
@@ -176,14 +186,14 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         LoadKeysFromDraft();
         RebuildGuestOrder();
 
-        SaveCommand = new RelayCommand(Save);
+        SaveCommand = new AsyncRelayCommand(SaveAsync);
         CancelCommand = new RelayCommand(Cancel);
         ExitCommand = new RelayCommand(RequestExit);
         ChooseOverlayCommand = new RelayCommand(ChooseOverlay);
         RemoveOverlayCommand = new RelayCommand(RemoveOverlay);
         ChooseFolderCommand = new RelayCommand(ChooseFolder);
         ResetFolderCommand = new RelayCommand(ResetFolder);
-        OpenFolderCommand = new RelayCommand(OpenFolder);
+        OpenFolderCommand = new AsyncRelayCommand(OpenFolderAsync);
         ChangePinCommand = new RelayCommand(ChangePin);
         TestPrintCommand = new AsyncRelayCommand(TestPrintAsync, () => !IsTestPrinting);
         CancelKeyCaptureCommand = new RelayCommand(CancelKeyCapture);
@@ -202,14 +212,14 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     /// <summary>Kamera für die Live-Vorschau.</summary>
     public ICameraService Camera { get; }
 
-    public IRelayCommand SaveCommand { get; }
+    public IAsyncRelayCommand SaveCommand { get; }
     public IRelayCommand CancelCommand { get; }
     public IRelayCommand ExitCommand { get; }
     public IRelayCommand ChooseOverlayCommand { get; }
     public IRelayCommand RemoveOverlayCommand { get; }
     public IRelayCommand ChooseFolderCommand { get; }
     public IRelayCommand ResetFolderCommand { get; }
-    public IRelayCommand OpenFolderCommand { get; }
+    public IAsyncRelayCommand OpenFolderCommand { get; }
     public IRelayCommand ChangePinCommand { get; }
     public IAsyncRelayCommand TestPrintCommand { get; }
     public IRelayCommand CancelKeyCaptureCommand { get; }
@@ -243,7 +253,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
     // ---------------------------------------------------------------- Initialisierung
 
-    /// <summary>Lädt Geräte, Auflösungen, Drucker und Papiergrößen. Wirft nicht.</summary>
+    /// <summary>Lädt Kamera-, Drucker-, Monitor- und Schriftenliste sowie die Seitengröße. Wirft nicht.</summary>
     public async Task InitializeAsync()
     {
         // Kamera-, Drucker- und Schriftenliste (die nur einmal pro Prozess geladen wird) laden und wenden sich unabhängig
@@ -375,17 +385,10 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 return;
 
             CameraTouched = true;
-            var settings = new CameraSettings
-            {
-                DeviceId = _draft.Camera.DeviceId,
-                ResolutionWidth = _draft.Camera.ResolutionWidth,
-                ResolutionHeight = _draft.Camera.ResolutionHeight,
-                MirrorPreview = _draft.Camera.MirrorPreview,
-                MirrorPhoto = _draft.Camera.MirrorPhoto,
-            };
+            var settings = _draft.Camera.Clone();
             // Festhalten, womit die Kamera wirklich läuft: Verwirft Speichern einen wartenden Neustart, kann sie noch auf einem
             // früheren Entwurfsstand laufen, obwohl die gespeicherten Werte denen beim Öffnen gleichen (siehe AdminLauncher).
-            Volatile.Write(ref _lastAppliedCamera, CloneCamera(settings));
+            Volatile.Write(ref _lastAppliedCamera, settings.Clone());
             await Camera.StartAsync(settings);
         }
         catch (Exception ex)
@@ -403,16 +406,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     /// Kameraeinstellungen, mit denen die Admin-Ansicht die Kamera zuletzt gestartet hat (Kopie); null, wenn sie sie nie
     /// angefasst hat. Läuft die Kamera damit anders als gespeichert, muss die Gastansicht sie nach dem Speichern neu starten.
     /// </summary>
-    public CameraSettings? LastAppliedCamera => Volatile.Read(ref _lastAppliedCamera) is { } c ? CloneCamera(c) : null;
-
-    private static CameraSettings CloneCamera(CameraSettings c) => new()
-    {
-        DeviceId = c.DeviceId,
-        ResolutionWidth = c.ResolutionWidth,
-        ResolutionHeight = c.ResolutionHeight,
-        MirrorPreview = c.MirrorPreview,
-        MirrorPhoto = c.MirrorPhoto,
-    };
+    public CameraSettings? LastAppliedCamera => Volatile.Read(ref _lastAppliedCamera)?.Clone();
 
     /// <summary>
     /// Stellt nach „Abbrechen“ die gespeicherten Kamera-Einstellungen wieder her. Läuft über dasselbe Gate wie
@@ -1556,7 +1550,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             // Hartes Limit wie beim Druck im Fotobetrieb: Druck-Timeout plus Reserve; ein blockierendes Write
             // soll weder den Button dauerhaft sperren noch das Schließen der Admin-Ansicht überdauern.
             var printTask = _print.PrintAsync(bitmap, printer, progress, ct);
-            _ = printTask.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+            _ = printTask.ContinueWith(t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
             var result = await printTask.WaitAsync(TimeSpan.FromSeconds(printer.TimeoutSeconds + 30), _time, ct);
             TestPrintStatus = result.Outcome switch
             {
@@ -1620,6 +1614,13 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Anzuzeigender Zielordner (Standard: Bilder\Fotobox).</summary>
+    /// <summary>Hinweis auf der Layout-Karte „Fotostreifen“.</summary>
+    public string StripPhotosHint => $"{SettingsLimits.StripPhotosMin} bis {SettingsLimits.StripPhotosMax} Fotos untereinander.";
+
+    /// <summary>Erklärung zur erwarteten Druckdauer.</summary>
+    public string ExpectedPrintHint =>
+        $"So lange läuft der Fortschrittsbalken in der Gastansicht. Das Druck-Timeout liegt automatisch mindestens {SettingsLimits.PrintTimeoutReserveSeconds} s darüber.";
+
     public string PhotoFolderDisplay => EffectivePhotoFolder;
 
     public bool IsDefaultPhotoFolder => string.IsNullOrWhiteSpace(_draft.Storage.PhotoFolder);
@@ -1650,11 +1651,28 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsDefaultPhotoFolder));
     }
 
-    private void OpenFolder()
+    private async Task OpenFolderAsync()
     {
+        var folder = EffectivePhotoFolder;
+        // Nur öffnen, was existiert (PhotoStorage legt den Ordner beim ersten Foto an). Die Abfrage hat ein Timeout.
+        var exists = await FolderProbe.ExistsAsync(folder, FolderProbeTimeout);
+        if (_disposed)
+            return;
+        if (exists is null)
+        {
+            ValidationMessage = "Der Ordner ist nicht erreichbar (Zeitüberschreitung).";
+            return;
+        }
+
+        if (!exists.Value)
+        {
+            ValidationMessage = "Der Ordner existiert noch nicht. Er wird beim ersten Foto angelegt.";
+            return;
+        }
+
         try
         {
-            _ui.OpenFolder(EffectivePhotoFolder);
+            _ui.OpenFolder(folder);
         }
         catch (Exception ex)
         {
@@ -1734,7 +1752,6 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 return;
             OnPropertyChanged(nameof(IsKeyCaptureActive));
             OnPropertyChanged(nameof(ShowKeyMessageBelow));
-            OnPropertyChanged(nameof(KeyCaptureHint));
             foreach (var editor in KeyEditors)
             {
                 editor.IsCapturing = ReferenceEquals(editor, value);
@@ -1744,10 +1761,6 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     }
 
     public bool IsKeyCaptureActive => _capturingEditor is not null;
-
-    public string KeyCaptureHint => _capturingEditor is null
-        ? string.Empty
-        : $"Drücken Sie jetzt die gewünschte Taste für „{_capturingEditor.Title}“ (auch mit Strg/Alt/Umschalt) …";
 
     /// <summary>Meldung zur letzten Tastenaufnahme (Fehler oder Hinweis); leer = keine.</summary>
     public string KeyMessage
@@ -2094,20 +2107,57 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         await LoadPaperSizesAsync();
         RequestPageSpec();
 
-        var cameraChanged = cameraBefore.DeviceId != _draft.Camera.DeviceId
-            || cameraBefore.ResolutionWidth != _draft.Camera.ResolutionWidth
-            || cameraBefore.ResolutionHeight != _draft.Camera.ResolutionHeight
-            || cameraBefore.MirrorPreview != _draft.Camera.MirrorPreview
-            || cameraBefore.MirrorPhoto != _draft.Camera.MirrorPhoto;
-        if (cameraChanged)
+        if (cameraBefore.RequiresRestartComparedTo(_draft.Camera))
             await RestartCameraAsync();
     }
 
     // ---------------------------------------------------------------- Validierung / Speichern
 
-    /// <summary>Prüft den Entwurf (und ggf. eine begonnene PIN-Änderung). Leer = alles in Ordnung.</summary>
-    public IReadOnlyList<string> Validate()
+    /// <summary>
+    /// Prüft den Entwurf (und ggf. eine begonnene PIN-Änderung) ohne Zugriff auf den Speicherordner. Leer = alles in Ordnung.
+    /// Der Schreibtest des Ordners gehört zu <see cref="ValidateAsync"/>.
+    /// </summary>
+    public IReadOnlyList<string> Validate() => ValidateCore(out _);
+
+    /// <summary>
+    /// Wie <see cref="Validate"/>, zusätzlich Schreibtest des Speicherordners (nur wenn er sich geändert hat), außerhalb des
+    /// UI-Threads und mit Timeout (<see cref="FolderProbeTimeout"/>).
+    /// </summary>
+    public async Task<IReadOnlyList<string>> ValidateAsync()
     {
+        var errors = ValidateCore(out var folderToProbe);
+        if (folderToProbe is not null)
+        {
+            var folderError = await ProbeFolderAsync(folderToProbe);
+            if (folderError is not null)
+                errors.Add(folderError);
+        }
+
+        return errors;
+    }
+
+    /// <summary>Fehlermeldung zum Speicherordner oder null, wenn er beschreibbar ist.</summary>
+    private async Task<string?> ProbeFolderAsync(string folder)
+    {
+        var check = FolderWriteCheck;
+        try
+        {
+            // Hängt der Zugriff, bleibt nur der Hintergrundthread hängen; die Oberfläche wartet höchstens das Timeout.
+            var error = await Task.Run(() => check(folder)).WaitAsync(FolderProbeTimeout, _time);
+            return error is null
+                ? null
+                : $"In den Speicherordner kann nicht geschrieben werden ({error}). Bitte wählen Sie einen anderen Ordner aus.";
+        }
+        catch (TimeoutException)
+        {
+            AppLog.Warn("Schreibtest des Speicherordners: Zeitüberschreitung.");
+            return "Der Speicherordner ist nicht erreichbar (Zeitüberschreitung). Bitte wählen Sie einen anderen Ordner aus.";
+        }
+    }
+
+    private List<string> ValidateCore(out string? folderToProbe)
+    {
+        folderToProbe = null;
         var errors = new List<string>();
 
         CheckRange(_draft.Flow.CountdownSeconds, SettingsLimits.CountdownMin, SettingsLimits.CountdownMax, "Der Countdown", errors);
@@ -2157,14 +2207,14 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         var folder = _draft.Storage.PhotoFolder;
         if (!string.IsNullOrWhiteSpace(folder))
         {
-            // Echter Schreibtest, damit ein Fehler nicht erst bei der ersten Session auffällt (und dann nicht gedruckt wird).
-            // Nur bei geändertem Ordner: Ein unveränderter, aber gerade nicht erreichbarer Netzpfad ließe den UI-Thread beim
-            // Speichern sonst lange hängen (der Betrieb fällt dann ohnehin auf Bilder\Fotobox aus, siehe PhotoStorage).
+            // Echter Schreibtest (ValidateAsync), damit ein Fehler nicht erst bei der ersten Session auffällt (und dann nicht
+            // gedruckt wird). Nur bei geändertem Ordner: Ein unveränderter, aber gerade nicht erreichbarer Netzpfad würde das
+            // Speichern sonst verzögern (der Betrieb fällt dann ohnehin auf Bilder\Fotobox aus, siehe PhotoStorage).
             var folderChanged = !string.Equals(folder, _initialPhotoFolder, StringComparison.OrdinalIgnoreCase);
             if (!IsUsablePath(folder))
                 errors.Add("Der Speicherordner ist kein gültiger Pfad. Bitte wählen Sie einen Ordner aus.");
-            else if (folderChanged && !FolderProbe.TryEnsureWritable(folder, out var folderError))
-                errors.Add($"In den Speicherordner kann nicht geschrieben werden ({folderError}). Bitte wählen Sie einen anderen Ordner aus.");
+            else if (folderChanged)
+                folderToProbe = folder;
         }
 
         if (_newPin.Length > 0 || _repeatPin.Length > 0)
@@ -2196,7 +2246,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void Save()
+    private async Task SaveAsync()
     {
         // Kein Fehler darf als unbehandelte Ausnahme aus dem Befehl in den Dispatcher laufen (globaler Handler, Absturz).
         if (_disposed || SettingsSaved)
@@ -2205,7 +2255,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         IReadOnlyList<string> errors;
         try
         {
-            errors = Validate();
+            errors = await ValidateAsync();
         }
         catch (Exception ex)
         {
@@ -2214,19 +2264,30 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // Die Admin-Ansicht kann während des Schreibtests geschlossen worden sein.
+        if (_disposed || SettingsSaved)
+            return;
+
         if (errors.Count > 0)
         {
             ValidationMessage = string.Join(Environment.NewLine, errors);
             return;
         }
 
+        var pinApplied = false;
         try
         {
             // Eine begonnene PIN-Änderung zuerst übernehmen; der Store hält danach den neuen Hash.
-            if (_newPin.Length > 0 && !TryApplyPin(out var failure))
+            if (_newPin.Length > 0)
             {
-                ValidationMessage = failure;
-                return;
+                if (!TryApplyPin(out var failure))
+                {
+                    ValidationMessage = failure;
+                    return;
+                }
+
+                pinApplied = true;
+                PinStatus = "Die PIN wurde geändert.";
             }
 
             // Die PIN wird nicht im Entwurf bearbeitet → aktuellen Stand aus dem Store übernehmen,
@@ -2244,7 +2305,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             AppLog.Error("Einstellungen konnten nicht gespeichert werden.", ex);
-            ValidationMessage = "Die Einstellungen konnten nicht gespeichert werden: " + ex.Message;
+            ValidationMessage = "Die Einstellungen konnten nicht gespeichert werden: " + ex.Message
+                + (pinApplied ? " Die neue PIN gilt bereits." : string.Empty);
             return;
         }
 

@@ -1,6 +1,7 @@
 using System.IO;
 using Fotobox.Core;
 using Fotobox.ViewModels.Admin;
+using Fotobox.Views;
 using Fotobox.Views.Admin;
 using Fotobox.Views.Booth;
 using Xunit;
@@ -21,6 +22,91 @@ public class AdminViewTests
 
         Assert.NotNull(pin);
         Assert.NotNull(first);
+    }
+
+    [StaFact]
+    public void FirstRunPinDialog_Hint_UsesConfiguredAdminKeys()
+    {
+        var custom = new FirstRunPinDialog(owner: null, AdminThemeMode.Light, ["Ctrl+Shift+F9", "F10"]);
+        var standard = new FirstRunPinDialog(owner: null);
+
+        Assert.Contains("Strg+Umschalt+F9 oder F10", custom.AdminKeyHint.Text);
+        Assert.DoesNotContain("Strg+Alt+A", custom.AdminKeyHint.Text);
+        Assert.Contains("Strg+Alt+A", standard.AdminKeyHint.Text);
+    }
+
+    [Theory]
+    [InlineData(new[] { "Ctrl+Alt+A" }, "Strg+Alt+A")]
+    [InlineData(new[] { "F10", "Ctrl+Alt+A" }, "F10 oder Strg+Alt+A")]
+    [InlineData(new[] { "F10", "F10" }, "F10")]
+    [InlineData(new[] { "kaputt", "F10" }, "F10")]
+    [InlineData(new string[0], "Strg+Alt+A")]
+    [InlineData(new[] { "kaputt" }, "Strg+Alt+A")]
+    public void FirstRunPinDialog_FormatAdminKeys(string[] keys, string expected) =>
+        Assert.Equal(expected, FirstRunPinDialog.FormatAdminKeys(keys));
+
+    [StaFact]
+    public void PinBoxes_UseSettingsLimitsForMaxLength()
+    {
+        var first = new FirstRunPinDialog(owner: null);
+
+        Assert.Equal(SettingsLimits.PinMaxLength, first.PinBox.MaxLength);
+        Assert.Equal(SettingsLimits.PinMaxLength, first.RepeatBox.MaxLength);
+    }
+
+    [StaFact]
+    public void AdminWindow_LimitSize_AlsoLimitsMinimumSize_SoFooterStaysReachable()
+    {
+        WithWindow((window, _) =>
+        {
+            Assert.True(window.MinHeight > 560);   // Ausgangslage: XAML-Mindesthöhe 620
+
+            window.LimitSizeToArea(new System.Windows.Size(1000, 580));   // z. B. 1280 x 800 bei 125 % Skalierung
+
+            Assert.Equal(560, window.MinHeight);
+            Assert.Equal(560, window.Height);
+            Assert.Equal(900, window.MinWidth);   // passt in 980: bleibt
+            Assert.Equal(980, window.Width);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_JpegQualitySlider_ShowsStoredValue_AndUsesSettingsLimits()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "fotobox-admin-view-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var store = new AdminViewModelTests.FakeStore(dir);
+            store.Current.Storage.JpegQuality = 80;
+            var vm = new AdminViewModel(store, new AdminViewModelTests.FakePinService(store),
+                new AdminViewModelTests.FakeCamera(), new AdminViewModelTests.FakePrint(), new AdminViewModelTests.FakeUi());
+            try
+            {
+                var window = new AdminWindow(vm);
+                var tabs = FindTabControl(window)!;
+                tabs.SelectedItem = tabs.Items.OfType<System.Windows.Controls.TabItem>().Single(t => t.Header as string == "Speicher");
+                var root = (System.Windows.FrameworkElement)window.Content;
+                root.Measure(new System.Windows.Size(1100, 750));
+                root.Arrange(new System.Windows.Rect(0, 0, 1100, 750));
+                root.UpdateLayout();
+
+                var slider = FindDescendant<System.Windows.Controls.Slider>(root)!;
+
+                Assert.Equal(SettingsLimits.JpegQualityMin, slider.Minimum);
+                Assert.Equal(SettingsLimits.JpegQualityMax, slider.Maximum);
+                Assert.Equal(80, slider.Value);
+                Assert.Equal(80, vm.JpegQuality);
+            }
+            finally
+            {
+                vm.Dispose();
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 
     [StaFact]

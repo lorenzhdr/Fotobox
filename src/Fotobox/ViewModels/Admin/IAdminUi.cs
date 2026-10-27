@@ -14,7 +14,7 @@ public interface IAdminUi
 
     bool Confirm(string title, string message);
 
-    /// <summary>Öffnet den Ordner im Explorer (legt ihn bei Bedarf an).</summary>
+    /// <summary>Öffnet den Ordner im Explorer (legt ihn nicht an; der Aufrufer prüft vorher, ob er existiert).</summary>
     void OpenFolder(string path);
 
     /// <summary>Rendert die Testseite in exakt der Pixelgröße der Seite. Läuft auf dem UI-Thread.</summary>
