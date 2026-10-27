@@ -13,6 +13,9 @@ public enum PageOrientation { Auto, Portrait, Landscape }
 /// <summary>Darstellung des Hinweistexts in der Gastansicht: Pille mit Rahmen, schlichter Text mit Schatten oder Band über die volle Breite.</summary>
 public enum HintStyle { Pill, Plain, Banner }
 
+/// <summary>Farbschema der Admin-Ansicht und der PIN-Dialoge; <see cref="System"/> folgt dem Windows-App-Modus.</summary>
+public enum AdminThemeMode { System, Light, Dark }
+
 /// <summary>Gemeinsame Wertebereiche für Admin-UI, Validierung und Normalisierung.</summary>
 public static class SettingsLimits
 {
@@ -117,6 +120,7 @@ public sealed class AppSettings
     public SecuritySettings Security { get; set; } = new();
     public InputSettings Input { get; set; } = new();
     public GuestScreenSettings GuestScreen { get; set; } = new();
+    public AppearanceSettings Appearance { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -171,6 +175,12 @@ public sealed class GuestScreenSettings
     /// </summary>
     public string? HintText { get; set; }
     public HintStyle HintStyle { get; set; } = HintStyle.Pill;
+}
+
+/// <summary>Darstellung der Admin-Ansicht (nicht der Gastansicht).</summary>
+public sealed class AppearanceSettings
+{
+    public AdminThemeMode AdminTheme { get; set; } = AdminThemeMode.System;
 }
 
 public sealed class PrinterSettings

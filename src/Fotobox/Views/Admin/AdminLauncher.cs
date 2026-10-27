@@ -52,7 +52,7 @@ public sealed class AdminLauncher : IAdminLauncher
 
         while (true)
         {
-            var dialog = new FirstRunPinDialog(owner);
+            var dialog = new FirstRunPinDialog(owner, _settings.Current.Appearance.AdminTheme);
             if (dialog.ShowDialog() != true)
                 return false;
 
@@ -76,7 +76,7 @@ public sealed class AdminLauncher : IAdminLauncher
         if ((_settings.LoadFailed || !_pinService.HasPin) && !EnsurePinConfigured(owner))
             return new AdminResult(false, false, false);
 
-        var pinDialog = new PinDialog(_pinService.Verify, _limiter, owner);
+        var pinDialog = new PinDialog(_pinService.Verify, _limiter, owner, _settings.Current.Appearance.AdminTheme);
         if (pinDialog.ShowDialog() != true)
             return new AdminResult(false, false, false);
 

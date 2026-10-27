@@ -37,12 +37,14 @@ public sealed record OrientationOption(PageOrientation Orientation, string Displ
 /// <summary>Eintrag der Reihenfolge-Liste der Gastauswahl (Nummer, Name, ▲/▼).</summary>
 public sealed class GuestLayoutItem
 {
-    internal GuestLayoutItem(GuestLayout layout, int position, string name, bool canMoveUp, bool canMoveDown,
-        Action moveUp, Action moveDown)
+    internal GuestLayoutItem(GuestLayout layout, int position, string name, bool isDefault, bool canMoveUp, bool canMoveDown,
+        Action makeDefault, Action moveUp, Action moveDown)
     {
         Layout = layout;
         Position = position;
         Name = name;
+        IsDefault = isDefault;
+        MakeDefaultCommand = new RelayCommand(makeDefault, () => !isDefault);
         MoveUpCommand = new RelayCommand(moveUp, () => canMoveUp);
         MoveDownCommand = new RelayCommand(moveDown, () => canMoveDown);
     }
@@ -51,6 +53,12 @@ public sealed class GuestLayoutItem
     public int Position { get; }
     public string PositionText => Position + ".";
     public string Name { get; }
+
+    /// <summary>Dieser Eintrag ist das Standard-Layout (★).</summary>
+    public bool IsDefault { get; }
+
+    public bool IsNotDefault => !IsDefault;
+    public IRelayCommand MakeDefaultCommand { get; }
     public IRelayCommand MoveUpCommand { get; }
     public IRelayCommand MoveDownCommand { get; }
 }
@@ -623,6 +631,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     // Die Wahlmöglichkeiten stehen im Entwurf als geordnete Liste; ihre Reihenfolge ist die Scroll-Reihenfolge der Gäste.
     // Leer = kein Wechsel. Ist sie nicht leer, enthält sie immer das Standard-Layout (Art + Streifenvariante, an beliebiger
     // Position); dessen Kästchen ist angehakt und nicht abwählbar. Neu angehakte Layouts kommen ans Ende.
+    // In der Reihenfolge-Liste markiert ★ den Standard; ☆ macht einen Eintrag zum Standard (wie die Karten oben).
 
     /// <summary>Standard-Layout des Entwurfs (aus Art und Streifenvariante).</summary>
     private GuestLayout DefaultGuestLayout => GuestLayouts.From(_draft.Layout);
@@ -665,6 +674,23 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         RaiseGuestChoices();
     }
 
+    /// <summary>
+    /// Macht ein Layout zum Standard (setzt Art und Streifenvariante wie die Karten oben). Die Reihenfolge bleibt,
+    /// der bisherige Standard bleibt in der Gastauswahl.
+    /// </summary>
+    public void MakeGuestLayoutDefault(GuestLayout layout)
+    {
+        if (layout == DefaultGuestLayout)
+            return;
+        GuestLayouts.ApplyTo(_draft.Layout, layout);
+        OnPropertyChanged(nameof(IsSingleLayout));
+        OnPropertyChanged(nameof(IsStripLayout));
+        OnPropertyChanged(nameof(IsOverlayLayout));
+        OnPropertyChanged(nameof(IsStripDoubleCut));
+        OnPropertyChanged(nameof(IsStripSingle));
+        EnsureDefaultInGuestChoices();
+    }
+
     /// <summary>Verschiebt ein Layout der Gastauswahl um eine Position nach oben (früher beim Scrollen).</summary>
     public void MoveGuestLayoutUp(GuestLayout layout) => MoveGuestLayout(layout, -1);
 
@@ -695,10 +721,12 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     {
         var list = _draft.Layout.GuestChoices ?? [];
         var photoCount = _draft.Layout.StripPhotoCount;
+        var standard = DefaultGuestLayout;
         _guestOrder = list
             .Select((layout, i) => new GuestLayoutItem(
-                layout, i + 1, GuestLayouts.DisplayName(layout, photoCount),
+                layout, i + 1, GuestLayouts.DisplayName(layout, photoCount), isDefault: layout == standard,
                 canMoveUp: i > 0, canMoveDown: i < list.Count - 1,
+                makeDefault: () => MakeGuestLayoutDefault(layout),
                 moveUp: () => MoveGuestLayoutUp(layout), moveDown: () => MoveGuestLayoutDown(layout)))
             .ToArray();
     }
@@ -1765,6 +1793,40 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsHintBanner));
     }
 
+    // ---------------------------------------------------------------- Darstellung (Admin-Ansicht)
+
+    /// <summary>Farbschema des Entwurfs; das Admin-Fenster wendet Änderungen sofort an (Vorschau).</summary>
+    public AdminThemeMode AdminTheme => _draft.Appearance.AdminTheme;
+
+    public bool IsAdminThemeSystem
+    {
+        get => _draft.Appearance.AdminTheme == AdminThemeMode.System;
+        set => SetAdminTheme(AdminThemeMode.System, value);
+    }
+
+    public bool IsAdminThemeLight
+    {
+        get => _draft.Appearance.AdminTheme == AdminThemeMode.Light;
+        set => SetAdminTheme(AdminThemeMode.Light, value);
+    }
+
+    public bool IsAdminThemeDark
+    {
+        get => _draft.Appearance.AdminTheme == AdminThemeMode.Dark;
+        set => SetAdminTheme(AdminThemeMode.Dark, value);
+    }
+
+    private void SetAdminTheme(AdminThemeMode mode, bool selected)
+    {
+        if (!selected || _draft.Appearance.AdminTheme == mode)
+            return;
+        _draft.Appearance.AdminTheme = mode;
+        OnPropertyChanged(nameof(AdminTheme));
+        OnPropertyChanged(nameof(IsAdminThemeSystem));
+        OnPropertyChanged(nameof(IsAdminThemeLight));
+        OnPropertyChanged(nameof(IsAdminThemeDark));
+    }
+
     /// <summary>
     /// Der Hinweistext, wie ihn die Gastansicht mit dem aktuellen Entwurf zeigt: Platzhalter ersetzt durch die im Entwurf
     /// belegten Auslöse-Tasten und die Maus-Einstellung.
@@ -1833,6 +1895,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _draft.Storage = defaults.Storage;
         _draft.Input = defaults.Input;
         _draft.GuestScreen = defaults.GuestScreen;
+        _draft.Appearance = defaults.Appearance;
         // Security (PIN) und Version bleiben bewusst unverändert.
 
         // UI-Zustand wie bei einer frisch geöffneten Admin-Ansicht mit Standard-Einstellungen.
