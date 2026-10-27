@@ -17,10 +17,6 @@ public partial class AdminWindow : Window
         InitializeComponent();
         DataContext = viewModel;
 
-        // Auf kleinen Bildschirmen nicht höher als der Arbeitsbereich.
-        Height = Math.Min(Height, SystemParameters.WorkArea.Height - 20);
-        Width = Math.Min(Width, SystemParameters.WorkArea.Width - 20);
-
         viewModel.CloseRequested += OnCloseRequested;
         viewModel.PinFieldsCleared += () =>
         {
@@ -37,6 +33,18 @@ public partial class AdminWindow : Window
             if (e.PropertyName is nameof(AdminViewModel.AdminTheme) or "" or null)
                 AdminThemeManager.Apply(this, viewModel.AdminTheme);
         };
+    }
+
+    /// <summary>
+    /// Begrenzt die Größe aus dem XAML auf den Arbeitsbereich des Monitors, auf dem der Owner (Gastansicht) liegt
+    /// (ohne Owner: Hauptbildschirm). Einmal aufrufen, nachdem <see cref="Window.Owner"/> gesetzt wurde und bevor das Fenster
+    /// angezeigt wird (sonst stimmt die Zentrierung nicht).
+    /// </summary>
+    public void LimitSizeToOwnerMonitor()
+    {
+        var area = WindowMonitor.GetWorkAreaSize(Owner);
+        Height = Math.Min(Height, area.Height - 20);
+        Width = Math.Min(Width, area.Width - 20);
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)

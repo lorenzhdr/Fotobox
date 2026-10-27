@@ -36,6 +36,12 @@ public interface ICameraService : IAsyncDisposable
     Task<BitmapSource> CapturePhotoAsync(CancellationToken ct = default); // höchste verfügbare Auflösung der aktiven Session, Bgra32, Frozen, UNgespiegelt; InvalidOperationException wenn nicht Running
 }
 
+public interface IDisplayService
+{
+    /// <summary>Angeschlossene Monitore, sortiert nach Nummer. Wirft nie; bei Fehlern leere Liste (und Log).</summary>
+    IReadOnlyList<DisplayMonitor> GetMonitors();
+}
+
 public interface ILayoutComposer
 {
     int GetRequiredPhotoCount(LayoutSettings layout);   // Strip → Clamp(StripPhotoCount,2,4), sonst 1
