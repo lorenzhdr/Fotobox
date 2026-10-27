@@ -1,0 +1,25 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Farben (helles Schema). Gleiche Schlüssel wie AdminColors.Dark.xaml; AdminThemeManager tauscht die Datei aus. -->
+    <SolidColorBrush x:Key="BgBrush" Color="#F3F5F9" />
+    <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="InputBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="SubtleBrush" Color="#FAFBFD" />
+    <SolidColorBrush x:Key="ThumbBgBrush" Color="#E9ECF1" />
+    <SolidColorBrush x:Key="HoverBrush" Color="#F0F3F8" />
+    <SolidColorBrush x:Key="HoverOverlayBrush" Color="#000000" />
+    <SolidColorBrush x:Key="LineBrush" Color="#DDE2EA" />
+    <SolidColorBrush x:Key="TrackBrush" Color="#BAC2CF" />
+    <SolidColorBrush x:Key="TextBrush" Color="#1B2430" />
+    <SolidColorBrush x:Key="MutedBrush" Color="#5F6B7C" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#2563EB" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#9DB8F5" />
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="#E8F0FF" />
+    <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="DangerBrush" Color="#C62828" />
+    <SolidColorBrush x:Key="DangerSoftBrush" Color="#FDECEC" />
+    <SolidColorBrush x:Key="SecondaryBrush" Color="#E6EAF1" />
+    <SolidColorBrush x:Key="FrameBrush" Color="#9AA5B5" />
+
+</ResourceDictionary>

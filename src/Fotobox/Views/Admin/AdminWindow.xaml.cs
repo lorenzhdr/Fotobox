@@ -29,6 +29,14 @@ public partial class AdminWindow : Window
         };
         Loaded += OnLoaded;
         PreviewKeyDown += OnPreviewKeyDown;
+
+        // Farbschema: sofort aus dem Entwurf, bei Änderung im Tab „Darstellung“ oder nach „Standardwerte wiederherstellen“ neu.
+        AdminThemeManager.Apply(this, viewModel.AdminTheme);
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(AdminViewModel.AdminTheme) or "" or null)
+                AdminThemeManager.Apply(this, viewModel.AdminTheme);
+        };
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)

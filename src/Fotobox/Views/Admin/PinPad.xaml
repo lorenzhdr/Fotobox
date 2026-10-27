@@ -18,7 +18,7 @@
         <Button Style="{StaticResource PadButton}" Content="9" Click="OnDigit" />
         <Button Style="{StaticResource PadButton}" Content="Löschen" FontSize="16" Click="OnBackspace" />
         <Button Style="{StaticResource PadButton}" Content="0" Click="OnDigit" />
-        <Button x:Name="OkButton" Style="{StaticResource PadButton}" Content="OK" Background="{StaticResource AccentBrush}"
-                Foreground="White" FontSize="22" Click="OnSubmit" />
+        <Button x:Name="OkButton" Style="{StaticResource PadButton}" Content="OK" Background="{DynamicResource AccentBrush}"
+                Foreground="{DynamicResource OnAccentBrush}" FontSize="22" Click="OnSubmit" />
     </UniformGrid>
 </UserControl>

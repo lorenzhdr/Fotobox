@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using Fotobox.Core;
 using Fotobox.ViewModels.Admin;
 
 namespace Fotobox.Views.Admin;
@@ -13,11 +14,12 @@ public partial class PinDialog : Window
     private readonly PinAttemptLimiter _limiter;
     private readonly DispatcherTimer _lockTimer;
 
-    public PinDialog(Func<string, bool> verify, PinAttemptLimiter limiter, Window? owner)
+    public PinDialog(Func<string, bool> verify, PinAttemptLimiter limiter, Window? owner, AdminThemeMode theme = AdminThemeMode.System)
     {
         _verify = verify;
         _limiter = limiter;
         InitializeComponent();
+        AdminThemeManager.Apply(this, theme);
 
         if (owner is { IsLoaded: true })
         {

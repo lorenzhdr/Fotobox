@@ -9,7 +9,7 @@ WPF-App (.NET 10, `net10.0-windows10.0.19041.0`, x64 + ARM64, self-contained): W
 - `src/Fotobox/Services/Printing` – Drucken über System.Printing/XPS, Job-Statusauswertung, Seitengrößen (`PageSpecCache`).
 - `src/Fotobox/Services/Layout` – Komposition der Druckseite (Einzel, Streifen in zwei `StripStyle`-Varianten, Overlay; `LayoutMath`).
 - `src/Fotobox/Services/Storage` – Settings-Store (JSON), PIN-Service, Foto-Speicherung, Normalisierung.
-- `src/Fotobox/ViewModels`, `Views` – MVVM (CommunityToolkit.Mvvm); `Booth` = Gastansicht, `Admin` = Einstellungen und PIN-Dialoge.
+- `src/Fotobox/ViewModels`, `Views` – MVVM (CommunityToolkit.Mvvm); `Booth` = Gastansicht, `Admin` = Einstellungen und PIN-Dialoge (Stile `AdminTheme.xaml`, Farben `AdminColors.Light.xaml`/`AdminColors.Dark.xaml`, `AdminThemeManager`).
 - `tests/Fotobox.Tests` – xUnit (mit Xunit.StaFact für WPF/STA).
 - `build/publish.ps1`, `installer/Fotobox.iss`, `build/release-notes.template.md` – Publish, ZIPs, Inno-Setup-Installer, Release-Text.
 - `.github/workflows` – `build.yml` (Build + Tests je Push/PR), `release.yml` (Tag `v*`).
@@ -29,6 +29,7 @@ WPF-App (.NET 10, `net10.0-windows10.0.19041.0`, x64 + ARM64, self-contained): W
 - Admin „Standardwerte wiederherstellen“ (Tab Sicherheit, `AdminViewModel.ResetToDefaultsAsync`): setzt nach Bestätigung den Entwurf auf `new AppSettings()` zurück, behält aber `Security` (PIN) und `Version`; gilt wie alles im Admin erst mit „Speichern“. Danach werden UI-Zustand (Tasten, Listenauswahl, Schrift, Overlay) neu aufgebaut und die Kamera nur bei geänderten Kameraeinstellungen neu gestartet.
 - Gast-Hinweisanzeige: `AppSettings.GuestScreen` (`GuestScreenSettings`: `HintText`, `HintStyle` Pill/Plain/Banner; Länge `SettingsLimits.HintTextMaxLength` 100). `Core/HintTextFormatter` löst den Text auf: leer = automatischer Text; Platzhalter `{Fototaste_N}`, `{Fototasten}`, `{Klick}`; eine unbelegte Nummer ergibt leer (Warnung im Admin), unbekannte Platzhalter bleiben wörtlich. `Views/Booth/GuestHint` (UserControl) ist die einzige Quelle für das Aussehen, genutzt in der Gastansicht und der Live-Vorschau im Admin-Tab „Gastansicht“ (nach Layout). „Standardwerte wiederherstellen“ setzt `GuestScreen` zurück, „Tasten zurücksetzen“ nicht. Die Mausradzeile kommt aus `GuestLayouts.WheelHint`.
 - Fotostreifen (`StripStyle`: 2 Streifen nebeneinander oder 1 Streifen mit ganzen Fotos untereinander): Bildunterschrift bis 2 Zeilen, unten `LayoutMath.SafeBottomMm` (5 mm) Sicherheitsabstand gegen Overscan; Schriftart wählbar (Fallback Segoe UI).
+- Farbschema der Admin-Ansicht (`AppSettings.Appearance.AdminTheme`, `AdminThemeMode`: System/Light/Dark, Standard System = Windows-App-Modus aus `HKCU\…\Themes\Personalize\AppsUseLightTheme`; unbekannte Werte → System). Gilt für Admin-Fenster, PIN-Abfrage und Erst-PIN-Dialog, nicht für die Gastansicht. Farben stehen nur in den beiden Paletten (gleiche Schlüssel, ein Test prüft das); `AdminTheme.xaml` und alle Admin-XAMLs beziehen Farben ausschließlich per `DynamicResource`. `AdminThemeManager.Apply(window, mode)` tauscht die im Fenster gemergte Palette und setzt die Titelleiste (DWM). Tab „Darstellung“ wirkt sofort als Vorschau (Fenster hört auf `AdminViewModel.AdminTheme`), gespeichert mit „Speichern“; „Standardwerte wiederherstellen“ setzt auf System. ComboBox (inkl. Popup/Items) hat ein eigenes Template, weil das Windows-Template `Background` ignoriert. Skizzen (Layout-Karten, Schema-Karten) und die Gastansicht-Vorschau sind bewusst fest eingefärbt. Neue Admin-Farben immer als Schlüssel in beiden Paletten anlegen.
 - `PhotoStorage` weicht bei nicht beschreibbarem Zielordner auf `Bilder\Fotobox` aus. Dateinamen `{Prefix}_{yyyyMMdd_HHmmss}.jpg`, Kollisionen `_2`, `_3` …
 
 ## Konventionen
@@ -56,13 +57,14 @@ pwsh build/publish.ps1 -Version 1.2.3 [-Arch x64|arm64] [-SkipInstaller] [-Requi
 
 - Bei nicht erreichbarem Drucker kostet die erste Seitengrößen-Abfrage bis zu 5 s (danach Fallback auf den letzten guten Wert bzw. `PageSpec.Default`, 10 × 15 cm); Ergebnisse werden gecacht und vorab im Hintergrund geholt.
 - Druckende-Erkennung bei IPP/WSD-Treibern: Ein vollständig gesendeter Auftrag ohne gemeldetes Druckende gilt nach dem Druck-Timeout als fertig.
+- Dunkles Schema: `MessageBox` und Datei-/Ordnerdialoge bleiben systemgestaltet; Scrollleisten übernehmen nur den Hintergrund (Daumen/Pfeile aus dem Windows-Template). Der Modus „System“ wird beim Öffnen gelesen, ein Wechsel in Windows bei offenem Admin wird erst beim nächsten Öffnen übernommen.
 - Eine syntaktisch kaputte `settings.json` wird gesichert (`.bak-…`), die übrigen Einstellungen müssen neu gesetzt werden; die PIN bleibt erhalten, sofern der `Security`-Block lesbar ist.
 
 ## Projektstand und Weiterarbeit
 
 - Veröffentlicht: `v0.0.0-beta` (Prerelease), `v0.0.1`, `v1.0.0`, `v1.1.0`, `v1.1.1`, `v1.1.2`, `v1.1.3` und `v1.2.0` (Tag auf dem `main`-Stand des Releases). Arbeitsbranch zuletzt: `feature/hinweistext-druckabbruch`. Beim Voranstellen von „Neu in x.y.z“ an den Release-Text diesen als Datei mit echten Zeilenumbrüchen schreiben (`gh release edit --notes-file`), sonst zerfällt die Tabelle. Neue Arbeit auf einem Branch, per CI (`build.yml`) prüfen, nach `main` mergen, dann Tag `v*` pushen.
 - Lokal ist nur das SDK 10.0.100-rc.1 installiert, die CI nutzt das finale .NET 10. Der Entwicklungsrechner ist ARM64, x64 läuft dort unter Emulation.
-- Tests: `dotnet test --filter "Category!=Hardware"` (721 Tests). Hardware-Tests (echte Kamera, z. B. Kamera-Neustart) laufen nur lokal. Die Tests schreiben ins echte App-Log (`%LOCALAPPDATA%\Fotobox\logs`).
+- Tests: `dotnet test --filter "Category!=Hardware"` (734 Tests). Hardware-Tests (echte Kamera, z. B. Kamera-Neustart) laufen nur lokal. Die Tests schreiben ins echte App-Log (`%LOCALAPPDATA%\Fotobox\logs`).
 - Manuelle E2E-Prüfung (Erststart, Alt+F4-Sperre, Foto speichern, PIN-Sperre, Kamerawechsel) erfolgte mit einem isolierten Benutzerprofil (Umgebungsvariablen `USERPROFILE`/`LOCALAPPDATA` umbiegen) per UI Automation. Es gab bewusst keinen Testdruck auf einem echten Drucker; der Druck muss mit beliebigen Druckern funktionieren (herstellerneutral).
 - Das Repo ist öffentlich: keine persönlichen Daten oder Gerätenamen committen (siehe oben).
 

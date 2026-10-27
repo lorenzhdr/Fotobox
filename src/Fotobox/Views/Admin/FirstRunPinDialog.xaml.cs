@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using Fotobox.Core;
 using Fotobox.ViewModels.Admin;
 
 namespace Fotobox.Views.Admin;
@@ -10,9 +11,10 @@ public partial class FirstRunPinDialog : Window
 {
     private PasswordBox _activeBox;
 
-    public FirstRunPinDialog(Window? owner)
+    public FirstRunPinDialog(Window? owner, AdminThemeMode theme = AdminThemeMode.System)
     {
         InitializeComponent();
+        AdminThemeManager.Apply(this, theme);
         _activeBox = PinBox;
 
         if (owner is { IsLoaded: true })
