@@ -22,6 +22,8 @@ internal sealed class WinRtVideoRecording : IVideoRecording
     private Task? _finishTask;
     private int _finishRequested;
     private int _faulted;
+    private string? _faultReason;
+    private EventHandler<string>? _faultedHandlers;
 
     internal WinRtVideoRecording(MediaCapture capture, string filePath, bool hasAudio, Action<WinRtVideoRecording> completed)
     {
@@ -33,7 +35,27 @@ internal sealed class WinRtVideoRecording : IVideoRecording
 
     public bool HasAudio { get; }
 
-    public event EventHandler<string>? Faulted;
+    /// <summary>Wer sich erst nach dem Fehler anmeldet (z. B. direkt nach <c>StartRecordingAsync</c>), wird sofort benachrichtigt.</summary>
+    public event EventHandler<string>? Faulted
+    {
+        add
+        {
+            string? reason;
+            lock (_lock)
+            {
+                reason = _faultReason;
+                if (reason is null)
+                    _faultedHandlers += value;
+            }
+            if (reason is not null)
+                InvokeHandler(value, reason);
+        }
+        remove
+        {
+            lock (_lock)
+                _faultedHandlers -= value;
+        }
+    }
 
     /// <summary>Das MediaCapture, auf dem diese Aufnahme läuft (Abgleich mit dem Sender von Ereignissen).</summary>
     internal MediaCapture Capture => _capture;
@@ -47,9 +69,21 @@ internal sealed class WinRtVideoRecording : IVideoRecording
             return;
 
         AppLog.Warn($"Videoaufnahme vom Gerät beendet: {reason}");
+        EventHandler<string>? handlers;
+        lock (_lock)
+        {
+            _faultReason = reason;
+            handlers = _faultedHandlers;
+            _faultedHandlers = null;
+        }
+        InvokeHandler(handlers, reason);
+    }
+
+    private void InvokeHandler(EventHandler<string>? handler, string reason)
+    {
         try
         {
-            Faulted?.Invoke(this, reason);
+            handler?.Invoke(this, reason);
         }
         catch (Exception ex)
         {

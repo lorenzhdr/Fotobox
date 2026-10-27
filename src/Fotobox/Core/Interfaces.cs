@@ -59,7 +59,8 @@ public interface IVideoRecording : IAsyncDisposable
 {
     bool HasAudio { get; }
     /// <summary>Die Aufnahme wurde vom Gerät beendet (Kamera/Mikrofon weg, Datenträger voll …). Beliebiger Thread, höchstens einmal.
-    /// Danach <see cref="StopAsync"/> aufrufen, um das bis dahin Aufgenommene abzuschließen.</summary>
+    /// Danach <see cref="StopAsync"/> aufrufen, um das bis dahin Aufgenommene abzuschließen. Wer sich erst nach dem Fehler
+    /// anmeldet, wird sofort benachrichtigt (kein verpasster Fehler zwischen Start und Anmeldung).</summary>
     event EventHandler<string>? Faulted;
     /// <summary>Beendet die Aufnahme und schließt die Datei ab (best effort auch nach <see cref="Faulted"/>). Wirft, wenn keine
     /// abspielbare Datei entstanden ist. Mehrfacher Aufruf ist erlaubt (wartet auf den ersten). Hat ein Timeout.</summary>

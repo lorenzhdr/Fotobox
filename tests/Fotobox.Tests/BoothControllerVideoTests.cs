@@ -401,6 +401,21 @@ public partial class BoothControllerTests
     }
 
     [Fact]
+    public void Faulted_BeforeSubscription_StillRescuesVideo()
+    {
+        var h = VideoHarness();
+        var recording = new FakeRecording { FaultedBeforeSubscribe = "Kamera getrennt" };
+        h.Camera.RecordingToReturn = recording;
+        h.Controller.TryStartVideo();
+
+        h.Drain();
+
+        Assert.Equal(BoothState.VideoSaved, h.Controller.State);
+        Assert.Equal(1, recording.StopCalls);
+        Assert.Equal(1, h.VideoStorage.CommitCalls);
+    }
+
+    [Fact]
     public void Faulted_AndStopThrows_StillTriesCommit()
     {
         var h = VideoHarness();
@@ -763,14 +778,27 @@ public partial class BoothControllerTests
         private int _disposeCalls;
 
         public bool HasAudio { get; set; } = true;
-        public event EventHandler<string>? Faulted;
+        private EventHandler<string>? _faulted;
+        /// <summary>Gerätefehler schon vor der Anmeldung des Controllers; wie der echte Dienst wird nachgemeldet.</summary>
+        public string? FaultedBeforeSubscribe { get; set; }
+        public event EventHandler<string>? Faulted
+        {
+            add
+            {
+                if (FaultedBeforeSubscribe is { } reason)
+                    value?.Invoke(this, reason);
+                else
+                    _faulted += value;
+            }
+            remove => _faulted -= value;
+        }
         public Exception? StopFailure { get; set; }
         /// <summary>StopAsync endet nie (hängender Medienabschluss).</summary>
         public bool StopHang { get; set; }
         public int StopCalls => Volatile.Read(ref _stopCalls);
         public int DisposeCalls => Volatile.Read(ref _disposeCalls);
 
-        public void RaiseFaulted(string reason) => Faulted?.Invoke(this, reason);
+        public void RaiseFaulted(string reason) => _faulted?.Invoke(this, reason);
 
         /// <summary>StopAsync wartet erst (ohne ConfigureAwait(false)) auf den Kontext des Aufrufers, wie ein echter Dienst.</summary>
         public bool StopYields { get; set; }
