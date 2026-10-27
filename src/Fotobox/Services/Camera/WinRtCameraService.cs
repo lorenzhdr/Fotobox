@@ -22,7 +22,8 @@ public sealed class WinRtCameraService : ICameraService
     private static readonly TimeSpan InitTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan StepTimeout = TimeSpan.FromSeconds(5);
 
-    // Start/Stop/Resolutions sind serialisiert; alle Felder der Session werden nur unter _gate geändert.
+    // Start/Stop/Resolutions sind serialisiert; die Session-Felder (_capture, _reader, _source, …) werden nur unter _gate
+    // geändert. Ausnahmen: _generation, _disposed, _reconnectCts und _watchdogCts werden atomar (Interlocked/Volatile) getauscht.
     private readonly SemaphoreSlim _gate = new(1, 1);
     private MediaCapture? _capture;
     private volatile MediaFrameReader? _reader;
@@ -400,7 +401,8 @@ public sealed class WinRtCameraService : ICameraService
             }
 
             AppLog.Error("Kamera konnte nicht gestartet werden.", ex);
-            SetStatus(CameraStatus.Error, $"Die Kamera konnte nicht gestartet werden: {ex.Message}");
+            // Gast-Text auf Deutsch; die technische Meldung (oft englisch/HRESULT) steht nur im Log.
+            SetStatus(CameraStatus.Error, CameraMessages.StartFailed);
             return StartOutcome.Failed;
         }
     }
@@ -606,7 +608,7 @@ public sealed class WinRtCameraService : ICameraService
         _source = null;
         _activeDeviceId = null;
         _watchdog = null;
-        CancelAndDispose(Interlocked.Exchange(ref _watchdogCts, null));
+        Cancel(Interlocked.Exchange(ref _watchdogCts, null));
 
         List<TaskCompletionSource<CameraFrame>> waiters;
         lock (_frameLock)
@@ -791,7 +793,10 @@ public sealed class WinRtCameraService : ICameraService
         }
 
         AppLog.Error($"Kamera meldet Fehler: {e.Message} (Code {e.Code})");
-        _ = Task.Run(() => HandleFailureAsync(() => ReferenceEquals(_capture, sender), CameraMessages.ConnectionLost, null));
+        // Generation hier (nicht erst unter dem Gate) festhalten: Läuft gleichzeitig ein neuer Start (erhöht die Generation vor
+        // dem Gate), darf diese Fehlerbehandlung nicht mit der neuen Generation eine Wiederverbindung starten.
+        var generation = Volatile.Read(ref _generation);
+        _ = Task.Run(() => HandleFailureAsync(() => ReferenceEquals(_capture, sender), CameraMessages.ConnectionLost, generation));
     }
 
     // ---- Bild-Watchdog ----
@@ -802,7 +807,7 @@ public sealed class WinRtCameraService : ICameraService
         watchdog.Arm();
         var generation = Volatile.Read(ref _generation);
         var cts = new CancellationTokenSource();
-        CancelAndDispose(Interlocked.Exchange(ref _watchdogCts, cts));
+        Cancel(Interlocked.Exchange(ref _watchdogCts, cts));
         var ct = cts.Token;
         _ = Task.Run(() => WatchdogLoopAsync(reader, watchdog, generation, ct));
     }
@@ -877,7 +882,7 @@ public sealed class WinRtCameraService : ICameraService
     {
         var cts = new CancellationTokenSource();
         var previous = Interlocked.Exchange(ref _reconnectCts, cts);
-        CancelAndDispose(previous);
+        Cancel(previous);
         var ct = cts.Token;
         _ = Task.Run(() => ReconnectLoopAsync(generation, ct));
     }
@@ -897,6 +902,9 @@ public sealed class WinRtCameraService : ICameraService
                         return;
                     var settings = _lastSettings;
                     if (settings is null)
+                        return;
+                    // Läuft die Kamera inzwischen (z. B. durch einen Start, der die Schleife nicht mehr abbrechen konnte), nichts abreißen.
+                    if (Status == CameraStatus.Running)
                         return;
 
                     AppLog.Info("Kamera: Wiederverbindungsversuch.");
@@ -922,9 +930,9 @@ public sealed class WinRtCameraService : ICameraService
         }
     }
 
-    private void CancelReconnect() => CancelAndDispose(Interlocked.Exchange(ref _reconnectCts, null));
+    private void CancelReconnect() => Cancel(Interlocked.Exchange(ref _reconnectCts, null));
 
-    private static void CancelAndDispose(CancellationTokenSource? cts)
+    private static void Cancel(CancellationTokenSource? cts)
     {
         if (cts is null)
             return;

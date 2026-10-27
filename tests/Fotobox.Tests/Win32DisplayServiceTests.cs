@@ -54,6 +54,49 @@ public sealed class Win32DisplayServiceMappingTests
     }
 
     [Fact]
+    public void PartialDisplayConfigFailure_KeepsLastKnownIdForAffectedMonitor()
+    {
+        var partial = false;
+        var service = new Win32DisplayService(
+            () => [Gdi(@"\\.\DISPLAY1", true), Gdi(@"\\.\DISPLAY2", false)],
+            () =>
+            {
+                var targets = Targets();
+                if (partial)
+                    targets[@"\\.\DISPLAY2"] = new(null, null, 0); // DisplayConfigGetDeviceInfo für diesen Pfad gescheitert
+                return targets;
+            });
+
+        var ok = service.GetMonitors();
+        partial = true;
+        var degraded = service.GetMonitors();
+
+        Assert.Equal(["path-1", "path-2"], degraded.Select(m => m.Id));
+        Assert.Equal(ok.Select(m => m.Name), degraded.Select(m => m.Name));
+
+        // Die gute Zuordnung bleibt auch nach dem Teilfehler erhalten (nicht durch den GDI-Namen überschrieben).
+        partial = false;
+        Assert.Equal(["path-1", "path-2"], service.GetMonitors().Select(m => m.Id));
+        partial = true;
+        Assert.Equal(["path-1", "path-2"], service.GetMonitors().Select(m => m.Id));
+    }
+
+    [Fact]
+    public void PartialDisplayConfigFailure_WithoutEarlierSuccess_UsesGdiNameForAffectedMonitor()
+    {
+        var service = new Win32DisplayService(
+            () => [Gdi(@"\\.\DISPLAY1", true), Gdi(@"\\.\DISPLAY2", false)],
+            () =>
+            {
+                var targets = Targets();
+                targets[@"\\.\DISPLAY2"] = new(null, null, 0);
+                return targets;
+            });
+
+        Assert.Equal(["path-1", @"\\.\DISPLAY2"], service.GetMonitors().Select(m => m.Id));
+    }
+
+    [Fact]
     public void DisplayConfigFailure_WithoutEarlierSuccess_UsesGdiNames()
     {
         var service = new Win32DisplayService(

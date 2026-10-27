@@ -106,7 +106,7 @@
     <Grid>
         <!-- Pille: Rahmen, Farbverlauf, goldener Schimmer und sanftes Pulsieren -->
         <Grid Style="{StaticResource ShowWhenPill}">
-            <Border x:Name="HintPill" Style="{StaticResource HintPillPulse}" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+            <Border Style="{StaticResource HintPillPulse}" HorizontalAlignment="Center" VerticalAlignment="Bottom"
                     Margin="0,0,0,80" Padding="56,22" CornerRadius="60" BorderThickness="2.5"
                     Background="{StaticResource PillBackground}" BorderBrush="{StaticResource GoldBorder}"
                     RenderTransformOrigin="0.5,0.5">
