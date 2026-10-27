@@ -78,11 +78,11 @@ public sealed class AdminLauncher : IAdminLauncher
     {
         // Auch hier prüfen: bei nicht lesbarer Einstellungsdatei bleibt die Admin-Ansicht gesperrt.
         if ((_settings.LoadFailed || !_pinService.HasPin) && !EnsurePinConfigured(owner))
-            return new AdminResult(false, false, false);
+            return new AdminResult(false, false);
 
         var pinDialog = new PinDialog(_pinService.Verify, _limiter, owner, _settings.Current.Appearance.AdminTheme);
         if (pinDialog.ShowDialog() != true)
-            return new AdminResult(false, false, false);
+            return new AdminResult(false, false);
 
         AppLog.Info("Admin-Ansicht geöffnet.");
 
@@ -109,7 +109,7 @@ public sealed class AdminLauncher : IAdminLauncher
         var cameraChanged = viewModel.SettingsSaved
             && CameraNeedsRestart(cameraBefore, viewModel.LastAppliedCamera, _settings.Current.Camera);
         AppLog.Info($"Admin-Ansicht geschlossen (gespeichert: {viewModel.SettingsSaved}, Kamera geändert: {cameraChanged}, beenden: {viewModel.ExitRequested}).");
-        return new AdminResult(true, viewModel.SettingsSaved, viewModel.ExitRequested, cameraChanged);
+        return new AdminResult(viewModel.SettingsSaved, viewModel.ExitRequested, cameraChanged);
     }
 
     /// <summary>Unterscheiden sich die Kameraeinstellungen so, dass die Kamera neu gestartet werden muss? (Spiegeln zählt nicht.)</summary>

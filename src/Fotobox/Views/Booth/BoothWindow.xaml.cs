@@ -417,7 +417,7 @@ public sealed partial class BoothWindow : Window
         if (!_viewModel.CanOpenAdmin) return;
         _viewModel.IsAdminOpen = true;
 
-        var result = new AdminResult(false, false, false);
+        var result = new AdminResult(false, false);
         Cursor = Cursors.Arrow;
         try
         {
