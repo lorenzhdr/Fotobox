@@ -34,6 +34,52 @@ public interface ICameraService : IAsyncDisposable
     Task StartAsync(CameraSettings settings, CancellationToken ct = default); // stoppt ggf. laufende Session zuerst; wirft nicht bei Gerätefehlern, sondern setzt Status
     Task StopAsync();
     Task<BitmapSource> CapturePhotoAsync(CancellationToken ct = default); // aktuelles Bild des Livestreams (Auflösung/Format der aktiven Session, nicht die höchste der Kamera), Bgra32, Frozen, UNgespiegelt; InvalidOperationException wenn nicht Running
+
+    /// <summary>
+    /// Ton für die nächsten Sessions: <c>null</c> = ohne Mikrofon (nur Video). Wirkt erst beim nächsten <see cref="StartAsync"/>
+    /// (Ton wird beim Initialisieren der Session festgelegt). Scheitert die Session mit Mikrofon, startet sie still ohne Ton
+    /// (<see cref="AudioAvailable"/> = false, Log).
+    /// </summary>
+    void ConfigureAudio(CameraAudio? audio) { }
+    /// <summary>true = die laufende Session hat ein Mikrofon geöffnet; Aufnahmen enthalten Ton.</summary>
+    bool AudioAvailable => false;
+    /// <summary>Mikrofone (Windows-Audioaufnahmegeräte). Wirft nie; bei Fehler/Timeout leere Liste (und Log).</summary>
+    Task<IReadOnlyList<MicrophoneDevice>> GetMicrophonesAsync() => Task.FromResult<IReadOnlyList<MicrophoneDevice>>([]);
+    /// <summary>
+    /// Startet die Aufnahme der laufenden Session als MP4 in <see cref="VideoRecordingRequest.FilePath"/> (seitenrichtig, ungespiegelt);
+    /// das Livebild (<see cref="FrameArrived"/>) läuft weiter. InvalidOperationException, wenn nicht Running oder schon eine
+    /// Aufnahme läuft; andere Exceptions bei Gerätefehlern. Hat ein Timeout.
+    /// </summary>
+    Task<IVideoRecording> StartRecordingAsync(VideoRecordingRequest request, CancellationToken ct = default) =>
+        throw new NotSupportedException("Videoaufnahme wird von diesem Kameradienst nicht unterstützt.");
+}
+
+/// <summary>Eine laufende Videoaufnahme. Wird die Kamera gestoppt oder neu verbunden, beendet der Dienst die Aufnahme vorher selbst (Teilvideo).</summary>
+public interface IVideoRecording : IAsyncDisposable
+{
+    bool HasAudio { get; }
+    /// <summary>Die Aufnahme wurde vom Gerät beendet (Kamera/Mikrofon weg, Datenträger voll …). Beliebiger Thread, höchstens einmal.
+    /// Danach <see cref="StopAsync"/> aufrufen, um das bis dahin Aufgenommene abzuschließen.</summary>
+    event EventHandler<string>? Faulted;
+    /// <summary>Beendet die Aufnahme und schließt die Datei ab (best effort auch nach <see cref="Faulted"/>). Wirft, wenn keine
+    /// abspielbare Datei entstanden ist. Mehrfacher Aufruf ist erlaubt (wartet auf den ersten). Hat ein Timeout.</summary>
+    Task StopAsync(CancellationToken ct = default);
+}
+
+public interface IVideoStorage
+{
+    string ResolveTargetFolder(VideoSettings video, DateTime timestamp);
+    /// <summary>
+    /// Zielordner anlegen (bei Schreibfehler einmal Ausweichen auf <see cref="AppInfo.DefaultVideoFolder"/>), freien Platz für
+    /// <paramref name="maxDuration"/> in <paramref name="quality"/> bei <paramref name="resolution"/> plus Reserve prüfen und eine
+    /// temporäre Zieldatei festlegen. <see cref="InsufficientDiskSpaceException"/> bei zu wenig Platz, IOException wenn kein Ordner beschreibbar.
+    /// </summary>
+    Task<VideoTarget> PrepareAsync(VideoSettings video, CameraResolution? resolution, TimeSpan maxDuration, DateTime timestamp, CancellationToken ct = default);
+    /// <summary>Benennt die temporäre Datei in {Prefix}_{yyyyMMdd_HHmmss}.mp4 um (Kollisionen _2, _3 …) und gibt den Pfad zurück.
+    /// FileNotFoundException/IOException, wenn die temporäre Datei fehlt oder leer ist.</summary>
+    Task<string> CommitAsync(VideoTarget target, CancellationToken ct = default);
+    /// <summary>Löscht die temporäre Datei (falls vorhanden). Wirft nie.</summary>
+    void Discard(VideoTarget target);
 }
 
 public interface IDisplayService

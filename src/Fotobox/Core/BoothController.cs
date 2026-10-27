@@ -7,8 +7,9 @@ namespace Fotobox.Core;
 /// <summary>
 /// Printed: Druck fertig, Gast wird kurz aufgefordert, das Foto aus dem Drucker zu nehmen.
 /// PrintCancelled: Gast hat den Druck abgebrochen (bzw. der Abbruch ging nicht mehr), kurze ruhige Meldung statt Fehler.
+/// VideoCountdown → Recording → VideoSaving → VideoSaved: Videodurchgang (Fehler wie beim Foto über Error zurück nach Idle).
 /// </summary>
-public enum BoothState { Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error, PrintCancelled }
+public enum BoothState { Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error, PrintCancelled, VideoCountdown, Recording, VideoSaving, VideoSaved }
 
 /// <summary>
 /// Ablaufsteuerung eines Foto-Durchgangs (Countdown → Aufnahme → Layout → Speichern → Vorschau/Druck → „Fertig“).

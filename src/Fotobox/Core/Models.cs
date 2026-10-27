@@ -45,3 +45,24 @@ public sealed record PrintResult(PrintOutcome Outcome, string? Message = null)
 public sealed record SavedPhotoSet(string LayoutPath, IReadOnlyList<string> OriginalPaths);
 /// <summary>CameraChanged: Die gespeicherten Kameraeinstellungen weichen vom Stand vor dem Öffnen ab.</summary>
 public sealed record AdminResult(bool SettingsChanged, bool ExitRequested, bool CameraChanged = false);
+
+public sealed record MicrophoneDevice(string Id, string Name);
+/// <summary>Ton der Kamera-Session; <paramref name="MicrophoneId"/> null = Windows-Standardmikrofon.</summary>
+public sealed record CameraAudio(string? MicrophoneId);
+/// <summary><paramref name="FilePath"/>: temporäre Zieldatei (<see cref="VideoTarget.TempPath"/>), wird überschrieben.</summary>
+public sealed record VideoRecordingRequest(string FilePath, VideoQuality Quality);
+/// <summary>Vorbereitetes Ziel einer Aufnahme: <paramref name="Folder"/> (ggf. Ausweichordner), temporäre Datei darin, Präfix und Zeitstempel für den endgültigen Namen.</summary>
+public sealed record VideoTarget(string Folder, string TempPath, string FilePrefix, DateTime Timestamp);
+
+/// <summary>Zu wenig freier Speicherplatz für eine Videoaufnahme in voller Länge.</summary>
+public sealed class InsufficientDiskSpaceException(string message) : System.IO.IOException(message);
+
+/// <summary>Sichtbarer Name und Standardordner der App (Programmdatei, Namespace und %LOCALAPPDATA%\Fotobox bleiben „Fotobox“).</summary>
+public static class AppInfo
+{
+    public const string DisplayName = "Fotobox+";
+    public static string DefaultPhotoFolder =>
+        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), DisplayName);
+    public static string DefaultVideoFolder =>
+        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), DisplayName);
+}
