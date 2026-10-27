@@ -590,6 +590,7 @@ public class AdminViewTests
             Assert.False(panel.IsEnabled);
 
             vm.VideoEnabled = true;
+            vm.VideoHintText = "";   // automatischer Text: ohne Starttaste leer
             Keys(vm, KeyAction.VideoStart).Keys.ToList().ForEach(k => k.RemoveCommand.Execute(null));
             Assert.Equal(System.Windows.Visibility.Collapsed, hints[1].Visibility);   // ohne Starttaste keine Zeile
         });

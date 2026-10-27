@@ -85,6 +85,42 @@
             </Style.Triggers>
         </Style>
 
+        <!-- Blinkender REC-Punkt (nur Opacity), läuft nur im sichtbaren Zustand. -->
+        <Style x:Key="RecDotBlink" TargetType="Ellipse">
+            <Style.Triggers>
+                <Trigger Property="IsVisible" Value="True">
+                    <Trigger.EnterActions>
+                        <BeginStoryboard x:Name="RecDotStoryboard">
+                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity" From="1" To="0.15" Duration="0:0:0.55" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                    <Trigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="RecDotStoryboard" />
+                    </Trigger.ExitActions>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Rote Warnung der letzten Aufnahmesekunden: pulsiert, solange sie sichtbar ist. -->
+        <Style x:Key="RecWarningPulse" TargetType="Border">
+            <Style.Triggers>
+                <Trigger Property="IsVisible" Value="True">
+                    <Trigger.EnterActions>
+                        <BeginStoryboard x:Name="RecWarningStoryboard">
+                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity" From="1" To="0.6" Duration="0:0:0.5" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                    <Trigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="RecWarningStoryboard" />
+                    </Trigger.ExitActions>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- Overlay, das sanft eingeblendet wird, sobald es sichtbar wird. -->
         <Style x:Key="FadeInOverlay" TargetType="Grid">
             <Setter Property="Visibility" Value="Collapsed" />
@@ -261,6 +297,10 @@
                          LayoutHintText="{Binding LayoutHintText}" ShowLayoutHint="{Binding ShowLayoutHint}"
                          Visibility="{Binding ShowHint, Converter={StaticResource BoolToVis}}" />
 
+        <!-- Video-Hinweiszeile oben im Bild (nur bei aktivem Videomodus, im Leerlauf mit laufender Kamera) -->
+        <booth:GuestHint Position="Top" Text="{Binding VideoHintText}" HintStyle="{Binding VideoHintStyle}"
+                         Visibility="{Binding ShowVideoHint, Converter={StaticResource BoolToVis}}" />
+
         <!-- Layout-Vorschauliste: erscheint kurz beim Drehen des Mausrads, alle Layouts untereinander, das gewählte hervorgehoben -->
         <Border x:Name="LayoutCard" Style="{StaticResource LayoutListFade}"
                 HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,120" Padding="40,22" CornerRadius="36"
@@ -271,7 +311,7 @@
         </Border>
 
         <!-- Countdown -->
-        <Grid Visibility="{Binding IsCountdown, Converter={StaticResource BoolToVis}}" IsHitTestVisible="False">
+        <Grid Visibility="{Binding ShowCountdown, Converter={StaticResource BoolToVis}}" IsHitTestVisible="False">
             <Grid.Background>
                 <RadialGradientBrush>
                     <GradientStop Color="#40000000" Offset="0" />
@@ -280,6 +320,15 @@
             </Grid.Background>
             <TextBlock Text="{Binding ShotInfoText}" Foreground="{StaticResource Gold}"
                        Visibility="{Binding ShowShotInfo, Converter={StaticResource BoolToVis}}"
+                       HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,70,0,0"
+                       FontSize="56" FontWeight="SemiBold">
+                <TextBlock.Effect>
+                    <DropShadowEffect BlurRadius="20" ShadowDepth="2" Opacity="0.8" />
+                </TextBlock.Effect>
+            </TextBlock>
+            <!-- Video-Countdown: kleiner Hinweis, was gleich passiert -->
+            <TextBlock Text="🎬 Video – gleich geht's los" Foreground="{StaticResource Gold}"
+                       Visibility="{Binding IsVideoCountdown, Converter={StaticResource BoolToVis}}"
                        HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,70,0,0"
                        FontSize="56" FontWeight="SemiBold">
                 <TextBlock.Effect>
@@ -304,7 +353,53 @@
                     <DropShadowEffect BlurRadius="24" ShadowDepth="2" Opacity="0.8" />
                 </TextBlock.Effect>
             </TextBlock>
+            <!-- Video-Countdown ohne Zahl (Vorbereitung, Kamerastart, Countdown 0): neutral statt „0“ -->
+            <TextBlock Text="Video startet …" Foreground="White" FontSize="64" FontWeight="SemiBold"
+                       Visibility="{Binding IsVideoStarting, Converter={StaticResource BoolToVis}}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock.Effect>
+                    <DropShadowEffect BlurRadius="24" ShadowDepth="2" Opacity="0.8" />
+                </TextBlock.Effect>
+            </TextBlock>
         </Grid>
+
+        <!--
+            Videoaufnahme: Infoleiste (REC-Punkt, Laufzeit, Restzeit) und Warnung oben links auf dunklen Kapseln – lesbar auf
+            jedem Bild. Bewusst ohne Effekte (kein Schatten/Blur): nur Opacity-Animationen, solange sichtbar.
+        -->
+        <StackPanel HorizontalAlignment="Left" VerticalAlignment="Top" Margin="48,44,0,0" IsHitTestVisible="False"
+                    Visibility="{Binding ShowRecordingOverlay, Converter={StaticResource BoolToVis}}"
+                    AutomationProperties.Name="Aufnahme-Anzeige">
+            <Border Background="#B3000000" CornerRadius="40" Padding="10,12,28,12" HorizontalAlignment="Left"
+                    Visibility="{Binding ShowRecordingInfo, Converter={StaticResource BoolToVis}}">
+                <StackPanel Orientation="Horizontal">
+                    <StackPanel Orientation="Horizontal" Margin="18,0,0,0"
+                                Visibility="{Binding ShowRecDot, Converter={StaticResource BoolToVis}}">
+                        <Ellipse Style="{StaticResource RecDotBlink}" Width="26" Height="26" Fill="#FFE5393B"
+                                 VerticalAlignment="Center" Margin="0,0,14,0" />
+                        <TextBlock Text="REC" Foreground="White" FontSize="34" FontWeight="Bold" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding ElapsedText}" Foreground="White" FontSize="34" FontWeight="SemiBold"
+                               Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" Margin="18,0,0,0"
+                               Visibility="{Binding ShowElapsed, Converter={StaticResource BoolToVis}}" />
+                    <TextBlock Text="{Binding RemainingText}" Foreground="#FFD0D4E4" FontSize="34" FontWeight="SemiBold"
+                               Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" Margin="18,0,0,0"
+                               Visibility="{Binding ShowRemaining, Converter={StaticResource BoolToVis}}" />
+                </StackPanel>
+            </Border>
+            <!-- Warnung in den letzten Sekunden: große rote Restzeit, pulsierend -->
+            <Border Style="{StaticResource RecWarningPulse}" Background="#F2C0262B" CornerRadius="26" Padding="34,10"
+                    HorizontalAlignment="Left" Margin="0,14,0,0"
+                    Visibility="{Binding IsRecordingWarning, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding RecordingWarningText}" Foreground="White" FontSize="76" FontWeight="Bold"
+                           Typography.NumeralAlignment="Tabular" />
+            </Border>
+            <!-- Ton gewünscht, aber nicht verfügbar -->
+            <Border Background="#B3000000" CornerRadius="30" Padding="22,8" HorizontalAlignment="Left" Margin="0,14,0,0"
+                    Visibility="{Binding ShowNoAudioHint, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="🔇 ohne Ton" Foreground="#FFD0D4E4" FontSize="28" FontWeight="SemiBold" />
+            </Border>
+        </StackPanel>
 
         <!-- Vorschau des Layouts -->
         <Grid Style="{StaticResource FadeInOverlay}"
@@ -376,6 +471,26 @@
                            FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center" Margin="0,36,0,0" />
                 <!-- Druck fertig: Balken springt auf 100 % -->
                 <ProgressBar Style="{StaticResource PrintProgressBar}" Value="1" Width="1100" Margin="0,48,0,0" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Video gespeichert: eigener Bildschirm mit dem eingestellten Text, danach zurück zum Leerlauf -->
+        <Grid Style="{StaticResource FadeInOverlay}"
+              Visibility="{Binding ShowVideoSaved, Converter={StaticResource BoolToVis}}">
+            <Grid.Background>
+                <RadialGradientBrush>
+                    <GradientStop Color="#F21B1633" Offset="0" />
+                    <GradientStop Color="#FA0B0D14" Offset="1" />
+                </RadialGradientBrush>
+            </Grid.Background>
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="1400">
+                <TextBlock Text="{Binding VideoSavedText}" Foreground="{StaticResource Gold}" FontSize="120"
+                           FontWeight="Bold" TextWrapping="Wrap" TextAlignment="Center"
+                           HorizontalAlignment="Center">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="50" ShadowDepth="0" Color="#F5C26B" Opacity="0.7" />
+                    </TextBlock.Effect>
+                </TextBlock>
             </StackPanel>
         </Grid>
 

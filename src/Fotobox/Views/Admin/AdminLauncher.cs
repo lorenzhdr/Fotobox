@@ -88,6 +88,7 @@ public sealed class AdminLauncher : IAdminLauncher
 
         // Stand vor dem Öffnen: Daran erkennt das Hauptfenster, ob nach dem Speichern ein Kamera-Neustart nötig ist.
         var cameraBefore = _settings.Current.Camera.Clone();
+        // Der Ton (Mikrofon an/aus bzw. anderes Mikrofon) wird beim Sessionstart festgelegt: Auch das erfordert einen Kamera-Neustart.
         var videoBefore = _settings.Current.Clone().Video;
 
         var ui = new WpfAdminUi();
@@ -104,12 +105,12 @@ public sealed class AdminLauncher : IAdminLauncher
         // (Bei Speichern oder Beenden übernimmt das Hauptfenster bzw. die Anwendung.)
         if (!viewModel.SettingsSaved && !viewModel.ExitRequested && viewModel.CameraTouched)
         {
-            _ = viewModel.RestoreCameraAsync(_settings.Current.Camera.Clone());
+            _ = viewModel.RestoreCameraAsync(_settings.Current.Clone());
         }
 
         var cameraChanged = viewModel.SettingsSaved
             && (CameraNeedsRestart(cameraBefore, viewModel.LastAppliedCamera, _settings.Current.Camera)
-                || VideoNeedsCameraRestart(videoBefore, _settings.Current.Video));
+                || videoBefore.RequiresCameraRestartComparedTo(_settings.Current.Video));
         AppLog.Info($"Admin-Ansicht geschlossen (gespeichert: {viewModel.SettingsSaved}, Kamera geändert: {cameraChanged}, beenden: {viewModel.ExitRequested}).");
         return new AdminResult(viewModel.SettingsSaved, viewModel.ExitRequested, cameraChanged);
     }
@@ -125,15 +126,6 @@ public sealed class AdminLauncher : IAdminLauncher
     /// </summary>
     public static bool CameraNeedsRestart(CameraSettings before, CameraSettings? lastApplied, CameraSettings saved) =>
         CameraSettingsDiffer(before, saved) || (lastApplied is not null && CameraSettingsDiffer(lastApplied, saved));
-
-    /// <summary>
-    /// Muss die Kamera nach dem Speichern neu starten, weil sich der Ton geändert hat (Videomodus bzw. „Ton aufnehmen“ an/aus oder
-    /// anderes Mikrofon)? Der Ton wird beim Start der Kamera-Session festgelegt. Die Gastansicht muss dafür vor dem Neustart
-    /// <see cref="ICameraService.ConfigureAudio"/> mit den gespeicherten Videoeinstellungen aufrufen. Dauer, Anzeige und Ordner
-    /// zählen nicht.
-    /// </summary>
-    public static bool VideoNeedsCameraRestart(VideoSettings before, VideoSettings saved) =>
-        before.RequiresCameraRestartComparedTo(saved);
 
     private static bool ShowRetry(Window? owner, string message)
     {

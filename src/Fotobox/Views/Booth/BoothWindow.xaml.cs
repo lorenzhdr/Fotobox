@@ -11,7 +11,7 @@ using Fotobox.ViewModels.Booth;
 
 namespace Fotobox.Views.Booth;
 
-/// <summary>Vollbild-Gastansicht: Die eingestellten Tasten lösen ein Foto aus, brechen Countdown oder Druck ab bzw. öffnen die Admin-Ansicht.</summary>
+/// <summary>Vollbild-Gastansicht: Die eingestellten Tasten lösen ein Foto aus, starten/beenden ein Video, brechen Countdown oder Druck ab bzw. öffnen die Admin-Ansicht.</summary>
 public sealed partial class BoothWindow : Window
 {
     private static readonly TimeSpan FocusReclaimDelay = TimeSpan.FromMilliseconds(400);
@@ -369,6 +369,12 @@ public sealed partial class BoothWindow : Window
                 break;
             case BoothKeyAction.Trigger:
                 _viewModel.TryTrigger();
+                break;
+            case BoothKeyAction.VideoStart:
+            case BoothKeyAction.VideoStop:
+            case BoothKeyAction.VideoToggle:
+                // Genau eine Aktion je Tastendruck (Taste in beiden Listen = Umschalten); Wiederholung oben ausgeschlossen.
+                _viewModel.ExecuteVideoAction(action);
                 break;
         }
     }

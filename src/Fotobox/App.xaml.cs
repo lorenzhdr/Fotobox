@@ -116,7 +116,13 @@ public partial class App : Application
     private static ServiceProvider BuildServices()
     {
         var services = new ServiceCollection();
+        RegisterServices(services);
+        return services.BuildServiceProvider();
+    }
 
+    /// <summary>Alle Registrierungen (getrennt vom Container, damit ein Test sie mit Ersatzdiensten überschreiben kann).</summary>
+    internal static void RegisterServices(IServiceCollection services)
+    {
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ISettingsStore>(_ => new JsonSettingsStore());
         services.AddSingleton<IPinService, PinService>();
@@ -124,14 +130,13 @@ public partial class App : Application
         services.AddSingleton<ILayoutComposer, LayoutComposer>();
         services.AddSingleton<IPrintService, PrintService>();
         services.AddSingleton<IPhotoStorage, PhotoStorage>();
+        services.AddSingleton<IVideoStorage>(_ => new VideoStorage());
         services.AddSingleton<IDisplayService, Win32DisplayService>();
         services.AddSingleton<IAdminLauncher, AdminLauncher>();
 
         services.AddSingleton<BoothController>();
         services.AddSingleton<BoothViewModel>();
         services.AddSingleton<BoothWindow>();
-
-        return services.BuildServiceProvider();
     }
 
     protected override void OnExit(ExitEventArgs e)

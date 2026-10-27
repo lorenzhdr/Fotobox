@@ -696,16 +696,16 @@ public sealed class AdminVideoTests : IDisposable
     [Fact]
     public void VideoNeedsCameraRestart_MicrophoneChange_IsTrue()
     {
-        Assert.True(AdminLauncher.VideoNeedsCameraRestart(Video(mic: null), Video(mic: "mic-a")));
-        Assert.True(AdminLauncher.VideoNeedsCameraRestart(Video(mic: "mic-a"), Video(mic: "mic-b")));
+        Assert.True(Video(mic: null).RequiresCameraRestartComparedTo(Video(mic: "mic-a")));
+        Assert.True(Video(mic: "mic-a").RequiresCameraRestartComparedTo(Video(mic: "mic-b")));
     }
 
     [Fact]
     public void VideoNeedsCameraRestart_AudioOnOff_IsTrue()
     {
-        Assert.True(AdminLauncher.VideoNeedsCameraRestart(Video(audio: true), Video(audio: false)));
-        Assert.True(AdminLauncher.VideoNeedsCameraRestart(Video(audio: false), Video(audio: true)));
-        Assert.True(AdminLauncher.VideoNeedsCameraRestart(Video(enabled: true), Video(enabled: false)));
+        Assert.True(Video(audio: true).RequiresCameraRestartComparedTo(Video(audio: false)));
+        Assert.True(Video(audio: false).RequiresCameraRestartComparedTo(Video(audio: true)));
+        Assert.True(Video(enabled: true).RequiresCameraRestartComparedTo(Video(enabled: false)));
     }
 
     [Fact]
@@ -716,13 +716,13 @@ public sealed class AdminVideoTests : IDisposable
         after.ShowRecDot = false;
         after.Folder = "X";
 
-        Assert.False(AdminLauncher.VideoNeedsCameraRestart(before, after));
+        Assert.False(before.RequiresCameraRestartComparedTo(after));
     }
 
     [Fact]
     public void VideoNeedsCameraRestart_MicrophoneChangeWithAudioOff_IsFalse()
     {
-        Assert.False(AdminLauncher.VideoNeedsCameraRestart(Video(audio: false, mic: "mic-a"), Video(audio: false, mic: "mic-b")));
+        Assert.False(Video(audio: false, mic: "mic-a").RequiresCameraRestartComparedTo(Video(audio: false, mic: "mic-b")));
     }
 
     [Fact]
@@ -734,13 +734,13 @@ public sealed class AdminVideoTests : IDisposable
 
         vm.VideoMaxDurationSeconds = 120;
         vm.SaveCommand.Execute(null);
-        Assert.False(AdminLauncher.VideoNeedsCameraRestart(before, _store.Current.Video));
+        Assert.False(before.RequiresCameraRestartComparedTo(_store.Current.Video));
 
         var second = CreateViewModel();
         await second.InitializeAsync();
         second.SelectedMicrophone = second.Microphones[1];
         second.SaveCommand.Execute(null);
-        Assert.True(AdminLauncher.VideoNeedsCameraRestart(before, _store.Current.Video));
+        Assert.True(before.RequiresCameraRestartComparedTo(_store.Current.Video));
     }
 
     // ------------------------------------------------------------------ Video-Hinweis (Gastansicht)
@@ -956,5 +956,44 @@ public sealed class AdminVideoTests : IDisposable
         await vm.ResetToDefaultsCommand.ExecuteAsync(null);
 
         Assert.Equal(startsBefore, _camera.StartCalls.Count);
+    }
+
+    // ------------------------------------------------------------------ Ton bei Kamera-Neustart in der Admin-Ansicht
+
+    [Fact]
+    public async Task RestartCamera_ConfiguresAudioFromDraft_BeforeStart()
+    {
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        vm.Draft.Video.MicrophoneId = "mic-a";
+
+        await vm.RestartCameraAsync();
+
+        Assert.Equal("mic-a", _camera.AudioAtStart.Last()?.MicrophoneId);
+
+        vm.VideoRecordAudio = false;
+        await vm.RestartCameraAsync();
+        Assert.Null(_camera.AudioAtStart.Last());   // ohne Ton: kein Mikrofon
+
+        vm.VideoRecordAudio = true;
+        vm.VideoEnabled = false;
+        await vm.RestartCameraAsync();
+        Assert.Null(_camera.AudioAtStart.Last());   // Videomodus aus: ebenfalls ohne Mikrofon
+    }
+
+    [Fact]
+    public async Task RestoreCamera_ConfiguresAudioFromSavedSettings_NotFromDraft()
+    {
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        vm.Draft.Video.MicrophoneId = "mic-b";
+        await vm.RestartCameraAsync();
+        Assert.Equal("mic-b", _camera.AudioAtStart.Last()?.MicrophoneId);
+
+        var saved = new AppSettings();
+        saved.Video.MicrophoneId = "mic-a";
+        await vm.RestoreCameraAsync(saved);
+
+        Assert.Equal("mic-a", _camera.AudioAtStart.Last()?.MicrophoneId);
     }
 }

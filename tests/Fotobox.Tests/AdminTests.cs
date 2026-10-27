@@ -490,7 +490,7 @@ public sealed class AdminViewModelTests : IDisposable
         await vm.InitializeAsync();
         await vm.SelectDeviceAsync(vm.Devices[1]);
 
-        await vm.RestoreCameraAsync(new CameraSettings { DeviceId = "cam1" });
+        await vm.RestoreCameraAsync(new AppSettings { Camera = new CameraSettings { DeviceId = "cam1" } });
 
         Assert.Equal("cam1", _camera.StartCalls.Last().DeviceId);
     }
@@ -3018,10 +3018,16 @@ public sealed class AdminViewModelTests : IDisposable
                 MirrorPreview = settings.MirrorPreview,
                 MirrorPhoto = settings.MirrorPhoto,
             });
+            AudioAtStart.Add(ConfiguredAudio);
             Status = CameraStatus.Running;
             if (StartGate is not null)
                 await StartGate(settings);
         }
+
+        /// <summary>Ton, wie ihn <see cref="ConfigureAudio"/> zuletzt gesetzt hat, und der Stand bei jedem Start.</summary>
+        public CameraAudio? ConfiguredAudio { get; private set; }
+        public List<CameraAudio?> AudioAtStart { get; } = [];
+        public void ConfigureAudio(CameraAudio? audio) => ConfiguredAudio = audio;
 
         public Task StopAsync() => Task.CompletedTask;
 

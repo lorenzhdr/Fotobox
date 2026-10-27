@@ -434,6 +434,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             // Festhalten, womit die Kamera wirklich läuft: Verwirft Speichern einen wartenden Neustart, kann sie noch auf einem
             // früheren Entwurfsstand laufen, obwohl die gespeicherten Werte denen beim Öffnen gleichen (siehe AdminLauncher).
             Volatile.Write(ref _lastAppliedCamera, settings.Clone());
+            // Der Ton gilt ab dem nächsten Sessionstart: für die Vorschau der Stand des Entwurfs.
+            Camera.ConfigureAudio(CameraServiceExtensions.AudioFor(_draft.Video));
             await Camera.StartAsync(settings);
         }
         catch (Exception ex)
@@ -454,16 +456,16 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     public CameraSettings? LastAppliedCamera => Volatile.Read(ref _lastAppliedCamera)?.Clone();
 
     /// <summary>
-    /// Stellt nach „Abbrechen“ die gespeicherten Kamera-Einstellungen wieder her. Läuft über dasselbe Gate wie
+    /// Stellt nach „Abbrechen“ die gespeicherten Einstellungen (Kamera und Ton) wieder her. Läuft über dasselbe Gate wie
     /// <see cref="RestartCameraAsync"/> und verwirft noch wartende Entwurfs-Neustarts.
     /// </summary>
-    public async Task RestoreCameraAsync(CameraSettings saved)
+    public async Task RestoreCameraAsync(AppSettings saved)
     {
         Interlocked.Increment(ref _cameraRestartVersion);
         await _cameraGate.WaitAsync();
         try
         {
-            await Camera.StartAsync(saved);
+            await Camera.StartWithAudioAsync(saved);
         }
         catch (Exception ex)
         {
