@@ -295,7 +295,95 @@
                                             <TextBlock Text="Pinsel" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
                                         </StackPanel>
                                     </RadioButton>
+                                    <RadioButton GroupName="PeaceMoustacheStyle" Style="{DynamicResource CardRadio}" Margin="0,0,14,14"
+                                                 IsChecked="{Binding PeaceMoustacheStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:MoustacheStyle.Handlebar}}"
+                                                 AutomationProperties.Name="Stil: Dalí">
+                                        <StackPanel>
+                                            <local:MoustacheSketch StyleKind="Handlebar" />
+                                            <TextBlock Text="Dalí" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <RadioButton GroupName="PeaceMoustacheStyle" Style="{DynamicResource CardRadio}" Margin="0,0,14,14"
+                                                 IsChecked="{Binding PeaceMoustacheStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:MoustacheStyle.FuManchu}}"
+                                                 AutomationProperties.Name="Stil: Fu Manchu">
+                                        <StackPanel>
+                                            <local:MoustacheSketch StyleKind="FuManchu" />
+                                            <TextBlock Text="Fu Manchu" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <RadioButton GroupName="PeaceMoustacheStyle" Style="{DynamicResource CardRadio}" Margin="0,0,14,14"
+                                                 IsChecked="{Binding PeaceMoustacheStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:MoustacheStyle.Horseshoe}}"
+                                                 AutomationProperties.Name="Stil: Hufeisen">
+                                        <StackPanel>
+                                            <local:MoustacheSketch StyleKind="Horseshoe" />
+                                            <TextBlock Text="Hufeisen" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
                                 </UniformGrid>
+
+                                <StackPanel x:Name="PeaceRandomStylesPanel" Visibility="{Binding PeaceRandomStylesVisible, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="Beim Zufall verwenden" Style="{DynamicResource FieldLabel}" />
+                                    <UniformGrid Columns="3" Margin="0,0,-14,0">
+                                        <CheckBox Style="{DynamicResource CardCheck}" Margin="0,0,14,14"
+                                                  IsChecked="{Binding PeaceRandomTwirl}" IsEnabled="{Binding PeaceRandomTwirlEnabled}"
+                                                  AutomationProperties.Name="Zufall: Zwirbel">
+                                            <StackPanel>
+                                                <local:MoustacheSketch StyleKind="Twirl" />
+                                                <TextBlock Text="Zwirbel" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                            </StackPanel>
+                                        </CheckBox>
+                                        <CheckBox Style="{DynamicResource CardCheck}" Margin="0,0,14,14"
+                                                  IsChecked="{Binding PeaceRandomWalrus}" IsEnabled="{Binding PeaceRandomWalrusEnabled}"
+                                                  AutomationProperties.Name="Zufall: Walross">
+                                            <StackPanel>
+                                                <local:MoustacheSketch StyleKind="Walrus" />
+                                                <TextBlock Text="Walross" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                            </StackPanel>
+                                        </CheckBox>
+                                        <CheckBox Style="{DynamicResource CardCheck}" Margin="0,0,14,14"
+                                                  IsChecked="{Binding PeaceRandomChevron}" IsEnabled="{Binding PeaceRandomChevronEnabled}"
+                                                  AutomationProperties.Name="Zufall: Chevron">
+                                            <StackPanel>
+                                                <local:MoustacheSketch StyleKind="Chevron" />
+                                                <TextBlock Text="Chevron" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                            </StackPanel>
+                                        </CheckBox>
+                                        <CheckBox Style="{DynamicResource CardCheck}" Margin="0,0,14,14"
+                                                  IsChecked="{Binding PeaceRandomBrush}" IsEnabled="{Binding PeaceRandomBrushEnabled}"
+                                                  AutomationProperties.Name="Zufall: Pinsel">
+                                            <StackPanel>
+                                                <local:MoustacheSketch StyleKind="Brush" />
+                                                <TextBlock Text="Pinsel" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                            </StackPanel>
+                                        </CheckBox>
+                                        <CheckBox Style="{DynamicResource CardCheck}" Margin="0,0,14,14"
+                                                  IsChecked="{Binding PeaceRandomHandlebar}" IsEnabled="{Binding PeaceRandomHandlebarEnabled}"
+                                                  AutomationProperties.Name="Zufall: Dalí">
+                                            <StackPanel>
+                                                <local:MoustacheSketch StyleKind="Handlebar" />
+                                                <TextBlock Text="Dalí" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                            </StackPanel>
+                                        </CheckBox>
+                                        <CheckBox Style="{DynamicResource CardCheck}" Margin="0,0,14,14"
+                                                  IsChecked="{Binding PeaceRandomFuManchu}" IsEnabled="{Binding PeaceRandomFuManchuEnabled}"
+                                                  AutomationProperties.Name="Zufall: Fu Manchu">
+                                            <StackPanel>
+                                                <local:MoustacheSketch StyleKind="FuManchu" />
+                                                <TextBlock Text="Fu Manchu" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                            </StackPanel>
+                                        </CheckBox>
+                                        <CheckBox Style="{DynamicResource CardCheck}" Margin="0,0,14,14"
+                                                  IsChecked="{Binding PeaceRandomHorseshoe}" IsEnabled="{Binding PeaceRandomHorseshoeEnabled}"
+                                                  AutomationProperties.Name="Zufall: Hufeisen">
+                                            <StackPanel>
+                                                <local:MoustacheSketch StyleKind="Horseshoe" />
+                                                <TextBlock Text="Hufeisen" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                            </StackPanel>
+                                        </CheckBox>
+                                    </UniformGrid>
+                                    <TextBlock Style="{DynamicResource Hint}"
+                                               Text="Jede Person bekommt zufällig eine der angehakten Formen (und eine zufällige Haarfarbe). Mindestens eine Form muss angehakt bleiben." />
+                                </StackPanel>
 
                                 <TextBlock Text="Sichtbarkeit" Style="{DynamicResource FieldLabel}" />
                                 <UniformGrid Columns="2" Margin="0,0,-14,0">

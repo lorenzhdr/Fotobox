@@ -143,6 +143,108 @@ public sealed class AdminPeaceTabTests : IDisposable
         Assert.Equal(1000, vm.PeaceHoldMilliseconds);
     }
 
+    // ------------------------------------------------------------------ Zufallsliste der Bartformen
+
+    [Fact]
+    public void RandomStyles_StartWithAllSeven_AndAreOnlyVisibleForRandomStyle()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+
+        Assert.True(vm.PeaceRandomTwirl && vm.PeaceRandomWalrus && vm.PeaceRandomChevron && vm.PeaceRandomBrush
+                    && vm.PeaceRandomHandlebar && vm.PeaceRandomFuManchu && vm.PeaceRandomHorseshoe);
+        Assert.True(vm.PeaceRandomStylesVisible);
+        var raised = new List<string?>();
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.PeaceMoustacheStyle = MoustacheStyle.Brush;
+
+        Assert.False(vm.PeaceRandomStylesVisible);
+        Assert.Contains(nameof(AdminViewModel.PeaceRandomStylesVisible), raised);
+    }
+
+    [Fact]
+    public void RandomStyles_UncheckingWritesTheDraft_InEnumOrder_AndMarksUnsavedChanges()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+        Assert.False(vm.HasUnsavedChanges);
+
+        vm.PeaceRandomWalrus = false;
+        vm.PeaceRandomBrush = false;
+
+        Assert.Equal([MoustacheStyle.Twirl, MoustacheStyle.Chevron, MoustacheStyle.Handlebar, MoustacheStyle.FuManchu, MoustacheStyle.Horseshoe],
+            vm.Draft.Peace.RandomStyles);
+        Assert.True(vm.HasUnsavedChanges);
+
+        // Wieder anhaken: Die Liste ist wieder identisch mit dem Ausgangszustand (Reihenfolge ändert sich nie).
+        vm.PeaceRandomWalrus = true;
+        vm.PeaceRandomBrush = true;
+        Assert.Equal(MoustacheStyles.All, vm.Draft.Peace.RandomStyles);
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public void RandomStyles_TheLastTickCannotBeRemoved_AndItsCheckboxIsDisabled()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+        vm.PeaceRandomWalrus = false;
+        vm.PeaceRandomChevron = false;
+        vm.PeaceRandomBrush = false;
+        vm.PeaceRandomHandlebar = false;
+        vm.PeaceRandomFuManchu = false;
+        vm.PeaceRandomHorseshoe = false;
+        var raised = new List<string?>();
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        Assert.True(vm.PeaceRandomTwirl);
+        Assert.False(vm.PeaceRandomTwirlEnabled); // letzter Haken: gesperrt
+        Assert.True(vm.PeaceRandomWalrusEnabled);
+
+        vm.PeaceRandomTwirl = false; // trotzdem versucht: wirkungslos, die Ansicht liest den Haken neu
+        Assert.True(vm.PeaceRandomTwirl);
+        Assert.Equal([MoustacheStyle.Twirl], vm.Draft.Peace.RandomStyles);
+        Assert.Contains(nameof(AdminViewModel.PeaceRandomTwirl), raised);
+
+        vm.PeaceRandomBrush = true;
+        Assert.True(vm.PeaceRandomTwirlEnabled);
+        Assert.Equal([MoustacheStyle.Twirl, MoustacheStyle.Brush], vm.Draft.Peace.RandomStyles);
+    }
+
+    [Fact]
+    public async Task RandomStyles_ResetToDefaultsRestoresAllSeven()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        vm.PeaceRandomWalrus = false;
+        vm.PeaceRandomHorseshoe = false;
+        _ui.ConfirmResult = true;
+        var raised = new List<string?>();
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        await vm.ResetToDefaultsCommand.ExecuteAsync(null);
+
+        Assert.Equal(MoustacheStyles.All, vm.Draft.Peace.RandomStyles);
+        Assert.True(vm.PeaceRandomWalrus && vm.PeaceRandomHorseshoe);
+        Assert.Contains(string.Empty, raised); // alle Bindungen werden neu gelesen
+    }
+
+    [Fact]
+    public void RandomStyles_PreviewGetsTheDraftList()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+        vm.PeaceRandomTwirl = false;
+        vm.PeaceRandomBrush = false;
+
+        var clone = vm.Draft.Peace.Clone();
+        Assert.DoesNotContain(MoustacheStyle.Twirl, clone.RandomStyles);
+        clone.RandomStyles.Clear();
+        Assert.NotEmpty(vm.Draft.Peace.RandomStyles); // Kopie ist unabhängig vom Entwurf
+    }
+
     // ------------------------------------------------------------------ Entwurf
 
     [Fact]
@@ -618,15 +720,51 @@ public sealed class AdminPeaceTabTests : IDisposable
             Assert.Same(vm.TestMoustacheCommand, InPeace<Button>(view, "PeaceTestMoustacheButton").Command);
 
             var checks = FindDescendants<CheckBox>(view).Where(c => c.Style == window.TryFindResource("CardCheck")).ToList();
-            Assert.Equal(3, checks.Count);
+            Assert.Equal(10, checks.Count); // 3 Aktionen + 7 Formen beim Zufall
             Assert.Equal(2, FindDescendants<RadioButton>(view).Count(r => r.GroupName == "PeaceMoustacheTargets"));
-            Assert.Equal(5, FindDescendants<RadioButton>(view).Count(r => r.GroupName == "PeaceMoustacheStyle"));
+            Assert.Equal(8, FindDescendants<RadioButton>(view).Count(r => r.GroupName == "PeaceMoustacheStyle"));
             Assert.Equal(2, FindDescendants<RadioButton>(view).Count(r => r.GroupName == "PeaceMoustacheVisibility"));
-            Assert.Equal(6, FindDescendants<MoustacheSketch>(view).Count()); // Aktionskarte + 5 Stile
+            Assert.Equal(16, FindDescendants<MoustacheSketch>(view).Count()); // Aktionskarte + 8 Stile + 7 Zufallsformen
             Assert.Single(FindDescendants<SelfDestructSketch>(view));
             // Haltedauer, Sperrzeit, Empfindlichkeit, Analysen, Dauer, Foto-Countdown, Bartdauer, Auto-Foto-Countdown
             Assert.Equal(8, FindDescendants<NumberStepper>(view).Count());
             Assert.Contains(FindDescendants<ToggleButton>(view), c => AutomationProperties.GetName(c) == "Peaceerkennung einschalten");
+        });
+    }
+
+    [StaFact]
+    public void PeacePage_ShowsTheNewShapesAndTheRandomChoice_WithTheLastTickLocked()
+    {
+        NoContext();
+        WithWindow((window, vm) =>
+        {
+            vm.PeaceActionMoustache = true; // sonst ist der Bart-Abschnitt ausgegraut
+            vm.FunPage = FunPage.Peace;
+            ShowFunTab(window);
+            var view = PeaceView(window);
+
+            var names = FindDescendants<RadioButton>(view).Where(r => r.GroupName == "PeaceMoustacheStyle")
+                .Select(r => AutomationProperties.GetName(r)).ToList();
+            Assert.Contains("Stil: Dalí", names);
+            Assert.Contains("Stil: Fu Manchu", names);
+            Assert.Contains("Stil: Hufeisen", names);
+
+            var panel = InPeace<StackPanel>(view, "PeaceRandomStylesPanel");
+            Assert.Equal(Visibility.Visible, panel.Visibility);
+            var boxes = FindDescendants<CheckBox>(panel).ToList();
+            Assert.Equal(7, boxes.Count);
+            Assert.All(boxes, b => Assert.True(b.IsChecked));
+            Assert.All(boxes, b => Assert.True(b.IsEnabled));
+
+            // Alle bis auf eine abwählen: Der letzte Haken ist gesperrt.
+            foreach (var box in boxes.Skip(1))
+                box.IsChecked = false;
+            Assert.True(boxes[0].IsChecked);
+            Assert.False(boxes[0].IsEnabled);
+            Assert.Equal([MoustacheStyle.Twirl], vm.Draft.Peace.RandomStyles);
+
+            vm.PeaceMoustacheStyle = MoustacheStyle.Walrus;
+            Assert.Equal(Visibility.Collapsed, panel.Visibility);
         });
     }
 

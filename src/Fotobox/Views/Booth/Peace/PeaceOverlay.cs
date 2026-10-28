@@ -85,11 +85,21 @@ public sealed class PeaceOverlay : FrameworkElement
     private long _lastMoustacheUpdate, _lastHandUpdate;
     private bool _subscribed;
 
+    // Plopp (Wachsen beim ersten Erscheinen) und Wippen: nur im Livebild, pro Bild berechnet (der 10-Hz-Takt des Ansichtsmodells
+    // reicht dafür nicht). Das Foto zeigt den Bart in Endgröße ohne beides.
+    private readonly Dictionary<int, long> _popStart = [];
+    private readonly HashSet<int> _popped = [];
+    private readonly Dictionary<int, (WobbleState State, long At)> _wobble = [];
+
+    /// <summary>Zeitquelle für Plopp und Wippen (Zähler wie <see cref="Stopwatch.GetTimestamp"/>); Tests setzen eine eigene.</summary>
+    internal Func<long> Clock { get; set; } = Stopwatch.GetTimestamp;
+
     public PeaceOverlay()
     {
         IsHitTestVisible = false;
         Focusable = false;
         ClipToBounds = true;
+        RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.HighQuality);
         Loaded += (_, _) => UpdateSubscription();
         Unloaded += (_, _) => Unsubscribe();
         IsVisibleChanged += (_, _) => UpdateSubscription();
@@ -178,8 +188,63 @@ public sealed class PeaceOverlay : FrameworkElement
 
     private double HandProgress() => Progress01(_handGlideStart, _handGlideMs);
 
+    private double Seconds(long since) => (Clock() - since) / (double)Stopwatch.Frequency;
+
+    // Neu erschienene Bärte starten das Plopp (nur Spuren, die in dieser Sitzung noch nicht erschienen waren; eine Sitzung endet,
+    // wenn die Liste leer wird); der Wippzustand wird mit dem Zeitpunkt der Aktualisierung verankert.
+    private void UpdateMotion()
+    {
+        var views = Moustaches ?? [];
+        if (views.Count == 0)
+        {
+            _popped.Clear();
+            _popStart.Clear();
+            _wobble.Clear();
+            return;
+        }
+
+        var now = Clock();
+        _wobble.Clear();
+        foreach (var view in views)
+        {
+            if (_popped.Add(view.FaceId))
+            {
+                _popStart[view.FaceId] = now;
+                // Foto-Auflösung (Breite in Kamerapixeln) schon jetzt im Hintergrund erzeugen.
+                MoustacheTextures.PrewarmInBackground(view.Style, view.Color, view.Pose.WidthPx);
+            }
+            if (!view.Wobble.IsRest)
+                _wobble[view.FaceId] = (view.Wobble, now);
+        }
+        foreach (var id in _popStart.Keys.Where(id => views.All(v => v.FaceId != id)).ToList())
+            _popStart.Remove(id);
+    }
+
+    internal double PopScaleOf(int faceId) =>
+        _popStart.TryGetValue(faceId, out var start) ? MoustachePop.Scale(Seconds(start)) : 1;
+
+    internal WobbleState CurrentWobbleOf(int faceId) =>
+        _wobble.TryGetValue(faceId, out var w) ? w.State.Advance(Seconds(w.At)) : WobbleState.Rest;
+
+    // Läuft noch ein Plopp, oder schwingt ein Bart noch?
+    private bool IsMoving()
+    {
+        foreach (var (_, start) in _popStart)
+        {
+            if (MoustachePop.IsRunning(Seconds(start)))
+                return true;
+        }
+        foreach (var (id, _) in _wobble)
+        {
+            if (!CurrentWobbleOf(id).IsRest)
+                return true;
+        }
+        return false;
+    }
+
     private void OnMoustachesChanged()
     {
+        UpdateMotion();
         var t = MoustacheProgress();
         var current = new Dictionary<int, MoustachePose>();
         foreach (var (id, glide) in _moustacheGlides)
@@ -200,8 +265,8 @@ public sealed class PeaceOverlay : FrameworkElement
                 _moustacheGlideMs = GlideDuration(_moustacheGlideMs, (now - _lastMoustacheUpdate) * 1000.0 / Stopwatch.Frequency);
             _lastMoustacheUpdate = now;
             _moustacheGlideStart = now;
-            UpdateSubscription();
         }
+        UpdateSubscription();
     }
 
     private void OnHandsChanged()
@@ -239,7 +304,7 @@ public sealed class PeaceOverlay : FrameworkElement
 
     // Läuft noch eine Bewegung (Bart oder Hand)?
     private bool IsGliding() =>
-        (_moustacheGlides.Count > 0 && MoustacheProgress() < 1) || (_handGlides.Count > 0 && HandProgress() < 1);
+        (_moustacheGlides.Count > 0 && MoustacheProgress() < 1) || (_handGlides.Count > 0 && HandProgress() < 1) || IsMoving();
 
     private void UpdateSubscription()
     {
@@ -297,7 +362,9 @@ public sealed class PeaceOverlay : FrameworkElement
         {
             var pose = _moustacheGlides.TryGetValue(view.FaceId, out var glide) ? Lerp(glide.From, glide.To, tMoustache) : view.Pose;
             var center = OverlayMapper.MapPoint(pose.Center, ImageWidth, ImageHeight, viewW, viewH, Fit, Mirror);
-            MoustacheRenderer.Draw(drawingContext, view.Style, new Point(center.X, center.Y), pose.WidthPx * scale, pose.AngleRad, Mirror);
+            var wobble = CurrentWobbleOf(view.FaceId);
+            MoustacheRenderer.Draw(drawingContext, view.Style, view.Color, new Point(center.X, center.Y), pose.WidthPx * scale, pose.AngleRad, Mirror,
+                PopScaleOf(view.FaceId), wobble.Offset, wobble.Angle);
         }
 
         if (ShowFaceLandmarks)

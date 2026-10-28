@@ -101,22 +101,53 @@ public class PeaceVisualRenderTests
         if (dir is null)
             return;
 
-        var visual = new DrawingVisual();
-        using (var dc = visual.RenderOpen())
+        // Übersicht: 7 Formen (Spalten) × 6 Farben (Zeilen), einmal auf hellem Hautton und einmal auf dunklem Hintergrund.
+        const int cellW = 300, cellH = 340, beardWidth = 230;
+        foreach (var (name, background) in new[]
         {
-            dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xF4, 0xEC, 0xDD)), null, new Rect(0, 0, 1920, 540));
-            var styles = new[] { MoustacheStyle.Twirl, MoustacheStyle.Walrus, MoustacheStyle.Chevron, MoustacheStyle.Brush };
-            for (var i = 0; i < styles.Length; i++)
+            ("skin", Color.FromRgb(0xEE, 0xC4, 0x9C)),
+            ("dark", Color.FromRgb(0x23, 0x26, 0x2E)),
+        })
+        {
+            var styles = MoustacheStyles.All;
+            var colors = MoustacheStyles.AllColors;
+            var width = cellW * styles.Count;
+            var height = cellH * colors.Count;
+            var visual = new DrawingVisual();
+            using (var dc = visual.RenderOpen())
             {
-                var center = new Point(240 + i * 480, 270);
-                MoustacheRenderer.Draw(dc, styles[i], center, 400, 0, mirror: false);
-                var text = new FormattedText(styles[i].ToString(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-                    new Typeface("Segoe UI"), 32, Brushes.Black, 1.0);
-                dc.DrawText(text, new Point(center.X - text.Width / 2, 470));
+                dc.DrawRectangle(new SolidColorBrush(background), null, new Rect(0, 0, width, height));
+                for (var row = 0; row < colors.Count; row++)
+                {
+                    for (var col = 0; col < styles.Count; col++)
+                    {
+                        // Ursprung (Oberlippe) bei 38 % der Zellhöhe: Hängeenden haben darunter Platz, Dalí-Spitzen darüber.
+                        var origin = new Point(col * cellW + cellW / 2.0, row * cellH + cellH * 0.30);
+                        MoustacheRenderer.Draw(dc, styles[col], colors[row], origin, beardWidth, 0, mirror: false);
+                    }
+                }
+                for (var col = 0; col < styles.Count; col++)
+                {
+                    var text = new FormattedText(styles[col].ToString(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                        new Typeface("Segoe UI"), 22, background.R > 128 ? Brushes.Black : Brushes.White, 1.0);
+                    dc.DrawText(text, new Point(col * cellW + 8, 4));
+                }
             }
+            SavePng(RenderVisual(visual, width, height), Path.Combine(dir, $"peace_moustaches_{name}.png"));
         }
-        SavePng(RenderVisual(visual, 1920, 540), Path.Combine(dir, "peace_moustaches.png"));
-        Assert.True(File.Exists(Path.Combine(dir, "peace_moustaches.png")));
+
+        // Großansicht: jede Form in Breite 900 (Stufe 1024) auf Hautton, zur Prüfung der Haardetails.
+        foreach (var style in MoustacheStyles.All)
+        {
+            var visual = new DrawingVisual();
+            using (var dc = visual.RenderOpen())
+            {
+                dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xEE, 0xC4, 0x9C)), null, new Rect(0, 0, 1000, 1000));
+                MoustacheRenderer.Draw(dc, style, MoustacheColor.DarkBrown, new Point(500, 330), 900, 0, mirror: false);
+            }
+            SavePng(RenderVisual(visual, 1000, 1000), Path.Combine(dir, $"peace_moustache_large_{style}.png"));
+        }
+        Assert.True(File.Exists(Path.Combine(dir, "peace_moustaches_skin.png")));
     }
 
     [Trait("Category", "Visual")]
@@ -127,36 +158,94 @@ public class PeaceVisualRenderTests
         if (dir is null)
             return;
 
-        var visual = new DrawingVisual();
-        using (var dc = visual.RenderOpen())
+        // Sieben Formen auf Platzhaltergesichtern (4 + 3), Farben und Winkel gemischt; Bart sitzt zwischen Nase und Mund, mitgedreht.
+        MoustacheStyle[] styles = [.. MoustacheStyles.All];
+        MoustacheColor[] colors = [MoustacheColor.DarkBrown, MoustacheColor.Ginger, MoustacheColor.Black, MoustacheColor.Gray,
+            MoustacheColor.Blond, MoustacheColor.Brown, MoustacheColor.Black];
+        double[] angles = [0.0, 0.0, 0.0, 0.0, 0.3, -0.25, 0.0];
+        const double size = 380;
+        var poses = new List<(MoustachePose Pose, MoustacheStyle Style, MoustacheColor Color)>();
+        var photoVisual = new DrawingVisual();
+        using (var dc = photoVisual.RenderOpen())
         {
-            dc.DrawRectangle(new LinearGradientBrush(Color.FromRgb(0x3A, 0x3D, 0x45), Color.FromRgb(0x1C, 0x1E, 0x24), 90), null, new Rect(0, 0, 1920, 1080));
-            var styles = new[] { MoustacheStyle.Twirl, MoustacheStyle.Walrus, MoustacheStyle.Chevron, MoustacheStyle.Brush, MoustacheStyle.Twirl, MoustacheStyle.Walrus };
-            var angles = new[] { 0.0, 0.0, 0.0, 0.0, 0.35, -0.3 };
+            dc.DrawRectangle(new LinearGradientBrush(Color.FromRgb(0x8F, 0xA8, 0xBF), Color.FromRgb(0x4C, 0x5E, 0x70), 90), null, new Rect(0, 0, 1920, 1080));
             for (var i = 0; i < styles.Length; i++)
             {
-                var nose = new Point(320 + (i % 3) * 640, 250 + (i / 3) * 520);
-                const double size = 380;
+                var nose = new Point(260 + (i % 4) * 470, 230 + (i / 4) * 520);
                 DrawFace(dc, nose, size, angles[i]);
-                // Bart sitzt zwischen Nase und Mund, mitgedreht.
                 var offset = new Vector(0, size * 0.115);
                 offset = new Matrix(Math.Cos(angles[i]), Math.Sin(angles[i]), -Math.Sin(angles[i]), Math.Cos(angles[i]), 0, 0).Transform(offset);
-                MoustacheRenderer.Draw(dc, styles[i], new Point(nose.X + offset.X, nose.Y + offset.Y), size * 0.52, angles[i], mirror: false);
+                poses.Add((new MoustachePose(new NormPoint((nose.X + offset.X) / 1920, (nose.Y + offset.Y) / 1080), size * 0.52, angles[i]),
+                    styles[i], colors[i]));
             }
         }
-        SavePng(RenderVisual(visual, 1920, 1080), Path.Combine(dir, "peace_moustaches_faces.png"));
+        var photo = RenderVisual(photoVisual, 1920, 1080);
+        SavePng(photo, Path.Combine(dir, "peace_moustache_photo_without.png"));
+
+        // „Bart auf Foto“: genau der Weg des Fotos (RenderOnto), Haartextur mit Schatten auf der Haut.
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var decorated = MoustacheRenderer.RenderOnto(photo, poses);
+        timer.Stop();
+        SavePng(decorated, Path.Combine(dir, "peace_moustache_photo.png"));
+        File.WriteAllText(Path.Combine(dir, "peace_moustache_photo_time.txt"), $"RenderOnto (7 Bärte, inkl. Erzeugen der Texturen): {timer.ElapsedMilliseconds} ms");
 
         // Gespiegelte Ansicht über das Overlay: Der Bart folgt dem gespiegelten Gesicht, der Winkel kehrt sich um.
+        long now = 0;
         var pose = new MoustachePose(new NormPoint(0.3, 0.5), 300, 0.3);
         var overlay = new PeaceOverlay
         {
-            ImageWidth = 1920, ImageHeight = 1080, Mirror = true,
-            Moustaches = [new MoustacheView(1, MoustacheStyle.Twirl, pose), new MoustacheView(2, MoustacheStyle.Chevron, pose with { Center = new NormPoint(0.7, 0.5), AngleRad = -0.2 })],
+            ImageWidth = 1920, ImageHeight = 1080, Mirror = true, Clock = () => now,
+            Moustaches =
+            [
+                new MoustacheView(1, MoustacheStyle.Twirl, pose, MoustacheColor.Ginger),
+                new MoustacheView(2, MoustacheStyle.Handlebar, pose with { Center = new NormPoint(0.7, 0.5), AngleRad = -0.2 }, MoustacheColor.Black),
+            ],
         };
+        now = 5 * System.Diagnostics.Stopwatch.Frequency; // Plopp vorbei
         var stage = new Grid { Width = 1920, Height = 1080, Background = new SolidColorBrush(Color.FromRgb(0xE8, 0xD8, 0xC0)) };
         stage.Children.Add(overlay);
         RenderElement(Path.Combine(dir, "peace_moustaches_mirrored.png"), stage);
-        Assert.True(File.Exists(Path.Combine(dir, "peace_moustaches_faces.png")));
+
+        // Plopp: Bild bei 120 ms (federnd über 1 hinaus) und bei Wippen (Versatz und Winkel am Limit).
+        now = 0;
+        var popOverlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Clock = () => now };
+        popOverlay.Moustaches = [new MoustacheView(1, MoustacheStyle.Walrus, pose, MoustacheColor.Brown)];
+        now = (long)(0.19 * System.Diagnostics.Stopwatch.Frequency);
+        var popStage = new Grid { Width = 1920, Height = 1080, Background = new SolidColorBrush(Color.FromRgb(0xE8, 0xD8, 0xC0)) };
+        popStage.Children.Add(popOverlay);
+        RenderElement(Path.Combine(dir, "peace_moustache_pop_190ms.png"), popStage);
+        Assert.True(File.Exists(Path.Combine(dir, "peace_moustaches_faces.png")) || File.Exists(Path.Combine(dir, "peace_moustache_photo.png")));
+    }
+
+    [Trait("Category", "Visual")]
+    [StaFact]
+    public void Measure_TextureCreationAndDrawTimes()
+    {
+        var dir = RenderDir();
+        if (dir is null)
+            return;
+
+        var lines = new List<string>();
+        foreach (var tier in MoustacheTextures.Tiers)
+        {
+            foreach (var style in new[] { MoustacheStyle.Brush, MoustacheStyle.Twirl, MoustacheStyle.Walrus, MoustacheStyle.FuManchu })
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var texture = MoustacheTextures.Create(style, MoustacheColor.DarkBrown, tier);
+                lines.Add($"Erzeugen {style,-10} Stufe {tier,4}: {sw.ElapsedMilliseconds,5} ms  ({texture.Bitmap.PixelWidth} x {texture.Bitmap.PixelHeight})");
+            }
+        }
+
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            MoustacheRenderer.Draw(dc, MoustacheStyle.Walrus, MoustacheColor.Brown, new Point(100, 100), 300, 0.1, true, 1, 0.01, 0.01);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            for (var i = 0; i < 1000; i++)
+                MoustacheRenderer.Draw(dc, MoustacheStyle.Walrus, MoustacheColor.Brown, new Point(100 + i % 50, 100), 300, 0.1, true, 1, 0.01, 0.01);
+            lines.Add($"Draw (DrawImage, Aufzeichnen): {sw.Elapsed.TotalMilliseconds / 1000:F4} ms je Aufruf");
+        }
+        File.WriteAllLines(Path.Combine(dir, "peace_moustache_timings.txt"), lines);
     }
 
     [Trait("Category", "Visual")]

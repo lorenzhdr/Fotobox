@@ -47,13 +47,14 @@ public sealed class MoustacheTracker
     /// <summary>Gesichter, die vor dem Start der Sitzung zuletzt gesehen wurden, zählen nur, wenn die Beobachtung höchstens so alt ist.</summary>
     public static readonly TimeSpan SeedMaxAge = TimeSpan.FromSeconds(1);
 
-    private static readonly MoustacheStyle[] ConcreteStyles =
-        [MoustacheStyle.Twirl, MoustacheStyle.Walrus, MoustacheStyle.Chevron, MoustacheStyle.Brush];
-
     private sealed class Entry
     {
         public required int FaceId { get; init; }
         public required MoustacheStyle Style { get; init; }
+        /// <summary>Haarfarbe, je Spur gewürfelt und stabil (das Foto übernimmt sie).</summary>
+        public required MoustacheColor Color { get; init; }
+        /// <summary>Wippfeder (Livebild); das Foto zeigt den Bart ohne Wippen.</summary>
+        public MoustacheWobble Wobble { get; } = new();
         public required DateTimeOffset FirstSeen { get; init; }
         public DateTimeOffset LastSeen { get; set; }
         /// <summary>Gefilterte Lage zum Zeitpunkt <see cref="SampleTime"/> (ohne Vorhersage).</summary>
@@ -76,6 +77,7 @@ public sealed class MoustacheTracker
     private bool _active;
     private MoustacheTargets _targets;
     private MoustacheStyle _style;
+    private IReadOnlyList<MoustacheStyle> _randomStyles = MoustacheStyles.All;
     private int? _ownerFaceId;
     private MoustacheVisibility _visibility;
     private TimeSpan _duration;
@@ -110,7 +112,7 @@ public sealed class MoustacheTracker
             return _entries.Values
                 .Where(e => now - e.LastSeen <= ViewTimeout)
                 .OrderBy(e => e.FaceId)
-                .Select(e => new MoustacheView(e.FaceId, e.Style, Predict(e, now)))
+                .Select(e => new MoustacheView(e.FaceId, e.Style, Predict(e, now), e.Color, e.Wobble.At(now)))
                 .ToList();
         }
     }
@@ -120,13 +122,16 @@ public sealed class MoustacheTracker
     /// der letzten Analyse (höchstens <see cref="SeedMaxAge"/> alt) bekommen sofort einen Bart.
     /// </summary>
     /// <param name="ownerFaceId">Gesicht der auslösenden Hand (nur für <see cref="MoustacheTargets.PeaceShower"/>); null = niemand.</param>
-    public void StartSession(MoustacheTargets targets, MoustacheStyle style, int? ownerFaceId, MoustacheVisibility visibility, int durationSeconds)
+    /// <param name="randomStyles">Formen, aus denen <see cref="MoustacheStyle.Random"/> würfelt (null/leer = alle).</param>
+    public void StartSession(MoustacheTargets targets, MoustacheStyle style, int? ownerFaceId, MoustacheVisibility visibility, int durationSeconds,
+        IReadOnlyList<MoustacheStyle>? randomStyles = null)
     {
         var now = _time.GetUtcNow();
         _entries.Clear();
         _active = true;
         _targets = targets;
         _style = style;
+        _randomStyles = MoustacheStyles.NormalizeRandomStyles(randomStyles);
         _ownerFaceId = ownerFaceId;
         _visibility = visibility;
         _duration = TimeSpan.FromSeconds(Math.Max(0, durationSeconds));
@@ -212,9 +217,9 @@ public sealed class MoustacheTracker
         var tracks = _entries.Values
             .Where(e => now - e.LastSeen <= GoneTimeout)
             .OrderBy(e => e.FaceId)
-            .Select(e => new MoustacheTrack(e.FaceId, e.Style, e.FaceBox, e.Pose, now - e.LastSeen))
+            .Select(e => new MoustacheTrack(e.FaceId, e.Style, e.FaceBox, e.Pose, now - e.LastSeen, e.Color))
             .ToList();
-        return new MoustachePlanInput(_targets, _ownerFaceId, tracks);
+        return new MoustachePlanInput(_targets, _ownerFaceId, tracks, _style, _randomStyles);
     }
 
     // ---- intern
@@ -239,21 +244,29 @@ public sealed class MoustacheTracker
                 entry = new Entry
                 {
                     FaceId = face.Id,
-                    Style = _style == MoustacheStyle.Random ? ConcreteStyles[Math.Clamp(_random(ConcreteStyles.Length), 0, ConcreteStyles.Length - 1)] : _style,
+                    Style = _style == MoustacheStyle.Random ? MoustacheStyles.PickRandom(_randomStyles, _random) : _style,
+                    Color = MoustacheStyles.PickColor(_random),
                     FirstSeen = now,
                     LastSeen = now,
                     Pose = raw,
                 };
                 SeedFilters(entry, raw, w, h, sample);
+                SampleMouth(entry, face.Face, w, h, now, reset: true);
                 _entries[face.Id] = entry;
             }
             else
             {
                 var dt = (sample - entry.SampleTime).TotalSeconds;
                 if (dt > SmoothingGap.TotalSeconds || entry.ImageWidth != w || entry.ImageHeight != h)
+                {
                     SeedFilters(entry, raw, w, h, sample);
+                    SampleMouth(entry, face.Face, w, h, now, reset: true);
+                }
                 else if (dt >= MinSampleInterval.TotalSeconds)
+                {
                     Smooth(entry, raw, face.Face.Box, w, h, dt, sample);
+                    SampleMouth(entry, face.Face, w, h, now, reset: false);
+                }
             }
             entry.FaceBox = face.Face.Box;
             if (refreshLastSeen)
@@ -263,6 +276,25 @@ public sealed class MoustacheTracker
         // Sehr alte Spuren (längst abgelaufen) aufräumen, damit die Tabelle nicht wächst.
         foreach (var id in _entries.Where(kv => now - kv.Value.LastSeen > TimeSpan.FromSeconds(3)).Select(kv => kv.Key).ToList())
             _entries.Remove(id);
+    }
+
+    // Mundmaße für die Wippfeder: Mundbreite und Abstand Nase–Mundmitte, je auf den Augenabstand normiert (Pixel, wie MoustacheGeometry).
+    private static void SampleMouth(Entry entry, FaceLandmarks f, double w, double h, DateTimeOffset now, bool reset)
+    {
+        double Dist(NormPoint a, NormPoint b)
+        {
+            var dx = (a.X - b.X) * w;
+            var dy = (a.Y - b.Y) * h;
+            return Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        var eye = Dist(f.LeftEye, f.RightEye);
+        if (!(eye > 0))
+            return;
+        var mouthMid = new NormPoint((f.MouthLeft.X + f.MouthRight.X) / 2, (f.MouthLeft.Y + f.MouthRight.Y) / 2);
+        if (reset)
+            entry.Wobble.Reset();
+        entry.Wobble.OnSample(now, Dist(f.MouthLeft, f.MouthRight) / eye, Dist(f.Nose, mouthMid) / eye);
     }
 
     // Neue Spur (oder lange Lücke): Lage sofort übernehmen, Filter und Geschwindigkeit zurücksetzen.

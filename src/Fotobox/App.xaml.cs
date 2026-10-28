@@ -28,6 +28,24 @@ public partial class App : Application
     private bool _ownsMutex;
     private ServiceProvider? _services;
 
+    // Haartexturen der Bärte im Hintergrund vorberechnen (nur mit aktiver Aktion Schnurrbart), damit das erste Erscheinen
+    // eines Bartes nicht ruckelt. Später im Admin zugeschaltete Formen entstehen beim ersten Zeichnen.
+    private void PrewarmMoustacheTextures()
+    {
+        try
+        {
+            var peace = _services?.GetRequiredService<ISettingsStore>().Current.Peace;
+            if (peace is not { Enabled: true, ActionMoustache: true })
+                return;
+            IEnumerable<MoustacheStyle> styles = peace.MoustacheStyle == MoustacheStyle.Random ? peace.RandomStyles : [peace.MoustacheStyle];
+            Fotobox.Views.Booth.Peace.MoustacheTextures.PrewarmInBackground(styles);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Bart-Texturen konnten nicht vorberechnet werden.", ex);
+        }
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -96,6 +114,7 @@ public partial class App : Application
             MainWindow = boothWindow;
             ShutdownMode = ShutdownMode.OnMainWindowClose;
             boothWindow.Show();
+            PrewarmMoustacheTextures();
         }
         catch (Exception ex)
         {

@@ -38,7 +38,7 @@ public sealed class MoustachePhotoPlannerTests
 
         var plan = MoustachePhotoPlanner.Plan(Input(MoustacheTargets.Everyone, null, a, b), null, W, H, Never);
 
-        Assert.Equal([(a.Pose, a.Style), (b.Pose, b.Style)], plan);
+        Assert.Equal([(a.Pose, a.Style, a.Color), (b.Pose, b.Style, b.Color)], plan);
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public sealed class MoustachePhotoPlannerTests
 
         var plan = MoustachePhotoPlanner.Plan(Input(MoustacheTargets.PeaceShower, 2, a, b), null, W, H, Never);
 
-        Assert.Equal([(b.Pose, b.Style)], plan);
+        Assert.Equal([(b.Pose, b.Style, b.Color)], plan);
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public sealed class MoustachePhotoPlannerTests
 
         var plan = MoustachePhotoPlanner.Plan(Input(MoustacheTargets.Everyone, null, track), [photo], W, H, Never);
 
-        var (pose, style) = Assert.Single(plan);
+        var (pose, style, _) = Assert.Single(plan);
         Assert.Equal(MoustacheStyle.Walrus, style);
         Assert.Equal(MoustacheGeometry.FromFace(photo, W, H), pose);
         Assert.NotEqual(track.Pose, pose);
@@ -86,7 +86,7 @@ public sealed class MoustachePhotoPlannerTests
 
         var plan = MoustachePhotoPlanner.Plan(Input(MoustacheTargets.Everyone, null, track), [photo], W, H, Never);
 
-        var (_, style) = Assert.Single(plan);
+        var (_, style, _) = Assert.Single(plan);
         Assert.Equal(MoustacheStyle.Chevron, style);
     }
 
@@ -102,8 +102,8 @@ public sealed class MoustachePhotoPlannerTests
             Input(MoustacheTargets.Everyone, null, trackLeft, trackRight), [right, left], W, H, Never);
 
         Assert.Equal(2, plan.Count);
-        Assert.Equal((MoustacheGeometry.FromFace(right, W, H), MoustacheStyle.Brush), plan[0]);
-        Assert.Equal((MoustacheGeometry.FromFace(left, W, H), MoustacheStyle.Twirl), plan[1]);
+        Assert.Equal((MoustacheGeometry.FromFace(right, W, H), MoustacheStyle.Brush, MoustacheColor.DarkBrown), plan[0]);
+        Assert.Equal((MoustacheGeometry.FromFace(left, W, H), MoustacheStyle.Twirl, MoustacheColor.DarkBrown), plan[1]);
     }
 
     [Fact]
@@ -119,9 +119,10 @@ public sealed class MoustachePhotoPlannerTests
             n => { calls.Add(n); return 0; });
 
         Assert.Equal(2, plan.Count);
-        Assert.Equal((MoustacheGeometry.FromFace(farther, W, H), MoustacheStyle.Twirl), plan[0]);   // ohne Spur: Zufall (0 = Twirl)
-        Assert.Equal((MoustacheGeometry.FromFace(close, W, H), MoustacheStyle.Brush), plan[1]);
-        Assert.Equal([4], calls);
+        // ohne Spur: Zufall (0 = Twirl, 0 = erste Farbe), Form aus 7 Formen, Farbe aus 6 Farben
+        Assert.Equal((MoustacheGeometry.FromFace(farther, W, H), MoustacheStyle.Twirl, MoustacheColor.Black), plan[0]);
+        Assert.Equal((MoustacheGeometry.FromFace(close, W, H), MoustacheStyle.Brush, MoustacheColor.DarkBrown), plan[1]);
+        Assert.Equal([7, 6], calls);
     }
 
     [Theory]
@@ -129,21 +130,70 @@ public sealed class MoustachePhotoPlannerTests
     [InlineData(1, MoustacheStyle.Walrus)]
     [InlineData(2, MoustacheStyle.Chevron)]
     [InlineData(3, MoustacheStyle.Brush)]
+    [InlineData(4, MoustacheStyle.Handlebar)]
+    [InlineData(5, MoustacheStyle.FuManchu)]
+    [InlineData(6, MoustacheStyle.Horseshoe)]
     public void Everyone_UnmatchedPhotoFace_GetsRandomStyle(int value, MoustacheStyle expected)
     {
         var tracked = Face(0.25, 0.5);
         var stranger = Face(0.75, 0.5);
         var track = Track(1, MoustacheStyle.Twirl, tracked);
 
-        var plan = MoustachePhotoPlanner.Plan(Input(MoustacheTargets.Everyone, null, track), [tracked, stranger], W, H, n =>
-        {
-            Assert.Equal(4, n);
-            return value;
-        });
+        var plan = MoustachePhotoPlanner.Plan(Input(MoustacheTargets.Everyone, null, track), [tracked, stranger], W, H, n => n == 7 ? value : 0);
 
         Assert.Equal(2, plan.Count);
         Assert.Equal(expected, plan[1].Style);
         Assert.Equal(MoustacheGeometry.FromFace(stranger, W, H), plan[1].Pose);
+    }
+
+    [Fact]
+    public void UnmatchedPhotoFace_DrawsOnlyFromTheSessionsRandomList()
+    {
+        var stranger = Face(0.75, 0.5);
+        var input = new MoustachePlanInput(MoustacheTargets.Everyone, null, [], MoustacheStyle.Random,
+            [MoustacheStyle.FuManchu, MoustacheStyle.Horseshoe]);
+        var counts = new List<int>();
+
+        var plan = MoustachePhotoPlanner.Plan(input, [stranger], W, H, n => { counts.Add(n); return n - 1; });
+
+        var (_, style, _) = Assert.Single(plan);
+        Assert.Equal(MoustacheStyle.Horseshoe, style);
+        Assert.Equal([2, 6], counts);
+    }
+
+    [Fact]
+    public void UnmatchedPhotoFace_UsesTheFixedStyleOfTheSession()
+    {
+        var stranger = Face(0.75, 0.5);
+        var input = new MoustachePlanInput(MoustacheTargets.Everyone, null, [], MoustacheStyle.Handlebar);
+
+        var plan = MoustachePhotoPlanner.Plan(input, [stranger], W, H, _ => 0);
+
+        Assert.Equal(MoustacheStyle.Handlebar, Assert.Single(plan).Style);
+    }
+
+    [Theory]
+    [InlineData(MoustacheColor.Black)]
+    [InlineData(MoustacheColor.Gray)]
+    [InlineData(MoustacheColor.Ginger)]
+    public void PhotoFace_TakesTheColorOfItsLiveTrack_AndNeverRollsForIt(MoustacheColor color)
+    {
+        var live = Face(0.30, 0.50);
+        var track = Track(1, MoustacheStyle.Walrus, live) with { Color = color };
+
+        var plan = MoustachePhotoPlanner.Plan(Input(MoustacheTargets.Everyone, null, track), [Face(0.31, 0.51)], W, H, Never);
+
+        Assert.Equal(color, Assert.Single(plan).Color);
+    }
+
+    [Fact]
+    public void LivePoseFallback_KeepsTheTrackColor()
+    {
+        var track = Track(1, MoustacheStyle.Brush, Face(0.5, 0.5), TimeSpan.FromMilliseconds(100)) with { Color = MoustacheColor.Blond };
+
+        var plan = MoustachePhotoPlanner.Plan(Input(MoustacheTargets.Everyone, null, track), null, W, H, Never);
+
+        Assert.Equal(MoustacheColor.Blond, Assert.Single(plan).Color);
     }
 
     [Fact]
@@ -155,7 +205,7 @@ public sealed class MoustachePhotoPlannerTests
 
         var plan = MoustachePhotoPlanner.Plan(Input(MoustacheTargets.Everyone, null, fresh, stale, atLimit), [], W, H, Never);
 
-        Assert.Equal([(fresh.Pose, fresh.Style)], plan);   // „Alter < 500 ms“: genau 500 ms zählt nicht mehr
+        Assert.Equal([(fresh.Pose, fresh.Style, fresh.Color)], plan);   // „Alter < 500 ms“: genau 500 ms zählt nicht mehr
     }
 
     [Fact]
@@ -168,7 +218,7 @@ public sealed class MoustachePhotoPlannerTests
 
         var plan = MoustachePhotoPlanner.Plan(Input(MoustacheTargets.PeaceShower, 1, owner, other), [otherFace, ownerFace], W, H, Never);
 
-        Assert.Equal([(MoustacheGeometry.FromFace(ownerFace, W, H), MoustacheStyle.Brush)], plan);
+        Assert.Equal([(MoustacheGeometry.FromFace(ownerFace, W, H), MoustacheStyle.Brush, MoustacheColor.DarkBrown)], plan);
     }
 
     [Fact]
@@ -187,7 +237,7 @@ public sealed class MoustachePhotoPlannerTests
         var fresh = Track(1, MoustacheStyle.Brush, Face(0.3, 0.5), TimeSpan.FromMilliseconds(100));
         var stale = Track(1, MoustacheStyle.Brush, Face(0.3, 0.5), TimeSpan.FromMilliseconds(900));
 
-        Assert.Equal([(fresh.Pose, fresh.Style)],
+        Assert.Equal([(fresh.Pose, fresh.Style, fresh.Color)],
             MoustachePhotoPlanner.Plan(Input(MoustacheTargets.PeaceShower, 1, fresh), [], W, H, Never));
         Assert.Empty(MoustachePhotoPlanner.Plan(Input(MoustacheTargets.PeaceShower, 1, stale), [], W, H, Never));
     }
