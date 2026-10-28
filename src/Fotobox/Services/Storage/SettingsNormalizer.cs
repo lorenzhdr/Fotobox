@@ -35,6 +35,7 @@ internal static class SettingsNormalizer
         s.Appearance ??= new AppearanceSettings();
         s.Video ??= new VideoSettings();
         s.Fun ??= new FunSettings();
+        s.Peace ??= new PeaceSettings();
 
         s.Flow.CountdownSeconds = Math.Clamp(s.Flow.CountdownSeconds, SettingsLimits.CountdownMin, SettingsLimits.CountdownMax);
         s.Flow.PreviewSeconds = Math.Clamp(s.Flow.PreviewSeconds, SettingsLimits.PreviewMin, SettingsLimits.PreviewMax);
@@ -69,6 +70,7 @@ internal static class SettingsNormalizer
 
         NormalizeVideo(s.Video);
         NormalizeFun(s.Fun);
+        NormalizePeace(s.Peace);
 
         // PinIterations wird bewusst nicht geklemmt: Ein anderer Wert passte nicht mehr zum gespeicherten Hash (siehe PinService).
 
@@ -171,6 +173,37 @@ internal static class SettingsNormalizer
 
         f.SingularText = SanitizeHintText(f.SingularText);
         f.PluralText = SanitizeHintText(f.PluralText);
+    }
+
+    /// <summary>
+    /// Peace-Einstellungen: Zahlen auf <see cref="SettingsLimits"/> klemmen, Haltedauer auf 100er-Schritte runden, unbekannte
+    /// Enum-Werte auf den Standard setzen; ohne gewählte Aktion gilt die Selbstzerstörung.
+    /// </summary>
+    private static void NormalizePeace(PeaceSettings p)
+    {
+        var defaults = new PeaceSettings();
+
+        var step = SettingsLimits.PeaceHoldMillisecondsStep;
+        var hold = (int)(Math.Round(p.HoldMilliseconds / (double)step, MidpointRounding.AwayFromZero) * step);
+        p.HoldMilliseconds = Math.Clamp(hold, SettingsLimits.PeaceHoldMillisecondsMin, SettingsLimits.PeaceHoldMillisecondsMax);
+        p.CooldownSeconds = Math.Clamp(p.CooldownSeconds, SettingsLimits.PeaceCooldownSecondsMin, SettingsLimits.PeaceCooldownSecondsMax);
+        p.SensitivityPercent = Math.Clamp(p.SensitivityPercent, SettingsLimits.PeaceSensitivityMin, SettingsLimits.PeaceSensitivityMax);
+        p.AnalysesPerSecond = Math.Clamp(p.AnalysesPerSecond, SettingsLimits.PeaceAnalysesPerSecondMin, SettingsLimits.PeaceAnalysesPerSecondMax);
+        p.SelfDestructSeconds = Math.Clamp(p.SelfDestructSeconds, SettingsLimits.PeaceSelfDestructSecondsMin, SettingsLimits.PeaceSelfDestructSecondsMax);
+        p.PhotoCountdownSeconds = Math.Clamp(p.PhotoCountdownSeconds, SettingsLimits.PeacePhotoCountdownMin, SettingsLimits.PeacePhotoCountdownMax);
+        p.MoustacheDurationSeconds = Math.Clamp(p.MoustacheDurationSeconds, SettingsLimits.PeaceMoustacheDurationMin, SettingsLimits.PeaceMoustacheDurationMax);
+        p.MoustacheAutoPhotoCountdownSeconds = Math.Clamp(p.MoustacheAutoPhotoCountdownSeconds,
+            SettingsLimits.PeaceMoustacheAutoPhotoCountdownMin, SettingsLimits.PeaceMoustacheAutoPhotoCountdownMax);
+
+        if (!Enum.IsDefined(p.MoustacheTargets))
+            p.MoustacheTargets = defaults.MoustacheTargets;
+        if (!Enum.IsDefined(p.MoustacheStyle))
+            p.MoustacheStyle = defaults.MoustacheStyle;
+        if (!Enum.IsDefined(p.MoustacheVisibility))
+            p.MoustacheVisibility = defaults.MoustacheVisibility;
+
+        if (!p.HasAnyAction)
+            p.ActionSelfDestruct = true;
     }
 
     /// <summary>

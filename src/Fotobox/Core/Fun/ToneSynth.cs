@@ -3,8 +3,8 @@ using System.IO;
 
 namespace Fotobox.Core.Fun;
 
-/// <summary>Klang-Signale der Zielerfassung.</summary>
-public enum FunSoundCue { Acquire, Lock, Text }
+/// <summary>Klang-Signale der Zielerfassung und der Peaceerkennung (nur hinten erweitern).</summary>
+public enum FunSoundCue { Acquire, Lock, Text, SelfDestructTick, SelfDestructTickFast, Explosion }
 
 /// <summary>
 /// Erzeugt die kurzen Signaltöne selbst (RIFF/WAVE, PCM 16 Bit mono 44,1 kHz) im Speicher, ohne Audiodateien.
@@ -27,6 +27,8 @@ public static class ToneSynth
             FunSoundCue.Acquire => Tone(0.080, 1800, 1800),
             FunSoundCue.Lock => Concat(Tone(0.070, 2400, 2400), Silence(0.050), Tone(0.070, 2400, 2400)),
             FunSoundCue.Text => Tone(0.150, 1000, 1400),
+            // Peaceerkennung: Platzhalter, die endgültigen Töne folgen.
+            FunSoundCue.SelfDestructTick or FunSoundCue.SelfDestructTickFast or FunSoundCue.Explosion => Silence(0.05),
             _ => Silence(0.01),
         };
         return ToWav(samples);

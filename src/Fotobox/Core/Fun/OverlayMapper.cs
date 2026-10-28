@@ -1,3 +1,5 @@
+using Fotobox.Core.Peace;
+
 namespace Fotobox.Core.Fun;
 
 /// <summary>Wie das Kamerabild in die Ansicht passt: ganz sichtbar (Ränder) oder füllend (beschnitten).</summary>
@@ -10,6 +12,9 @@ public readonly record struct ViewRect(double X, double Y, double Width, double 
     public double Bottom => Y + Height;
     public bool IsEmpty => Width <= 0 || Height <= 0;
 }
+
+/// <summary>Punkt in Ansichtskoordinaten (Pixel bzw. DIPs), Ursprung oben links.</summary>
+public readonly record struct ViewPoint(double X, double Y);
 
 /// <summary>
 /// Rechnet normierte Erkennungsboxen (ungespiegeltes Kamerabild) in Koordinaten der Gastansicht um, wo das Livebild
@@ -39,6 +44,26 @@ public static class OverlayMapper
         // Spiegeln im normierten Bild: x' = 1 − rechter Rand.
         var nx = mirror ? 1 - box.Right : box.X;
         return new ViewRect(offX + nx * drawW, offY + box.Y * drawH, box.Width * drawW, box.Height * drawH);
+    }
+
+    /// <summary>
+    /// Punkt → Ansicht, gleiche Mathematik wie <see cref="Map(NormRect, double, double, double, double, OverlayFit, bool)"/>
+    /// (Spiegelung x' = 1 − x). Ungültige Ansicht (≤ 0): <c>default</c>.
+    /// </summary>
+    public static ViewPoint MapPoint(NormPoint p, double imageW, double imageH, double viewW, double viewH, OverlayFit fit, bool mirror)
+    {
+        if (!IsValid(viewW) || !IsValid(viewH))
+            return default;
+
+        (imageW, imageH) = ImageSizeOrDefault(imageW, imageH);
+        var scale = Scale(imageW, imageH, viewW, viewH, fit);
+        var drawW = imageW * scale;
+        var drawH = imageH * scale;
+        var offX = (viewW - drawW) / 2;
+        var offY = (viewH - drawH) / 2;
+
+        var nx = mirror ? 1 - p.X : p.X;
+        return new ViewPoint(offX + nx * drawW, offY + p.Y * drawH);
     }
 
     /// <summary>Wie <see cref="Map(NormRect, double, double, double, double, OverlayFit, bool)"/> mit unbekannter Kameraauflösung (16:9).</summary>

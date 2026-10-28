@@ -2,11 +2,14 @@ using System.Windows;
 using System.Windows.Threading;
 using Fotobox.Core;
 using Fotobox.Core.Fun;
+using Fotobox.Core.Peace;
 using Fotobox.Services.Audio;
 using Fotobox.Services.Camera;
 using Fotobox.Services.Detection;
+using Fotobox.Services.Detection.Peace;
 using Fotobox.Services.Display;
 using Fotobox.Services.Layout;
+using Fotobox.Services.Peace;
 using Fotobox.Services.Printing;
 using Fotobox.Services.Storage;
 using Fotobox.ViewModels.Booth;
@@ -140,6 +143,10 @@ public partial class App : Application
             kind => kind == DetectionKind.Body ? new YoloxPersonDetector() : new WindowsFaceDetector(),
             sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IFunSoundPlayer, FunSoundPlayer>();
+        // Peaceerkennung: Der inerte Gestendienst ist ein Platzhalter und wird durch PeaceDetectionService ersetzt.
+        services.AddSingleton<IGestureDetectionService, InertGestureDetectionService>();
+        services.AddSingleton<GuestMoustacheState>();
+        services.AddSingleton<IPhotoDecorator, NullPhotoDecorator>();
         // Transient: Gastansicht und Admin-Vorschau brauchen je eine eigene Zielerfassung.
         services.AddTransient<FunOverlayViewModel>();
         services.AddSingleton<IAdminLauncher, AdminLauncher>();

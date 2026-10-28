@@ -41,6 +41,12 @@ public enum LockOnAnimation { ShrinkPulse, Pulse, ScanPulse }
 public enum FunTextPosition { Center, Bottom, Top }
 /// <summary>Fun-Text im eigenen HUD-Stil (Tipp-Effekt) oder in einem der Hinweis-Stile (<see cref="FunSettings.TextHintStyle"/>).</summary>
 public enum FunTextStyle { Hud, Hint }
+/// <summary>Peaceerkennung, Aktion Schnurrbart: Bartform (<see cref="Random"/> = je Person zufällig). Nur hinten erweitern.</summary>
+public enum MoustacheStyle { Random, Twirl, Walrus, Chevron, Brush }
+/// <summary>Peaceerkennung, Aktion Schnurrbart: wer einen Bart bekommt. Nur hinten erweitern.</summary>
+public enum MoustacheTargets { Everyone, PeaceShower }
+/// <summary>Peaceerkennung, Aktion Schnurrbart: wie lange der Bart sichtbar bleibt. Nur hinten erweitern.</summary>
+public enum MoustacheVisibility { UntilPhotoOrGone, FixedDuration }
 
 /// <summary>Gemeinsame Wertebereiche für Admin-UI, Validierung und Normalisierung.</summary>
 public static class SettingsLimits
@@ -101,6 +107,22 @@ public static class SettingsLimits
     public const int FunDwellMillisecondsMin = 0, FunDwellMillisecondsMax = 3000;
     /// <summary>Fun: Analysen pro Sekunde (Rechenlast); das Livebild hat immer Vorrang.</summary>
     public const int FunAnalysesPerSecondMin = 1, FunAnalysesPerSecondMax = 10;
+    /// <summary>Peace: Haltedauer des Zeichens in Millisekunden (100er-Schritte).</summary>
+    public const int PeaceHoldMillisecondsMin = 300, PeaceHoldMillisecondsMax = 3000, PeaceHoldMillisecondsStep = 100;
+    /// <summary>Peace: Sperrzeit nach einer Auslösung in Sekunden.</summary>
+    public const int PeaceCooldownSecondsMin = 0, PeaceCooldownSecondsMax = 600;
+    /// <summary>Peace: Empfindlichkeit in Prozent.</summary>
+    public const int PeaceSensitivityMin = 10, PeaceSensitivityMax = 95;
+    /// <summary>Peace: Analysen pro Sekunde (Rechenlast).</summary>
+    public const int PeaceAnalysesPerSecondMin = 1, PeaceAnalysesPerSecondMax = 10;
+    /// <summary>Peace: Dauer der Selbstzerstörung in Sekunden.</summary>
+    public const int PeaceSelfDestructSecondsMin = 5, PeaceSelfDestructSecondsMax = 30;
+    /// <summary>Peace: Countdown der Aktion Foto in Sekunden (0 = sofort).</summary>
+    public const int PeacePhotoCountdownMin = 0, PeacePhotoCountdownMax = 30;
+    /// <summary>Peace: feste Sichtbarkeitsdauer des Schnurrbarts in Sekunden.</summary>
+    public const int PeaceMoustacheDurationMin = 3, PeaceMoustacheDurationMax = 120;
+    /// <summary>Peace: Countdown des Auto-Fotos nach dem Schnurrbart in Sekunden (0 = sofort).</summary>
+    public const int PeaceMoustacheAutoPhotoCountdownMin = 0, PeaceMoustacheAutoPhotoCountdownMax = 30;
 }
 
 /// <summary>
@@ -188,6 +210,7 @@ public sealed class AppSettings
     public AppearanceSettings Appearance { get; set; } = new();
     public VideoSettings Video { get; set; } = new();
     public FunSettings Fun { get; set; } = new();
+    public PeaceSettings Peace { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -389,6 +412,54 @@ public sealed class FunSettings
 
     /// <summary>Tiefe Kopie.</summary>
     public FunSettings Clone() => (FunSettings)MemberwiseClone();
+}
+
+/// <summary>
+/// Fun „Peaceerkennung“ (verstecktes Extra): Zeigt ein Gast im Leerlauf das Peace-Zeichen und hält es, startet eine der gewählten
+/// Aktionen (Selbstzerstörung, Foto, Schnurrbart); bei mehreren gewählten Aktionen entscheidet der Zufall. Nur Werttypen, damit
+/// <see cref="Clone"/> eine tiefe Kopie ist.
+/// </summary>
+public sealed class PeaceSettings
+{
+    public bool Enabled { get; set; } = true;
+    public bool ActionSelfDestruct { get; set; } = true;
+    public bool ActionPhoto { get; set; }
+    public bool ActionMoustache { get; set; }
+    /// <summary>So lange muss das Zeichen gehalten werden (Millisekunden).</summary>
+    public int HoldMilliseconds { get; set; } = 1000;
+    /// <summary>Fortschrittsring an der Hand während des Haltens.</summary>
+    public bool ShowHoldProgress { get; set; }
+    public int CooldownSeconds { get; set; }
+    public int SensitivityPercent { get; set; } = 50;
+    public int AnalysesPerSecond { get; set; } = 5;
+    public int SelfDestructSeconds { get; set; } = 10;
+    public bool SelfDestructSoundEnabled { get; set; }
+    public int PhotoCountdownSeconds { get; set; } = 3;
+    public MoustacheTargets MoustacheTargets { get; set; } = MoustacheTargets.Everyone;
+    public MoustacheStyle MoustacheStyle { get; set; } = MoustacheStyle.Random;
+    public MoustacheVisibility MoustacheVisibility { get; set; } = MoustacheVisibility.UntilPhotoOrGone;
+    public int MoustacheDurationSeconds { get; set; } = 15;
+    public bool MoustacheAutoPhoto { get; set; }
+    public int MoustacheAutoPhotoCountdownSeconds { get; set; } = 3;
+
+    /// <summary>Mindestens eine Aktion gewählt?</summary>
+    [JsonIgnore]
+    public bool HasAnyAction => ActionSelfDestruct || ActionPhoto || ActionMoustache;
+
+    /// <summary>Mindestscore einer Handerkennung (0,55 … 0,9) linear aus der Empfindlichkeit (10 → 0,9, 95 → 0,55).</summary>
+    [JsonIgnore]
+    public double MinHandScore
+    {
+        get
+        {
+            var t = (SensitivityPercent - SettingsLimits.PeaceSensitivityMin)
+                    / (double)(SettingsLimits.PeaceSensitivityMax - SettingsLimits.PeaceSensitivityMin);
+            return Math.Clamp(0.9 - t * (0.9 - 0.55), 0.55, 0.9);
+        }
+    }
+
+    /// <summary>Tiefe Kopie.</summary>
+    public PeaceSettings Clone() => (PeaceSettings)MemberwiseClone();
 }
 
 public sealed class SecuritySettings

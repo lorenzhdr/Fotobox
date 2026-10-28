@@ -177,3 +177,68 @@ public interface IAdminLauncher
     /// <summary>PIN-Abfrage, dann modale Admin-Ansicht.</summary>
     AdminResult OpenAdmin(Window owner);
 }
+
+/// <summary>
+/// Gesichts-Merkmalspunkte (YuNet) für die Peaceerkennung. Nicht threadsicher für parallele Aufrufe; <see cref="IAsyncDisposable.DisposeAsync"/>
+/// darf jederzeit kommen, native Ressourcen werden erst nach einem laufenden Aufruf freigegeben.
+/// </summary>
+public interface IFaceLandmarkDetector : IAsyncDisposable
+{
+    /// <summary>Lädt das Modell (idempotent, mit Timeout). Wirft, wenn es nicht verfügbar ist.</summary>
+    Task InitializeAsync(CancellationToken ct = default);
+    /// <summary>Gesichter in <paramref name="image"/> mit mindestens <paramref name="minScore"/>. Wirft bei Fehlern.</summary>
+    Task<IReadOnlyList<Peace.FaceLandmarks>> DetectAsync(Peace.BgraImage image, double minScore, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Handerkennung (MediaPipe Palm Detection + Hand Landmark) für die Peaceerkennung. Nicht threadsicher für parallele Aufrufe;
+/// <see cref="IAsyncDisposable.DisposeAsync"/> darf jederzeit kommen.
+/// </summary>
+public interface IHandLandmarkDetector : IAsyncDisposable
+{
+    /// <summary>Lädt beide Modelle (idempotent, mit Timeout). Wirft, wenn sie nicht verfügbar sind.</summary>
+    Task InitializeAsync(CancellationToken ct = default);
+    /// <summary>Sucht Handflächen im Bereich <paramref name="region"/> (normiert), höchstens <paramref name="max"/>. Wirft bei Fehlern.</summary>
+    Task<IReadOnlyList<Peace.PalmCandidate>> DetectPalmsAsync(Peace.BgraImage image, Fun.NormRect region, int max, CancellationToken ct = default);
+    /// <summary>21 Handpunkte im gedrehten Ausschnitt <paramref name="roi"/>; null, wenn keine Hand mit mindestens <paramref name="minScore"/> darin ist.</summary>
+    Task<Peace.HandLandmarks?> DetectLandmarksAsync(Peace.BgraImage image, Peace.HandRoi roi, double minScore, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Gesten- und Gesichtserkennung im Livebild für die Peaceerkennung. Analysiert nur, solange mindestens eine Anforderung offen ist.
+/// Anforderungen liegen auf einem Stapel: Es gilt immer die zuletzt gestellte offene (die Admin-Vorschau überholt die Gastansicht);
+/// nur sie bekommt Ergebnisse. Ereignisse kommen auf dem <see cref="SynchronizationContext"/> des Aufrufers (falls vorhanden).
+/// </summary>
+public interface IGestureDetectionService : IAsyncDisposable
+{
+    IGestureRequest Request(Peace.GestureRequestOptions options);
+    /// <summary>
+    /// Gesichter in einem (rohen, ungespiegelten) Foto. Pausiert dafür die Live-Analyse. Wirft nie; null bei Fehler, Timeout
+    /// oder nicht verfügbarem Gesichtsmodell.
+    /// </summary>
+    Task<IReadOnlyList<Peace.FaceLandmarks>?> DetectFacesInPhotoAsync(Peace.BgraImage photo, TimeSpan timeout, CancellationToken ct = default);
+}
+
+/// <summary>Eine offene Anforderung an <see cref="IGestureDetectionService"/>. Dispose meldet ab; danach kommen keine Ereignisse mehr.</summary>
+public interface IGestureRequest : IDisposable
+{
+    /// <summary>Bedarf ändern (z. B. nur Gesichter während des Countdowns), ohne die Anforderung zu ersetzen.</summary>
+    void Update(Peace.GestureRequestOptions options);
+    /// <summary>Neue Analyse (nur für die aktuell geltende Anforderung).</summary>
+    event EventHandler<Peace.GestureUpdate>? Updated;
+    /// <summary>Statusänderung (Laden, Stufe nicht verfügbar).</summary>
+    event EventHandler<Peace.GestureStatus>? StatusChanged;
+    Peace.GestureStatus Status { get; }
+}
+
+/// <summary>
+/// Verziert ein frisch aufgenommenes Foto (z. B. Schnurrbart), bevor es gespiegelt und gelayoutet wird. Läuft auf dem UI-Kontext
+/// des Controllers; <paramref name="rawPhoto"/> ist das rohe, ungespiegelte Kamerafoto. Liefert ein eingefrorenes Bild.
+/// </summary>
+public interface IPhotoDecorator
+{
+    /// <summary>Verziert aktuell etwas? Nur dann lohnt der Aufruf.</summary>
+    bool IsActive { get; }
+    /// <summary>Verziertes Foto; <paramref name="shotIndex"/> = Nummer der Aufnahme im Durchgang (ab 0). Fehler und Timeout fängt der Aufrufer ab.</summary>
+    Task<BitmapSource> DecorateAsync(BitmapSource rawPhoto, int shotIndex, CancellationToken ct);
+}

@@ -95,7 +95,7 @@ public sealed class GuestLayoutItem
 /// <see cref="ApplyCommand"/> (Fenster bleibt offen) oder <see cref="SaveCommand"/> (speichern und schließen);
 /// Schließen (<see cref="CloseCommand"/>) lässt den Store unberührt.
 /// </summary>
-public sealed class AdminViewModel : ObservableObject, IDisposable
+public sealed partial class AdminViewModel : ObservableObject, IDisposable
 {
     private const string DefaultPrinterDisplay = "Windows-Standarddrucker";
     private const string DefaultPaperDisplay = "Standard des Druckers";
@@ -265,6 +265,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         ResetKeysCommand = new RelayCommand(ResetKeys);
         ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
         TestFunPreviewCommand = new RelayCommand(TestFunPreview);
+        ShowFunPageCommand = new RelayCommand<FunPage>(page => FunPage = page);
 
         Camera.StatusChanged += OnCameraStatusChanged;
         UpdateOverlay();
@@ -434,7 +435,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         if (_saveStatusMessage.Length > 0
             && e.PropertyName is not (nameof(SaveStatusMessage) or nameof(HasSaveStatus) or nameof(IsSaving)
                 or nameof(FunPreviewStatusText) or nameof(FunPreviewWarningText) or nameof(HasFunPreviewWarning)
-                or nameof(FunPreviewCameraRunning) or nameof(FunPreviewNoCamera) or nameof(IsFunTabSelected)))
+                or nameof(FunPreviewCameraRunning) or nameof(FunPreviewNoCamera) or nameof(IsFunTabSelected)
+                or nameof(FunPage)))
             HideSaveStatusIfDirty();
     }
 
@@ -2796,6 +2798,18 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
     }
 
+    private FunPage _funPage = FunPage.Start;
+
+    /// <summary>Welche Seite des Tabs „Fun“ zeigt (Startseite mit Kacheln, Personenerkennung, Peaceerkennung). Reine Ansicht, keine Einstellung.</summary>
+    public FunPage FunPage
+    {
+        get => _funPage;
+        set => SetProperty(ref _funPage, value);
+    }
+
+    /// <summary>Wechselt die Seite des Tabs „Fun“ (Parameter: die Zielseite).</summary>
+    public IRelayCommand<FunPage> ShowFunPageCommand { get; }
+
     /// <summary>Die Kamera liefert ein Livebild (sonst zeigt die Vorschau einen Hinweis).</summary>
     public bool FunPreviewCameraRunning => Camera.Status == CameraStatus.Running;
 
@@ -2888,6 +2902,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _draft.Appearance = defaults.Appearance;
         _draft.Video = defaults.Video;
         _draft.Fun = defaults.Fun;
+        _draft.Peace = defaults.Peace;
         // Security (PIN) und Version bleiben bewusst unverändert.
         RebuildMonitorOptions(_monitorList);
         RebuildMicrophoneOptions(_microphoneList);
@@ -3031,6 +3046,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         if (_draft.Video.Enabled)
             ValidateVideo(errors, foldersToProbe);
 
+        ValidatePeace(errors);
+
         if (_newPin.Length > 0 || _repeatPin.Length > 0)
         {
             var pinError = PinRules.GetError(_newPin, _repeatPin);
@@ -3080,6 +3097,30 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             errors.Add($"Das Dateipräfix der Videos darf höchstens {SettingsLimits.FilePrefixMaxLength} Zeichen lang sein und keine Zeichen wie \\ / : * ? \" < > | enthalten.");
 
         CheckFolder(v.Folder, _initialVideoFolder, VideoFolderName, errors, foldersToProbe);
+    }
+
+    /// <summary>Peaceerkennung: mindestens eine Aktion und alle Zahlen im Wertebereich.</summary>
+    private void ValidatePeace(List<string> errors)
+    {
+        var p = _draft.Peace;
+        // Nur bei eingeschalteter Erkennung, sonst ließe sich der Fehler bei ausgegrauten Aktionen nicht beheben.
+        if (p.Enabled && !p.HasAnyAction)
+            errors.Add("Wählen Sie für die Peaceerkennung mindestens eine Aktion aus.");
+
+        CheckPeaceRange(p.HoldMilliseconds, SettingsLimits.PeaceHoldMillisecondsMin, SettingsLimits.PeaceHoldMillisecondsMax, "Die Haltedauer der Peaceerkennung", "Millisekunden", errors);
+        CheckPeaceRange(p.CooldownSeconds, SettingsLimits.PeaceCooldownSecondsMin, SettingsLimits.PeaceCooldownSecondsMax, "Die Sperrzeit der Peaceerkennung", "Sekunden", errors);
+        CheckPeaceRange(p.SensitivityPercent, SettingsLimits.PeaceSensitivityMin, SettingsLimits.PeaceSensitivityMax, "Die Empfindlichkeit der Peaceerkennung", "Prozent", errors);
+        CheckPeaceRange(p.AnalysesPerSecond, SettingsLimits.PeaceAnalysesPerSecondMin, SettingsLimits.PeaceAnalysesPerSecondMax, "Die Analyserate der Peaceerkennung", "Analysen pro Sekunde", errors);
+        CheckPeaceRange(p.SelfDestructSeconds, SettingsLimits.PeaceSelfDestructSecondsMin, SettingsLimits.PeaceSelfDestructSecondsMax, "Die Dauer der Selbstzerstörung", "Sekunden", errors);
+        CheckPeaceRange(p.PhotoCountdownSeconds, SettingsLimits.PeacePhotoCountdownMin, SettingsLimits.PeacePhotoCountdownMax, "Der Countdown der Peace-Aktion Foto", "Sekunden", errors);
+        CheckPeaceRange(p.MoustacheDurationSeconds, SettingsLimits.PeaceMoustacheDurationMin, SettingsLimits.PeaceMoustacheDurationMax, "Die Anzeigedauer des Schnurrbarts", "Sekunden", errors);
+        CheckPeaceRange(p.MoustacheAutoPhotoCountdownSeconds, SettingsLimits.PeaceMoustacheAutoPhotoCountdownMin, SettingsLimits.PeaceMoustacheAutoPhotoCountdownMax, "Der Countdown des Fotos nach dem Schnurrbart", "Sekunden", errors);
+    }
+
+    private static void CheckPeaceRange(int value, int min, int max, string label, string unit, List<string> errors)
+    {
+        if (value < min || value > max)
+            errors.Add($"{label} muss zwischen {min} und {max} {unit} liegen.");
     }
 
     private static void CheckRange(int value, int min, int max, string label, List<string> errors)
