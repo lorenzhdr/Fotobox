@@ -1,5 +1,11 @@
 ## Fotobox+ {{VERSION}}
 
+### Neu in 2.2.1
+
+- **Zielerfassung auf jedem PC:** Die Pakete enthalten jetzt die Microsoft Visual C++ Runtime, die die KI-Erkennung benötigt. In 2.2.0 fehlte sie; auf PCs, auf denen sie nicht schon installiert war, lief die Zielerfassung dann nur mit der einfacheren Gesichtserkennung. Update empfohlen.
+- **Weniger Rechenlast:** Die Personenerkennung braucht spürbar weniger Prozessorzeit und wird beim Start vorbereitet, damit sie auch auf langsameren PCs zuverlässig beim KI-Modell bleibt.
+- **Stabiler im Dauerbetrieb:** Hängt der Kameratreiber, sammelt die Fotobox keine Kamera-Verbindungen mehr an; die Signaltöne werden sicherer abgespielt; Protokolle älter als 30 Tage werden automatisch gelöscht.
+
 ### Neu in 2.2.0
 
 - **Fun-Modus „Zielerfassung“:** Die Fotobox erkennt Personen im Livebild und markiert jede wie im Film mit einer Zielbox „TARGET 1“, „TARGET 2“ … Neue Ziele rasten animiert ein, danach erscheint „Hey du, nimm doch ein Foto oder Video mit mir auf!“ bzw. bei mehreren Personen „Hey ihr, nehmt doch …“. Das passiert nur in der Gastansicht, solange niemand fotografiert oder filmt, und landet nie im Foto oder Video. Standardmäßig eingeschaltet.
