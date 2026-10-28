@@ -16,6 +16,7 @@ public sealed class AdminLauncher : IAdminLauncher
     private readonly IDisplayService _displays;
     private readonly IPersonDetectionService? _detection;
     private readonly IFunSoundPlayer? _sound;
+    private readonly IGestureDetectionService? _gestures;
     private readonly PinAttemptLimiter _limiter;
 
     /// <summary>Erkennung und Ton für die Fun-Vorschau sind vorhanden (sonst ist die Vorschau inert); für den DI-Test.</summary>
@@ -27,9 +28,10 @@ public sealed class AdminLauncher : IAdminLauncher
     {
     }
 
-    // Die Dienste der Zielerfassung sind für die Live-Vorschau im Tab „Fun“; ohne sie bleibt die Vorschau inert.
+    // Die Dienste der Zielerfassung und der Peaceerkennung sind für die Live-Vorschauen im Tab „Fun“; ohne sie bleibt die Vorschau inert.
     public AdminLauncher(ISettingsStore settings, IPinService pinService, ICameraService camera, IPrintService print,
-        IDisplayService displays, TimeProvider time, IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null)
+        IDisplayService displays, TimeProvider time, IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null,
+        IGestureDetectionService? gestures = null)
     {
         _settings = settings;
         _pinService = pinService;
@@ -38,6 +40,7 @@ public sealed class AdminLauncher : IAdminLauncher
         _displays = displays;
         _detection = detection;
         _sound = sound;
+        _gestures = gestures;
         // Ein Limiter pro Prozess: Die Sperre überdauert das Schließen des PIN-Dialogs.
         _limiter = new PinAttemptLimiter(time, maxAttempts: 5, lockoutDuration: TimeSpan.FromSeconds(30));
     }
@@ -101,7 +104,7 @@ public sealed class AdminLauncher : IAdminLauncher
 
         var ui = new WpfAdminUi();
         using var viewModel = new AdminViewModel(_settings, _pinService, _camera, _print, ui, displays: _displays,
-            detection: _detection, sound: _sound);
+            detection: _detection, sound: _sound, gestures: _gestures);
         var window = new AdminWindow(viewModel);
         if (owner.IsLoaded)
             window.Owner = owner;

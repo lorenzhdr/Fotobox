@@ -306,6 +306,8 @@ public sealed class AdminFunTabTests : IDisposable
             var store = new AdminViewModelTests.FakeStore(dir);
             var vm = new AdminViewModel(store, new AdminViewModelTests.FakePinService(store),
                 new AdminViewModelTests.FakeCamera(), new AdminViewModelTests.FakePrint(), new AdminViewModelTests.FakeUi());
+            // Die Zielerfassung liegt auf der Unterseite „Personenerkennung“ (Startseite mit Kacheln davor).
+            vm.FunPage = FunPage.Persons;
             var window = new AdminWindow(vm);
             try
             {
@@ -404,7 +406,7 @@ public sealed class AdminFunTabTests : IDisposable
             Assert.Equal(3, FindDescendants<TargetStyleSketch>(root).Count());
             Assert.Equal(3, FindDescendants<LockOnSketch>(root).Count());
             // Sieben Zahlenfelder: fünf bei „Erkennung“ sowie Anzeigedauer und Pause beim Text.
-            Assert.Equal(7, FindDescendants<NumberStepper>(root).Count());
+            Assert.Equal(7, FindDescendants<NumberStepper>((DependencyObject)window.FindName("FunPersonsPage")).Count());
             Assert.Contains(FindDescendants<ToggleButton>(root),
                 c => System.Windows.Automation.AutomationProperties.GetName(c) == "Zielerfassung einschalten");
         });
