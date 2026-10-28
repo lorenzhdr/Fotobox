@@ -14,14 +14,23 @@ public sealed record PeaceTrigger(PeaceAction Action, int HandTrackId, int? Face
 /// <summary>Lage eines Bartes: Mitte normiert (ungespiegelt), Breite und Winkel in Bildpixeln bzw. Bogenmaß.</summary>
 public readonly record struct MoustachePose(NormPoint Center, double WidthPx, double AngleRad);
 
-/// <summary>Ein zu zeichnender Bart im Livebild (Stil nie <see cref="MoustacheStyle.Random"/>).</summary>
-public sealed record MoustacheView(int FaceId, MoustacheStyle Style, MoustachePose Pose);
+/// <summary>
+/// Ein zu zeichnender Bart im Livebild (Stil nie <see cref="MoustacheStyle.Random"/>). <paramref name="Wobble"/> = Zustand der
+/// Wippfeder zum Zeitpunkt der Ansicht (die Darstellung entwickelt ihn pro Bild weiter); das Foto zeigt den Bart ohne Wippen.
+/// </summary>
+public sealed record MoustacheView(int FaceId, MoustacheStyle Style, MoustachePose Pose,
+    MoustacheColor Color = MoustacheColor.DarkBrown, WobbleState Wobble = default);
 
-/// <summary>Zustand der Bart-Verfolgung für die Foto-Planung.</summary>
-public sealed record MoustachePlanInput(MoustacheTargets Targets, int? OwnerFaceId, IReadOnlyList<MoustacheTrack> Tracks);
+/// <summary>
+/// Zustand der Bart-Verfolgung für die Foto-Planung. <paramref name="Style"/> und <paramref name="RandomStyles"/> sind die Stilwahl
+/// der Sitzung (für Foto-Gesichter ohne Live-Spur).
+/// </summary>
+public sealed record MoustachePlanInput(MoustacheTargets Targets, int? OwnerFaceId, IReadOnlyList<MoustacheTrack> Tracks,
+    MoustacheStyle Style = MoustacheStyle.Random, IReadOnlyList<MoustacheStyle>? RandomStyles = null);
 
 /// <summary>Eine verfolgte Bartspur; <see cref="Style"/> ist nie <see cref="MoustacheStyle.Random"/>.</summary>
-public sealed record MoustacheTrack(int FaceId, MoustacheStyle Style, NormRect FaceBox, MoustachePose Pose, TimeSpan Age);
+public sealed record MoustacheTrack(int FaceId, MoustacheStyle Style, NormRect FaceBox, MoustachePose Pose, TimeSpan Age,
+    MoustacheColor Color = MoustacheColor.DarkBrown);
 
 /// <summary>Eine verfolgte Hand für Anzeige und Admin-Vorschau; <see cref="Progress"/> 0..1 = Haltefortschritt.</summary>
 public sealed record HandView(int TrackId, IReadOnlyList<HandPoint> Points, NormRect Box, bool IsPeace, double Progress, int? FaceId);

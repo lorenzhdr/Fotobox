@@ -13,15 +13,12 @@ public static class MoustachePhotoPlanner
     /// <summary>Spuren, die höchstens so lange verloren sind, behalten ihre letzte Live-Pose, wenn das Foto sie nicht findet.</summary>
     public static readonly TimeSpan LivePoseMaxAge = TimeSpan.FromMilliseconds(500);
 
-    private static readonly MoustacheStyle[] RandomStyles =
-        [MoustacheStyle.Twirl, MoustacheStyle.Walrus, MoustacheStyle.Chevron, MoustacheStyle.Brush];
-
     /// <param name="live">Bart-Zustand der Gastansicht.</param>
     /// <param name="photoFaces">Gesichter im Foto (normiert, ungespiegelt); <c>null</c> = Erkennung fehlgeschlagen → Live-Posen.</param>
     /// <param name="imageW">Foto-Breite in Pixeln.</param>
     /// <param name="imageH">Foto-Höhe in Pixeln.</param>
-    /// <param name="random"><c>random(n)</c> liefert 0 … n−1 (Stil für Gesichter ohne Spur).</param>
-    public static IReadOnlyList<(MoustachePose Pose, MoustacheStyle Style)> Plan(
+    /// <param name="random"><c>random(n)</c> liefert 0 … n−1 (Form und Farbe für Gesichter ohne Spur; die Form nur bei Stil Zufall, aus der Zufallsliste der Sitzung).</param>
+    public static IReadOnlyList<(MoustachePose Pose, MoustacheStyle Style, MoustacheColor Color)> Plan(
         MoustachePlanInput live, IReadOnlyList<FaceLandmarks>? photoFaces, int imageW, int imageH, Func<int, int> random)
     {
         ArgumentNullException.ThrowIfNull(live);
@@ -31,11 +28,11 @@ public static class MoustachePhotoPlanner
         var tracks = ownerOnly
             ? live.Tracks.Where(t => live.OwnerFaceId is { } id && t.FaceId == id).ToList()
             : live.Tracks.ToList();
-        var result = new List<(MoustachePose Pose, MoustacheStyle Style)>();
+        var result = new List<(MoustachePose Pose, MoustacheStyle Style, MoustacheColor Color)>();
 
         if (photoFaces is null)
         {
-            result.AddRange(tracks.Select(t => (t.Pose, t.Style)));
+            result.AddRange(tracks.Select(t => (t.Pose, t.Style, t.Color)));
             return result;
         }
 
@@ -65,12 +62,15 @@ public static class MoustachePhotoPlanner
         {
             if (faceTrack[f] >= 0)
             {
-                result.Add((MoustacheGeometry.FromFace(photoFaces[f], imageW, imageH), tracks[faceTrack[f]].Style));
+                // Foto = Livebild: Form und Farbe der zugeordneten Spur.
+                var track = tracks[faceTrack[f]];
+                result.Add((MoustacheGeometry.FromFace(photoFaces[f], imageW, imageH), track.Style, track.Color));
             }
             else if (!ownerOnly)
             {
-                var style = RandomStyles[Math.Clamp(random(RandomStyles.Length), 0, RandomStyles.Length - 1)];
-                result.Add((MoustacheGeometry.FromFace(photoFaces[f], imageW, imageH), style));
+                // Nur für Gesichter ohne Live-Spur wird gewürfelt: feste Form der Sitzung, sonst aus deren Zufallsliste.
+                var style = MoustacheStyles.IsConcrete(live.Style) ? live.Style : MoustacheStyles.PickRandom(live.RandomStyles, random);
+                result.Add((MoustacheGeometry.FromFace(photoFaces[f], imageW, imageH), style, MoustacheStyles.PickColor(random)));
             }
         }
 
@@ -78,7 +78,7 @@ public static class MoustachePhotoPlanner
         for (var t = 0; t < tracks.Count; t++)
         {
             if (!trackUsed[t] && tracks[t].Age < LivePoseMaxAge)
-                result.Add((tracks[t].Pose, tracks[t].Style));
+                result.Add((tracks[t].Pose, tracks[t].Style, tracks[t].Color));
         }
 
         return result;

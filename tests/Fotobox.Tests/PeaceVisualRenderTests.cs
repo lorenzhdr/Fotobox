@@ -101,22 +101,53 @@ public class PeaceVisualRenderTests
         if (dir is null)
             return;
 
-        var visual = new DrawingVisual();
-        using (var dc = visual.RenderOpen())
+        // Übersicht: 7 Formen (Spalten) × 6 Farben (Zeilen), einmal auf hellem Hautton und einmal auf dunklem Hintergrund.
+        const int cellW = 300, cellH = 340, beardWidth = 230;
+        foreach (var (name, background) in new[]
         {
-            dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xF4, 0xEC, 0xDD)), null, new Rect(0, 0, 1920, 540));
-            var styles = new[] { MoustacheStyle.Twirl, MoustacheStyle.Walrus, MoustacheStyle.Chevron, MoustacheStyle.Brush };
-            for (var i = 0; i < styles.Length; i++)
+            ("skin", Color.FromRgb(0xEE, 0xC4, 0x9C)),
+            ("dark", Color.FromRgb(0x23, 0x26, 0x2E)),
+        })
+        {
+            var styles = MoustacheStyles.All;
+            var colors = MoustacheStyles.AllColors;
+            var width = cellW * styles.Count;
+            var height = cellH * colors.Count;
+            var visual = new DrawingVisual();
+            using (var dc = visual.RenderOpen())
             {
-                var center = new Point(240 + i * 480, 270);
-                MoustacheRenderer.Draw(dc, styles[i], center, 400, 0, mirror: false);
-                var text = new FormattedText(styles[i].ToString(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-                    new Typeface("Segoe UI"), 32, Brushes.Black, 1.0);
-                dc.DrawText(text, new Point(center.X - text.Width / 2, 470));
+                dc.DrawRectangle(new SolidColorBrush(background), null, new Rect(0, 0, width, height));
+                for (var row = 0; row < colors.Count; row++)
+                {
+                    for (var col = 0; col < styles.Count; col++)
+                    {
+                        // Ursprung (Oberlippe) bei 38 % der Zellhöhe: Hängeenden haben darunter Platz, Dalí-Spitzen darüber.
+                        var origin = new Point(col * cellW + cellW / 2.0, row * cellH + cellH * 0.30);
+                        MoustacheRenderer.Draw(dc, styles[col], colors[row], origin, beardWidth, 0, mirror: false);
+                    }
+                }
+                for (var col = 0; col < styles.Count; col++)
+                {
+                    var text = new FormattedText(styles[col].ToString(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                        new Typeface("Segoe UI"), 22, background.R > 128 ? Brushes.Black : Brushes.White, 1.0);
+                    dc.DrawText(text, new Point(col * cellW + 8, 4));
+                }
             }
+            SavePng(RenderVisual(visual, width, height), Path.Combine(dir, $"peace_moustaches_{name}.png"));
         }
-        SavePng(RenderVisual(visual, 1920, 540), Path.Combine(dir, "peace_moustaches.png"));
-        Assert.True(File.Exists(Path.Combine(dir, "peace_moustaches.png")));
+
+        // Großansicht: jede Form in Breite 900 (Stufe 1024) auf Hautton, zur Prüfung der Haardetails.
+        foreach (var style in MoustacheStyles.All)
+        {
+            var visual = new DrawingVisual();
+            using (var dc = visual.RenderOpen())
+            {
+                dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xEE, 0xC4, 0x9C)), null, new Rect(0, 0, 1000, 1000));
+                MoustacheRenderer.Draw(dc, style, MoustacheColor.DarkBrown, new Point(500, 330), 900, 0, mirror: false);
+            }
+            SavePng(RenderVisual(visual, 1000, 1000), Path.Combine(dir, $"peace_moustache_large_{style}.png"));
+        }
+        Assert.True(File.Exists(Path.Combine(dir, "peace_moustaches_skin.png")));
     }
 
     [Trait("Category", "Visual")]

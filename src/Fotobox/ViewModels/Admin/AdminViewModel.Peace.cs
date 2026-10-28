@@ -125,7 +125,66 @@ public sealed partial class AdminViewModel
     public MoustacheStyle PeaceMoustacheStyle
     {
         get => _draft.Peace.MoustacheStyle;
-        set => SetProperty(_draft.Peace.MoustacheStyle, value, v => _draft.Peace.MoustacheStyle = v);
+        set
+        {
+            if (SetProperty(_draft.Peace.MoustacheStyle, value, v => _draft.Peace.MoustacheStyle = v))
+                OnPropertyChanged(nameof(PeaceRandomStylesVisible));
+        }
+    }
+
+    /// <summary>Die Wahl „Beim Zufall verwenden“ ist nur bei „Zufällig je Person“ sichtbar.</summary>
+    public bool PeaceRandomStylesVisible => _draft.Peace.MoustacheStyle == MoustacheStyle.Random;
+
+    // ---- Zufallsliste: je Form ein Haken; der letzte Haken lässt sich nicht entfernen (Kontrollkästchen ist dann deaktiviert).
+
+    public bool PeaceRandomTwirl { get => IsRandomStyle(MoustacheStyle.Twirl); set => SetRandomStyle(MoustacheStyle.Twirl, value); }
+    public bool PeaceRandomWalrus { get => IsRandomStyle(MoustacheStyle.Walrus); set => SetRandomStyle(MoustacheStyle.Walrus, value); }
+    public bool PeaceRandomChevron { get => IsRandomStyle(MoustacheStyle.Chevron); set => SetRandomStyle(MoustacheStyle.Chevron, value); }
+    public bool PeaceRandomBrush { get => IsRandomStyle(MoustacheStyle.Brush); set => SetRandomStyle(MoustacheStyle.Brush, value); }
+    public bool PeaceRandomHandlebar { get => IsRandomStyle(MoustacheStyle.Handlebar); set => SetRandomStyle(MoustacheStyle.Handlebar, value); }
+    public bool PeaceRandomFuManchu { get => IsRandomStyle(MoustacheStyle.FuManchu); set => SetRandomStyle(MoustacheStyle.FuManchu, value); }
+    public bool PeaceRandomHorseshoe { get => IsRandomStyle(MoustacheStyle.Horseshoe); set => SetRandomStyle(MoustacheStyle.Horseshoe, value); }
+
+    public bool PeaceRandomTwirlEnabled => CanToggleRandomStyle(MoustacheStyle.Twirl);
+    public bool PeaceRandomWalrusEnabled => CanToggleRandomStyle(MoustacheStyle.Walrus);
+    public bool PeaceRandomChevronEnabled => CanToggleRandomStyle(MoustacheStyle.Chevron);
+    public bool PeaceRandomBrushEnabled => CanToggleRandomStyle(MoustacheStyle.Brush);
+    public bool PeaceRandomHandlebarEnabled => CanToggleRandomStyle(MoustacheStyle.Handlebar);
+    public bool PeaceRandomFuManchuEnabled => CanToggleRandomStyle(MoustacheStyle.FuManchu);
+    public bool PeaceRandomHorseshoeEnabled => CanToggleRandomStyle(MoustacheStyle.Horseshoe);
+
+    private IReadOnlyList<MoustacheStyle> RandomStyleList => MoustacheStyles.NormalizeRandomStyles(_draft.Peace.RandomStyles);
+
+    private bool IsRandomStyle(MoustacheStyle style) => RandomStyleList.Contains(style);
+
+    // Der letzte gesetzte Haken ist gesperrt: Es muss immer mindestens eine Form übrig bleiben.
+    private bool CanToggleRandomStyle(MoustacheStyle style) => !(IsRandomStyle(style) && RandomStyleList.Count <= 1);
+
+    private void SetRandomStyle(MoustacheStyle style, bool on)
+    {
+        var current = RandomStyleList;
+        if (current.Contains(style) != on)
+        {
+            var wanted = current.Where(s => s != style).ToList();
+            if (on)
+                wanted.Add(style);
+            // Das Entfernen des letzten Hakens ist wirkungslos (die Ansicht liest den Haken danach neu).
+            if (wanted.Count > 0)
+                _draft.Peace.RandomStyles = MoustacheStyles.NormalizeRandomStyles(wanted);
+        }
+        RaiseRandomStyles();
+    }
+
+    private void RaiseRandomStyles()
+    {
+        foreach (var name in new[]
+        {
+            nameof(PeaceRandomTwirl), nameof(PeaceRandomWalrus), nameof(PeaceRandomChevron), nameof(PeaceRandomBrush),
+            nameof(PeaceRandomHandlebar), nameof(PeaceRandomFuManchu), nameof(PeaceRandomHorseshoe),
+            nameof(PeaceRandomTwirlEnabled), nameof(PeaceRandomWalrusEnabled), nameof(PeaceRandomChevronEnabled), nameof(PeaceRandomBrushEnabled),
+            nameof(PeaceRandomHandlebarEnabled), nameof(PeaceRandomFuManchuEnabled), nameof(PeaceRandomHorseshoeEnabled),
+        })
+            OnPropertyChanged(name);
     }
 
     public MoustacheVisibility PeaceMoustacheVisibility

@@ -107,7 +107,7 @@ public class PeaceViewsTests
         var white = BitmapSource.Create(200, 100, 96, 96, PixelFormats.Pbgra32, null, Enumerable.Repeat((byte)255, 200 * 100 * 4).ToArray(), 200 * 4);
         var pose = new MoustachePose(new NormPoint(0.5, 0.5), 100, 0);
 
-        var result = MoustacheRenderer.RenderOnto(white, [(pose, MoustacheStyle.Chevron)]);
+        var result = MoustacheRenderer.RenderOnto(white, [(pose, MoustacheStyle.Chevron, MoustacheColor.DarkBrown)]);
 
         Assert.True(result.IsFrozen);
         Assert.Equal(200, result.PixelWidth);

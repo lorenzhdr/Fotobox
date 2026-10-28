@@ -41,8 +41,12 @@ public enum LockOnAnimation { ShrinkPulse, Pulse, ScanPulse }
 public enum FunTextPosition { Center, Bottom, Top }
 /// <summary>Fun-Text im eigenen HUD-Stil (Tipp-Effekt) oder in einem der Hinweis-Stile (<see cref="FunSettings.TextHintStyle"/>).</summary>
 public enum FunTextStyle { Hud, Hint }
-/// <summary>Peaceerkennung, Aktion Schnurrbart: Bartform (<see cref="Random"/> = je Person zufällig). Nur hinten erweitern.</summary>
-public enum MoustacheStyle { Random, Twirl, Walrus, Chevron, Brush }
+/// <summary>
+/// Peaceerkennung, Aktion Schnurrbart: Bartform (<see cref="Random"/> = je Person zufällig, aus <see cref="PeaceSettings.RandomStyles"/>).
+/// Nur hinten erweitern. Handlebar = Dalí (steil hochgezwirbelte Spitzen), FuManchu = lange, dünne Hängeenden, Horseshoe = Hufeisen
+/// (seitlich bis zum Kinn herunter).
+/// </summary>
+public enum MoustacheStyle { Random, Twirl, Walrus, Chevron, Brush, Handlebar, FuManchu, Horseshoe }
 /// <summary>Peaceerkennung, Aktion Schnurrbart: wer einen Bart bekommt. Nur hinten erweitern.</summary>
 public enum MoustacheTargets { Everyone, PeaceShower }
 /// <summary>Peaceerkennung, Aktion Schnurrbart: wie lange der Bart sichtbar bleibt. Nur hinten erweitern.</summary>
@@ -427,8 +431,8 @@ public sealed class FunSettings
 
 /// <summary>
 /// Fun „Peaceerkennung“ (verstecktes Extra): Zeigt ein Gast im Leerlauf das Peace-Zeichen und hält es, startet eine der gewählten
-/// Aktionen (Selbstzerstörung, Foto, Schnurrbart); bei mehreren gewählten Aktionen entscheidet der Zufall. Nur Werttypen, damit
-/// <see cref="Clone"/> eine tiefe Kopie ist.
+/// Aktionen (Selbstzerstörung, Foto, Schnurrbart); bei mehreren gewählten Aktionen entscheidet der Zufall. Bis auf
+/// <see cref="RandomStyles"/> nur Werttypen; <see cref="Clone"/> kopiert die Liste mit.
 /// </summary>
 public sealed class PeaceSettings
 {
@@ -448,6 +452,11 @@ public sealed class PeaceSettings
     public int PhotoCountdownSeconds { get; set; } = 3;
     public MoustacheTargets MoustacheTargets { get; set; } = MoustacheTargets.Everyone;
     public MoustacheStyle MoustacheStyle { get; set; } = MoustacheStyle.Random;
+    /// <summary>
+    /// Formen, aus denen <see cref="MoustacheStyle.Random"/> je Person würfelt (ohne <see cref="MoustacheStyle.Random"/>, ohne Duplikate,
+    /// in Enum-Reihenfolge; der Normalizer ersetzt eine leere Liste durch alle Formen).
+    /// </summary>
+    public List<MoustacheStyle> RandomStyles { get; set; } = [.. Fotobox.Core.Peace.MoustacheStyles.All];
     public MoustacheVisibility MoustacheVisibility { get; set; } = MoustacheVisibility.UntilPhotoOrGone;
     public int MoustacheDurationSeconds { get; set; } = 15;
     public bool MoustacheAutoPhoto { get; set; }
@@ -470,7 +479,12 @@ public sealed class PeaceSettings
     }
 
     /// <summary>Tiefe Kopie.</summary>
-    public PeaceSettings Clone() => (PeaceSettings)MemberwiseClone();
+    public PeaceSettings Clone()
+    {
+        var copy = (PeaceSettings)MemberwiseClone();
+        copy.RandomStyles = RandomStyles is null ? null! : [.. RandomStyles];
+        return copy;
+    }
 }
 
 public sealed class SecuritySettings

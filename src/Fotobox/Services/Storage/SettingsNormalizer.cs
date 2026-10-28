@@ -203,6 +203,8 @@ internal static class SettingsNormalizer
         if (!Enum.IsDefined(p.MoustacheVisibility))
             p.MoustacheVisibility = defaults.MoustacheVisibility;
 
+        p.RandomStyles = Fotobox.Core.Peace.MoustacheStyles.NormalizeRandomStyles(p.RandomStyles);
+
         if (!p.HasAnyAction)
             p.ActionSelfDestruct = true;
     }

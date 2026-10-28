@@ -274,7 +274,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         _context ??= SynchronizationContext.Current;
         EndTestSession();
         _tracker.StartSession(_settings.MoustacheTargets, _settings.MoustacheStyle, trigger.FaceTrackId,
-            _settings.MoustacheVisibility, _settings.MoustacheDurationSeconds);
+            _settings.MoustacheVisibility, _settings.MoustacheDurationSeconds, _settings.RandomStyles);
         AppLog.Info("Peaceerkennung: Schnurrbart gestartet.");
         StartTimer();
         RefreshMoustaches();
@@ -291,7 +291,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         var h = _imageHeight > 0 ? _imageHeight : 1080;
         _testSession = true;
         _testPlaceholder = !HasFreshRealFaces();
-        _tracker.StartSession(MoustacheTargets.Everyone, _settings.MoustacheStyle, null, MoustacheVisibility.FixedDuration, TestMoustacheSeconds);
+        _tracker.StartSession(MoustacheTargets.Everyone, _settings.MoustacheStyle, null, MoustacheVisibility.FixedDuration, TestMoustacheSeconds, _settings.RandomStyles);
         if (_testPlaceholder)
             _tracker.OnFaces([PlaceholderFace], w, h);
         StartTimer();

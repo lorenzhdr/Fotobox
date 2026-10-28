@@ -4,14 +4,15 @@
              Width="120" Height="68" IsHitTestVisible="False" Focusable="False">
 
     <!--
-        Skizze einer Bartform: dunkles Bild mit dem Bart in Hellbraun (bei „Zufällig“ alle vier klein). Die Formen kommen aus
-        MoustacheShapes (eine Quelle mit Livebild und Foto). Bewusst fest eingefärbt, nicht aus den Admin-Paletten.
+        Skizze einer Bartform: Hautton-Hintergrund mit dem Bart in seiner Haartextur (bei „Zufällig“ alle sieben Formen klein in
+        verschiedenen Haarfarben). Bild und Form kommen aus MoustacheTextures bzw. MoustacheShapes (eine Quelle mit Livebild und
+        Foto). Bewusst fest eingefärbt, nicht aus den Admin-Paletten.
     -->
     <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
         <Border.Background>
             <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#3A4358" Offset="0" />
-                <GradientStop Color="#171C2A" Offset="1" />
+                <GradientStop Color="#F2D2AE" Offset="0" />
+                <GradientStop Color="#DCAE86" Offset="1" />
             </LinearGradientBrush>
         </Border.Background>
         <Canvas x:Name="Host" Width="120" Height="68" />

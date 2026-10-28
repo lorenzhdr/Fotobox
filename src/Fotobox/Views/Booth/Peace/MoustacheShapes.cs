@@ -4,10 +4,22 @@ using Fotobox.Core;
 
 namespace Fotobox.Views.Booth.Peace;
 
+/// <summary>Stützpunkt der Mittellinie eines Bartes im Einheitsmaß: Lage, Dicke und Wuchsrichtung (Einheitsvektor).</summary>
+internal readonly record struct StripSample(double X, double Y, double Width, double Tx, double Ty);
+
+/// <summary>
+/// Alles, was die Haartextur über eine Bartform wissen muss: die Umrisse (Außen- und etwas schmalere Unterwolle) und die dicht
+/// abgetastete Mittellinie von der linken bis zur rechten Spitze. Alles im Einheitsmaß (Breite 1, Ursprung = Mitte der Oberlippe,
+/// y nach unten).
+/// </summary>
+internal sealed record ShapeData(Geometry Outline, Geometry Undercoat, IReadOnlyList<StripSample> Samples);
+
 /// <summary>
 /// Die Bartformen als eingefrorene Geometrien im Einheitsmaß: Breite 1, Mitte (0, 0) auf Höhe der Oberlippe, y nach unten,
-/// achsensymmetrisch zur y-Achse. Eine Quelle für Livebild, Foto und Admin-Skizzen. Die Umrisse entstehen einmalig aus
-/// Mittellinien mit wechselnder Dicke (Catmull-Rom) und werden dann auf Breite 1 normiert.
+/// achsensymmetrisch zur y-Achse. Eine Quelle für Livebild, Foto und Admin-Skizzen. Jede Form entsteht einmalig aus der Mittellinie
+/// ihrer rechten Hälfte mit wechselnder Dicke (Catmull-Rom, runde Enden; links gespiegelt) und wird dann auf Breite 1 normiert.
+/// Die Normierung verschiebt nur in x (zentrieren) und skaliert gleichmäßig um den Ursprung: In y wird bewusst nie zentriert, der
+/// Ursprung bleibt auf der Oberlippe, auch bei Formen mit langen Hängeenden (Fu Manchu, Hufeisen) oder steilen Spitzen (Dalí).
 /// </summary>
 public static class MoustacheShapes
 {
@@ -15,106 +27,155 @@ public static class MoustacheShapes
     /// Geometrie der Form. <see cref="MoustacheStyle.Random"/> ist keine Form: Der Aufrufer löst es vorher in eine konkrete Form
     /// auf; hier liefert es vorsichtshalber <see cref="MoustacheStyle.Twirl"/>.
     /// </summary>
-    public static Geometry Get(MoustacheStyle style) =>
-        Shapes.TryGetValue(style, out var geometry) ? geometry : Shapes[MoustacheStyle.Twirl];
+    public static Geometry Get(MoustacheStyle style) => GetData(style).Outline;
+
+    internal static ShapeData GetData(MoustacheStyle style) =>
+        Shapes.TryGetValue(style, out var data) ? data : Shapes[MoustacheStyle.Twirl];
+
+    // Anteil der Dicke, den die Unterwolle (dunkler Kern unter den Haaren) behält: Die Haare ragen darüber hinaus und
+    // fransen den Rand aus.
+    private const double UndercoatWidthFactor = 0.62;
 
     // ---- Mittellinien der rechten Hälfte: (x, y, Dicke), beginnend bei x = 0 ----
 
-    /// <summary>Klassischer Zwirbelbart: kräftige Mitte, nach außen dünner, Spitzen rollen sich nach oben ein.</summary>
-    private static readonly (double X, double Y, double W)[] TwirlHalf =
-    [
-        (0.000, 0.014, 0.150),
-        (0.080, 0.000, 0.172),
-        (0.170, 0.020, 0.150),
-        (0.260, 0.060, 0.108),
-        (0.340, 0.100, 0.070),
-        (0.410, 0.108, 0.046),
-        (0.465, 0.082, 0.036),
-        (0.495, 0.030, 0.032),
-        (0.495, -0.030, 0.030),
-        (0.462, -0.074, 0.028),
-        (0.415, -0.082, 0.025),
-        (0.380, -0.052, 0.021),
-        (0.388, -0.022, 0.017),
-        (0.418, -0.020, 0.012),
-    ];
+    private static (double X, double Y, double W)[] Pt(params (double X, double Y, double W)[] points) => points;
 
-    /// <summary>Walross: buschig und breit, die Enden hängen weit nach unten.</summary>
-    private static readonly (double X, double Y, double W)[] WalrusHalf =
-    [
-        (0.000, 0.012, 0.185),
-        (0.090, -0.004, 0.215),
-        (0.190, 0.012, 0.225),
-        (0.290, 0.060, 0.205),
-        (0.370, 0.130, 0.165),
-        (0.430, 0.215, 0.115),
-        (0.465, 0.295, 0.070),
-        (0.480, 0.360, 0.036),
-    ];
+    /// <summary>Spirale der Zwirbelspitze: Mittelpunkt <paramref name="c"/>, Radius und Dicke nehmen ab, Winkel in Grad (y nach unten).</summary>
+    private static IEnumerable<(double X, double Y, double W)> Spiral(
+        (double X, double Y) c, double startDeg, double endDeg, double r0, double r1, double w0, double w1, int steps)
+    {
+        for (var i = 1; i <= steps; i++)
+        {
+            var t = (double)i / steps;
+            var a = (startDeg + (endDeg - startDeg) * t) * Math.PI / 180;
+            var r = r0 + (r1 - r0) * t;
+            yield return (c.X + r * Math.Cos(a), c.Y + r * Math.Sin(a), w0 + (w1 - w0) * t);
+        }
+    }
 
-    /// <summary>Pinselbart („Pencil“): schmal, leicht geschwungen, feine Spitzen.</summary>
-    private static readonly (double X, double Y, double W)[] BrushHalf =
-    [
-        (0.000, 0.004, 0.058),
-        (0.070, -0.008, 0.078),
-        (0.170, -0.004, 0.086),
-        (0.280, 0.012, 0.074),
-        (0.380, 0.040, 0.050),
-        (0.450, 0.074, 0.028),
-        (0.500, 0.108, 0.010),
-    ];
+    /// <summary>Klassischer Zwirbelbart: kräftige Mitte, nach außen dünner, die Spitzen rollen sich zu einer Locke ein.</summary>
+    private static readonly (double X, double Y, double W)[] TwirlHalf = Pt(
+        (0.000, 0.012, 0.160),
+        (0.090, 0.000, 0.176),
+        (0.190, 0.022, 0.158),
+        (0.285, 0.062, 0.118),
+        (0.350, 0.088, 0.086))
+        .Concat(Spiral((0.405, 0.000), 90, -250, 0.088, 0.020, 0.058, 0.012, 9)).ToArray();
+
+    /// <summary>Walross: massig und buschig, die Enden hängen weit nach unten.</summary>
+    private static readonly (double X, double Y, double W)[] WalrusHalf = Pt(
+        (0.000, 0.014, 0.205),
+        (0.090, -0.002, 0.236),
+        (0.190, 0.014, 0.250),
+        (0.290, 0.062, 0.232),
+        (0.372, 0.140, 0.190),
+        (0.430, 0.235, 0.140),
+        (0.462, 0.330, 0.092),
+        (0.478, 0.410, 0.050));
+
+    /// <summary>Chevron: breiter, dicker Block mit fast waagerechter Unterkante und stumpfen Enden.</summary>
+    private static readonly (double X, double Y, double W)[] ChevronHalf = Pt(
+        (0.000, 0.016, 0.200),
+        (0.120, 0.008, 0.232),
+        (0.250, 0.010, 0.238),
+        (0.350, 0.022, 0.222),
+        (0.425, 0.040, 0.186),
+        (0.470, 0.058, 0.124),
+        (0.490, 0.070, 0.074));
+
+    /// <summary>Pinselbart („Pencil“): schmal, leicht geschwungen, die feinen Spitzen kippen keck nach unten.</summary>
+    private static readonly (double X, double Y, double W)[] BrushHalf = Pt(
+        (0.000, 0.004, 0.066),
+        (0.070, -0.008, 0.082),
+        (0.170, -0.006, 0.090),
+        (0.280, 0.010, 0.078),
+        (0.380, 0.040, 0.054),
+        (0.450, 0.078, 0.030),
+        (0.495, 0.118, 0.010));
+
+    /// <summary>Dalí / Lenker: dünne, lange Spitzen, die steil nach oben gezwirbelt sind.</summary>
+    private static readonly (double X, double Y, double W)[] HandlebarHalf = Pt(
+        (0.000, 0.010, 0.112),
+        (0.090, 0.000, 0.124),
+        (0.190, 0.018, 0.108),
+        (0.285, 0.026, 0.078),
+        (0.360, 0.008, 0.054),
+        (0.420, -0.052, 0.040),
+        (0.452, -0.140, 0.032),
+        (0.470, -0.250, 0.025),
+        (0.480, -0.370, 0.018),
+        (0.485, -0.470, 0.012),
+        (0.488, -0.545, 0.007));
+
+    /// <summary>Fu Manchu: schlanker Balken, an den Mundwinkeln hängen lange, dünne Enden weit nach unten.</summary>
+    private static readonly (double X, double Y, double W)[] FuManchuHalf = Pt(
+        (0.000, 0.012, 0.110),
+        (0.090, 0.002, 0.120),
+        (0.190, 0.016, 0.102),
+        (0.285, 0.040, 0.082),
+        (0.360, 0.080, 0.068),
+        (0.415, 0.150, 0.058),
+        (0.445, 0.260, 0.050),
+        (0.458, 0.400, 0.043),
+        (0.462, 0.560, 0.035),
+        (0.458, 0.720, 0.026),
+        (0.450, 0.860, 0.016),
+        (0.444, 0.960, 0.008));
+
+    /// <summary>Hufeisen (Biker-Stil): dicker Bart, seitlich an den Mundwinkeln senkrecht bis etwa Kinnhöhe herunter.</summary>
+    private static readonly (double X, double Y, double W)[] HorseshoeHalf = Pt(
+        (0.000, 0.016, 0.170),
+        (0.100, 0.006, 0.186),
+        (0.200, 0.016, 0.182),
+        (0.300, 0.040, 0.168),
+        (0.385, 0.082, 0.150),
+        (0.440, 0.155, 0.132),
+        (0.462, 0.250, 0.122),
+        (0.468, 0.380, 0.114),
+        (0.466, 0.510, 0.104),
+        (0.460, 0.610, 0.090),
+        (0.455, 0.690, 0.062));
 
     // Muss nach den Mittellinien stehen (statische Felder werden in Textreihenfolge initialisiert).
-    private static readonly Dictionary<MoustacheStyle, Geometry> Shapes = new()
+    private static readonly Dictionary<MoustacheStyle, ShapeData> Shapes = new()
     {
-        [MoustacheStyle.Twirl] = Build(TwirlHalf, caps: true),
-        [MoustacheStyle.Walrus] = Build(WalrusHalf, caps: true),
-        [MoustacheStyle.Chevron] = BuildChevron(),
-        [MoustacheStyle.Brush] = Build(BrushHalf, caps: true),
+        [MoustacheStyle.Twirl] = Build(TwirlHalf),
+        [MoustacheStyle.Walrus] = Build(WalrusHalf),
+        [MoustacheStyle.Chevron] = Build(ChevronHalf),
+        [MoustacheStyle.Brush] = Build(BrushHalf),
+        [MoustacheStyle.Handlebar] = Build(HandlebarHalf),
+        [MoustacheStyle.FuManchu] = Build(FuManchuHalf),
+        [MoustacheStyle.Horseshoe] = Build(HorseshoeHalf),
     };
 
-    private static Geometry Build((double X, double Y, double W)[] half, bool caps)
+    private static ShapeData Build((double X, double Y, double W)[] half)
     {
-        // Ganze Mittellinie: linke Hälfte gespiegelt, danach die rechte. Eine einzige Figur, damit keine Naht in der Mitte entsteht.
+        // Ganze Mittellinie: linke Hälfte gespiegelt, danach die rechte. Eine einzige Figur, damit keine Naht in der Mitte entsteht
+        // und die Spitzen exakt symmetrisch sind.
         var path = new List<(double X, double Y, double W)>();
         for (var i = half.Length - 1; i >= 1; i--)
             path.Add((-half[i].X, half[i].Y, half[i].W));
         path.AddRange(half);
 
-        var outline = Ribbon(path, caps);
-        return ToGeometry(Normalize(outline));
-    }
+        var full = Ribbon(path, widthFactor: 1);
+        var core = Ribbon(path, widthFactor: UndercoatWidthFactor);
 
-    /// <summary>Chevron: dicker Block mit gerader Unterkante, Einkerbung unter der Nase und abgerundeten Enden.</summary>
-    private static Geometry BuildChevron()
-    {
-        const int steps = 90;
-        const double bottom = 0.105;
-        var top = new List<(double X, double Y)>();
-        var low = new List<(double X, double Y)>();
-        for (var i = 0; i <= steps; i++)
-        {
-            var theta = -Math.PI / 2 + Math.PI * i / steps;
-            var x = 0.5 * Math.Sin(theta);
-            var u = Math.Abs(x) / 0.5;
-            // Dicke: voll in der Mitte, gegen die Enden schnell zur Rundung hin abnehmend.
-            var thickness = 0.235 * Math.Pow(Math.Max(0, 1 - Math.Pow(u, 4.5)), 0.55) * (1 - 0.18 * u * u);
-            var notch = 0.035 * Math.Exp(-Math.Pow(x / 0.055, 2));
-            var yTop = bottom - thickness + notch;
-            top.Add((x, Math.Min(yTop, bottom - 0.002)));
-            low.Add((x, bottom));
-        }
-
-        var outline = new List<(double X, double Y)>(top);
-        for (var i = low.Count - 1; i >= 0; i--)
-            outline.Add(low[i]);
-        return ToGeometry(Normalize(outline));
+        var (shift, scale) = NormalizeParameters(full.Outline);
+        var samples = full.Center.Select(c => new StripSample(
+            (c.X - shift) * scale, c.Y * scale, c.W * scale, c.Tx, c.Ty)).ToList();
+        return new ShapeData(
+            ToGeometry(Transform(full.Outline, shift, scale)),
+            ToGeometry(Transform(core.Outline, shift, scale)),
+            samples);
     }
 
     // ---- Hilfsfunktionen ----
 
-    /// <summary>Umrisspunkte einer Linie mit wechselnder Dicke (Catmull-Rom-Spline, runde Enden).</summary>
-    private static List<(double X, double Y)> Ribbon(List<(double X, double Y, double W)> control, bool caps)
+    private readonly record struct CenterPoint(double X, double Y, double W, double Tx, double Ty);
+
+    /// <summary>Umriss einer Linie mit wechselnder Dicke (Catmull-Rom-Spline, runde Enden) samt abgetasteter Mittellinie.</summary>
+    private static (List<(double X, double Y)> Outline, List<CenterPoint> Center) Ribbon(
+        List<(double X, double Y, double W)> control, double widthFactor)
     {
         const int perSegment = 14;
         var n = control.Count;
@@ -128,7 +189,7 @@ public static class MoustacheShapes
             return control[i];
         }
 
-        var center = new List<(double X, double Y, double W)>();
+        var samples = new List<(double X, double Y, double W)>();
         for (var i = 0; i < n - 1; i++)
         {
             var p0 = At(i - 1);
@@ -138,18 +199,19 @@ public static class MoustacheShapes
             for (var s = 0; s < perSegment; s++)
             {
                 var t = (double)s / perSegment;
-                center.Add((CatmullRom(p0.X, p1.X, p2.X, p3.X, t), CatmullRom(p0.Y, p1.Y, p2.Y, p3.Y, t),
-                    Math.Max(0.004, CatmullRom(p0.W, p1.W, p2.W, p3.W, t))));
+                samples.Add((CatmullRom(p0.X, p1.X, p2.X, p3.X, t), CatmullRom(p0.Y, p1.Y, p2.Y, p3.Y, t),
+                    Math.Max(0.004, CatmullRom(p0.W, p1.W, p2.W, p3.W, t)) * widthFactor));
             }
         }
-        center.Add(control[n - 1]);
+        samples.Add((control[n - 1].X, control[n - 1].Y, control[n - 1].W * widthFactor));
 
+        var center = new List<CenterPoint>(samples.Count);
         var left = new List<(double X, double Y)>();
         var right = new List<(double X, double Y)>();
-        for (var i = 0; i < center.Count; i++)
+        for (var i = 0; i < samples.Count; i++)
         {
-            var a = center[Math.Max(0, i - 1)];
-            var b = center[Math.Min(center.Count - 1, i + 1)];
+            var a = samples[Math.Max(0, i - 1)];
+            var b = samples[Math.Min(samples.Count - 1, i + 1)];
             var dx = b.X - a.X;
             var dy = b.Y - a.Y;
             var len = Math.Sqrt(dx * dx + dy * dy);
@@ -159,31 +221,32 @@ public static class MoustacheShapes
                 dy = 0;
                 len = 1;
             }
-            var nx = -dy / len;
-            var ny = dx / len;
-            var half = center[i].W / 2;
-            left.Add((center[i].X + nx * half, center[i].Y + ny * half));
-            right.Add((center[i].X - nx * half, center[i].Y - ny * half));
+            var tx = dx / len;
+            var ty = dy / len;
+            var nx = -ty;
+            var ny = tx;
+            var half = samples[i].W / 2;
+            left.Add((samples[i].X + nx * half, samples[i].Y + ny * half));
+            right.Add((samples[i].X - nx * half, samples[i].Y - ny * half));
+            center.Add(new CenterPoint(samples[i].X, samples[i].Y, samples[i].W, tx, ty));
         }
 
         var outline = new List<(double X, double Y)>(left);
-        if (caps)
-            AddCap(outline, center[^1], left[^1]);
+        AddCap(outline, center[^1], left[^1]);
         for (var i = right.Count - 1; i >= 0; i--)
             outline.Add(right[i]);
-        if (caps)
-            AddCap(outline, center[0], right[0]);
-        return outline;
+        AddCap(outline, center[0], right[0]);
+        return (outline, center);
     }
 
     /// <summary>Halbkreis um <paramref name="c"/> ab <paramref name="from"/> (ohne die Endpunkte).</summary>
-    private static void AddCap(List<(double X, double Y)> outline, (double X, double Y, double W) c, (double X, double Y) from)
+    private static void AddCap(List<(double X, double Y)> outline, CenterPoint c, (double X, double Y) from)
     {
         var a0 = Math.Atan2(from.Y - c.Y, from.X - c.X);
         // Die Kontur läuft mit negativem Drehsinn (y nach unten): Der Halbkreis führt immer über die Vorwärts- bzw. Rückwärtsrichtung.
         const double diff = -Math.PI;
         var r = c.W / 2;
-        const int steps = 6;
+        const int steps = 8;
         for (var i = 1; i < steps; i++)
         {
             var a = a0 + diff * i / steps;
@@ -201,15 +264,16 @@ public static class MoustacheShapes
         return 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
     }
 
-    /// <summary>Mittig in x ausrichten, auf Breite 1 skalieren (y gleich, Ursprung der Oberlippe bleibt).</summary>
-    private static List<(double X, double Y)> Normalize(List<(double X, double Y)> points)
+    /// <summary>Verschiebung in x (Mitte der Bounding-Box auf 0) und gleichmäßiger Maßstab (Breite 1); y wird nie verschoben.</summary>
+    private static (double Shift, double Scale) NormalizeParameters(List<(double X, double Y)> points)
     {
         var minX = points.Min(p => p.X);
         var maxX = points.Max(p => p.X);
-        var shift = (minX + maxX) / 2;
-        var scale = 1.0 / (maxX - minX);
-        return points.Select(p => ((p.X - shift) * scale, p.Y * scale)).ToList();
+        return ((minX + maxX) / 2, 1.0 / (maxX - minX));
     }
+
+    private static List<(double X, double Y)> Transform(List<(double X, double Y)> points, double shift, double scale) =>
+        points.Select(p => ((p.X - shift) * scale, p.Y * scale)).ToList();
 
     private static Geometry ToGeometry(List<(double X, double Y)> outline)
     {
