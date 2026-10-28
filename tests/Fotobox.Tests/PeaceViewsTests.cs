@@ -199,6 +199,36 @@ public class PeaceViewsTests
     }
 
     [StaFact]
+    public void PeaceOverlay_FacePoints_AreDrawnOnlyWhenEnabled_AtTheMappedPositions()
+    {
+        var face = PeaceHandFixtures.Face(0.3, 0.4, 0.12);
+        var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Fit = OverlayFit.Uniform, Faces = [face] };
+        Layout(overlay);
+
+        byte AlphaAt(NormPoint p)
+        {
+            var bitmap = new RenderTargetBitmap(1920, 1080, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(overlay);
+            var pixel = new byte[4];
+            bitmap.CopyPixels(new Int32Rect((int)Math.Round(p.X * 1920), (int)Math.Round(p.Y * 1080), 1, 1), pixel, 4, 0);
+            return pixel[3];
+        }
+
+        Assert.Equal(0, AlphaAt(face.Nose)); // ausgeschaltet: nichts gezeichnet
+        overlay.ShowFaceLandmarks = true;
+        Layout(overlay);
+        Assert.True(AlphaAt(face.Nose) > 200);
+        Assert.True(AlphaAt(face.RightEye) > 200);
+        Assert.True(AlphaAt(face.MouthLeft) > 200);
+
+        // Gespiegelt wandern die Punkte auf die andere Seite.
+        overlay.Mirror = true;
+        Layout(overlay);
+        Assert.True(AlphaAt(new NormPoint(1 - face.RightEye.X, face.RightEye.Y)) > 200);
+        Assert.Equal(0, AlphaAt(face.RightEye));
+    }
+
+    [StaFact]
     public void PeaceOverlay_UpdatesWithChangingDataWithoutException()
     {
         var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, ShowLandmarks = true, ShowHoldProgress = true };
@@ -214,6 +244,31 @@ public class PeaceViewsTests
         overlay.Hands = null;
         Layout(overlay);
         RenderToBitmap(overlay);
+    }
+
+    [Theory]
+    [InlineData(120, 100, 110)]
+    [InlineData(120, 1000, 200)]
+    [InlineData(40, 0, 40)]
+    [InlineData(200, 10, 105)]
+    [InlineData(60, 20, 40)]
+    public void PeaceOverlay_GlideDuration_FollowsTheMeasuredIntervalWithinLimits(double previous, double interval, double expected)
+    {
+        Assert.Equal(expected, PeaceOverlay.GlideDuration(previous, interval), 6);
+    }
+
+    [StaFact]
+    public void PeaceOverlay_GlideDuration_StartsAtDefault_AndStaysWithinLimits()
+    {
+        var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080 };
+        Layout(overlay);
+        Assert.Equal(PeaceOverlay.DefaultGlideMs, overlay.MoustacheGlideMs);
+
+        for (var i = 0; i < 6; i++)
+            overlay.Moustaches = [View(1, MoustacheStyle.Twirl, 0.3 + i * 0.02)]; // Aktualisierungen ohne Pause
+
+        Assert.InRange(overlay.MoustacheGlideMs, PeaceOverlay.MinGlideMs, PeaceOverlay.MaxGlideMs);
+        Assert.True(overlay.MoustacheGlideMs < PeaceOverlay.DefaultGlideMs);
     }
 
     [StaFact]

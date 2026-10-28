@@ -45,6 +45,9 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     private readonly GuestMoustacheState? _guestState;
     /// <summary>Analyserate, solange der Bart im Countdown dem Gesicht folgt (nur Gesichter, billig).</summary>
     private const int FollowRate = 10;
+    /// <summary>Im schnellen Gesichtsmodus läuft die Handstufe nur in jedem n-ten Zyklus.</summary>
+    private const int FastHandDivisor = 2;
+    private const int MaxFastRate = 20;
     private readonly FaceTracker _faceTracker;
     private readonly PeaceEngine _engine;
     private readonly MoustacheTracker _tracker;
@@ -60,6 +63,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     private PeaceMode _mode;
     private IReadOnlyList<MoustacheView> _moustaches = [];
     private IReadOnlyList<HandView> _hands = [];
+    private IReadOnlyList<FaceLandmarks> _faces = [];
     private double _imageWidth;
     private double _imageHeight;
     private bool _peaceDetectedNow;
@@ -123,6 +127,13 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
             if (SetProperty(ref _hands, value))
                 RefreshShown();
         }
+    }
+
+    /// <summary>Gesichter der letzten Analyse mit ihren fünf Punkten (nur für die Punkteanzeige der Admin-Vorschau).</summary>
+    public IReadOnlyList<FaceLandmarks> Faces
+    {
+        get => _faces;
+        private set => SetProperty(ref _faces, value);
     }
 
     /// <summary>Auflösung des Kamerabilds; 0 = unbekannt.</summary>
@@ -211,14 +222,11 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         _mode = mode;
 
         _engine.Configure(_settings, MoustacheAvailable);
-        var rate = mode == PeaceMode.Watching ? Math.Max(1, _settings.AnalysesPerSecond) : FollowRate;
-        _faceTracker.LostAfter = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor / rate);
         _engine.GesturesEnabled = mode == PeaceMode.Watching;
         _tracker.SetHoldExpiry(mode == PeaceMode.FollowMoustache);
 
-        var options = mode == PeaceMode.Watching
-            ? new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, _settings.AnalysesPerSecond, MinFaceScore, _settings.MinHandScore)
-            : new GestureRequestOptions(GestureNeeds.Faces, FollowRate, MinFaceScore, _settings.MinHandScore);
+        var options = BuildOptions();
+        _faceTracker.LostAfter = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor / Math.Max(1, options.AnalysesPerSecond));
 
         if (_request is null)
         {
@@ -327,6 +335,44 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
 
     // ---- intern
 
+    /// <summary>
+    /// Bedarf der Anforderung zur Betriebsart: Im Leerlauf Gesichter und Hände mit der eingestellten Rate; solange ein Bart sichtbar
+    /// ist (schneller Gesichtsmodus), laufen die Gesichter doppelt so schnell (mindestens <see cref="FollowRate"/>) und die Handstufe
+    /// nur in jedem zweiten Zyklus, also weiter mit der eingestellten Handrate (die <see cref="PeaceEngine"/>-Fristen gelten dafür).
+    /// </summary>
+    private GestureRequestOptions BuildOptions()
+    {
+        if (_mode != PeaceMode.Watching)
+            return new GestureRequestOptions(GestureNeeds.Faces, FollowRate, MinFaceScore, _settings.MinHandScore);
+
+        if (_tracker.IsActive)
+        {
+            var cycleRate = Math.Clamp(Math.Max(FollowRate, FastHandDivisor * Math.Max(1, _settings.AnalysesPerSecond)), 1, MaxFastRate);
+            return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, cycleRate, MinFaceScore, _settings.MinHandScore, FastHandDivisor);
+        }
+        return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, _settings.AnalysesPerSecond, MinFaceScore, _settings.MinHandScore);
+    }
+
+    // Schaltet die Anforderung zwischen normalem und schnellem Gesichtsmodus um, wenn ein Bart beginnt oder endet.
+    private void RefreshRequest()
+    {
+        if (_request is null || _mode == PeaceMode.Off)
+            return;
+        var options = BuildOptions();
+        if (options == _options)
+            return;
+        try
+        {
+            _request.Update(options);
+            _options = options;
+            _faceTracker.LostAfter = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor / Math.Max(1, options.AnalysesPerSecond));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Anforderung der Peaceerkennung konnte nicht aktualisiert werden.", ex);
+        }
+    }
+
     private bool HasFreshRealFaces() =>
         _realFaces.Count > 0 && _time.GetUtcNow() - _realFacesAt <= FacesFreshness;
 
@@ -364,6 +410,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         Hands = [];
         Moustaches = [];
         FaceCount = 0;
+        Faces = [];
         PeaceDetectedNow = false;
         MoustacheActive = false;
     }
@@ -409,13 +456,20 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         var h = _imageHeight > 0 ? _imageHeight : 1080;
         var aspect = w / h;
 
-        var tracked = _faceTracker.Update(update.Faces, aspect);
-        _realFaces = tracked;
-        _realFacesAt = _time.GetUtcNow();
-
-        FaceCount = tracked.Count;
-        _tracker.OnFaces(tracked, w, h);
-        _engine.OnUpdate(update.Hands, tracked, aspect);
+        // Wiederholt ein Update nur die Gesichter eines früheren Updates desselben Zyklus (schneller Gesichtsmodus), werden sie nicht
+        // erneut verfolgt oder dem Bart gemeldet (das verfälschte Geschwindigkeit und Glättung); sie dienen nur der Handzuordnung.
+        var tracked = update.FacesFresh ? _faceTracker.Update(update.Faces, aspect) : _realFaces;
+        if (update.FacesFresh)
+        {
+            _realFaces = tracked;
+            _realFacesAt = _time.GetUtcNow();
+            FaceCount = tracked.Count;
+            Faces = update.Faces;
+            _tracker.OnFaces(tracked, w, h, update.FrameTime);
+        }
+        // Ein reines Gesichts-Update sagt nichts über die Hände: die Engine bekommt sie erst mit dem Ergebnis der Handstufe.
+        if (update.HandsIncluded)
+            _engine.OnUpdate(update.Hands, tracked, aspect);
         RefreshMoustaches();
     }
 
@@ -449,7 +503,10 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         var views = _tracker.Views;
         if (!_moustaches.SequenceEqual(views))
             Moustaches = views;
+        var wasActive = MoustacheActive;
         MoustacheActive = _tracker.IsActive;
+        if (wasActive != _tracker.IsActive)
+            RefreshRequest();
         if (!_tracker.IsActive)
         {
             _testSession = false;

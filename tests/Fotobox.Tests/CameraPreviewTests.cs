@@ -157,6 +157,46 @@ public sealed class CameraPreviewTests
         }
     }
 
+    // Ausrichtung des Bildes: Bei UniformToFill und abweichendem Seitenverhältnis muss die Bildmitte auf der Mitte des Hosts liegen
+    // (OverlayMapper rechnet mit zentriertem Ausschnitt); sonst sitzen Overlays (Bart, Zielmarken) versetzt.
+    [WpfTheory]
+    [InlineData(160, 90, false)]
+    [InlineData(160, 90, true)]
+    [InlineData(640, 480, false)]
+    [InlineData(640, 480, true)]
+    [InlineData(90, 160, false)]
+    public async Task UniformToFill_CentersTheImageOnTheHost_WhenAspectRatiosDiffer(int frameW, int frameH, bool mirror)
+    {
+        var camera = new FakeCameraService();
+        var preview = new CameraPreview { Camera = camera, Stretch = Stretch.UniformToFill, Mirror = mirror };
+        var window = ShowHost(preview);
+        try
+        {
+            camera.RaiseFrame(GradientFrame(frameW, frameH));
+            await FlushDispatcherAsync();
+            preview.UpdateLayout();
+
+            var host = (FrameworkElement)preview.FindName("MirrorHost");
+            var image = (FrameworkElement)preview.FindName("PreviewImage");
+            var bounds = image.TransformToAncestor(host).TransformBounds(new Rect(0, 0, image.ActualWidth, image.ActualHeight));
+
+            var scale = Math.Max((double)Size / frameW, (double)Size / frameH);
+            Assert.Equal(frameW * scale, bounds.Width, 1);
+            Assert.Equal(frameH * scale, bounds.Height, 1);
+            Assert.Equal(host.ActualWidth / 2, bounds.X + bounds.Width / 2, 1);
+            Assert.Equal(host.ActualHeight / 2, bounds.Y + bounds.Height / 2, 1);
+
+            // Gerendert: Die mittlere Spalte zeigt die Mitte des Farbverlaufs (R ≈ 127), auch gespiegelt.
+            var pixels = RenderPixels(preview);
+            var center = (Size / 2 * Size + Size / 2) * 4;
+            Assert.InRange(pixels[center + 2], 120, 135);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     private static CameraFrame SolidFrame(int width, int height, byte value)
     {
         var stride = width * 4;

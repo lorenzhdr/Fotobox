@@ -719,6 +719,32 @@ public sealed class AdminPeaceTabTests : IDisposable
     }
 
     [StaFact]
+    public void PeacePage_FacePointsCheckbox_IsOffByDefault_NotPartOfTheDraft_AndSwitchesTheOverlay()
+    {
+        NoContext();
+        WithWindow((window, vm) =>
+        {
+            vm.FunPage = FunPage.Peace;
+            ShowFunTab(window);
+            var check = InPeace<CheckBox>(PeaceView(window), "PeaceShowFacePointsCheck");
+            var overlay = InPeace<PeaceOverlay>(PeaceView(window), "PeacePreviewOverlay");
+            Assert.False(vm.PeacePreviewShowFacePoints);
+            Assert.False(check.IsChecked);
+            Assert.False(overlay.ShowFaceLandmarks);
+
+            check.IsChecked = true;
+            Assert.True(vm.PeacePreviewShowFacePoints);
+            Assert.True(overlay.ShowFaceLandmarks);
+            Assert.False(vm.HasUnsavedChanges); // reine Anzeige, wird nicht gespeichert
+
+            var ready = new GestureStatus(true, true, null, null, 5);
+            _gestures.Last.RaiseStatus(ready);
+            _gestures.Last.RaiseUpdated(new GestureUpdate([PeaceHandFixtures.Face(0.4, 0.3, 0.12)], [], 1280, 720, ready));
+            Assert.Single(overlay.Faces!);
+        });
+    }
+
+    [StaFact]
     public void PeacePage_TestCountdown_ShowsTheOverlay_AndEndsAfterTheExplosion()
     {
         NoContext();

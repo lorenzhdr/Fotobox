@@ -207,7 +207,219 @@ public sealed class MoustacheTrackerTests
         tracker.OnFaces([b], W, H);
         var raw = MoustacheGeometry.FromFace(b.Face, W, H).Center.X;
         var smoothed = tracker.Views.Single().Pose.Center.X;
-        Assert.Equal((start + raw) / 2, smoothed, 6);
+        Assert.InRange(smoothed, start + 0.05 * (raw - start), start + 0.95 * (raw - start));
+    }
+
+    [Fact]
+    public void Pose_AtRest_FiltersOutJitter()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 60);
+        // Abwechselnd ±2 px (bei 1920 px Breite) um 0,3.
+        var jitter = 2 / W;
+        var center = MoustacheGeometry.FromFace(Face(1, 0.3).Face, W, H).Center.X;
+        double maxDeviation = 0;
+        for (var i = 0; i < 40; i++)
+        {
+            tracker.OnFaces([Face(1, 0.3 + (i % 2 == 0 ? jitter : -jitter))], W, H);
+            if (i >= 10)
+                maxDeviation = Math.Max(maxDeviation, Math.Abs(tracker.ExportPlanInput()!.Tracks.Single().Pose.Center.X - center));
+            Advance(100);
+        }
+
+        // Das Rauschen (±2 px) wird auf unter 1 px gedämpft.
+        Assert.True(maxDeviation * W < 1.0, $"Restabweichung {maxDeviation * W:0.00} px");
+    }
+
+    [Fact]
+    public void ShownPose_AtRest_IsCalmerThanTheRawDetections_EvenWithPredictionAge()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 600);
+        var random = new Random(1234);
+        var truth = MoustacheGeometry.FromFace(Face(1, 0.3).Face, W, H).Center;
+        double rawSquares = 0, shownSquares = 0, filteredSquares = 0;
+        var n = 0;
+        for (var i = 0; i < 120; i++)
+        {
+            // Gleichverteiltes Rauschen von ±4 px in x und y; das Bild ist beim Eintreffen der Auswertung 80 ms alt.
+            var dx = (random.NextDouble() * 2 - 1) * 4 / W;
+            var dy = (random.NextDouble() * 2 - 1) * 4 / H;
+            var noisy = PeaceHandFixtures.Face(0.3 + dx, 0.4 + dy, 0.12);
+            tracker.OnFaces([new TrackedFace(1, noisy)], W, H, _time.GetUtcNow() - TimeSpan.FromMilliseconds(80));
+            if (i >= 20)
+            {
+                var raw = MoustacheGeometry.FromFace(noisy, W, H).Center;
+                var shown = tracker.Views.Single().Pose.Center;
+                var filtered = tracker.ExportPlanInput()!.Tracks.Single().Pose.Center;
+                filteredSquares += Math.Pow((filtered.X - truth.X) * W, 2) + Math.Pow((filtered.Y - truth.Y) * H, 2);
+                rawSquares += Math.Pow((raw.X - truth.X) * W, 2) + Math.Pow((raw.Y - truth.Y) * H, 2);
+                shownSquares += Math.Pow((shown.X - truth.X) * W, 2) + Math.Pow((shown.Y - truth.Y) * H, 2);
+                n++;
+            }
+            Advance(100);
+        }
+
+        var rawRms = Math.Sqrt(rawSquares / n);
+        var shownRms = Math.Sqrt(shownSquares / n);
+        Assert.True(shownRms < 0.6 * rawRms, $"Angezeigt {shownRms:0.00} px, gefiltert {Math.Sqrt(filteredSquares / n):0.00} px, roh {rawRms:0.00} px");
+    }
+
+    [Fact]
+    public void Pose_DuringFastMotion_FollowsWithSmallLag()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 60);
+        // 0,01 pro 100 ms = rund 0,8 Gesichtsbreiten pro Sekunde.
+        double x = 0.2;
+        for (var i = 0; i < 20; i++)
+        {
+            tracker.OnFaces([Face(1, x)], W, H);
+            Advance(100);
+            x += 0.01;
+        }
+        var observed = MoustacheGeometry.FromFace(Face(1, x - 0.01).Face, W, H).Center.X;
+        var filtered = tracker.ExportPlanInput()!.Tracks.Single().Pose.Center.X;
+
+        var lagFaceWidths = (observed - filtered) / 0.12;
+        Assert.InRange(lagFaceWidths, 0, 0.35);
+    }
+
+    [Fact]
+    public void Views_ExtrapolateByTheAgeOfTheObservation_ButExportDoesNot()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 60);
+        double x = 0.2;
+        for (var i = 0; i < 12; i++)
+        {
+            tracker.OnFaces([Face(1, x)], W, H, _time.GetUtcNow() - TimeSpan.FromMilliseconds(100));
+            Advance(100);
+            x += 0.01;
+        }
+        // Letzte Beobachtung trifft mit Bildzeit „vor 100 ms“ ein.
+        tracker.OnFaces([Face(1, x)], W, H, _time.GetUtcNow() - TimeSpan.FromMilliseconds(100));
+
+        var exported = tracker.ExportPlanInput()!.Tracks.Single().Pose.Center.X;
+        var shown = tracker.Views.Single().Pose.Center.X;
+        Assert.True(shown > exported, "Die Anzeige soll der Bewegung vorausgehen.");
+        // Rund 100 ms bei 0,01 je 100 ms.
+        Assert.InRange(shown - exported, 0.004, 0.012);
+    }
+
+    [Fact]
+    public void Prediction_IsCappedAt150ms_AndNotExtendedWhileNoNewObservationArrives()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 60);
+        double x = 0.2;
+        for (var i = 0; i < 12; i++)
+        {
+            tracker.OnFaces([Face(1, x)], W, H);
+            Advance(100);
+            x += 0.005;
+        }
+        // 150 ms nach der letzten Beobachtung (bereits gedeckelt) und 250 ms später: gleiche Anzeige.
+        tracker.OnFaces([Face(1, x)], W, H);
+        Advance(150);
+        var atCap = tracker.Views.Single().Pose.Center.X;
+        Advance(250);
+        var later = tracker.Views.Single().Pose.Center.X;
+
+        Assert.Equal(atCap, later, 9);
+    }
+
+    [Fact]
+    public void Prediction_IsLimitedToAThirdOfAFaceWidth()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 60);
+        // Sehr schnell: 0,06 pro 100 ms (rund 5 Gesichtsbreiten pro Sekunde).
+        double x = 0.1;
+        for (var i = 0; i < 10; i++)
+        {
+            tracker.OnFaces([Face(1, x)], W, H);
+            Advance(100);
+            x += 0.06;
+        }
+        tracker.OnFaces([Face(1, x)], W, H);
+        Advance(150);
+
+        var exported = tracker.ExportPlanInput()!.Tracks.Single().Pose.Center.X;
+        var shown = tracker.Views.Single().Pose.Center.X;
+        Assert.True(shown - exported <= 0.3 * 0.12 + 1e-9, $"Vorhersage {(shown - exported) / 0.12:0.00} Gesichtsbreiten");
+        Assert.True(shown - exported >= 0.25 * 0.12);
+    }
+
+    [Fact]
+    public void Prediction_DoesNotExtrapolateAngleOrWidth()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 60);
+        for (var i = 0; i < 6; i++)
+        {
+            tracker.OnFaces([Face(1, 0.4 + 0.01 * i)], W, H);
+            Advance(100);
+        }
+        tracker.OnFaces([Face(1, 0.46)], W, H);
+        Advance(100);
+
+        var exported = tracker.ExportPlanInput()!.Tracks.Single().Pose;
+        var shown = tracker.Views.Single().Pose;
+        Assert.Equal(exported.AngleRad, shown.AngleRad, 12);
+        Assert.Equal(exported.WidthPx, shown.WidthPx, 12);
+    }
+
+    [Fact]
+    public void NewFaceId_GetsTheRawPoseImmediately()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 60);
+        tracker.OnFaces([Face(1, 0.3)], W, H);
+        Advance(100);
+        tracker.OnFaces([Face(1, 0.3), Face(2, 0.7)], W, H);
+
+        var raw = MoustacheGeometry.FromFace(Face(2, 0.7).Face, W, H);
+        Assert.Equal(raw, tracker.Views.Single(v => v.FaceId == 2).Pose);
+    }
+
+    [Fact]
+    public void LongGapBetweenObservations_RestartsTheSmoothing()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 60);
+        tracker.OnFaces([Face(1, 0.3)], W, H);
+        Advance(900);
+        tracker.OnFaces([Face(1, 0.5)], W, H);
+
+        var raw = MoustacheGeometry.FromFace(Face(1, 0.5).Face, W, H);
+        Assert.Equal(raw.Center.X, tracker.ExportPlanInput()!.Tracks.Single().Pose.Center.X, 9);
+    }
+
+    [Fact]
+    public void Angle_WrapsAroundPi_WithoutJumping()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 60);
+        TrackedFace Tilted(double degrees)
+        {
+            var f = PeaceHandFixtures.Face(0.5, 0.4, 0.12);
+            var rad = degrees * Math.PI / 180;
+            var dx = Math.Cos(rad) * 0.05;
+            var dy = Math.Sin(rad) * 0.05 * W / H;
+            return new TrackedFace(1, f with
+            {
+                RightEye = new NormPoint(0.5 - dx, 0.4 - dy), LeftEye = new NormPoint(0.5 + dx, 0.4 + dy),
+                MouthRight = new NormPoint(0.5 - dx / 2, 0.45 - dy / 2), MouthLeft = new NormPoint(0.5 + dx / 2, 0.45 + dy / 2),
+            });
+        }
+
+        tracker.OnFaces([Tilted(175)], W, H);
+        Advance(100);
+        tracker.OnFaces([Tilted(-175)], W, H); // 10° weiter, über ±180° hinweg
+
+        var angle = tracker.Views.Single().Pose.AngleRad * 180 / Math.PI;
+        Assert.True(Math.Abs(angle) > 170, $"Winkel {angle:0}° sprang durch die Mitte");
     }
 
     [Fact]
