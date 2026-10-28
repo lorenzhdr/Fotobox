@@ -18,17 +18,19 @@ public static class MoustacheRenderer
     /// <paramref name="angleRad"/> (Bildkoordinaten, im Uhrzeigersinn positiv). Bei <paramref name="mirror"/> (gespiegelte Ansicht) kehrt sich der Winkel um.
     /// <paramref name="scale"/> skaliert den Bart um den Ursprung (Plopp, 1 = Endgröße); <paramref name="wobbleOffset"/> (Bartbreiten, nach unten)
     /// und <paramref name="wobbleAngleRad"/> sind der Wippausschlag (im Foto 0). Die Textur wird für die Endbreite gewählt, nicht für die gerade
-    /// animierte, damit beim Wachsen keine weiteren Auflösungsstufen entstehen.
+    /// animierte, damit beim Wachsen keine weiteren Auflösungsstufen entstehen. Blockiert nie: Ist die Textur noch nicht fertig, nimmt es die
+    /// beste schon fertige Stufe (die fehlende entsteht im Hintergrund); gibt es keine, wird nichts gezeichnet (Rückgabe <c>false</c>).
     /// </summary>
-    public static void Draw(DrawingContext dc, MoustacheStyle style, MoustacheColor color, Point center, double widthPx, double angleRad, bool mirror,
+    public static bool Draw(DrawingContext dc, MoustacheStyle style, MoustacheColor color, Point center, double widthPx, double angleRad, bool mirror,
         double scale = 1, double wobbleOffset = 0, double wobbleAngleRad = 0)
     {
         if (!(widthPx > 0) || !double.IsFinite(widthPx) || !(scale > 0) || !double.IsFinite(scale))
-            return;
+            return false;
         if (!double.IsFinite(wobbleOffset)) wobbleOffset = 0;
         if (!double.IsFinite(wobbleAngleRad)) wobbleAngleRad = 0;
 
-        var texture = MoustacheTextures.Get(style, color, widthPx);
+        if (!MoustacheTextures.TryGetReady(style, color, widthPx, out var texture))
+            return false;
         var angle = (mirror ? -(angleRad + wobbleAngleRad) : angleRad + wobbleAngleRad) * 180 / Math.PI;
         var size = widthPx * scale;
 
@@ -41,15 +43,17 @@ public static class MoustacheRenderer
         dc.PushTransform(new MatrixTransform(matrix));
         dc.DrawImage(texture.Bitmap, texture.UnitRect);
         dc.Pop();
+        return true;
     }
 
     /// <summary>Wie oben mit Standardfarbe (Dunkelbraun) und ohne Animation.</summary>
-    public static void Draw(DrawingContext dc, MoustacheStyle style, Point center, double widthPx, double angleRad, bool mirror) =>
+    public static bool Draw(DrawingContext dc, MoustacheStyle style, Point center, double widthPx, double angleRad, bool mirror) =>
         Draw(dc, style, MoustacheColor.DarkBrown, center, widthPx, angleRad, mirror);
 
     /// <summary>
     /// Zeichnet die Bärte auf das rohe, ungespiegelte Foto (<see cref="MoustachePose.Center"/> × Pixelgröße, ohne Spiegelung, in
-    /// Endgröße ohne Animation) und liefert ein eingefrorenes Bild gleicher Pixelgröße (96 dpi, Pbgra32). Nur auf dem UI-Thread.
+    /// Endgröße ohne Animation) und liefert ein eingefrorenes Bild gleicher Pixelgröße (96 dpi, Pbgra32). Nur auf dem UI-Thread. Erzeugt nie
+    /// Texturen (nur fertige, siehe <see cref="MoustacheTextures.EnsureAsync"/>); Bärte ohne irgendeine fertige Textur fehlen im Bild.
     /// </summary>
     public static BitmapSource RenderOnto(BitmapSource photo, IReadOnlyList<(MoustachePose Pose, MoustacheStyle Style, MoustacheColor Color)> plan)
     {

@@ -111,6 +111,11 @@ public class PeaceVisualRenderTests
         {
             var styles = MoustacheStyles.All;
             var colors = MoustacheStyles.AllColors;
+            foreach (var s in styles)
+            {
+                foreach (var c in colors)
+                    MoustacheTextures.Get(s, c, beardWidth); // Draw erzeugt nie selbst: erst fertig machen
+            }
             var width = cellW * styles.Count;
             var height = cellH * colors.Count;
             var visual = new DrawingVisual();
@@ -142,6 +147,7 @@ public class PeaceVisualRenderTests
             var visual = new DrawingVisual();
             using (var dc = visual.RenderOpen())
             {
+                MoustacheTextures.Get(style, MoustacheColor.DarkBrown, 900);
                 dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xEE, 0xC4, 0x9C)), null, new Rect(0, 0, 1000, 1000));
                 MoustacheRenderer.Draw(dc, style, MoustacheColor.DarkBrown, new Point(500, 330), 900, 0, mirror: false);
             }
@@ -183,13 +189,18 @@ public class PeaceVisualRenderTests
         SavePng(photo, Path.Combine(dir, "peace_moustache_photo_without.png"));
 
         // „Bart auf Foto“: genau der Weg des Fotos (RenderOnto), Haartextur mit Schatten auf der Haut.
+        foreach (var (p, s, c) in poses)
+            MoustacheTextures.Get(s, c, p.WidthPx); // RenderOnto nutzt nur fertige Texturen
         var timer = System.Diagnostics.Stopwatch.StartNew();
         var decorated = MoustacheRenderer.RenderOnto(photo, poses);
         timer.Stop();
         SavePng(decorated, Path.Combine(dir, "peace_moustache_photo.png"));
-        File.WriteAllText(Path.Combine(dir, "peace_moustache_photo_time.txt"), $"RenderOnto (7 Bärte, inkl. Erzeugen der Texturen): {timer.ElapsedMilliseconds} ms");
+        File.WriteAllText(Path.Combine(dir, "peace_moustache_photo_time.txt"), $"RenderOnto (7 Bärte, Texturen fertig): {timer.ElapsedMilliseconds} ms");
 
         // Gespiegelte Ansicht über das Overlay: Der Bart folgt dem gespiegelten Gesicht, der Winkel kehrt sich um.
+        MoustacheTextures.Get(MoustacheStyle.Twirl, MoustacheColor.Ginger, 300);
+        MoustacheTextures.Get(MoustacheStyle.Handlebar, MoustacheColor.Black, 300);
+        MoustacheTextures.Get(MoustacheStyle.Walrus, MoustacheColor.Brown, 300);
         long now = 0;
         var pose = new MoustachePose(new NormPoint(0.3, 0.5), 300, 0.3);
         var overlay = new PeaceOverlay
@@ -239,6 +250,7 @@ public class PeaceVisualRenderTests
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
+            MoustacheTextures.Get(MoustacheStyle.Walrus, MoustacheColor.Brown, 300);
             MoustacheRenderer.Draw(dc, MoustacheStyle.Walrus, MoustacheColor.Brown, new Point(100, 100), 300, 0.1, true, 1, 0.01, 0.01);
             var sw = System.Diagnostics.Stopwatch.StartNew();
             for (var i = 0; i < 1000; i++)

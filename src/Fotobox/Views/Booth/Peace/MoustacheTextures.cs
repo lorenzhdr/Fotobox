@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -19,11 +19,19 @@ public sealed record MoustacheTexture(BitmapSource Bitmap, Rect UnitRect, int Pi
 /// Haarstriche (fester Seed, deterministisch) entlang der Wuchsrichtung, am Rand ausfransend, dazu ein weicher Schatten auf der
 /// Lippe darunter (Box-Weichzeichner auf den Pixeln, ohne WPF-Effekte). Im Livebild läuft danach nur <c>DrawImage</c>.
 /// <para>
-/// Die Haare werden für die rechte Hälfte gewürfelt und gespiegelt, der Schatten wird nur senkrecht versetzt: Das Bild ist exakt
+/// Die Haare werden für die rechte Hälfte gewürfelt und gespiegelt, der Schatten wird nur senkrecht versetzt: Das Bild ist
 /// symmetrisch (<see cref="MoustacheRenderer.Draw"/> spiegelt über den Winkel). Auflösungsstufen: Es wird die kleinste Stufe gewählt,
 /// die mindestens so breit ist wie der Bart gezeichnet wird (also höchstens 2-fach verkleinert), ein breiter Bart im Foto bekommt so
-/// eine eigene, höher aufgelöste Textur. <see cref="Get"/> ist threadsicher; das Erzeugen braucht einen STA-Thread (WPF-Rendern),
-/// das Ergebnis ist eingefroren und überall nutzbar.
+/// eine eigene, höher aufgelöste Textur.
+/// </para>
+/// <para>
+/// Nie blockieren: Das Erzeugen dauert je nach Stufe 0,1 bis über 3 s und läuft immer auf einem eigenen STA-Thread mit niedriger
+/// Priorität (WPF-Rendern braucht STA). Der UI-Thread nutzt <see cref="TryGetReady"/> (liefert sofort die fertige oder eine
+/// ersatzweise andere Stufe und startet die fehlende im Hintergrund; <see cref="TextureReady"/> meldet die Fertigstellung), der
+/// Foto-Pfad wartet mit <see cref="EnsureAsync"/> höchstens ein Budget lang. Nur <see cref="Get"/>/<see cref="GetTier"/> blockieren
+/// (für Tests und Hintergrundthreads, nie auf dem UI-Thread). Eine fehlgeschlagene Erzeugung wird geloggt und höchstens
+/// <see cref="MaxAttempts"/>-mal je Schlüssel wiederholt; von den Stufen ab 1024 bleiben höchstens <see cref="MaxLargeEntries"/> im Cache
+/// (am längsten ungenutzte zuerst); bereits ausgelieferte Texturen sind eingefroren und vom Cache unabhängig.
 /// </para>
 /// </summary>
 public static class MoustacheTextures
@@ -31,27 +39,132 @@ public static class MoustacheTextures
     /// <summary>Auflösungsstufen in Pixeln je Einheit (= Pixelbreite des Bartes ohne Rand).</summary>
     public static IReadOnlyList<int> Tiers { get; } = [256, 512, 1024, 2048];
 
+    /// <summary>Versuche je Schlüssel, bevor eine immer wieder fehlschlagende Erzeugung aufgegeben wird.</summary>
+    public const int MaxAttempts = 3;
+    /// <summary>Höchstzahl fertiger Texturen der großen Stufen (ab <see cref="LargeTierFrom"/>) im Cache.</summary>
+    public const int MaxLargeEntries = 8;
+    /// <summary>Ab dieser Stufe (ca. 2,5 MB und mehr je Textur) gilt die Obergrenze <see cref="MaxLargeEntries"/>.</summary>
+    public const int LargeTierFrom = 1024;
+
     // Rand um die Form (Einheitsmaß): Haarfransen und Schatten (unten mehr, der Schatten ist nach unten versetzt).
     private const double MarginSide = 0.05, MarginTop = 0.05, MarginBottom = 0.11;
     // Schatten auf der Lippe: Versatz nach unten, Weichzeichnerradius und Deckkraft.
     private const double ShadowOffset = 0.026, ShadowBlur = 0.016, ShadowOpacity = 0.42;
     private static readonly Color ShadowColor = Color.FromRgb(0x24, 0x10, 0x08);
 
-    private static readonly ConcurrentDictionary<(MoustacheStyle, MoustacheColor, int), Lazy<MoustacheTexture>> Cache = new();
+    private readonly record struct Key(MoustacheStyle Style, MoustacheColor Color, int Tier);
+
+    private sealed class Entry
+    {
+        public MoustacheTexture? Texture;
+        public Task<MoustacheTexture?>? Pending;
+        public int Failures;
+        public long LastUsed;
+    }
+
+    private static readonly object Gate = new();
+    private static Dictionary<Key, Entry> Entries = [];
+    private static Queue<Key> PrewarmQueue = new();
+    private static long _useCounter;
+    private static bool _prewarmRunning;
+
+    /// <summary>Erzeuger der Texturen (Standard: <see cref="Create"/>); Tests ersetzen ihn, um Verzögerung oder Fehler zu simulieren.</summary>
+    internal static Func<MoustacheStyle, MoustacheColor, int, MoustacheTexture> Factory { get; set; } = Create;
 
     /// <summary>
-    /// Textur für einen Bart, der <paramref name="widthPx"/> Pixel breit gezeichnet wird (gecacht; dieselbe Instanz für denselben
-    /// Schlüssel). <see cref="MoustacheStyle.Random"/> gilt als Zwirbel.
+    /// Eine Textur wurde fertig (auf dem Erzeugerthread, nicht auf dem UI-Thread). Abonnenten ordnen selbst auf ihren Dispatcher um und
+    /// melden sich wieder ab (Overlay und Skizze: <c>Loaded</c>/<c>Unloaded</c>), damit nichts am statischen Ereignis hängen bleibt.
     /// </summary>
-    public static MoustacheTexture Get(MoustacheStyle style, MoustacheColor color, double widthPx) =>
-        GetTier(style, color, TierFor(widthPx));
+    public static event Action? TextureReady;
 
-    /// <summary>Textur einer festen Stufe (<see cref="Tiers"/>; andere Werte werden auf die nächste Stufe gesetzt).</summary>
-    public static MoustacheTexture GetTier(MoustacheStyle style, MoustacheColor color, int pixelsPerUnit)
+    // ---- Abfragen ohne Blockieren ----
+
+    /// <summary>
+    /// Liefert sofort die Textur für einen Bart der Breite <paramref name="widthPx"/>: die passende Stufe, wenn sie fertig ist, sonst die
+    /// beste schon fertige Stufe desselben Schlüssels (die nächstgrößere, sonst die größte kleinere). Fehlt die passende Stufe, startet der
+    /// Aufruf ihre Erzeugung im Hintergrund. Ohne irgendeine fertige Stufe ist das Ergebnis <c>false</c>. Blockiert nie.
+    /// <see cref="MoustacheStyle.Random"/> gilt als Zwirbel.
+    /// </summary>
+    public static bool TryGetReady(MoustacheStyle style, MoustacheColor color, double widthPx, [NotNullWhen(true)] out MoustacheTexture? texture)
     {
-        var ppu = TierFor(pixelsPerUnit);
-        var key = (Normalize(style), color, ppu);
-        return Cache.GetOrAdd(key, k => new Lazy<MoustacheTexture>(() => Create(k.Item1, k.Item2, k.Item3))).Value;
+        texture = null;
+        if (!(widthPx > 0) || !double.IsFinite(widthPx))
+            return false;
+
+        var key = new Key(Normalize(style), color, TierFor(widthPx));
+        lock (Gate)
+        {
+            var entry = EntryLocked(key);
+            entry.LastUsed = ++_useCounter;
+            if (entry.Texture is { } exact)
+            {
+                texture = exact;
+                return true;
+            }
+
+            StartLocked(key, entry);
+            texture = BestReadyLocked(key);
+            return texture is not null;
+        }
+    }
+
+    /// <summary>Ist von diesem Bart (Form und Farbe) irgendeine Stufe fertig? Blockiert nie.</summary>
+    public static bool HasAnyReady(MoustacheStyle style, MoustacheColor color)
+    {
+        var normalized = Normalize(style);
+        lock (Gate)
+            return Tiers.Any(tier => Entries.TryGetValue(new Key(normalized, color, tier), out var entry) && entry.Texture is not null);
+    }
+
+    /// <summary>Startet die Erzeugung der zu <paramref name="widthPx"/> passenden Stufe im Hintergrund, falls sie fehlt (kehrt sofort zurück).</summary>
+    public static void StartInBackground(MoustacheStyle style, MoustacheColor color, double widthPx)
+    {
+        if (!(widthPx > 0) || !double.IsFinite(widthPx))
+            return;
+        var key = new Key(Normalize(style), color, TierFor(widthPx));
+        lock (Gate)
+            StartLocked(key, EntryLocked(key));
+    }
+
+    /// <summary>
+    /// Wartet höchstens <paramref name="budget"/> darauf, dass die zu <paramref name="widthPx"/> passende Stufe fertig ist (startet sie
+    /// bei Bedarf); der Aufrufer wird nie länger blockiert. <c>true</c> = die Stufe ist fertig, sonst nicht (Zeit abgelaufen, Erzeugung
+    /// fehlgeschlagen oder aufgegeben). Abbruch über <paramref name="ct"/> wirft <see cref="OperationCanceledException"/>.
+    /// </summary>
+    public static async Task<bool> EnsureAsync(MoustacheStyle style, MoustacheColor color, double widthPx, TimeSpan budget,
+        TimeProvider? time = null, CancellationToken ct = default)
+    {
+        if (!(widthPx > 0) || !double.IsFinite(widthPx))
+            return false;
+
+        var key = new Key(Normalize(style), color, TierFor(widthPx));
+        Task<MoustacheTexture?>? pending;
+        lock (Gate)
+        {
+            var entry = EntryLocked(key);
+            entry.LastUsed = ++_useCounter;
+            if (entry.Texture is not null)
+                return true;
+            pending = StartLocked(key, entry);
+        }
+        if (pending is null)
+            return false;
+
+        try
+        {
+            return await pending.WaitAsync(budget < TimeSpan.Zero ? TimeSpan.Zero : budget, time ?? TimeProvider.System, ct) is not null;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Ist die Textur dieser Stufe fertig im Cache?</summary>
+    public static bool IsCached(MoustacheStyle style, MoustacheColor color, int pixelsPerUnit)
+    {
+        lock (Gate)
+            return Entries.TryGetValue(new Key(Normalize(style), color, TierFor(pixelsPerUnit)), out var entry) && entry.Texture is not null;
     }
 
     /// <summary>Kleinste Stufe, die mindestens <paramref name="widthPx"/> breit ist (größer als die größte Stufe → die größte).</summary>
@@ -65,69 +178,118 @@ public static class MoustacheTextures
         return Tiers[^1];
     }
 
-    /// <summary>Ist die Textur schon erzeugt?</summary>
-    public static bool IsCached(MoustacheStyle style, MoustacheColor color, int pixelsPerUnit) =>
-        Cache.TryGetValue((Normalize(style), color, TierFor(pixelsPerUnit)), out var lazy) && lazy.IsValueCreated;
+    // ---- Blockierende Abfragen (Tests, Hintergrundthreads) ----
 
     /// <summary>
-    /// Erzeugt die Texturen der angegebenen Stufen für alle Farben und die angegebenen Formen im Hintergrund (eigener STA-Thread,
-    /// niedrige Priorität), damit das erste Erscheinen eines Bartes nicht ruckelt. Doppelte Arbeit entsteht nicht: Wer dieselbe
-    /// Textur gleichzeitig braucht, wartet auf die laufende Erzeugung.
+    /// <b>Blockiert</b> bis die Textur für einen Bart der Breite <paramref name="widthPx"/> fertig ist (gecacht; dieselbe Instanz für denselben
+    /// Schlüssel). Nie auf dem UI-Thread aufrufen; dort <see cref="TryGetReady"/> verwenden.
     /// </summary>
-    public static Thread PrewarmInBackground(IEnumerable<MoustacheStyle> styles, params int[] tiers)
+    public static MoustacheTexture Get(MoustacheStyle style, MoustacheColor color, double widthPx) =>
+        GetTier(style, color, TierFor(widthPx));
+
+    /// <summary><b>Blockiert</b>: Textur einer festen Stufe (<see cref="Tiers"/>; andere Werte werden auf die nächste Stufe gesetzt).</summary>
+    public static MoustacheTexture GetTier(MoustacheStyle style, MoustacheColor color, int pixelsPerUnit)
+    {
+        var key = new Key(Normalize(style), color, TierFor(pixelsPerUnit));
+        Task<MoustacheTexture?>? pending;
+        lock (Gate)
+        {
+            var entry = EntryLocked(key);
+            entry.LastUsed = ++_useCounter;
+            if (entry.Texture is { } ready)
+                return ready;
+            pending = StartLocked(key, entry);
+        }
+        return pending?.GetAwaiter().GetResult()
+            ?? throw new InvalidOperationException($"Die Bart-Textur {key.Style}/{key.Color}/{key.Tier} konnte nicht erzeugt werden.");
+    }
+
+    // ---- Vorwärmen ----
+
+    /// <summary>
+    /// Reiht die Texturen der angegebenen Stufen (Standard 256 und 512) für alle Farben und die angegebenen Formen zum Erzeugen im
+    /// Hintergrund ein (ein Arbeiter erzeugt nacheinander, niedrige Priorität), damit das erste Erscheinen eines Bartes nicht ruckelt.
+    /// Schon fertige Texturen und doppelte Aufrufe kosten nichts; wer dieselbe Textur gleichzeitig braucht, wartet auf die laufende Erzeugung.
+    /// </summary>
+    public static void PrewarmInBackground(IEnumerable<MoustacheStyle> styles, params int[] tiers)
     {
         var styleList = styles.Select(Normalize).Distinct().ToList();
-        var tierList = tiers.Length > 0 ? tiers : [Tiers[0], Tiers[1]];
-        var thread = new Thread(() =>
+        var tierList = (tiers.Length > 0 ? tiers : [Tiers[0], Tiers[1]]).Select(t => TierFor(t)).Distinct().ToList();
+        lock (Gate)
         {
-            try
+            foreach (var tier in tierList)
             {
-                foreach (var tier in tierList)
+                foreach (var style in styleList)
                 {
-                    foreach (var style in styleList)
+                    foreach (var color in MoustacheStyles.AllColors)
                     {
-                        foreach (var color in MoustacheStyles.AllColors)
-                            GetTier(style, color, tier);
+                        var key = new Key(style, color, tier);
+                        if (!(Entries.TryGetValue(key, out var entry) && (entry.Texture is not null || entry.Failures >= MaxAttempts))
+                            && !PrewarmQueue.Contains(key))
+                            PrewarmQueue.Enqueue(key);
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                AppLog.Warn("Bartzexturen konnten nicht vorberechnet werden.", ex);
-            }
-        })
-        {
-            IsBackground = true,
-            Priority = ThreadPriority.BelowNormal,
-            Name = "Bart-Texturen",
-        };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        return thread;
+            if (_prewarmRunning || PrewarmQueue.Count == 0)
+                return;
+            _prewarmRunning = true;
+        }
+
+        new Thread(PrewarmWorker) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "Bart-Texturen" }.Start();
     }
 
-    /// <summary>
-    /// Erzeugt eine einzelne Textur im Hintergrund, falls sie noch fehlt (z. B. die höher aufgelöste Stufe für das Foto, sobald ein
-    /// Bart im Livebild erscheint, damit die Frist für den Bart im Foto nicht an der Erzeugung scheitert).
-    /// </summary>
-    public static void PrewarmInBackground(MoustacheStyle style, MoustacheColor color, double widthPx)
+    private static void PrewarmWorker()
     {
-        if (!(widthPx > 0) || !double.IsFinite(widthPx))
-            return;
-        var tier = TierFor(widthPx);
-        if (IsCached(style, color, tier))
-            return;
-        var thread = new Thread(() =>
+        while (true)
         {
+            Task<MoustacheTexture?>? pending;
+            lock (Gate)
+            {
+                if (PrewarmQueue.Count == 0)
+                {
+                    _prewarmRunning = false;
+                    return;
+                }
+                var key = PrewarmQueue.Dequeue();
+                pending = StartLocked(key, EntryLocked(key));
+            }
             try
             {
-                GetTier(style, color, tier);
+                pending?.GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
-                AppLog.Warn("Bart-Textur konnte nicht vorberechnet werden.", ex);
+                AppLog.Warn("Bart-Texturen konnten nicht vorberechnet werden.", ex);
             }
-        })
+        }
+    }
+
+    // ---- Cache ----
+
+    private static MoustacheStyle Normalize(MoustacheStyle style) => MoustacheStyles.IsConcrete(style) ? style : MoustacheStyle.Twirl;
+
+    private static Entry EntryLocked(Key key)
+    {
+        if (!Entries.TryGetValue(key, out var entry))
+            Entries[key] = entry = new Entry();
+        return entry;
+    }
+
+    // Startet die Erzeugung (eigener STA-Thread, niedrige Priorität), falls weder fertig noch schon unterwegs noch aufgegeben.
+    private static Task<MoustacheTexture?>? StartLocked(Key key, Entry entry)
+    {
+        if (entry.Texture is not null)
+            return null;
+        if (entry.Pending is not null)
+            return entry.Pending;
+        if (entry.Failures >= MaxAttempts)
+            return null;
+
+        // Fehler werden als Ergebnis null gemeldet (nie als Ausnahme der Task: sonst „Nicht beobachtete Task-Ausnahme“ im Log).
+        var source = new TaskCompletionSource<MoustacheTexture?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        entry.Pending = source.Task;
+        var factory = Factory;
+        var thread = new Thread(() => Produce(key, entry, source, factory))
         {
             IsBackground = true,
             Priority = ThreadPriority.BelowNormal,
@@ -135,9 +297,135 @@ public static class MoustacheTextures
         };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
+        return entry.Pending;
     }
 
-    private static MoustacheStyle Normalize(MoustacheStyle style) => MoustacheStyles.IsConcrete(style) ? style : MoustacheStyle.Twirl;
+    private static void Produce(Key key, Entry entry, TaskCompletionSource<MoustacheTexture?> source,
+        Func<MoustacheStyle, MoustacheColor, int, MoustacheTexture> factory)
+    {
+        MoustacheTexture? texture = null;
+        try
+        {
+            texture = factory(key.Style, key.Color, key.Tier);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Bart-Textur {key.Style}/{key.Color}/{key.Tier} konnte nicht erzeugt werden.", ex);
+        }
+
+        lock (Gate)
+        {
+            entry.Pending = null;
+            if (texture is null)
+            {
+                entry.Failures++;
+            }
+            else
+            {
+                entry.Texture = texture;
+                entry.LastUsed = ++_useCounter;
+                EvictLocked();
+            }
+        }
+
+        // Erst melden, dann die Wartenden freigeben: Wer von EnsureAsync/GetTier zurückkehrt, hat das Ereignis schon gesehen.
+        if (texture is not null)
+            RaiseReady();
+        source.SetResult(texture);
+
+        // Der Erzeugerthread hat durch WPF einen eigenen Dispatcher bekommen; ohne Beenden sammeln sich diese über einen langen Tag an.
+        try
+        {
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+        }
+        catch (Exception)
+        {
+            // Aufräumen ist nur Kür.
+        }
+    }
+
+    // Ersatz: nächstgrößere fertige Stufe, sonst die größte kleinere.
+    private static MoustacheTexture? BestReadyLocked(Key wanted)
+    {
+        foreach (var tier in Tiers.Where(t => t > wanted.Tier).Concat(Tiers.Where(t => t < wanted.Tier).Reverse()))
+        {
+            if (Entries.TryGetValue(wanted with { Tier = tier }, out var entry) && entry.Texture is { } texture)
+            {
+                entry.LastUsed = ++_useCounter;
+                return texture;
+            }
+        }
+        return null;
+    }
+
+    // Große Stufen: höchstens MaxLargeEntries fertige Texturen, die am längsten ungenutzten fliegen zuerst raus.
+    private static void EvictLocked()
+    {
+        while (true)
+        {
+            var large = Entries.Where(kv => kv.Key.Tier >= LargeTierFrom && kv.Value.Texture is not null).ToList();
+            if (large.Count <= MaxLargeEntries)
+                return;
+            Entries.Remove(large.OrderBy(kv => kv.Value.LastUsed).First().Key);
+        }
+    }
+
+    private static void RaiseReady()
+    {
+        var handlers = TextureReady;
+        if (handlers is null)
+            return;
+        foreach (var handler in handlers.GetInvocationList().Cast<Action>())
+        {
+            try
+            {
+                handler();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Ein Abonnent von TextureReady hat eine Ausnahme ausgelöst.", ex);
+            }
+        }
+    }
+
+    /// <summary>Anzahl fertiger Texturen (nur große Stufen oder alle); für Tests.</summary>
+    internal static int CachedCount(bool largeOnly = false)
+    {
+        lock (Gate)
+            return Entries.Count(kv => kv.Value.Texture is not null && (!largeOnly || kv.Key.Tier >= LargeTierFrom));
+    }
+
+    /// <summary>
+    /// Nur für Tests: Tauscht den Cache gegen einen leeren und stellt beim <c>Dispose</c> den alten samt Erzeuger wieder her (so
+    /// müssen die echten, teuren Texturen anderer Tests nicht neu erzeugt werden). Hängende Erzeugungen schreiben in ihren eigenen Eintrag.
+    /// </summary>
+    internal static IDisposable Isolate()
+    {
+        Dictionary<Key, Entry> savedEntries;
+        Queue<Key> savedQueue;
+        var savedFactory = Factory;
+        lock (Gate)
+        {
+            savedEntries = Entries;
+            savedQueue = PrewarmQueue;
+            Entries = [];
+            PrewarmQueue = new Queue<Key>();
+        }
+        return new Restore(() =>
+        {
+            lock (Gate)
+            {
+                Entries = savedEntries;
+                PrewarmQueue = savedQueue;
+            }
+            Factory = savedFactory;
+        });
+    }
+
+    private sealed class Restore(Action action) : IDisposable
+    {
+        public void Dispose() => action();
+    }
 
     // ---- Erzeugen ----
 
