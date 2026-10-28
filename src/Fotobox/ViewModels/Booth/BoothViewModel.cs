@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Fotobox.Core;
 using Fotobox.Core.Fun;
+using Fotobox.Core.Peace;
 using Fotobox.Services.Camera;
 
 namespace Fotobox.ViewModels.Booth;
@@ -40,19 +41,30 @@ public sealed class BoothViewModel : ObservableObject
     private LayoutOption[] _layoutOptions = [];
     private int[] _stripSlots = [];
     private bool _isShutDown;
+    // Peaceerkennung: Foto-Vorschau schon gemeldet, Selbstzerstörungs-Countdown gesehen (Ton läuft), Explosionsfenster vorbei.
+    private bool _peaceWasPreview;
+    private bool _selfDestructPending;
+    private bool _explosionOver;
+    private readonly DispatcherTimer _explosionTimer;
+
+    /// <summary>So lange bleibt die Alarm-Ansicht nach dem Blitz sichtbar, damit die Explosion zu Ende spielt.</summary>
+    private static readonly TimeSpan ExplosionDuration = TimeSpan.FromMilliseconds(1200);
 
     /// <summary>Geparste Tastenbelegung (Reihenfolge der Auslöser-Tasten bleibt für den Hinweistext erhalten).</summary>
     private sealed record KeyMap(IReadOnlyList<KeyChord> Trigger, HashSet<KeyChord> Admin, HashSet<KeyChord> Cancel,
         IReadOnlyList<KeyChord> VideoStart, HashSet<KeyChord> VideoStop);
 
     /// <param name="fun">Zielerfassung der gesamten Gastansicht (DI); ohne Angabe eine untätige Instanz (Tests).</param>
+    /// <param name="peace">Peaceerkennung der Gastansicht (DI, mit dem Bart-Zustand für die Foto-Planung); ohne Angabe eine untätige Instanz (Tests).</param>
     public BoothViewModel(BoothController controller, ICameraService camera, ISettingsStore settings,
-        FunOverlayViewModel? fun = null)
+        FunOverlayViewModel? fun = null, PeaceOverlayViewModel? peace = null)
     {
         Controller = controller;
         Camera = camera;
         Settings = settings;
         Fun = fun ?? FunOverlayViewModel.CreateInert();
+        Peace = peace ?? PeaceOverlayViewModel.CreateInert();
+        Peace.ActionRequested += (_, trigger) => OnPeaceAction(trigger);
         Fun.PropertyChanged += (_, e) =>
         {
             // Der Fun-Text ersetzt die Hinweiszeile an derselben Stelle (unten = Foto-Hinweis, oben = Video-Hinweis).
@@ -67,10 +79,28 @@ public sealed class BoothViewModel : ObservableObject
         _dispatcher = Dispatcher.CurrentDispatcher;
         _layoutPreviewTimer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher) { Interval = LayoutPreviewDuration };
         _layoutPreviewTimer.Tick += (_, _) => HideLayoutPreview();
+        _explosionTimer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher) { Interval = ExplosionDuration };
+        _explosionTimer.Tick += (_, _) =>
+        {
+            _explosionTimer.Stop();
+            _explosionOver = true;
+            OnPropertyChanged(nameof(ShowSelfDestruct));
+        };
 
         controller.StateChanged += (_, _) => OnUi(Refresh);
         controller.Changed += (_, _) => OnUi(Refresh);
-        controller.FlashRequested += (_, _) => OnUi(() => FlashRequested?.Invoke(this, EventArgs.Empty));
+        controller.FlashRequested += (_, _) =>
+        {
+            // Der Stil wird hier gelesen, bevor der Aufruf auf den UI-Thread wechselt: Er gilt nur bis zum Ende des Durchgangs.
+            var selfDestruct = controller.CountdownStyle == CountdownStyle.SelfDestruct;
+            OnUi(() =>
+            {
+                if (selfDestruct)
+                    RaiseExplosion();
+                else
+                    FlashRequested?.Invoke(this, EventArgs.Empty);
+            });
+        };
         camera.StatusChanged += (_, _) => OnUi(Refresh);
         settings.SettingsChanged += (_, _) =>
         {
@@ -93,18 +123,47 @@ public sealed class BoothViewModel : ObservableObject
     /// </summary>
     public FunOverlayViewModel Fun { get; }
 
+    /// <summary>
+    /// Peaceerkennung (Easter Egg): Im Leerlauf beobachtet sie Hände und Gesichter, während eines Fotos folgt sie nur noch einem
+    /// aktiven Schnurrbart (<see cref="UpdatePeace"/>). Die Gastansicht verrät nichts davon.
+    /// </summary>
+    public PeaceOverlayViewModel Peace { get; }
+
     /// <summary>Wird bei jedem neuen Countdown-Wert (&gt; 0) ausgelöst – für die Zahlen-Animation.</summary>
     public event EventHandler? CountdownTicked;
-    /// <summary>Weißer Blitz unmittelbar vor der Aufnahme (UI-Thread).</summary>
+    /// <summary>Weißer Blitz unmittelbar vor der Aufnahme (UI-Thread); bei der Selbstzerstörung stattdessen <see cref="ExplosionRequested"/>.</summary>
     public event EventHandler? FlashRequested;
+    /// <summary>Explosion der Selbstzerstörung im Moment der Aufnahme (UI-Thread; ersetzt <see cref="FlashRequested"/>).</summary>
+    public event EventHandler? ExplosionRequested;
 
     public bool MirrorPreview => Settings.Current.Camera.MirrorPreview;
+
+    /// <summary>Fortschrittsring an der Hand beim Halten des Zeichens (<see cref="PeaceSettings.ShowHoldProgress"/>).</summary>
+    public bool PeaceShowHoldProgress => Settings.Current.Peace?.ShowHoldProgress == true;
 
     public bool IsIdle => Controller.State == BoothState.Idle;
     public bool IsCountdown => Controller.State == BoothState.Countdown;
     public string CountdownText => Controller.CountdownValue > 0 ? Controller.CountdownValue.ToString() : "";
     /// <summary>Zwischen zwei Streifenfotos: kein Countdown-Wert, nächste Aufnahme folgt.</summary>
-    public bool IsPause => IsCountdown && Controller.CountdownValue == 0;
+    public bool IsPause => IsCountdown && Controller.CountdownValue == 0 && Controller.CountdownStyle != CountdownStyle.SelfDestruct;
+
+    /// <summary>Darstellung des Countdowns des laufenden Durchgangs (Normal, Peace oder Selbstzerstörung).</summary>
+    public CountdownStyle CountdownStyle => Controller.CountdownStyle;
+    /// <summary>Countdown der Selbstzerstörung (rote Alarm-Anzeige statt der Ziffern).</summary>
+    public bool IsSelfDestructCountdown => IsCountdown && Controller.CountdownStyle == CountdownStyle.SelfDestruct;
+    /// <summary>Countdown nach Peace-Zeichen (normale Ziffern, daneben ein kleines ✌).</summary>
+    public bool IsPeaceCountdown =>
+        IsCountdown && Controller.CountdownStyle == CountdownStyle.Peace && Controller.CountdownValue > 0;
+    /// <summary>Die gewohnten großen Ziffern sind sichtbar (nicht bei der Selbstzerstörung).</summary>
+    public bool ShowNormalCountdownDigits => ShowCountdown && !IsSelfDestructCountdown;
+    public int SelfDestructSecondsRemaining => Controller.CountdownValue;
+    /// <summary>
+    /// Alarm-Ansicht der Selbstzerstörung sichtbar: im Countdown und danach noch im Zustand Aufnahme, bis die Explosion zu Ende
+    /// gespielt hat – das Overlay muss beim Blitz sichtbar sein, sonst wirkt <c>PlayExplosion</c> nicht.
+    /// </summary>
+    public bool ShowSelfDestruct =>
+        Controller.CountdownStyle == CountdownStyle.SelfDestruct
+        && (Controller.State == BoothState.Countdown || (Controller.State == BoothState.Capturing && !_explosionOver));
     public bool ShowShotInfo => Controller.ShotCount > 1 && Controller.State is BoothState.Countdown or BoothState.Capturing;
     public string ShotInfoText => ShowShotInfo ? $"Foto {Controller.ShotIndex} von {Controller.ShotCount}" : "";
 
@@ -534,6 +593,7 @@ public sealed class BoothViewModel : ObservableObject
             OnPropertyChanged(nameof(IsAdminOpen));
             OnPropertyChanged(nameof(CanOpenAdmin));
             UpdateFun();
+            UpdatePeace();
         }
     }
 
@@ -618,7 +678,9 @@ public sealed class BoothViewModel : ObservableObject
     {
         _isShutDown = true;
         _layoutPreviewTimer.Stop();
+        _explosionTimer.Stop();
         Fun.SetActive(false, new FunSettings(), false);
+        UpdatePeace(); // Shutdown schaltet die Peaceerkennung aus
         Controller.Cancel();
     }
 
@@ -662,6 +724,8 @@ public sealed class BoothViewModel : ObservableObject
             HideLayoutPreview();
 
         UpdateFun();
+        UpdatePeace();
+        UpdateSelfDestructSound();
         OnPropertyChanged(string.Empty);
 
         var value = Controller.CountdownValue;
@@ -669,8 +733,145 @@ public sealed class BoothViewModel : ObservableObject
         {
             _lastCountdown = value;
             if (value > 0)
+            {
                 CountdownTicked?.Invoke(this, EventArgs.Empty);
+                // Die Töne prüfen den Schalter der Einstellung selbst.
+                if (IsSelfDestructCountdown)
+                    Peace.PlaySelfDestructTick(value);
+            }
         }
+    }
+
+    /// <summary>
+    /// Verlässt der Zustand den Selbstzerstörungs-Countdown ohne Aufnahme (Abbrechen), verstummt die Sirene sofort. Geht es in die
+    /// Aufnahme, bleibt der Ton (die Explosion klingt noch).
+    /// </summary>
+    private void UpdateSelfDestructSound()
+    {
+        if (IsSelfDestructCountdown)
+        {
+            _selfDestructPending = true;
+            if (_explosionOver || _explosionTimer.IsEnabled)
+            {
+                _explosionTimer.Stop();
+                _explosionOver = false;
+            }
+        }
+        else if (_selfDestructPending)
+        {
+            _selfDestructPending = false;
+            if (Controller.State != BoothState.Capturing)
+                Peace.StopSounds();
+        }
+    }
+
+    /// <summary>Der Blitz der Selbstzerstörung: Explosion (Bild und Ton) statt des weißen Blitzes.</summary>
+    private void RaiseExplosion()
+    {
+        _selfDestructPending = false;
+        _explosionOver = false;
+        _explosionTimer.Stop();
+        _explosionTimer.Start();
+        OnPropertyChanged(nameof(ShowSelfDestruct));
+        try
+        {
+            ExplosionRequested?.Invoke(this, EventArgs.Empty);
+            Peace.PlayExplosion();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Explosion konnte nicht abgespielt werden.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Entscheidet neu, in welcher Betriebsart die Peaceerkennung läuft: Im Leerlauf bei laufender Kamera beobachtet sie
+    /// (<see cref="PeaceMode.Watching"/>); während eines Fotodurchgangs folgt sie nur einem aktiven Schnurrbart
+    /// (<see cref="PeaceMode.FollowMoustache"/>), sonst ist sie aus. Aus ist sie auch bei Shutdown, offener Admin-Ansicht,
+    /// ausgeschaltetem Schalter, Video und Fehler. Billig und wiederholbar; beim Eintritt in die Vorschau endet ein Bart „bis zum
+    /// nächsten Foto“.
+    /// </summary>
+    private void UpdatePeace()
+    {
+        try
+        {
+            var peace = Settings.Current.Peace ?? new PeaceSettings();
+            var state = Controller.State;
+            if (state == BoothState.Preview && !_peaceWasPreview)
+                Peace.OnPhotoCompleted();
+            _peaceWasPreview = state == BoothState.Preview;
+
+            var mode = PeaceMode.Off;
+            if (!_isShutDown && peace.Enabled && !IsAdminOpen && Camera.Status == CameraStatus.Running)
+            {
+                mode = state switch
+                {
+                    BoothState.Idle => PeaceMode.Watching,
+                    BoothState.Countdown or BoothState.Capturing or BoothState.Preview or BoothState.Printing
+                        or BoothState.Printed or BoothState.PrintCancelled =>
+                        Peace.MoustacheActive ? PeaceMode.FollowMoustache : PeaceMode.Off,
+                    _ => PeaceMode.Off,
+                };
+            }
+            Peace.SetMode(mode, peace, MirrorPreview);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Peaceerkennung konnte nicht umgeschaltet werden.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Ein Peace-Zeichen wurde gehalten: führt die gewählte Aktion aus. Gesperrt wie <see cref="TryTrigger()"/> bei offener
+    /// Admin-Ansicht und startender Kamera; alles Weitere (Leerlauf, Kamera läuft) prüft der <see cref="BoothController"/>.
+    /// Peace-Fotos sind immer Einzelfotos (Streifen werden zum Einzelfoto), mit dem vom Gast gewählten Layout.
+    /// </summary>
+    internal bool OnPeaceAction(PeaceTrigger trigger)
+    {
+        try
+        {
+            if (_isShutDown || IsAdminOpen || IsCameraBusy || Controller.State != BoothState.Idle)
+                return false;
+
+            var settings = Settings.Current.Peace ?? new PeaceSettings();
+            switch (trigger.Action)
+            {
+                case PeaceAction.SelfDestruct:
+                    return TriggerPeacePhoto(settings.SelfDestructSeconds, CountdownStyle.SelfDestruct);
+                case PeaceAction.Photo:
+                    return TriggerPeacePhoto(settings.PhotoCountdownSeconds, CountdownStyle.Peace);
+                case PeaceAction.Moustache:
+                    Peace.StartMoustache(trigger);
+                    if (settings.MoustacheAutoPhoto)
+                        TriggerPeacePhoto(settings.MoustacheAutoPhotoCountdownSeconds, CountdownStyle.Peace);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Peace-Aktion konnte nicht ausgeführt werden.", ex);
+            return false;
+        }
+    }
+
+    private bool TriggerPeacePhoto(int countdownSeconds, CountdownStyle style)
+    {
+        // Wie TryTrigger(): Nur bei echter Auswahlmöglichkeit überschreibt die Wahl des Gastes das Standard-Layout.
+        GuestLayout? layout = LayoutChoices.Count >= 2 ? SelectedLayout : null;
+        var options = new TriggerOptions
+        {
+            Layout = layout,
+            SingleShotOnly = true,
+            CountdownSeconds = countdownSeconds,
+            Style = style,
+        };
+        if (!Controller.TryTrigger(options))
+            return false;
+
+        ResetLayoutSelection();
+        return true;
     }
 
     /// <summary>

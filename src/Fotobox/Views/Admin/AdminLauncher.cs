@@ -22,6 +22,9 @@ public sealed class AdminLauncher : IAdminLauncher
     /// <summary>Erkennung und Ton für die Fun-Vorschau sind vorhanden (sonst ist die Vorschau inert); für den DI-Test.</summary>
     internal bool HasFunServices => _detection is not null && _sound is not null;
 
+    /// <summary>Gestendienst und Ton für die Peace-Vorschau sind vorhanden (sonst ist sie inert); für den DI-Test.</summary>
+    internal bool HasPeaceServices => _gestures is not null && _sound is not null;
+
     public AdminLauncher(ISettingsStore settings, IPinService pinService, ICameraService camera, IPrintService print,
         IDisplayService displays)
         : this(settings, pinService, camera, print, displays, TimeProvider.System)

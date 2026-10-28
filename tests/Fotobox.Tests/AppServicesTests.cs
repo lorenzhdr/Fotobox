@@ -89,6 +89,36 @@ public class AppServicesTests
         Assert.True(launcher.HasFunServices);
     }
 
+    [Fact]
+    public async Task PeaceServices_AreRegistered_AndGuestViewControllerAndAdminReceiveTheRealOnes()
+    {
+        var services = new ServiceCollection();
+        App.RegisterServices(services);
+        var camera = new DetectionFakeCamera();
+        services.AddSingleton<ISettingsStore>(new TestSettingsStore());
+        services.AddSingleton<ICameraService>(camera);
+        services.AddSingleton<IPrintService, NoPrinting>();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var gestures = provider.GetRequiredService<IGestureDetectionService>();
+        Assert.IsType<Fotobox.Services.Detection.Peace.PeaceDetectionService>(gestures);
+        Assert.Same(gestures, provider.GetRequiredService<IGestureDetectionService>());
+        Assert.Equal(0, camera.Subscribers); // ohne Anforderung kein Abo, die Modelle laden erst bei Bedarf
+
+        var decorator = provider.GetRequiredService<IPhotoDecorator>();
+        Assert.IsType<Fotobox.Services.Peace.MoustachePhotoDecorator>(decorator);
+        Assert.Same(decorator, provider.GetRequiredService<IPhotoDecorator>());
+
+        // Die optionalen Konstruktorparameter dürfen nicht still auf null bzw. „inert“ zurückfallen.
+        Assert.True(provider.GetRequiredService<BoothController>().HasPhotoDecorator);
+        var booth = provider.GetRequiredService<Fotobox.ViewModels.Booth.BoothViewModel>();
+        Assert.False(booth.Peace.IsInert);
+        Assert.True(booth.Peace.HasGuestState);
+        var launcher = Assert.IsType<Fotobox.Views.Admin.AdminLauncher>(provider.GetRequiredService<IAdminLauncher>());
+        Assert.True(launcher.HasPeaceServices);
+    }
+
     private sealed class TestSettingsStore : ISettingsStore
     {
         public string ConfigDirectory => Path.GetTempPath();

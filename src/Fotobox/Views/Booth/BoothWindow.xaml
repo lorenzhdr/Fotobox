@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:Fotobox.Views.Controls"
         xmlns:booth="clr-namespace:Fotobox.Views.Booth"
+        xmlns:peace="clr-namespace:Fotobox.Views.Booth.Peace"
         Title="Fotobox+"
         WindowStyle="None" WindowState="Maximized" ResizeMode="NoResize"
         Background="#0B0D14" Cursor="None"
@@ -290,6 +291,14 @@
                              VisibleRegion="{Binding Fun.VisibleRegion, Mode=OneWayToSource}"
                              Visibility="{Binding Fun.IsShown, Converter={StaticResource BoolToVis}}" />
 
+        <!-- Peaceerkennung (Easter Egg): Schnurrbärte über den Gesichtern; ohne Landmarken, der Haltering nur bei eingeschaltetem Schalter.
+             Die Gastansicht zeigt sonst nichts davon. -->
+        <peace:PeaceOverlay x:Name="PeaceLayer" Moustaches="{Binding Peace.Moustaches}" Hands="{Binding Peace.Hands}"
+                            ImageWidth="{Binding Peace.ImageWidth}" ImageHeight="{Binding Peace.ImageHeight}"
+                            Mirror="{Binding MirrorPreview}" ShowHoldProgress="{Binding PeaceShowHoldProgress}"
+                            ShowLandmarks="False"
+                            Visibility="{Binding Peace.IsShown, Converter={StaticResource BoolToVis}}" />
+
         <!-- Dezenter Verlauf unten für die Lesbarkeit des Hinweises -->
         <Border VerticalAlignment="Bottom" Height="320" IsHitTestVisible="False">
             <Border.Background>
@@ -349,17 +358,31 @@
                     <DropShadowEffect BlurRadius="20" ShadowDepth="2" Opacity="0.8" />
                 </TextBlock.Effect>
             </TextBlock>
-            <TextBlock x:Name="CountdownBlock" Text="{Binding CountdownText}" Foreground="White"
-                       FontSize="460" FontWeight="Bold"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                       RenderTransformOrigin="0.5,0.5">
-                <TextBlock.RenderTransform>
-                    <ScaleTransform ScaleX="1" ScaleY="1" />
-                </TextBlock.RenderTransform>
-                <TextBlock.Effect>
-                    <DropShadowEffect BlurRadius="60" ShadowDepth="0" Color="#F5C26B" Opacity="0.8" />
-                </TextBlock.Effect>
-            </TextBlock>
+            <!-- Ziffern mittig (ein gleich breiter Rand links und rechts); das ✌ der Peace-Countdowns steht rechts daneben und
+                 verschiebt die Ziffern nicht. Bei der Selbstzerstörung zeigt stattdessen die Alarm-Ansicht den Countdown. -->
+            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="CountdownBlock" Grid.Column="1" Text="{Binding CountdownText}" Foreground="White"
+                           FontSize="460" FontWeight="Bold"
+                           Visibility="{Binding ShowNormalCountdownDigits, Converter={StaticResource BoolToVis}}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           RenderTransformOrigin="0.5,0.5">
+                    <TextBlock.RenderTransform>
+                        <ScaleTransform ScaleX="1" ScaleY="1" />
+                    </TextBlock.RenderTransform>
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="60" ShadowDepth="0" Color="#F5C26B" Opacity="0.8" />
+                    </TextBlock.Effect>
+                </TextBlock>
+                <TextBlock x:Name="PeaceSign" Grid.Column="2" Text="✌" Foreground="White"
+                           FontFamily="Segoe UI Emoji, Segoe UI Symbol" FontSize="140"
+                           Visibility="{Binding IsPeaceCountdown, Converter={StaticResource BoolToVis}}"
+                           HorizontalAlignment="Left" VerticalAlignment="Center" Margin="36,0,0,0" />
+            </Grid>
             <TextBlock Text="Gleich geht es weiter …" Foreground="White" FontSize="64" FontWeight="SemiBold"
                        Visibility="{Binding IsPause, Converter={StaticResource BoolToVis}}"
                        HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -376,6 +399,11 @@
                 </TextBlock.Effect>
             </TextBlock>
         </Grid>
+
+        <!-- Selbstzerstörung (Peaceerkennung): Alarm-Countdown und Explosion. Bewusst NICHT im Countdown-Grid: Beim Blitz wechselt der
+             Zustand auf Aufnahme, das Overlay muss dann sichtbar bleiben, sonst wirkt PlayExplosion nicht (ShowSelfDestruct). -->
+        <peace:SelfDestructOverlay x:Name="SelfDestructView" SecondsRemaining="{Binding SelfDestructSecondsRemaining}"
+                                   Visibility="{Binding ShowSelfDestruct, Converter={StaticResource BoolToVis}}" />
 
         <!--
             Videoaufnahme: Infoleiste (REC-Punkt, Laufzeit, Restzeit) und Warnung oben links auf dunklen Kapseln – lesbar auf

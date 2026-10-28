@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using Fotobox.Core;
+using Fotobox.Core.Peace;
 using Fotobox.ViewModels.Admin;
 using Fotobox.ViewModels.Booth;
 using Fotobox.Views.Admin;
@@ -335,6 +336,44 @@ public sealed class AdminPeaceTabTests : IDisposable
         vm.IsFunTabSelected = false;
 
         Assert.Empty(_gestures.Requests);
+    }
+
+    [Fact]
+    public void PreviewStatus_ShowsTheFaceCount_FromTheLastAnalysis()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+        vm.FunPage = FunPage.Peace;
+        vm.IsFunTabSelected = true;
+        var request = _gestures.Last;
+        var ready = new GestureStatus(true, true, null, null, 5);
+        request.RaiseStatus(ready);
+
+        request.RaiseUpdated(new GestureUpdate(
+            [PeaceHandFixtures.Face(0.3, 0.3, 0.12), PeaceHandFixtures.Face(0.7, 0.3, 0.12)], [], 1280, 720, ready));
+
+        Assert.Equal(2, vm.PeacePreview.FaceCount);
+        Assert.Contains("Gesichter: 2", vm.PeacePreviewStatusText);
+    }
+
+    [Fact]
+    public void MoustacheWarning_AppearsOnlyWhenTheFaceModelIsUnavailable_AndMoustacheIsChosen()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+        vm.PeaceActionMoustache = true;
+        Assert.False(vm.HasPeacePreviewMoustacheWarning); // Vorschau aus: noch nichts bekannt
+
+        vm.FunPage = FunPage.Peace;
+        vm.IsFunTabSelected = true;
+        Assert.False(vm.HasPeacePreviewMoustacheWarning); // Vorschau läuft, Gesichtserkennung noch nicht gemeldet defekt
+
+        _gestures.Last.RaiseStatus(new GestureStatus(false, true, "Das Gesichtsmodell fehlt.", null, 0));
+        Assert.True(vm.HasPeacePreviewMoustacheWarning);
+        Assert.Equal(AdminViewModel.PeaceMoustacheUnavailableText, vm.PeacePreviewMoustacheWarning);
+
+        vm.PeaceActionMoustache = false;
+        Assert.False(vm.HasPeacePreviewMoustacheWarning);
     }
 
     // ------------------------------------------------------------------ Test „Selbstzerstörung“

@@ -67,6 +67,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     private bool _lastShown;
     private GestureStatus _status = GestureStatus.Starting;
     private bool _moustacheAvailable;
+    private int _faceCount;
 
     // Gesichter der letzten Analyse (ohne Platzhalter) für den Bart-Test und das Seeding einer neuen Sitzung.
     private IReadOnlyList<TrackedFace> _realFaces = [];
@@ -91,7 +92,14 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Instanz ohne Erkennung und Ton (für Ansichtsmodelle, die das Feature nie aktivieren, z. B. in Tests).</summary>
-    public static PeaceOverlayViewModel CreateInert() => new(new InertGestureDetectionService(), TimeProvider.System, new InertSound());
+    public static PeaceOverlayViewModel CreateInert() =>
+        new(new InertGestureDetectionService(), TimeProvider.System, new InertSound()) { IsInert = true };
+
+    /// <summary>Platzhalter ohne Erkennung und Ton (<see cref="CreateInert"/>).</summary>
+    public bool IsInert { get; private init; }
+
+    /// <summary>Teilt diese Instanz den Bart-Zustand mit der Foto-Planung (nur die Gastansicht)?</summary>
+    internal bool HasGuestState => _guestState is not null;
 
     public PeaceMode Mode => _mode;
 
@@ -158,6 +166,13 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     {
         get => _moustacheAvailable;
         private set => SetProperty(ref _moustacheAvailable, value);
+    }
+
+    /// <summary>Anzahl der Gesichter der letzten Analyse (Statuszeile der Admin-Vorschau).</summary>
+    public int FaceCount
+    {
+        get => _faceCount;
+        private set => SetProperty(ref _faceCount, value);
     }
 
     /// <summary>Eine Peace-Aktion soll ausgeführt werden (auf dem UI-Thread; für alle Aktionen, bei Schnurrbart startet der Aufrufer <see cref="StartMoustache"/>).</summary>
@@ -348,6 +363,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
             _guestState.Current = null;
         Hands = [];
         Moustaches = [];
+        FaceCount = 0;
         PeaceDetectedNow = false;
         MoustacheActive = false;
     }
@@ -397,6 +413,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         _realFaces = tracked;
         _realFacesAt = _time.GetUtcNow();
 
+        FaceCount = tracked.Count;
         _tracker.OnFaces(tracked, w, h);
         _engine.OnUpdate(update.Hands, tracked, aspect);
         RefreshMoustaches();

@@ -47,6 +47,8 @@ public sealed partial class BoothWindow : Window
 
         viewModel.CountdownTicked += (_, _) => PlayCountdownTick();
         viewModel.FlashRequested += (_, _) => PlayFlash();
+        // Selbstzerstörung: Die Explosion ersetzt den weißen Blitz (das Ansichtsmodell löst nie beides aus).
+        viewModel.ExplosionRequested += (_, _) => SelfDestructView.PlayExplosion();
 
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;

@@ -34,6 +34,8 @@ public sealed class BoothController(
     IPhotoDecorator? photoDecorator = null)
 {
     private static readonly TimeSpan Second = TimeSpan.FromSeconds(1);
+    /// <summary>Ein Foto-Verzierer ist angebunden (für den DI-Test).</summary>
+    internal bool HasPhotoDecorator => photoDecorator is not null;
     /// <summary>Obergrenze für die (blockierende) Seitengrößen-Abfrage des Druckers.</summary>
     private static readonly TimeSpan PageSpecTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Obergrenze für das Speichern (z. B. hängende Netzwerkfreigabe, abgezogener USB-Stick).</summary>

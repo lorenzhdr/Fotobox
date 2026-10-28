@@ -151,6 +151,9 @@
                             </UniformGrid>
                             <TextBlock Style="{DynamicResource Hint}"
                                        Text="Sind mehrere Aktionen angehakt, wird bei jeder Auslösung zufällig eine gewählt." />
+                            <TextBlock x:Name="PeaceMoustacheUnavailableWarning" Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
+                                       Text="{Binding PeacePreviewMoustacheWarning}"
+                                       Visibility="{Binding HasPeacePreviewMoustacheWarning, Converter={StaticResource BoolToVis}}" />
                             <TextBlock x:Name="PeaceNoActionWarning" Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
                                        Text="Wählen Sie mindestens eine Aktion aus."
                                        Visibility="{Binding PeaceHasNoAction, Converter={StaticResource BoolToVis}}" />

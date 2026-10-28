@@ -143,12 +143,27 @@ public partial class App : Application
             kind => kind == DetectionKind.Body ? new YoloxPersonDetector() : new WindowsFaceDetector(),
             sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IFunSoundPlayer, FunSoundPlayer>();
-        // Peaceerkennung: Der inerte Gestendienst ist ein Platzhalter und wird durch PeaceDetectionService ersetzt.
-        services.AddSingleton<IGestureDetectionService, InertGestureDetectionService>();
+        // Peaceerkennung (Easter Egg): Gesichts- und Handerkennung (Modelle laden lazy beim ersten Bedarf), Bart-Zustand der Gastansicht
+        // und Foto-Verzierer, den der BoothController (optionaler Konstruktorparameter) je Aufnahme aufruft.
+        services.AddSingleton<IGestureDetectionService>(sp => new PeaceDetectionService(
+            sp.GetRequiredService<ICameraService>(),
+            () => new YuNetFaceDetector(),
+            () => new MediaPipeHandDetector(),
+            sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<GuestMoustacheState>();
-        services.AddSingleton<IPhotoDecorator, NullPhotoDecorator>();
+        services.AddSingleton<IPhotoDecorator>(sp => new MoustachePhotoDecorator(
+            sp.GetRequiredService<IGestureDetectionService>(),
+            sp.GetRequiredService<GuestMoustacheState>(),
+            sp.GetRequiredService<TimeProvider>()));
         // Transient: Gastansicht und Admin-Vorschau brauchen je eine eigene Zielerfassung.
         services.AddTransient<FunOverlayViewModel>();
+        // Nur die Gastansicht bekommt diese Instanz (mit Bart-Zustand für die Foto-Planung); die Admin-Vorschau erzeugt ihre eigene
+        // ohne Bart-Zustand (AdminViewModel), damit ein Test nie in ein echtes Foto gelangt.
+        services.AddTransient(sp => new PeaceOverlayViewModel(
+            sp.GetRequiredService<IGestureDetectionService>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<IFunSoundPlayer>(),
+            sp.GetRequiredService<GuestMoustacheState>()));
         services.AddSingleton<IAdminLauncher, AdminLauncher>();
 
         services.AddSingleton<BoothController>();

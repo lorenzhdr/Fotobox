@@ -48,6 +48,19 @@ Neben Fotos nimmt Fotobox+ kurze Videos mit Ton auf (im Admin unter *Video* absc
 
 Fotos früherer Versionen bleiben in `Bilder\Fotobox`; Fotobox+ legt neue Fotos in `Bilder\Fotobox+` ab und verschiebt nichts.
 
+## Peace-Zeichen (Easter Egg)
+
+Zeigt ein Gast im Leerlauf mit der Hand das Peace-Zeichen ✌ und hält es kurz (Standard 1 s), führt Fotobox+ eine Überraschung aus. Die Gastansicht verrät nichts davon (kein Hinweistext). Die Funktion ist standardmäßig eingeschaltet und im Admin unter *Fun → Peaceerkennung* einstellbar.
+
+- **Aktionen:** Im Admin sind eine oder mehrere Aktionen anhakbar; bei mehreren wird bei jeder Auslösung zufällig eine gewählt (Standard: nur Selbstzerstörung).
+  - **Selbstzerstörung:** Roter Alarm-Countdown (5–30 s, Standard 10 s), im Moment der „Explosion“ entsteht das Foto. Optional mit Sirene, Pieptönen und Explosionsgeräusch (Standard aus). Die Abbruchtaste (`Esc`) bricht still ab.
+  - **Foto:** Foto mit eigenem Countdown (0–30 s, Standard 3 s, 0 = sofort); neben den Ziffern erscheint ein kleines ✌.
+  - **Schnurrbart:** Gesichter im Livebild bekommen einen Schnurrbart (vier Stile oder zufällig), der auch im gespeicherten und gedruckten Foto zu sehen ist (ebenso in den Originalen, falls diese zusätzlich gespeichert werden). Wahlweise für alle im Bild oder nur für die Person mit dem Peace-Zeichen, bis zum nächsten Foto oder für eine feste Dauer. Optional folgt danach automatisch ein Foto mit eigenem Countdown.
+- **Peace-Fotos** sind immer Einzelfotos: Ist ein Fotostreifen gewählt, entsteht stattdessen das randlose Einzelfoto (Foto mit Overlay bleibt erhalten). Danach läuft alles wie gewohnt (Vorschau, Speichern, Druck).
+- **Auslösung:** Haltedauer (0,3–3 s), Fortschrittsring an der Hand (Standard aus, verrät die Funktion), Sperrzeit (0–600 s; zusätzlich muss die Hand erst heruntergenommen werden), Empfindlichkeit und Analysen pro Sekunde (1–10, Standard 5). Die Peaceerkennung hat Vorrang vor der Zielerfassung.
+- **Vorschau und Tests:** Die Admin-Seite zeigt ein Livebild mit erkannten Handpunkten und dem Hinweis „Peace erkannt“ sowie die Knöpfe „Selbstzerstörung testen“ und „Bart testen“ (ohne Foto und Druck).
+- **Hinweis:** Fehlauslösungen sind möglich und kosten Papier. Die Erkennung braucht zusätzliche Rechenleistung; bei schwachen Geräten die Analysen pro Sekunde senken oder die Funktion ausschalten.
+
 ## Bedienung
 
 **Gast:** Auslösetaste drücken (Standard: Leertaste). Es läuft ein Countdown, dann wird fotografiert. Mit der Abbruchtaste (Standard: `Esc`) lässt sich der Countdown oder ein laufender Druck abbrechen (der Druckauftrag wird gestoppt, das Foto bleibt gespeichert). Beim Fotostreifen folgen mehrere Aufnahmen. Danach erscheint kurz die Vorschau, das Foto wird gespeichert und gedruckt. Während des Drucks zeigt die Gastansicht einen Fortschrittsbalken. Ist der Drucker langsam, steht dort „Der Drucker ist etwas langsam – dein Foto kommt in ca. X Minuten“. Nach dem Druck erscheint 5 Sekunden lang „Fertig! Bitte nimm dein Foto aus dem Drucker“, danach ist die Fotobox wieder bereit (ebenso nach einer Fehlermeldung). Alt+F4 ist in der Gastansicht wirkungslos.

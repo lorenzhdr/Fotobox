@@ -57,7 +57,11 @@ public sealed partial class AdminViewModel
         set
         {
             if (SetProperty(_draft.Peace.ActionMoustache, value, v => _draft.Peace.ActionMoustache = v))
+            {
                 OnPropertyChanged(nameof(PeaceHasNoAction));
+                OnPropertyChanged(nameof(HasPeacePreviewMoustacheWarning));
+                OnPropertyChanged(nameof(PeacePreviewMoustacheWarning));
+            }
         }
     }
 
@@ -212,10 +216,20 @@ public sealed partial class AdminViewModel
 
     public bool HasPeacePreviewWarning => PeacePreviewStatus.Warning is not null;
 
+    /// <summary>Hinweis, wenn der Schnurrbart gewählt ist, die Vorschau aber meldet, dass die Gesichtserkennung nicht bereitsteht.</summary>
+    public const string PeaceMoustacheUnavailableText =
+        "Die Gesichtserkennung ist nicht verfügbar – der Schnurrbart wird nicht ausgeführt.";
+
+    public string PeacePreviewMoustacheWarning => HasPeacePreviewMoustacheWarning ? PeaceMoustacheUnavailableText : string.Empty;
+
+    // Nur bei laufender Vorschau: Ohne Anforderung (Modus aus) ist MoustacheAvailable noch unbekannt, nicht „nicht verfügbar“.
+    public bool HasPeacePreviewMoustacheWarning =>
+        _draft.Peace.ActionMoustache && PeacePreview.Mode != PeaceMode.Off && !PeacePreview.MoustacheAvailable;
+
     private PeacePreviewStatusLines PeacePreviewStatus =>
         PeacePreview.Mode == PeaceMode.Off
             ? new PeacePreviewStatusLines(string.Empty, null)
-            : PeacePreviewStatusFormatter.Format(PeacePreview.Status, PeacePreview.Hands.Count, -1,
+            : PeacePreviewStatusFormatter.Format(PeacePreview.Status, PeacePreview.Hands.Count, PeacePreview.FaceCount,
                 PeacePreview.PeaceDetectedNow, FunPreviewCameraRunning);
 
     // Läuft die Peace-Seite, gelten die Entwurfswerte sofort. Nur auf der Seite „Peaceerkennung“ ist die Vorschau aktiv.
@@ -244,11 +258,14 @@ public sealed partial class AdminViewModel
         OnPropertyChanged(nameof(PeacePreviewStatusText));
         OnPropertyChanged(nameof(PeacePreviewWarningText));
         OnPropertyChanged(nameof(HasPeacePreviewWarning));
+        OnPropertyChanged(nameof(PeacePreviewMoustacheWarning));
+        OnPropertyChanged(nameof(HasPeacePreviewMoustacheWarning));
     }
 
     private void OnPeacePreviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(PeaceOverlayViewModel.Status) or nameof(PeaceOverlayViewModel.Hands)
+        if (e.PropertyName is nameof(PeaceOverlayViewModel.Status) or nameof(PeaceOverlayViewModel.Hands) or nameof(PeaceOverlayViewModel.FaceCount)
+            or nameof(PeaceOverlayViewModel.MoustacheAvailable)
             or nameof(PeaceOverlayViewModel.PeaceDetectedNow) or nameof(PeaceOverlayViewModel.Mode) or nameof(PeaceOverlayViewModel.IsShown)
             or null or "")
             RaisePeacePreviewStatus();
