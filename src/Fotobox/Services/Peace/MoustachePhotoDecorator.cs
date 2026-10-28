@@ -20,7 +20,7 @@ public sealed class MoustachePhotoDecorator(IGestureDetectionService gestures, G
     /// <summary>Höchstens so lange wartet der Decorator auf fehlende Bart-Texturen (alle parallel).</summary>
     public static readonly TimeSpan TextureBudget = TimeSpan.FromSeconds(1);
     /// <summary>Gesamtbudget ab Beginn von <see cref="DecorateAsync"/>, innerhalb dessen noch auf Texturen gewartet wird (Controller-Frist: 3 s).</summary>
-    public static readonly TimeSpan OverallBudget = TimeSpan.FromSeconds(2.7);
+    public static readonly TimeSpan OverallBudget = TimeSpan.FromSeconds(2.2);
     /// <summary>Breite der verkleinerten Kopie für die Gesichtssuche.</summary>
     public const int MaxDetectionWidth = 960;
 

@@ -242,23 +242,24 @@ public static class MoustacheTextures
     {
         while (true)
         {
-            Task<MoustacheTexture?>? pending;
-            lock (Gate)
-            {
-                if (PrewarmQueue.Count == 0)
-                {
-                    _prewarmRunning = false;
-                    return;
-                }
-                var key = PrewarmQueue.Dequeue();
-                pending = StartLocked(key, EntryLocked(key));
-            }
             try
             {
+                Task<MoustacheTexture?>? pending;
+                lock (Gate)
+                {
+                    if (PrewarmQueue.Count == 0)
+                    {
+                        _prewarmRunning = false;
+                        return;
+                    }
+                    var key = PrewarmQueue.Dequeue();
+                    pending = StartLocked(key, EntryLocked(key));
+                }
                 pending?.GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
+                // Nie unbehandelt (Hintergrundthread); der nächste Schlüssel wird trotzdem versucht.
                 AppLog.Warn("Bart-Texturen konnten nicht vorberechnet werden.", ex);
             }
         }
@@ -296,7 +297,19 @@ public static class MoustacheTextures
             Name = "Bart-Textur",
         };
         thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
+        try
+        {
+            thread.Start();
+        }
+        catch (Exception ex)
+        {
+            // Ohne Thread bliebe Pending für immer offen: als Fehlversuch zählen und die Wartenden sofort freigeben.
+            AppLog.Warn($"Bart-Textur {key.Style}/{key.Color}/{key.Tier} konnte nicht gestartet werden.", ex);
+            entry.Pending = null;
+            entry.Failures++;
+            source.SetResult(null);
+            return source.Task;
+        }
         return entry.Pending;
     }
 
@@ -306,41 +319,48 @@ public static class MoustacheTextures
         MoustacheTexture? texture = null;
         try
         {
-            texture = factory(key.Style, key.Color, key.Tier);
-        }
-        catch (Exception ex)
-        {
-            AppLog.Warn($"Bart-Textur {key.Style}/{key.Color}/{key.Tier} konnte nicht erzeugt werden.", ex);
-        }
-
-        lock (Gate)
-        {
-            entry.Pending = null;
-            if (texture is null)
+            try
             {
-                entry.Failures++;
+                texture = factory(key.Style, key.Color, key.Tier);
             }
-            else
+            catch (Exception ex)
             {
-                entry.Texture = texture;
-                entry.LastUsed = ++_useCounter;
-                EvictLocked();
+                AppLog.Warn($"Bart-Textur {key.Style}/{key.Color}/{key.Tier} konnte nicht erzeugt werden.", ex);
             }
-        }
 
-        // Erst melden, dann die Wartenden freigeben: Wer von EnsureAsync/GetTier zurückkehrt, hat das Ereignis schon gesehen.
-        if (texture is not null)
-            RaiseReady();
-        source.SetResult(texture);
+            lock (Gate)
+            {
+                entry.Pending = null;
+                if (texture is null)
+                {
+                    entry.Failures++;
+                }
+                else
+                {
+                    entry.Texture = texture;
+                    entry.LastUsed = ++_useCounter;
+                    EvictLocked();
+                }
+            }
 
-        // Der Erzeugerthread hat durch WPF einen eigenen Dispatcher bekommen; ohne Beenden sammeln sich diese über einen langen Tag an.
-        try
-        {
-            System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+            // Erst melden, dann die Wartenden freigeben: Wer von EnsureAsync/GetTier zurückkehrt, hat das Ereignis schon gesehen.
+            if (texture is not null)
+                RaiseReady();
         }
-        catch (Exception)
+        finally
         {
-            // Aufräumen ist nur Kür.
+            // Die Wartenden werden immer freigegeben (TrySet: höchstens einmal).
+            source.TrySetResult(texture);
+
+            // Der Erzeugerthread hat durch WPF einen eigenen Dispatcher bekommen; ohne Beenden sammeln sich diese über einen langen Tag an.
+            try
+            {
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+            }
+            catch (Exception)
+            {
+                // Aufräumen ist nur Kür.
+            }
         }
     }
 
