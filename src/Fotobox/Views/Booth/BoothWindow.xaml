@@ -288,6 +288,8 @@
                              ImageHeight="{Binding Fun.ImageHeight}" Mirror="{Binding Fun.Mirror}"
                              BoxStyle="{Binding Fun.BoxStyle}" BoxColor="{Binding Fun.Color}"
                              Animation="{Binding Fun.Animation}"
+                             LockOnMilliseconds="{Binding Fun.LockOnMilliseconds}"
+                             LockOnIntensity="{Binding Fun.LockOnIntensityPercent}"
                              VisibleRegion="{Binding Fun.VisibleRegion, Mode=OneWayToSource}"
                              Visibility="{Binding Fun.IsShown, Converter={StaticResource BoolToVis}}" />
 

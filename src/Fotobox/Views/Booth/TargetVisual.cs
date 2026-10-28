@@ -26,7 +26,10 @@ internal sealed class TargetVisual : FrameworkElement
         nameof(ColorKind), typeof(TargetColor), typeof(TargetVisual),
         new FrameworkPropertyMetadata(TargetColor.Red, FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>Puls 0..1 (Strichstärke, Leuchten, leichtes Aufblähen); 0 im Ruhezustand.</summary>
+    /// <summary>
+    /// Puls (Strichstärke, Leuchten, leichtes Aufblähen); 0 im Ruhezustand, bei 50 % Intensität läuft er bis 1, bei 100 % bis
+    /// <see cref="LockOnTuning.PulseAmplitude"/> (1,6); gezeichnet wird höchstens <see cref="LockOnTuning.MaxPulse"/>.
+    /// </summary>
     public static readonly DependencyProperty PulseProperty = DependencyProperty.Register(
         nameof(Pulse), typeof(double), typeof(TargetVisual),
         new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
@@ -79,6 +82,9 @@ internal sealed class TargetVisual : FrameworkElement
 
     public bool IsLocking { get; private set; }
 
+    /// <summary>Intensität der Einrast-Animation in Prozent (Blinktempo und -kontrast, Scan-Linie); wirkt ab dem nächsten Einrasten.</summary>
+    public int Intensity { get; set; } = LockOnTuning.NeutralPercent;
+
     public TargetBoxStyle BoxStyle { get => (TargetBoxStyle)GetValue(BoxStyleProperty); set => SetValue(BoxStyleProperty, value); }
     public TargetColor ColorKind { get => (TargetColor)GetValue(ColorKindProperty); set => SetValue(ColorKindProperty, value); }
     public double Pulse { get => (double)GetValue(PulseProperty); set => SetValue(PulseProperty, value); }
@@ -104,12 +110,7 @@ internal sealed class TargetVisual : FrameworkElement
         DisplayedLabel = locking ? "LOCKING…" : LabelText;
         if (locking)
         {
-            var blink = new DoubleAnimation(1, 0.3, TimeSpan.FromMilliseconds(180))
-            {
-                AutoReverse = true,
-                RepeatBehavior = RepeatBehavior.Forever,
-            };
-            BeginAnimation(LabelOpacityProperty, blink);
+            BeginAnimation(LabelOpacityProperty, CreateBlink(Intensity));
         }
         else
         {
@@ -117,6 +118,14 @@ internal sealed class TargetVisual : FrameworkElement
             LabelOpacity = 1;
         }
     }
+
+    /// <summary>Blinken von „LOCKING…“: Periode und geringste Deckkraft nach der Intensität (bei 50 % 180 ms, 1 → 0,3).</summary>
+    internal static DoubleAnimation CreateBlink(int intensityPercent) =>
+        new(1, LockOnTuning.BlinkMinOpacity(intensityPercent), TimeSpan.FromMilliseconds(LockOnTuning.BlinkPeriodMilliseconds(intensityPercent)))
+        {
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+        };
 
     /// <summary>Alle Animationen beenden und in den Ruhezustand zurück.</summary>
     public void StopAnimations()
@@ -138,8 +147,12 @@ internal sealed class TargetVisual : FrameworkElement
         Opacity = 1;
     }
 
-    /// <summary>Einrast-Animation der gewählten Art (Dauer insgesamt ca. <see cref="FunEngine.LockOnDuration"/>).</summary>
-    public void StartLockOn(LockOnAnimation animation)
+    /// <summary>
+    /// Einrast-Animation der gewählten Art. Alle Zeiten sind auf 1,2 s abgestimmt und werden mit <paramref name="duration"/> / 1,2 s
+    /// skaliert, sodass jede Art genau mit dem Ende des Einrastens fertig ist; die Intensität (0–100 %) steuert Bewegung und Puls
+    /// (<see cref="LockOnTuning"/>). Bei 1,2 s und 50 % entsprechen alle Werte dem ursprünglichen Verhalten.
+    /// </summary>
+    public void StartLockOn(LockOnAnimation animation, TimeSpan duration, int intensityPercent)
     {
         BeginAnimation(PulseProperty, null);
         BeginAnimation(ScanProgressProperty, null);
@@ -147,35 +160,69 @@ internal sealed class TargetVisual : FrameworkElement
         _scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         _scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
 
+        Intensity = LockOnTuning.Clamp(intensityPercent);
+        var plan = CreatePlan(animation, duration, Intensity);
+        if (plan.Shrink is { } shrink)
+        {
+            _scale.BeginAnimation(ScaleTransform.ScaleXProperty, shrink);
+            _scale.BeginAnimation(ScaleTransform.ScaleYProperty, shrink.Clone());
+        }
+        if (plan.Fade is { } fade)
+            BeginAnimation(OpacityProperty, fade);
+        if (plan.Scan is { } scan)
+            BeginAnimation(ScanProgressProperty, scan);
+        BeginAnimation(PulseProperty, plan.Pulse);
+    }
+
+    /// <summary>Die Animationen eines Einrastens (je nach Art sind nicht alle gesetzt).</summary>
+    internal sealed record LockOnPlan(
+        DoubleAnimation? Shrink, DoubleAnimation? Fade, DoubleAnimationUsingKeyFrames? Scan, DoubleAnimation Pulse)
+    {
+        /// <summary>Spätestes Ende aller Teile (Beginn + Dauer, mit Wiederholung und Rückwärtslauf).</summary>
+        public TimeSpan End => new[]
+        {
+            Shrink is null ? TimeSpan.Zero : Shrink.Duration.TimeSpan,
+            Fade is null ? TimeSpan.Zero : Fade.Duration.TimeSpan,
+            Scan is null ? TimeSpan.Zero : Scan.KeyFrames[^1].KeyTime.TimeSpan,
+            PulseEnd(Pulse),
+        }.Max();
+    }
+
+    private static TimeSpan PulseEnd(DoubleAnimation pulse) =>
+        (pulse.BeginTime ?? TimeSpan.Zero) + TimeSpan.FromTicks(pulse.Duration.TimeSpan.Ticks * 2 * (long)pulse.RepeatBehavior.Count);
+
+    /// <summary>Baut die Animationen für Art, Dauer und Intensität (ohne sie zu starten).</summary>
+    internal static LockOnPlan CreatePlan(LockOnAnimation animation, TimeSpan duration, int intensityPercent)
+    {
+        var scale = LockOnTuning.TimeScale((int)Math.Round(duration.TotalMilliseconds));
+        var amplitude = LockOnTuning.PulseAmplitude(intensityPercent);
+
         switch (animation)
         {
             case LockOnAnimation.Pulse:
-                BeginAnimation(PulseProperty, PulseAnimation(0, 0.2));
-                break;
+                return new LockOnPlan(null, null, null, PulseAnimation(0, 0.2 * scale, amplitude));
 
             case LockOnAnimation.ScanPulse:
                 var scan = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.Stop };
                 scan.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-                scan.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(0.5))));
-                BeginAnimation(ScanProgressProperty, scan);
-                BeginAnimation(PulseProperty, PulseAnimation(0.5, 0.7 / 6));
-                break;
+                scan.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(0.5 * scale))));
+                return new LockOnPlan(null, null, scan, PulseAnimation(0.5 * scale, 0.7 / 6 * scale, amplitude));
 
             default: // ShrinkPulse
                 var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
-                var shrink = new DoubleAnimation(1.8, 1, TimeSpan.FromSeconds(0.4)) { EasingFunction = ease, FillBehavior = FillBehavior.Stop };
-                _scale.BeginAnimation(ScaleTransform.ScaleXProperty, shrink);
-                _scale.BeginAnimation(ScaleTransform.ScaleYProperty, shrink.Clone());
-                BeginAnimation(OpacityProperty,
-                    new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.3)) { FillBehavior = FillBehavior.Stop });
-                BeginAnimation(PulseProperty, PulseAnimation(0.4, 0.8 / 6));
-                break;
+                var shrink = new DoubleAnimation(LockOnTuning.ShrinkStartScale(intensityPercent), 1, TimeSpan.FromSeconds(0.4 * scale))
+                {
+                    EasingFunction = ease,
+                    FillBehavior = FillBehavior.Stop,
+                };
+                var fade = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.3 * scale)) { FillBehavior = FillBehavior.Stop };
+                return new LockOnPlan(shrink, fade, null, PulseAnimation(0.4 * scale, 0.8 / 6 * scale, amplitude));
         }
     }
 
-    // Drei Pulse (hoch und wieder zurück); „half“ ist die Dauer des Anstiegs in Sekunden.
-    private static DoubleAnimation PulseAnimation(double beginSeconds, double half) =>
-        new(0, 1, TimeSpan.FromSeconds(half))
+    // Drei Pulse (hoch auf „amplitude“ und wieder zurück); „half“ ist die Dauer des Anstiegs in Sekunden.
+    private static DoubleAnimation PulseAnimation(double beginSeconds, double half, double amplitude) =>
+        new(0, amplitude, TimeSpan.FromSeconds(half))
         {
             BeginTime = TimeSpan.FromSeconds(beginSeconds),
             AutoReverse = true,
@@ -204,9 +251,9 @@ internal sealed class TargetVisual : FrameworkElement
 
         var unit = Math.Max(0.35, Unit);
         var color = ResolveColor(ColorKind);
-        var pulse = Math.Clamp(Pulse, 0, 1);
+        var pulse = Math.Clamp(Pulse, 0, LockOnTuning.MaxPulse);
         var thickness = 3 * unit * (1 + 0.8 * pulse);
-        var glowAlpha = (byte)Math.Round(255 * (0.22 + 0.4 * pulse));
+        var glowAlpha = (byte)Math.Min(255, Math.Round(255 * (0.22 + 0.4 * pulse)));
 
         var main = MakePen(color, 255, thickness);
         var glow = MakePen(color, glowAlpha, thickness * GlowFactor);
@@ -314,8 +361,9 @@ internal sealed class TargetVisual : FrameworkElement
             fade.Freeze();
             dc.DrawRectangle(fade, null, new Rect(0, y - trail, w, trail));
         }
-        dc.DrawLine(MakePen(color, 0x66, 9 * unit), new Point(0, y), new Point(w, y));
-        dc.DrawLine(MakePen(color, 255, 2.5 * unit), new Point(0, y), new Point(w, y));
+        var line = LockOnTuning.LineFactor(Intensity); // bei 50 % genau 1
+        dc.DrawLine(MakePen(color, 0x66, 9 * unit * line), new Point(0, y), new Point(w, y));
+        dc.DrawLine(MakePen(color, 255, 2.5 * unit * line), new Point(0, y), new Point(w, y));
     }
 
     private void DrawLabel(DrawingContext dc, double w, double unit, Color color)

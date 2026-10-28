@@ -777,4 +777,106 @@ public sealed class FunEngineTests
         Assert.True(head.Height < 0.2); // Kopf statt ganzer Körper
         Assert.Equal(0.5, head.CenterX, 6);
     }
+
+    // ---- Einstellbare Einrast-Dauer
+
+    [Theory]
+    [InlineData(500)]
+    [InlineData(1200)]
+    [InlineData(5000)]
+    public void LockOnDuration_IsConfigurable_TextComesAfterDwellPlusDuration(int milliseconds)
+    {
+        var rig = new Rig(s =>
+        {
+            s.DwellMilliseconds = 300;
+            s.LockOnMilliseconds = milliseconds;
+        });
+
+        // Dwell: Die Person wird nach 300 ms bestätigt, das Einrasten beginnt dann.
+        var confirmedAt = TimeSpan.Zero;
+        while (rig.Snap.Phase != FunPhase.LockingOn)
+        {
+            rig.Run(0.1, P1);
+            confirmedAt += TimeSpan.FromMilliseconds(100);
+            Assert.True(confirmedAt < TimeSpan.FromSeconds(2), "Einrasten begann nicht.");
+        }
+        Assert.True(rig.Snap.Targets[0].IsLockingOn);
+
+        // Kurz vor dem Ende rastet es noch ein, nach der eingestellten Dauer kommt der Text.
+        rig.Run(milliseconds / 1000.0 - 0.1, P1);
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        Assert.True(rig.Snap.Targets[0].IsLockingOn);
+        Assert.False(rig.Snap.ShowText);
+
+        rig.Run(0.1, P1);
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.True(rig.Snap.ShowText);
+        Assert.False(rig.Snap.Targets[0].IsLockingOn);
+        Assert.Equal([FunSoundCue.Acquire, FunSoundCue.Lock, FunSoundCue.Text], rig.Cues);
+    }
+
+    [Fact]
+    public void LockOnDuration_OutOfRange_IsClampedByTheEngine()
+    {
+        var rig = new Rig(s => s.LockOnMilliseconds = 100);
+        rig.Run(0.1, P1);
+        rig.Run(0.3, P1);
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase); // mindestens 500 ms
+        rig.Run(0.2, P1);
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+    }
+
+    [Fact]
+    public void LockOnDuration_ChangedDuringLockOn_RecalculatesTheEnd_AndNeverHangs()
+    {
+        var rig = new Rig(s => s.LockOnMilliseconds = 1200);
+        rig.Run(0.1, P1);      // t = 0,1; Einrasten ab 0,1
+        rig.Run(0.4, P1);      // t = 0,5
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+
+        // Verlängern auf 3 s: Ende bei 3,1 statt 1,3.
+        var longer = rig.Settings.Clone();
+        longer.LockOnMilliseconds = 3000;
+        rig.Engine.Configure(longer, false);
+        rig.Run(1.0, P1);      // t = 1,5, nach dem alten Ende
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        Assert.True(rig.Snap.Targets[0].IsLockingOn);
+        rig.Run(1.6, P1);      // t = 3,1
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.False(rig.Snap.Targets[0].IsLockingOn);
+
+        // Verkürzen mitten im Einrasten (neuer Durchgang nach Episodenende): endet sofort, wenn die neue Dauer schon um ist.
+        var rig2 = new Rig(s => s.LockOnMilliseconds = 5000);
+        rig2.Run(0.1, P1);
+        rig2.Run(1.0, P1);     // t = 1,1
+        var shorter = rig2.Settings.Clone();
+        shorter.LockOnMilliseconds = 500;
+        rig2.Engine.Configure(shorter, false);
+        Assert.Equal(FunPhase.ShowingText, rig2.Snap.Phase);
+        Assert.False(rig2.Snap.Targets[0].IsLockingOn);
+    }
+
+    [Fact]
+    public void LockOnDuration_AppliesToIncreaseDuringLockOn_AndToLateComersAfterTheText()
+    {
+        var rig = new Rig(s => s.LockOnMilliseconds = 2000);
+        rig.Run(0.1, P1);      // t = 0,1; Einrasten bis 2,1
+        rig.Run(0.9, P1);      // t = 1,0
+        rig.Run(0.1, P1, P2);  // t = 1,1: P2 rastet bis 3,1 ein
+        rig.Run(1.9, P1, P2);  // t = 3,0
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        Assert.True(rig.Snap.Targets.Single(t => t.Box.X > 0.3).IsLockingOn);
+        rig.Run(0.1, P1, P2);  // t = 3,1
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+
+        // Nachzügler während des Texts: eigene Meldung nach dem Textende mit derselben Dauer.
+        rig.Run(1.0, P1, P2, P3);
+        var textEnd = 3.1 + 6.0;
+        rig.Run(textEnd - 4.1, P1, P2, P3);   // bis zum Textende
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        rig.Run(1.8, P1, P2, P3);
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        rig.Run(0.2, P1, P2, P3);
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+    }
 }

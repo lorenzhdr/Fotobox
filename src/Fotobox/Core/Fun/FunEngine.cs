@@ -19,6 +19,7 @@ public sealed record FunSnapshot(IReadOnlyList<FunTarget> Targets, FunPhase Phas
 /// </summary>
 public sealed class FunEngine
 {
+    /// <summary>Standarddauer des Einrastens (<see cref="FunSettings.LockOnMilliseconds"/>); die Engine nutzt die eingestellte Dauer.</summary>
     public static readonly TimeSpan LockOnDuration = TimeSpan.FromSeconds(1.2);
     public static readonly TimeSpan EpisodeEndAfterEmpty = TimeSpan.FromSeconds(2);
 
@@ -71,14 +72,27 @@ public sealed class FunEngine
     /// <summary>Signalton fällig; wird nur ausgelöst, wenn <see cref="FunSettings.SoundEnabled"/> gesetzt ist.</summary>
     public event EventHandler<FunSoundCue>? SoundCue;
 
-    /// <summary>Einstellungen übernehmen (Kopie); wirkt sofort, auch auf den angezeigten Text (die Personenzahl des Texts bleibt).</summary>
+    /// <summary>
+    /// Einstellungen übernehmen (Kopie); wirkt sofort, auch auf den angezeigten Text (die Personenzahl des Texts bleibt). Ändert sich
+    /// die Einrast-Dauer mitten im Einrasten, rechnet die Engine das Ende neu (ab dem letzten Beginn) und hängt nie am alten Ende.
+    /// </summary>
     public void Configure(FunSettings settings, bool mirror)
     {
+        var previousDuration = LockDuration;
         _settings = settings.Clone();
         _mirror = mirror;
         _tracker.Configure(TimeSpan.FromMilliseconds(Math.Max(0, _settings.DwellMilliseconds)));
+        if (_phase == FunPhase.LockingOn && LockDuration != previousDuration)
+        {
+            var latestStart = _confirmed.Where(t => _lockStart.ContainsKey(t.Id)).Select(t => _lockStart[t.Id]).DefaultIfEmpty().Max();
+            if (latestStart != default)
+                _phaseEnd = latestStart + LockDuration;
+        }
         Advance();
     }
+
+    /// <summary>Eingestellte Dauer des Einrastens, auf <see cref="SettingsLimits"/> geklemmt.</summary>
+    private TimeSpan LockDuration => TimeSpan.FromMilliseconds(LockOnTuning.ClampMilliseconds(_settings.LockOnMilliseconds));
 
     /// <summary>Sichtbarer Bildausschnitt (<see cref="OverlayMapper.VisibleRegion(double, double, double, double, OverlayFit)"/>); Standard das ganze Bild.</summary>
     public void SetVisibleRegion(NormRect region) => _region = region;
@@ -263,7 +277,7 @@ public sealed class FunEngine
                         // Personen, die während des Texts dazukamen und noch da sind: sofort eine eigene Meldung.
                         LockOn(waiting, textEnd);
                         _phase = FunPhase.LockingOn;
-                        _phaseEnd = textEnd + LockOnDuration;
+                        _phaseEnd = textEnd + LockDuration;
                         Cue(FunSoundCue.Acquire);
                     }
                     else
@@ -332,7 +346,7 @@ public sealed class FunEngine
                         break;
                     case FunPhase.LockingOn:
                         LockOn(fresh, now);
-                        var lockEnd = now + LockOnDuration;
+                        var lockEnd = now + LockDuration;
                         if (lockEnd > _phaseEnd)
                             _phaseEnd = lockEnd;
                         Cue(FunSoundCue.Acquire);
@@ -362,7 +376,7 @@ public sealed class FunEngine
     private void StartLockingOn(DateTimeOffset now)
     {
         _phase = FunPhase.LockingOn;
-        _phaseEnd = now + LockOnDuration;
+        _phaseEnd = now + LockDuration;
         _lastTextEnd = null;
     }
 
@@ -430,7 +444,7 @@ public sealed class FunEngine
         {
             var t = ordered[i];
             var hasLock = _lockStart.TryGetValue(t.Id, out var started);
-            var locking = hasLock && now < started + LockOnDuration;
+            var locking = hasLock && now < started + LockDuration;
             targets.Add(new FunTarget(t.Id, t.Box, $"TARGET {i + 1}", locking, hasLock ? started : default));
         }
 

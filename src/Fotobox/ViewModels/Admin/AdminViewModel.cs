@@ -2709,6 +2709,20 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         set => SetProperty(_draft.Fun.DwellMilliseconds, value, v => _draft.Fun.DwellMilliseconds = v);
     }
 
+    /// <summary>Dauer der Einrast-Animation in Millisekunden (<see cref="SettingsLimits.FunLockOnMillisecondsMin"/> bis <see cref="SettingsLimits.FunLockOnMillisecondsMax"/>).</summary>
+    public int FunLockOnMilliseconds
+    {
+        get => _draft.Fun.LockOnMilliseconds;
+        set => SetProperty(_draft.Fun.LockOnMilliseconds, value, v => _draft.Fun.LockOnMilliseconds = v);
+    }
+
+    /// <summary>Intensität der Einrast-Animation in Prozent (Bewegung, Leuchten, Blinken, Lautstärke); 50 = bisheriges Verhalten.</summary>
+    public int FunLockOnIntensityPercent
+    {
+        get => _draft.Fun.LockOnIntensityPercent;
+        set => SetProperty(_draft.Fun.LockOnIntensityPercent, value, v => _draft.Fun.LockOnIntensityPercent = v);
+    }
+
     public int FunTextSeconds
     {
         get => _draft.Fun.TextSeconds;

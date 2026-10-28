@@ -23,8 +23,9 @@ public sealed class FunSoundPlayer : IFunSoundPlayer, IDisposable
     private const uint SND_MEMORY = 0x0004;
 
     private readonly object _gate = new();
-    private readonly Dictionary<FunSoundCue, Entry> _entries = [];
-    private readonly Queue<FunSoundCue> _queue = new();
+    // Je Signal und Lautstärkestufe (5-%-Schritte der Intensität) ein Puffer; er entsteht erst beim ersten Abspielen.
+    private readonly Dictionary<(FunSoundCue Cue, int Step), Entry> _entries = [];
+    private readonly Queue<(FunSoundCue Cue, int Step)> _queue = new();
     private readonly Timer _timer;
     private long _busyUntil;
     private bool _disposed;
@@ -38,8 +39,11 @@ public sealed class FunSoundPlayer : IFunSoundPlayer, IDisposable
         _timer = new Timer(_ => OnTimer(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
-    public void Play(FunSoundCue cue)
+    public void Play(FunSoundCue cue) => Play(cue, LockOnTuning.NeutralPercent);
+
+    public void Play(FunSoundCue cue, int intensityPercent)
     {
+        var item = (cue, LockOnTuning.SoundStep(intensityPercent));
         try
         {
             lock (_gate)
@@ -51,11 +55,11 @@ public sealed class FunSoundPlayer : IFunSoundPlayer, IDisposable
                 if (now < _busyUntil)
                 {
                     if (_queue.Count < MaxQueued)
-                        _queue.Enqueue(cue);
+                        _queue.Enqueue(item);
                     _timer.Change(Math.Max(1, _busyUntil - now), Timeout.Infinite);
                     return;
                 }
-                StartLocked(cue);
+                StartLocked(item);
             }
         }
         catch (Exception ex)
@@ -137,9 +141,9 @@ public sealed class FunSoundPlayer : IFunSoundPlayer, IDisposable
         }
     }
 
-    private void StartLocked(FunSoundCue cue)
+    private void StartLocked((FunSoundCue Cue, int Step) item)
     {
-        var entry = GetEntryLocked(cue);
+        var entry = GetEntryLocked(item);
         if (entry.Buffer == IntPtr.Zero)
             return;
         if (!PlaySound(entry.Buffer, IntPtr.Zero, SND_MEMORY | SND_ASYNC | SND_NODEFAULT)) // asynchron
@@ -167,16 +171,16 @@ public sealed class FunSoundPlayer : IFunSoundPlayer, IDisposable
     /// <summary>Hält die laufende Wiedergabe des Prozesses an (wie intern <c>SoundPlayer.Stop</c>).</summary>
     private static void StopPlayback() => PlaySound(IntPtr.Zero, IntPtr.Zero, SND_NODEFAULT);
 
-    private Entry GetEntryLocked(FunSoundCue cue)
+    private Entry GetEntryLocked((FunSoundCue Cue, int Step) item)
     {
-        if (_entries.TryGetValue(cue, out var existing))
+        if (_entries.TryGetValue(item, out var existing))
             return existing;
 
         var entry = new Entry(IntPtr.Zero, TimeSpan.Zero);
         var buffer = IntPtr.Zero;
         try
         {
-            var bytes = ToneSynth.Create(cue);
+            var bytes = ToneSynth.Create(item.Cue, item.Step);
             if (bytes.Length < WavHeaderBytes)
             {
                 AppLog.Warn("Signalton konnte nicht vorbereitet werden (ungültige Wave-Daten).");
@@ -200,7 +204,7 @@ public sealed class FunSoundPlayer : IFunSoundPlayer, IDisposable
             }
             entry = new Entry(IntPtr.Zero, TimeSpan.Zero);
         }
-        _entries[cue] = entry;
+        _entries[item] = entry;
         return entry;
     }
 

@@ -52,6 +52,16 @@ public sealed class TargetOverlay : UserControl
         nameof(Animation), typeof(LockOnAnimation), typeof(TargetOverlay),
         new PropertyMetadata(LockOnAnimation.ShrinkPulse));
 
+    /// <summary>Dauer der Einrast-Animation in Millisekunden (gilt für das nächste Einrasten; Standard 1200).</summary>
+    public static readonly DependencyProperty LockOnMillisecondsProperty = DependencyProperty.Register(
+        nameof(LockOnMilliseconds), typeof(int), typeof(TargetOverlay),
+        new PropertyMetadata((int)FunEngine.LockOnDuration.TotalMilliseconds));
+
+    /// <summary>Intensität der Einrast-Animation in Prozent (Bewegung, Leuchten, Blinken; gilt für das nächste Einrasten; Standard 50).</summary>
+    public static readonly DependencyProperty LockOnIntensityProperty = DependencyProperty.Register(
+        nameof(LockOnIntensity), typeof(int), typeof(TargetOverlay),
+        new PropertyMetadata(LockOnTuning.NeutralPercent));
+
     /// <summary>Sichtbarer Ausschnitt des (ungespiegelten) Kamerabilds in der Ansicht; per OneWayToSource an das Ansichtsmodell.</summary>
     public static readonly DependencyProperty VisibleRegionProperty = DependencyProperty.Register(
         nameof(VisibleRegion), typeof(NormRect), typeof(TargetOverlay),
@@ -85,6 +95,8 @@ public sealed class TargetOverlay : UserControl
     public TargetBoxStyle BoxStyle { get => (TargetBoxStyle)GetValue(BoxStyleProperty); set => SetValue(BoxStyleProperty, value); }
     public TargetColor BoxColor { get => (TargetColor)GetValue(BoxColorProperty); set => SetValue(BoxColorProperty, value); }
     public LockOnAnimation Animation { get => (LockOnAnimation)GetValue(AnimationProperty); set => SetValue(AnimationProperty, value); }
+    public int LockOnMilliseconds { get => (int)GetValue(LockOnMillisecondsProperty); set => SetValue(LockOnMillisecondsProperty, value); }
+    public int LockOnIntensity { get => (int)GetValue(LockOnIntensityProperty); set => SetValue(LockOnIntensityProperty, value); }
     public NormRect VisibleRegion { get => (NormRect)GetValue(VisibleRegionProperty); set => SetValue(VisibleRegionProperty, value); }
 
     /// <summary>Aktuell geführte Ziele je Id (für Tests); ausblendende Elemente zählen nicht mehr mit.</summary>
@@ -141,6 +153,7 @@ public sealed class TargetOverlay : UserControl
                 visual.BoxStyle = BoxStyle;
                 visual.ColorKind = BoxColor;
                 visual.Unit = unit;
+                visual.Intensity = LockOnIntensity;
                 visual.LabelText = target.Label;
                 visual.LabelInside = rect.Y < labelHeight + 2;
                 Place(visual, rect, immediate || created);
@@ -154,7 +167,7 @@ public sealed class TargetOverlay : UserControl
                 if (!target.IsLockingOn)
                     visual.DisplayedLabel = target.Label;
                 if (start)
-                    visual.StartLockOn(Animation);
+                    visual.StartLockOn(Animation, TimeSpan.FromMilliseconds(LockOnMilliseconds), LockOnIntensity);
             }
         }
 
