@@ -570,4 +570,256 @@ public sealed class PeaceOverlayViewModelTests
         Assert.Equal(2, actions.Count);
         Assert.Equal(PeaceAction.Moustache, actions[1].Action);
     }
+
+    // ---- Mittelfinger
+
+    private static readonly HandLandmarks Middle = PeaceHandFixtures.Hand(HandPose.MiddleOnly);
+    private static readonly PeaceTrigger MoustacheTrigger = new(PeaceAction.Moustache, 1, 1, new NormPoint(0.5, 0.6));
+
+    private static MiddleFingerSettings Mf(Action<MiddleFingerSettings>? configure = null)
+    {
+        var s = new MiddleFingerSettings { HoldMilliseconds = 500 };
+        configure?.Invoke(s);
+        return s;
+    }
+
+    [Fact]
+    public void MiddleFinger_FollowMoustache_WithoutAnythingToCancel_RequestsNoHands()
+    {
+        using var vm = Create();
+        vm.SetMode(PeaceMode.Watching, Settings(), false, Mf());
+        vm.SetMode(PeaceMode.FollowMoustache, Settings(), false, Mf());
+
+        var follow = Assert.Single(_service.Last.Updates);
+        Assert.Equal(GestureNeeds.Faces, follow.Needs);
+        Assert.Equal(10, follow.AnalysesPerSecond);
+        Assert.False(vm.MiddleFingerWatching);
+    }
+
+    [Fact]
+    public void MiddleFinger_FollowMoustache_WithSelfDestruct_RequestsHandsAtThePeaceRate_AndTheLowerHandScore()
+    {
+        using var vm = Create();
+        var peace = Settings(s => { s.AnalysesPerSecond = 7; s.SensitivityPercent = 20; });
+        var mf = Mf(m => m.SensitivityPercent = 90);
+        vm.SetMode(PeaceMode.FollowMoustache, peace, false, mf, MiddleFingerTargets.SelfDestruct);
+
+        var options = _service.Last.Options;
+        Assert.Equal(GestureNeeds.Faces | GestureNeeds.Hands, options.Needs);
+        Assert.Equal(7, options.AnalysesPerSecond);
+        Assert.Equal(1, options.HandCycleDivisor);
+        Assert.Equal(Math.Min(peace.MinHandScore, mf.MinHandScore), options.MinHandScore);
+        Assert.True(options.MinHandScore < peace.MinHandScore);
+        Assert.True(vm.MiddleFingerWatching);
+
+        // Ist nichts mehr aufzuheben, wird die Anforderung wieder billig.
+        vm.SetMode(PeaceMode.FollowMoustache, peace, false, mf, MiddleFingerTargets.None);
+        Assert.Equal(GestureNeeds.Faces, _service.Last.Options.Needs);
+        Assert.Equal(10, _service.Last.Options.AnalysesPerSecond);
+        Assert.Equal(peace.MinHandScore, _service.Last.Options.MinHandScore);
+        Assert.False(vm.MiddleFingerWatching);
+    }
+
+    [Fact]
+    public void MiddleFinger_FollowMoustache_WithABeard_UsesTheFastFaceModeWithHands()
+    {
+        using var vm = Create();
+        vm.SetMode(PeaceMode.FollowMoustache, Settings(s => s.AnalysesPerSecond = 9), false, Mf());
+        Assert.Equal(GestureNeeds.Faces, _service.Last.Options.Needs);
+        _service.Last.RaiseUpdated([Face], []);
+
+        vm.StartMoustache(MoustacheTrigger);
+
+        Assert.True(vm.MiddleFingerWatching);
+        var options = _service.Last.Options;
+        Assert.Equal(GestureNeeds.Faces | GestureNeeds.Hands, options.Needs);
+        Assert.Equal(18, options.AnalysesPerSecond); // max(10, 2 × 9), höchstens 20
+        Assert.Equal(2, options.HandCycleDivisor);
+
+        // Ohne Mittelfinger-Erkennung bleibt es beim reinen Gesichtsmodus (bisheriges Verhalten).
+        vm.SetMode(PeaceMode.FollowMoustache, Settings(s => s.AnalysesPerSecond = 9), false, Mf(m => m.Enabled = false));
+        Assert.Equal(GestureNeeds.Faces, _service.Last.Options.Needs);
+        Assert.False(vm.MiddleFingerWatching);
+    }
+
+    [Fact]
+    public void MiddleFinger_Watching_BeardWithMiddleFinger_KeepsTheFastModeAndTheLowerHandScore()
+    {
+        using var vm = Create();
+        var peace = Settings(s => s.AnalysesPerSecond = 5);
+        var mf = Mf(m => m.SensitivityPercent = 95);
+        vm.SetMode(PeaceMode.Watching, peace, false, mf);
+        Assert.Equal(peace.MinHandScore, _service.Last.Options.MinHandScore); // nichts aufzuheben: Peace-Wert
+        _service.Last.RaiseUpdated([Face], []);
+
+        vm.StartMoustache(MoustacheTrigger);
+
+        var options = _service.Last.Options;
+        Assert.Equal(2, options.HandCycleDivisor);
+        Assert.Equal(Math.Min(peace.MinHandScore, mf.MinHandScore), options.MinHandScore);
+    }
+
+    [Fact]
+    public void MiddleFinger_Triggers_AfterTheHold_WhenASelfDestructIsRunning()
+    {
+        using var vm = Create();
+        var fired = 0;
+        vm.MiddleFingerTriggered += (_, _) => fired++;
+        vm.SetMode(PeaceMode.FollowMoustache, Settings(), false, Mf(), MiddleFingerTargets.SelfDestruct);
+
+        Run(1.0, [Face], []); // erst ruhig (entwaffnet beim Start)
+        Assert.Equal(0, fired);
+        Run(0.3, [Face], [Middle]);
+        Assert.Equal(0, fired);
+        Assert.True(vm.MiddleFingerDetectedNow);
+        Run(0.5, [Face], [Middle]);
+        Assert.Equal(1, fired);
+        Run(1.5, [Face], [Middle]); // weiter gehalten: nicht noch einmal
+        Assert.Equal(1, fired);
+    }
+
+    [Fact]
+    public void MiddleFinger_ShownFromTheStart_NeverTriggers_UntilItWasGoneForAWhile()
+    {
+        using var vm = Create();
+        var fired = 0;
+        vm.MiddleFingerTriggered += (_, _) => fired++;
+        vm.SetMode(PeaceMode.FollowMoustache, Settings(), false, Mf(), MiddleFingerTargets.SelfDestruct);
+
+        Run(3.0, [Face], [Middle]); // schon beim Start sichtbar (z. B. beim Senken des Peace-Zeichens)
+        Assert.Equal(0, fired);
+
+        Run(1.0, [Face], []);
+        Run(1.0, [Face], [Middle]);
+        Assert.Equal(1, fired);
+    }
+
+    [Fact]
+    public void MiddleFinger_NeverTriggers_WhenThereIsNothingToCancel_OrItIsSwitchedOff()
+    {
+        using var vm = Create();
+        var fired = 0;
+        vm.MiddleFingerTriggered += (_, _) => fired++;
+
+        vm.SetMode(PeaceMode.Watching, Settings(), false, Mf());
+        Run(1.0, [Face], []);
+        Run(2.0, [Face], [Middle]);
+        Assert.Equal(0, fired); // kein Bart, keine Selbstzerstörung
+
+        vm.SetMode(PeaceMode.FollowMoustache, Settings(), false, Mf(m => m.Enabled = false), MiddleFingerTargets.SelfDestruct);
+        Run(1.0, [Face], []);
+        Run(2.0, [Face], [Middle]);
+        Assert.Equal(0, fired);
+
+        vm.SetMode(PeaceMode.FollowMoustache, Settings(), false, null, MiddleFingerTargets.SelfDestruct);
+        Run(2.0, [Face], [Middle]);
+        Assert.Equal(0, fired);
+    }
+
+    [Fact]
+    public void MiddleFinger_Triggers_WhenABeardIsVisible_AndDoesNotVanishItByItself()
+    {
+        using var vm = Create(_guest);
+        var fired = 0;
+        vm.MiddleFingerTriggered += (_, _) => fired++;
+        vm.SetMode(PeaceMode.Watching, Settings(s => s.MoustacheVisibility = MoustacheVisibility.UntilPhotoOrGone), false, Mf());
+        _service.Last.RaiseUpdated([Face], []);
+        vm.StartMoustache(MoustacheTrigger);
+
+        Run(1.0, [Face], []);
+        Run(0.8, [Face], [Middle]);
+
+        Assert.Equal(1, fired);
+        Assert.True(vm.MoustacheActive); // die Entscheidung liegt beim Abonnenten
+        Assert.NotNull(_guest.Current);
+    }
+
+    [Fact]
+    public void VanishMoustaches_ClearsThePhotoStateAtOnce_AndTheViewsAfterTheAnimation()
+    {
+        using var vm = Create(_guest);
+        vm.SetMode(PeaceMode.Watching, Settings(), false, Mf());
+        _service.Last.RaiseUpdated([Face], []);
+        vm.StartMoustache(MoustacheTrigger);
+        Assert.True(vm.MoustacheActive);
+        Assert.NotNull(_guest.Current);
+        Assert.True(vm.HasMoustacheVisuals);
+        Assert.Equal(2, _service.Last.Options.HandCycleDivisor);
+
+        Assert.True(vm.VanishMoustaches());
+
+        Assert.Null(_guest.Current); // ein Foto direkt danach bekommt keinen Bart
+        Assert.False(vm.MoustacheActive);
+        Assert.True(vm.HasMoustacheVisuals);
+        Assert.True(vm.IsShown);
+        Assert.All(vm.Moustaches, v => Assert.True(v.Vanishing));
+        Assert.Equal(1, _service.Last.Options.HandCycleDivisor); // schneller Gesichtsmodus beendet
+        Assert.False(vm.VanishMoustaches()); // nichts mehr zu entfernen
+
+        Run(0.2);
+        Assert.True(vm.HasMoustacheVisuals);
+        Run(0.3);
+        Assert.False(vm.HasMoustacheVisuals);
+        Assert.Empty(vm.Moustaches);
+        Assert.False(vm.IsShown);
+        Assert.Null(_guest.Current);
+    }
+
+    [Fact]
+    public void VanishMoustaches_WithoutABeard_ReturnsFalse()
+    {
+        using var vm = Create(_guest);
+        vm.SetMode(PeaceMode.Watching, Settings(), false, Mf());
+        Assert.False(vm.VanishMoustaches());
+        Assert.False(vm.HasMoustacheVisuals);
+    }
+
+    [Fact]
+    public void VanishMoustaches_ThenANewBeard_StartsFresh()
+    {
+        using var vm = Create(_guest);
+        vm.SetMode(PeaceMode.Watching, Settings(), false, Mf());
+        _service.Last.RaiseUpdated([Face], []);
+        vm.StartMoustache(MoustacheTrigger);
+        Assert.True(vm.VanishMoustaches());
+
+        vm.StartMoustache(MoustacheTrigger);
+
+        Assert.True(vm.MoustacheActive);
+        Assert.NotNull(_guest.Current);
+        Assert.NotEmpty(vm.Moustaches);
+        Assert.All(vm.Moustaches, v => Assert.False(v.Vanishing));
+    }
+
+    [Fact]
+    public void Off_ResetsTheMiddleFingerWatch()
+    {
+        using var vm = Create();
+        vm.SetMode(PeaceMode.FollowMoustache, Settings(), false, Mf(), MiddleFingerTargets.SelfDestruct);
+        Assert.True(vm.MiddleFingerWatching);
+
+        vm.SetMode(PeaceMode.Off, Settings(), false, Mf(), MiddleFingerTargets.SelfDestruct);
+
+        Assert.False(vm.MiddleFingerWatching);
+        Assert.False(vm.MiddleFingerDetectedNow);
+    }
+
+    [Fact]
+    public void StartTestMoustache_WithSeconds_UsesThatDuration()
+    {
+        using var vm = Create();
+        vm.SetMode(PeaceMode.Watching, Settings(), false);
+        vm.StartTestMoustache(2);
+        Assert.True(vm.MoustacheActive);
+        Run(1.0);
+        Assert.True(vm.MoustacheActive);
+        Run(1.5);
+        Assert.False(vm.MoustacheActive);
+
+        vm.StartTestMoustache(); // Standarddauer
+        Run(7.0);
+        Assert.True(vm.MoustacheActive);
+        Run(1.5);
+        Assert.False(vm.MoustacheActive);
+    }
 }

@@ -65,6 +65,7 @@ public sealed class BoothViewModel : ObservableObject
         Fun = fun ?? FunOverlayViewModel.CreateInert();
         Peace = peace ?? PeaceOverlayViewModel.CreateInert();
         Peace.ActionRequested += (_, trigger) => OnPeaceAction(trigger);
+        Peace.MiddleFingerTriggered += (_, _) => OnMiddleFinger();
         Fun.PropertyChanged += (_, e) =>
         {
             // Der Fun-Text ersetzt die Hinweiszeile an derselben Stelle (unten = Foto-Hinweis, oben = Video-Hinweis).
@@ -789,7 +790,9 @@ public sealed class BoothViewModel : ObservableObject
     /// (<see cref="PeaceMode.Watching"/>); während eines Fotodurchgangs folgt sie nur einem aktiven Schnurrbart
     /// (<see cref="PeaceMode.FollowMoustache"/>), sonst ist sie aus. Aus ist sie auch bei Shutdown, offener Admin-Ansicht,
     /// ausgeschaltetem Schalter, Video und Fehler. Billig und wiederholbar; beim Eintritt in die Vorschau endet ein Bart „bis zum
-    /// nächsten Foto“.
+    /// nächsten Foto“. Mittelfinger: Im Selbstzerstörungs-Countdown (nichts sonst) und solange ein Bart (auch dessen Verschwinden-Animation)
+    /// zu sehen ist, bleibt die Erkennung im Fotodurchgang an (<see cref="PeaceMode.FollowMoustache"/>, mit Händen nur wenn es etwas
+    /// aufzuheben gibt); ohne das Feature (<see cref="MiddleFingerSettings.Enabled"/> aus) bleibt alles wie zuvor.
     /// </summary>
     private void UpdatePeace()
     {
@@ -801,6 +804,11 @@ public sealed class BoothViewModel : ObservableObject
                 Peace.OnPhotoCompleted();
             _peaceWasPreview = state == BoothState.Preview;
 
+            var middleFinger = Settings.Current.MiddleFinger ?? new MiddleFingerSettings();
+            var external = state == BoothState.Countdown && Controller.CountdownStyle == CountdownStyle.SelfDestruct
+                ? MiddleFingerTargets.SelfDestruct
+                : MiddleFingerTargets.None;
+
             var mode = PeaceMode.Off;
             if (!_isShutDown && peace.Enabled && !IsAdminOpen && Camera.Status == CameraStatus.Running)
             {
@@ -809,11 +817,11 @@ public sealed class BoothViewModel : ObservableObject
                     BoothState.Idle => PeaceMode.Watching,
                     BoothState.Countdown or BoothState.Capturing or BoothState.Preview or BoothState.Printing
                         or BoothState.Printed or BoothState.PrintCancelled =>
-                        Peace.MoustacheActive ? PeaceMode.FollowMoustache : PeaceMode.Off,
+                        Peace.HasMoustacheVisuals || middleFinger.Wants(external) ? PeaceMode.FollowMoustache : PeaceMode.Off,
                     _ => PeaceMode.Off,
                 };
             }
-            Peace.SetMode(mode, peace, MirrorPreview);
+            Peace.SetMode(mode, peace, MirrorPreview, middleFinger, external);
         }
         catch (Exception ex)
         {
@@ -852,6 +860,40 @@ public sealed class BoothViewModel : ObservableObject
         catch (Exception ex)
         {
             AppLog.Warn("Peace-Aktion konnte nicht ausgeführt werden.", ex);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Ein Mittelfinger wurde gehalten: hebt Peace-Effekte auf. Eine laufende Selbstzerstörung (Countdown) bricht still ab wie mit
+    /// der Abbrechen-Taste (nur <see cref="BoothController.TryCancelCountdown"/>, nie Video oder Druck; ist schon die Aufnahme
+    /// gestartet, läuft das Foto weiter), alle sichtbaren Bärte verschwinden (0,3-s-Animation, der Bart-Zustand fürs Foto ist sofort
+    /// leer). Andere Countdowns (normal, Peace-Foto, Auto-Foto zum Bart) laufen weiter. Ohne Effekt bei Shutdown, offener
+    /// Admin-Ansicht und ausgeschalteter Erkennung.
+    /// </summary>
+    /// <returns>true, wenn etwas aufgehoben wurde.</returns>
+    internal bool OnMiddleFinger()
+    {
+        try
+        {
+            var middleFinger = Settings.Current.MiddleFinger;
+            if (_isShutDown || IsAdminOpen || middleFinger is not { Enabled: true, HasAnyAction: true })
+                return false;
+
+            var selfDestruct = Controller.State == BoothState.Countdown
+                && Controller.CountdownStyle == CountdownStyle.SelfDestruct
+                && Controller.TryCancelCountdown();
+            var moustache = Peace.VanishMoustaches();
+
+            AppLog.Info(selfDestruct && moustache ? "Mittelfinger: Selbstzerstörung abgebrochen, Bart entfernt."
+                : selfDestruct ? "Mittelfinger: Selbstzerstörung abgebrochen."
+                : moustache ? "Mittelfinger: Bart entfernt."
+                : "Mittelfinger: nichts aufzuheben.");
+            return selfDestruct || moustache;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Mittelfinger-Aktion konnte nicht ausgeführt werden.", ex);
             return false;
         }
     }

@@ -73,6 +73,19 @@ public partial class BoothViewModelTests
             WaitForIdle();
         }
 
+        /// <summary>Zeigt erst <paramref name="quiet"/> Sekunden lang keine Hand, dann <paramref name="hold"/> Sekunden lang den Mittelfinger.</summary>
+        public void ShowMiddleFinger(double quiet, double hold)
+        {
+            var face = PeaceHandFixtures.Face(0.5, 0.3, 0.12);
+            var middle = PeaceHandFixtures.Hand(HandPose.MiddleOnly);
+            for (var i = 0; i < (int)Math.Round((quiet + hold) * 10); i++)
+            {
+                PeaceTime.Advance(TimeSpan.FromMilliseconds(100));
+                if (Gestures.Requests.Count > 0 && !Gestures.Last.IsDisposed)
+                    Gestures.Last.RaiseUpdated([face], i < (int)Math.Round(quiet * 10) ? [] : [middle]);
+            }
+        }
+
         /// <summary>Hält ein Peace-Zeichen mit einem Gesicht ins Bild, bis die Engine auslöst (oder die Zeit um ist).</summary>
         public void ShowPeaceFor(double seconds)
         {
@@ -191,7 +204,22 @@ public partial class BoothViewModelTests
         Assert.False(vm.ShowHint);
         // Gewählt war der Streifen (Standard ist der erste Eintrag): Peace-Fotos sind immer ein Einzelfoto.
         Assert.Equal(LayoutKind.SingleBorderless, rig.H.Composer.RequestedLayout!.Kind);
+        // Mit Mittelfingererkennung (Standard) bleibt Peace im Selbstzerstörungs-Countdown an, um ihn aufheben zu können.
+        Assert.Equal(PeaceMode.FollowMoustache, rig.Peace.Mode);
+    }
+
+    [Fact]
+    public void SelfDestruct_WithMiddleFingerDisabled_KeepsPeaceOffDuringTheCountdown()
+    {
+        var rig = new PeaceRig();
+        rig.H.Settings.Current.MiddleFinger.Enabled = false;
+        rig.H.Settings.RaiseSettingsChanged();
+
+        Assert.True(rig.Do(PeaceAction.SelfDestruct));
+
+        Assert.Equal(BoothState.Countdown, rig.H.Controller.State);
         Assert.Equal(PeaceMode.Off, rig.Peace.Mode);
+        Assert.Equal(0, rig.Gestures.OpenRequests);
     }
 
     [Fact]
@@ -303,6 +331,24 @@ public partial class BoothViewModelTests
         Assert.Equal(PeaceMode.FollowMoustache, rig.Peace.Mode);
         Assert.Same(request, rig.Gestures.Last);
         Assert.False(request.IsDisposed);
+        // Mit Mittelfingererkennung (Standard) kommen im Countdown Hände dazu (schneller Gesichtsmodus: Handstufe jeden 2. Zyklus).
+        Assert.Equal(GestureNeeds.Faces | GestureNeeds.Hands, request.Options.Needs);
+        Assert.Equal(10, request.Options.AnalysesPerSecond);
+        Assert.Equal(2, request.Options.HandCycleDivisor);
+    }
+
+    [Fact]
+    public void MoustacheAction_WithAutoPhoto_AndMiddleFingerDisabled_FollowsOnlyTheFaces()
+    {
+        var rig = new PeaceRig(configure: s => s.MoustacheAutoPhoto = true);
+        rig.H.Settings.Current.MiddleFinger.Enabled = false;
+        rig.H.Settings.RaiseSettingsChanged();
+        var request = rig.Gestures.Last;
+
+        Assert.True(rig.Do(PeaceAction.Moustache));
+
+        Assert.Equal(PeaceMode.FollowMoustache, rig.Peace.Mode);
+        Assert.Same(request, rig.Gestures.Last);
         Assert.Equal(GestureNeeds.Faces, request.Options.Needs);
         Assert.Equal(10, request.Options.AnalysesPerSecond);
     }
@@ -371,7 +417,7 @@ public partial class BoothViewModelTests
 
         Assert.Equal(BoothState.Countdown, rig.H.Controller.State);
         Assert.Equal(CountdownStyle.SelfDestruct, rig.H.Controller.CountdownStyle);
-        Assert.Equal(PeaceMode.Off, rig.Peace.Mode);
+        Assert.Equal(PeaceMode.FollowMoustache, rig.Peace.Mode); // wegen der Mittelfingererkennung (siehe SelfDestruct_WithMiddleFingerDisabled…)
     }
 
     // ---- Explosion
@@ -570,5 +616,190 @@ public partial class BoothViewModelTests
         Assert.Equal(System.Windows.Visibility.Visible, layer.Visibility);
         Assert.False(layer.ShowLandmarks);
         Assert.Same(rig.Peace.Moustaches, layer.Moustaches);
+    }
+
+    // ---- Mittelfinger
+
+    [Fact]
+    public void MiddleFinger_SelfDestructCountdown_KeepsPeaceOnWithHands_OnlyWhenTheFeatureIsOn()
+    {
+        var rig = new PeaceRig();
+        Assert.True(rig.Do(PeaceAction.SelfDestruct));
+        Assert.Equal(PeaceMode.FollowMoustache, rig.Peace.Mode);
+        Assert.True(rig.Peace.MiddleFingerWatching);
+        Assert.Equal(GestureNeeds.Faces | GestureNeeds.Hands, rig.Gestures.Last.Options.Needs);
+        Assert.Equal(5, rig.Gestures.Last.Options.AnalysesPerSecond); // eingestellte Peace-Rate
+        rig.CancelAndWait();
+        Assert.Equal(PeaceMode.Watching, rig.Peace.Mode);
+        Assert.False(rig.Peace.MiddleFingerWatching);
+
+        // Zwilling mit ausgeschalteter Erkennung: wie bisher aus, keine Hände.
+        var off = new PeaceRig();
+        off.H.Settings.Current.MiddleFinger.Enabled = false;
+        off.H.Settings.RaiseSettingsChanged();
+        Assert.True(off.Do(PeaceAction.SelfDestruct));
+        Assert.Equal(PeaceMode.Off, off.Peace.Mode);
+        Assert.Equal(0, off.Gestures.OpenRequests);
+    }
+
+    [Fact]
+    public void MiddleFinger_CancelsTheSelfDestruct_Silently_LikeEsc()
+    {
+        var rig = new PeaceRig();
+        Assert.True(rig.Do(PeaceAction.SelfDestruct));
+        rig.H.Time.Advance(TimeSpan.FromSeconds(1));
+        var stops = rig.Sound.Stops;
+        var played = rig.Sound.Played.Count;
+        var explosions = 0;
+        rig.ViewModel.ExplosionRequested += (_, _) => explosions++;
+
+        rig.ShowMiddleFinger(quiet: 1.0, hold: 1.0);
+        rig.WaitForIdle();
+
+        Assert.Equal(BoothState.Idle, rig.H.Controller.State); // kein Fehlerzustand
+        Assert.True(rig.Sound.Stops > stops);
+        Assert.Equal(played, rig.Sound.Played.Count); // keine Explosion
+        Assert.Equal(0, explosions);
+        Assert.False(rig.ViewModel.ShowSelfDestruct);
+        Assert.False(rig.ViewModel.IsSelfDestructCountdown);
+        Assert.Equal(PeaceMode.Watching, rig.Peace.Mode);
+    }
+
+    [Fact]
+    public void MiddleFinger_DoesNotCancelANormalCountdown_OrPeaceCountdown()
+    {
+        var rig = new PeaceRig();
+        rig.H.Settings.Current.Flow.CountdownSeconds = 3;
+        Assert.True(rig.ViewModel.TryTrigger());
+        Assert.Equal(PeaceMode.Off, rig.Peace.Mode);
+        Assert.Equal(0, rig.Gestures.OpenRequests); // nichts aufzuheben: keine Hände
+        Assert.False(rig.ViewModel.OnMiddleFinger());
+        Assert.Equal(BoothState.Countdown, rig.H.Controller.State);
+        rig.CancelAndWait();
+
+        Assert.True(rig.Do(PeaceAction.Photo));
+        Assert.Equal(CountdownStyle.Peace, rig.H.Controller.CountdownStyle);
+        Assert.Equal(PeaceMode.Off, rig.Peace.Mode);
+        Assert.Equal(0, rig.Gestures.OpenRequests);
+        Assert.False(rig.ViewModel.OnMiddleFinger());
+        Assert.Equal(BoothState.Countdown, rig.H.Controller.State);
+    }
+
+    [Fact]
+    public void MiddleFinger_InIdleWithoutABeard_DoesNothing()
+    {
+        var rig = new PeaceRig();
+        Assert.False(rig.ViewModel.OnMiddleFinger());
+
+        rig.ShowMiddleFinger(quiet: 1.0, hold: 2.0);
+
+        Assert.Equal(BoothState.Idle, rig.H.Controller.State);
+        Assert.False(rig.Peace.MiddleFingerWatching);
+    }
+
+    [Fact]
+    public void MiddleFinger_VanishesTheBeard_ButTheAutoPhotoCountdownContinuesWithoutIt()
+    {
+        var rig = new PeaceRig(configure: s => s.MoustacheAutoPhoto = true);
+        rig.H.Settings.Current.Flow.PreviewSeconds = 30;
+        rig.H.Settings.Current.Flow.PrintingEnabled = false;
+        Assert.True(rig.Do(PeaceAction.Moustache));
+        rig.Gestures.Last.RaiseUpdated([PeaceHandFixtures.Face(0.5, 0.3, 0.12)], []);
+        Assert.True(rig.Peace.MoustacheActive);
+        Assert.NotNull(rig.Guest.Current);
+        Assert.Equal(BoothState.Countdown, rig.H.Controller.State);
+
+        rig.ShowMiddleFinger(quiet: 1.0, hold: 1.0);
+
+        Assert.False(rig.Peace.MoustacheActive);
+        Assert.Null(rig.Guest.Current); // ein Foto jetzt hat keinen Bart
+        Assert.Equal(BoothState.Countdown, rig.H.Controller.State); // Peace-Countdown läuft weiter
+
+        rig.H.Time.Advance(TimeSpan.FromSeconds(1));
+        rig.H.Time.Advance(TimeSpan.FromSeconds(1));
+        Assert.True(SpinUntil(rig.H, () => rig.H.Controller.State == BoothState.Preview, advanceInPreview: false));
+        PeaceRig.Pump();
+        Assert.Null(rig.Guest.Current);
+    }
+
+    [Fact]
+    public void MiddleFinger_VanishesTheBeardInIdle_ThroughTheEngine_AndTheAnimationEnds()
+    {
+        var rig = new PeaceRig();
+        Assert.True(rig.Do(PeaceAction.Moustache));
+        rig.Gestures.Last.RaiseUpdated([PeaceHandFixtures.Face(0.5, 0.3, 0.12)], []);
+        Assert.True(rig.Peace.MoustacheActive);
+        Assert.True(rig.Peace.MiddleFingerWatching);
+
+        rig.ShowMiddleFinger(quiet: 1.0, hold: 0.8);
+
+        Assert.False(rig.Peace.MoustacheActive);
+        Assert.Null(rig.Guest.Current);
+        Assert.False(rig.Peace.MiddleFingerWatching);
+        Assert.Equal(PeaceMode.Watching, rig.Peace.Mode);
+
+        rig.PeaceTime.Advance(TimeSpan.FromSeconds(0.5));
+        Assert.False(rig.Peace.HasMoustacheVisuals);
+        Assert.Empty(rig.Peace.Moustaches);
+    }
+
+    [Fact]
+    public void MiddleFinger_RightAfterTheExplosionStarted_DoesNotCancelThePhoto()
+    {
+        var rig = new PeaceRig(configure: s => s.SelfDestructSeconds = 2);
+        rig.H.Settings.Current.Flow.PreviewSeconds = 30;
+        rig.H.Settings.Current.Flow.PrintingEnabled = false;
+        var stateAtExplosion = BoothState.Idle;
+        var result = true;
+        rig.ViewModel.ExplosionRequested += (_, _) =>
+        {
+            stateAtExplosion = rig.H.Controller.State;
+            result = rig.ViewModel.OnMiddleFinger();
+        };
+        Assert.True(rig.Do(PeaceAction.SelfDestruct));
+
+        rig.H.Time.Advance(TimeSpan.FromSeconds(1));
+        rig.H.Time.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(BoothState.Capturing, stateAtExplosion);
+        Assert.False(result);
+        Assert.True(SpinUntil(rig.H, () => rig.H.Controller.State == BoothState.Preview, advanceInPreview: false));
+    }
+
+    [Fact]
+    public void MiddleFinger_IsIgnored_WhileAdminIsOpen_OrWhenSwitchedOff()
+    {
+        var rig = new PeaceRig();
+        Assert.True(rig.Do(PeaceAction.SelfDestruct));
+
+        rig.ViewModel.IsAdminOpen = true;
+        Assert.False(rig.ViewModel.OnMiddleFinger());
+        Assert.Equal(BoothState.Countdown, rig.H.Controller.State);
+        rig.ViewModel.IsAdminOpen = false;
+
+        rig.H.Settings.Current.MiddleFinger.Enabled = false;
+        Assert.False(rig.ViewModel.OnMiddleFinger());
+        rig.H.Settings.Current.MiddleFinger.Enabled = true;
+        rig.H.Settings.Current.MiddleFinger.ActionCancelPeace = false;
+        Assert.False(rig.ViewModel.OnMiddleFinger());
+        Assert.Equal(BoothState.Countdown, rig.H.Controller.State);
+
+        rig.H.Settings.Current.MiddleFinger.ActionCancelPeace = true;
+        Assert.True(rig.ViewModel.OnMiddleFinger());
+        rig.WaitForIdle();
+        Assert.Equal(BoothState.Idle, rig.H.Controller.State);
+    }
+
+    [Fact]
+    public void MiddleFinger_DoesNotTouchVideoOrPrint()
+    {
+        var rig = new PeaceRig();
+        Assert.True(rig.ViewModel.TryStartVideo());
+        Assert.Equal(BoothState.VideoCountdown, rig.H.Controller.State);
+
+        Assert.False(rig.ViewModel.OnMiddleFinger());
+
+        Assert.Equal(BoothState.VideoCountdown, rig.H.Controller.State);
+        rig.CancelAndWait();
     }
 }

@@ -583,4 +583,54 @@ public class PeaceViewsTests
 
         Assert.True(Rms(samples.Take(quarter)) > 2 * Rms(samples.Skip(samples.Length - quarter)));
     }
+
+    [StaFact]
+    public void PeaceOverlay_VanishingBeard_ShrinksToNothing_KeepsAnimating_AndPopsAgainOnANewBeard()
+    {
+        MoustacheTextures.Get(MoustacheStyle.Chevron, MoustacheColor.DarkBrown, 200);
+        long now = 0;
+        var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Clock = () => now };
+        overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.25, 0.5)];
+        Layout(overlay);
+        now = Stopwatch.Frequency;
+        Assert.Equal(1, overlay.PopScaleOf(1));
+
+        // Das Ansichtsmodell friert den Bart ein und markiert ihn als verschwindend.
+        overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.25, 0.5) with { Vanishing = true }];
+        Assert.Equal(1, overlay.VanishScaleOf(1));
+        now += (long)(0.1 * Stopwatch.Frequency);
+        Assert.InRange(overlay.VanishScaleOf(1), 0.5, MoustacheVanish.Peak);
+        now += (long)(0.25 * Stopwatch.Frequency);
+        Assert.Equal(0, overlay.VanishScaleOf(1));
+
+        // Ein neuer Bart auf demselben Gesicht beginnt wieder mit dem Plopp.
+        overlay.Moustaches = [];
+        overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.25, 0.5)];
+        Assert.Equal(1, overlay.VanishScaleOf(1));
+        Assert.Equal(0, overlay.PopScaleOf(1));
+    }
+
+    [StaFact]
+    public void PeaceOverlay_VanishingBeard_IsDrawnAtFirst_AndGoneAtTheEnd()
+    {
+        MoustacheTextures.Get(MoustacheStyle.Chevron, MoustacheColor.DarkBrown, 200);
+        long now = 0;
+        var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Clock = () => now };
+        overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.25, 0.5) with { Vanishing = true }];
+        Layout(overlay);
+
+        var pixel = new byte[4];
+        var bitmap = new RenderTargetBitmap(1920, 1080, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(overlay);
+        bitmap.CopyPixels(new Int32Rect(480 + 20, 540 - 5, 1, 1), pixel, 4, 0);
+        Assert.True(pixel[3] > 200); // zu Beginn noch in voller Größe
+
+        now = (long)(0.35 * Stopwatch.Frequency);
+        overlay.InvalidateVisual();
+        Layout(overlay);
+        bitmap = new RenderTargetBitmap(1920, 1080, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(overlay);
+        bitmap.CopyPixels(new Int32Rect(480 + 20, 540 - 5, 1, 1), pixel, 4, 0);
+        Assert.Equal(0, pixel[3]); // nach 0,3 s nichts mehr
+    }
 }
