@@ -300,8 +300,14 @@ public class DetectionServiceTests
         {
             _time.Advance(TimeSpan.FromMilliseconds(200));
             var before = Body().DetectCalls;
-            _camera.Raise(Frame);
-            await WaitFor(() => Body().DetectCalls == before + 1 && !Body().IsRunning, "Analyse " + i);
+            // Kommt das Bild, während der Dienst den vorigen Lauf noch abschließt (Busy), verwirft er es, ohne die Drossel zu setzen:
+            // dann zur selben Spielzeit erneut senden (ein schon analysiertes Bild drosselt jedes weitere, es zählt also nie doppelt).
+            await WaitFor(() =>
+            {
+                if (Body().DetectCalls == before)
+                    _camera.Raise(Frame);
+                return Body().DetectCalls == before + 1 && !Body().IsRunning;
+            }, "Analyse " + i);
             await Task.Delay(30);
         }
 
