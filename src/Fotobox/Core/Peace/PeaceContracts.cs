@@ -17,9 +17,11 @@ public readonly record struct MoustachePose(NormPoint Center, double WidthPx, do
 /// <summary>
 /// Ein zu zeichnender Bart im Livebild (Stil nie <see cref="MoustacheStyle.Random"/>). <paramref name="Wobble"/> = Zustand der
 /// Wippfeder zum Zeitpunkt der Ansicht (die Darstellung entwickelt ihn pro Bild weiter); das Foto zeigt den Bart ohne Wippen.
+/// <paramref name="Vanishing"/> = der Bart verschwindet gerade (Mittelfinger hebt ihn auf): Lage eingefroren, die Darstellung skaliert ihn
+/// mit <see cref="MoustacheVanish.Scale"/> auf 0.
 /// </summary>
 public sealed record MoustacheView(int FaceId, MoustacheStyle Style, MoustachePose Pose,
-    MoustacheColor Color = MoustacheColor.DarkBrown, WobbleState Wobble = default);
+    MoustacheColor Color = MoustacheColor.DarkBrown, WobbleState Wobble = default, bool Vanishing = false);
 
 /// <summary>
 /// Zustand der Bart-Verfolgung für die Foto-Planung. <paramref name="Style"/> und <paramref name="RandomStyles"/> sind die Stilwahl

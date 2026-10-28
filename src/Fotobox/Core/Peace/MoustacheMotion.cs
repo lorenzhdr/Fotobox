@@ -49,6 +49,38 @@ public static class MoustachePop
 }
 
 /// <summary>
+/// „Verschwinden“: Hebt der Mittelfinger einen Bart auf, schrumpft er in <see cref="DurationSeconds"/> von 1 auf 0 – erst ein kurzer
+/// Überschwinger auf <see cref="Peak"/> (erste Viertel der Dauer), dann ein beschleunigtes Einschrumpfen. Rein und UI-frei: Die Ansicht
+/// übergibt die seit dem Beginn vergangene Zeit.
+/// </summary>
+public static class MoustacheVanish
+{
+    /// <summary>Dauer der Animation in Sekunden; danach ist der Bart weg.</summary>
+    public const double DurationSeconds = 0.3;
+    /// <summary>Größter Faktor der Kurve (Überschwinger zu Beginn).</summary>
+    public const double Peak = 1.08;
+    /// <summary>Anteil der Dauer, in dem der Überschwinger den Höchstwert erreicht.</summary>
+    public const double PeakAt = 0.25;
+
+    /// <summary>Skalierung 1 → ~1,08 → 0 zur Zeit <paramref name="tSeconds"/> (≤ 0 → 1, ab der Dauer → 0).</summary>
+    public static double Scale(double tSeconds)
+    {
+        if (double.IsNaN(tSeconds) || tSeconds <= 0)
+            return 1;
+        if (tSeconds >= DurationSeconds)
+            return 0;
+        var p = tSeconds / DurationSeconds;
+        if (p < PeakAt)
+            return 1 + (Peak - 1) * Math.Sin(p / PeakAt * Math.PI / 2);
+        var q = (p - PeakAt) / (1 - PeakAt);
+        return Peak * (1 - q * q);
+    }
+
+    /// <summary>Läuft die Animation nach <paramref name="tSeconds"/> noch?</summary>
+    public static bool IsRunning(double tSeconds) => tSeconds < DurationSeconds;
+}
+
+/// <summary>
 /// Zustand der Wippfeder eines Bartes: senkrechter Versatz in Bartbreiten (nach unten positiv) und Winkel in Bogenmaß, jeweils mit
 /// Geschwindigkeit. <see cref="Advance"/> entwickelt ihn exakt (gedämpfte Feder, geschlossene Form) und begrenzt das Ergebnis auf
 /// <see cref="MoustacheWobble.MaxOffset"/> bzw. <see cref="MoustacheWobble.MaxAngle"/>; nahe der Ruhe rastet er auf exakt 0 ein.

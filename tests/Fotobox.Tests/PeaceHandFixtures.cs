@@ -4,7 +4,7 @@ using Fotobox.Core.Peace;
 namespace Fotobox.Tests;
 
 /// <summary>Zeigegesten, die <see cref="PeaceHandFixtures"/> erzeugen kann.</summary>
-public enum HandPose { Peace, Fist, Open, IndexOnly, ThreeFingers }
+public enum HandPose { Peace, Fist, Open, IndexOnly, ThreeFingers, MiddleOnly }
 
 /// <summary>
 /// Synthetische 21-Punkt-Hände (MediaPipe-Reihenfolge). Gebaut wird isotrop (Einheit = Bildhöhe, Hand zeigt nach oben, Handgelenk im
@@ -35,7 +35,7 @@ internal static class PeaceHandFixtures
         }
 
         var index = pose is HandPose.Peace or HandPose.Open or HandPose.IndexOnly or HandPose.ThreeFingers;
-        var middle = pose is HandPose.Peace or HandPose.Open or HandPose.ThreeFingers;
+        var middle = pose is HandPose.Peace or HandPose.Open or HandPose.ThreeFingers or HandPose.MiddleOnly;
         var ring = pose is HandPose.Open or HandPose.ThreeFingers;
         var little = pose is HandPose.Open;
 

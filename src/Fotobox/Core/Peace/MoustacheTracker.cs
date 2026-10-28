@@ -85,6 +85,8 @@ public sealed class MoustacheTracker
     private DateTimeOffset _expiresAt;
     private DateTimeOffset _accountedAt;
     private bool _hold;
+    private IReadOnlyList<MoustacheView> _vanishing = [];
+    private DateTimeOffset _vanishUntil;
 
     private IReadOnlyList<TrackedFace> _lastFaces = [];
     private double _lastWidth;
@@ -101,13 +103,22 @@ public sealed class MoustacheTracker
     /// <summary>Läuft eine Bart-Sitzung?</summary>
     public bool IsActive => _active;
 
-    /// <summary>Aktuell zu zeichnende Bärte (nur Gesichter, die innerhalb von <see cref="ViewTimeout"/> gesehen wurden).</summary>
+    /// <summary>
+    /// Verschwinden die Bärte gerade (nach <see cref="Dismiss"/>, bis <see cref="MoustacheVanish.DurationSeconds"/> vergangen ist)?
+    /// Die Sitzung ist dann schon beendet (<see cref="IsActive"/> false); <see cref="Views"/> liefert den eingefrorenen Stand.
+    /// </summary>
+    public bool IsVanishing => _vanishing.Count > 0 && _time.GetUtcNow() < _vanishUntil;
+
+    /// <summary>
+    /// Aktuell zu zeichnende Bärte (nur Gesichter, die innerhalb von <see cref="ViewTimeout"/> gesehen wurden). Während
+    /// <see cref="IsVanishing"/> der eingefrorene Stand mit <see cref="MoustacheView.Vanishing"/> = true.
+    /// </summary>
     public IReadOnlyList<MoustacheView> Views
     {
         get
         {
             if (!_active)
-                return [];
+                return IsVanishing ? _vanishing : [];
             var now = _time.GetUtcNow();
             return _entries.Values
                 .Where(e => now - e.LastSeen <= ViewTimeout)
@@ -128,6 +139,7 @@ public sealed class MoustacheTracker
     {
         var now = _time.GetUtcNow();
         _entries.Clear();
+        _vanishing = [];
         _active = true;
         _targets = targets;
         _style = style;
@@ -143,12 +155,36 @@ public sealed class MoustacheTracker
             Apply(_lastFaces, _lastWidth, _lastHeight, now, _lastFrameAt, refreshLastSeen: false);
     }
 
-    /// <summary>Beendet die Sitzung; alle Bärte verschwinden.</summary>
+    /// <summary>
+    /// Beendet die Sitzung; alle Bärte verschwinden sofort. Ein laufendes Verschwinden (<see cref="Dismiss"/>) bleibt davon unberührt
+    /// (es endet nach <see cref="MoustacheVanish.DurationSeconds"/> oder mit <see cref="StartSession"/>).
+    /// </summary>
     public void EndSession()
     {
         _active = false;
         _entries.Clear();
         _hold = false;
+    }
+
+    /// <summary>
+    /// Hebt die Bärte auf (Mittelfinger): Der aktuelle Stand wird eingefroren (Lage wie in <see cref="Views"/>, Wippen in Ruhe,
+    /// <see cref="MoustacheView.Vanishing"/> = true) und die Sitzung sofort beendet – <see cref="IsActive"/> ist false, das Foto
+    /// bekommt keinen Bart mehr (<see cref="ExportPlanInput"/> = null). <see cref="Views"/> liefert den eingefrorenen Stand
+    /// <see cref="MoustacheVanish.DurationSeconds"/> lang (<see cref="IsVanishing"/>), danach nichts mehr.
+    /// </summary>
+    /// <returns>true, wenn ein Bart sichtbar war (sonst ist nichts zu tun; ohne Sitzung ebenfalls false).</returns>
+    public bool Dismiss()
+    {
+        if (!_active)
+            return false;
+        var now = _time.GetUtcNow();
+        var frozen = Views.Select(v => v with { Wobble = WobbleState.Rest, Vanishing = true }).ToList();
+        EndSession();
+        if (frozen.Count == 0)
+            return false;
+        _vanishing = frozen;
+        _vanishUntil = now + TimeSpan.FromSeconds(MoustacheVanish.DurationSeconds);
+        return true;
     }
 
     /// <summary>Das Foto ist fertig: „Bis zum nächsten Foto“ endet, eine feste Dauer läuft weiter.</summary>
