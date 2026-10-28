@@ -29,6 +29,8 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
     public const string FaceMissingReason = "Das Gesichtsmodell fehlt – der Schnurrbart ist nicht verfügbar.";
     public const string HandMissingReason = "Das Handmodell fehlt – die Peaceerkennung ist nicht verfügbar.";
     private static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(4);
+    /// <summary>Abstand der Zusammenfassungen der Analysedauern im Log.</summary>
+    public static readonly TimeSpan StatsInterval = TimeSpan.FromSeconds(30);
 
     private readonly ICameraService _camera;
     private readonly Func<IFaceLandmarkDetector> _faceFactory;
@@ -40,6 +42,9 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
     private readonly Stage _faceStage = new(isFace: true);
     private readonly Stage _handStage = new(isFace: false);
     private readonly Queue<long> _completions = new();
+    private readonly Queue<double> _cycleMs = new(); // parallel zu _completions: Dauer des jeweiligen Zyklus
+    private readonly AnalysisStats _stats = new();
+    private long? _statsStart;
     private readonly SemaphoreSlim _liveGate = new(1, 1);
     private IFaceLandmarkDetector? _face;
     private IHandLandmarkDetector? _hand;
@@ -171,7 +176,10 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
         _handStage.Ready && !_handStage.Broken,
         _faceStage.Reason,
         _handStage.Reason,
-        CurrentRateLocked());
+        CurrentRateLocked(),
+        MeanCycleMsLocked());
+
+    private double MeanCycleMsLocked() => _cycleMs.Count == 0 ? 0 : _cycleMs.Average();
 
     private double CurrentRateLocked()
     {
@@ -322,6 +330,7 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
             var top = _top;
             if (top is null || frame is null || Volatile.Read(ref _pauseCount) > 0)
                 return;
+            var frameTime = _time.GetUtcNow(); // Eingangszeit des Bildes, für die Vorhersage der Bartlage
 
             var options = top.Options;
             var needs = options.Needs;
@@ -367,7 +376,7 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
             _lastStartTimestamp = _time.GetTimestamp();
             _hasStarted = true;
             var cycle = ++_cycle;
-            _ = AnalyzeAsync(copy, frame.Width, frame.Height, options, cycle);
+            _ = AnalyzeAsync(copy, frame.Width, frame.Height, options, cycle, frameTime);
         }
         catch (Exception ex)
         {
@@ -429,7 +438,7 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
 
     // ---------------------------------------------------------------- Analyse
 
-    private async Task AnalyzeAsync(BgraImage image, int sourceW, int sourceH, GestureRequestOptions options, long cycle)
+    private async Task AnalyzeAsync(BgraImage image, int sourceW, int sourceH, GestureRequestOptions options, long cycle, DateTimeOffset frameTime)
     {
         Task<CycleResult>? inner = null;
         try
@@ -440,7 +449,7 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
             try
             {
                 // Eigener Task.Run: Auch ein Detektor, der synchron blockiert, hebelt die 2-s-Frist nicht aus.
-                inner = Task.Run(() => RunCycleAsync(image, options, cycle));
+                inner = Task.Run(() => RunCycleAsync(image, options, cycle, faces => PublishFaces(faces, sourceW, sourceH, frameTime)));
                 result = await inner.WaitAsync(AnalysisTimeout, _time).ConfigureAwait(false);
             }
             catch (TimeoutException) when (inner is { IsCompleted: false })
@@ -459,7 +468,7 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
             else if (error is not null)
                 RegisterFailure(CurrentStage(), error);
             else if (result is not null)
-                Publish(result, sourceW, sourceH);
+                Publish(result, sourceW, sourceH, frameTime);
 
             if (timedOut)
             {
@@ -478,7 +487,23 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
         }
     }
 
-    private void Publish(CycleResult result, int sourceW, int sourceH)
+    /// <summary>Liefert Gesichter vorab aus (schneller Gesichtsmodus: nicht auf die Handstufe warten); zählt nicht als Zyklus.</summary>
+    private void PublishFaces(IReadOnlyList<FaceLandmarks> faces, int sourceW, int sourceH, DateTimeOffset frameTime)
+    {
+        var pending = new List<Action>();
+        lock (_lock)
+        {
+            if (_disposed || _requests.Count == 0)
+                return;
+            _faceStage.Failures = 0;
+            var top = _requests[^1];
+            var update = new GestureUpdate(faces, [], sourceW, sourceH, BuildStatusLocked(), HandsIncluded: false, FacesFresh: true, FrameTime: frameTime);
+            pending.Add(() => top.DispatchUpdate(update));
+        }
+        Flush(pending);
+    }
+
+    private void Publish(CycleResult result, int sourceW, int sourceH, DateTimeOffset frameTime)
     {
         var pending = new List<Action>();
         lock (_lock)
@@ -492,20 +517,40 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
 
             var now = _time.GetTimestamp();
             _completions.Enqueue(now);
+            _cycleMs.Enqueue(result.Timings.Total.TotalMilliseconds);
             _lastCompletion = now;
             while (_completions.Count > 1 && _time.GetElapsedTime(_completions.Peek(), now) > RateWindow)
+            {
                 _completions.Dequeue();
+                _cycleMs.Dequeue();
+            }
+            RecordStatsLocked(result, now);
 
             if (_requests.Count == 0)
                 return;
             var top = _requests[^1];
             var status = BuildStatusLocked();
-            var update = new GestureUpdate(result.Faces, result.Hands, sourceW, sourceH, status);
+            var update = new GestureUpdate(result.Faces, result.Hands, sourceW, sourceH, status,
+                result.HandsIncluded, FacesFresh: !result.FacesPublished, FrameTime: frameTime);
             if (top.SetStatus(status))
                 pending.Add(() => top.DispatchStatus(status));
             pending.Add(() => top.DispatchUpdate(update));
         }
         Flush(pending);
+    }
+
+    // Sammelt die Dauer der Stufen und schreibt alle StatsInterval eine Zusammenfassung ins Log.
+    private void RecordStatsLocked(CycleResult result, long now)
+    {
+        if (_statsStart is null)
+            _statsStart = _completions.Count > 0 ? _completions.Peek() : now;
+        _stats.Add(result);
+        var elapsed = _time.GetElapsedTime(_statsStart.Value, now);
+        if (elapsed < StatsInterval)
+            return;
+        AppLog.Info(_stats.Summarize(elapsed));
+        _stats.Reset();
+        _statsStart = now;
     }
 
     // ---------------------------------------------------------------- Foto-Erkennung
@@ -672,7 +717,64 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
         public Stage Stage { get; } = stage;
     }
 
-    private sealed record CycleResult(IReadOnlyList<FaceLandmarks> Faces, IReadOnlyList<HandLandmarks> Hands, bool FacesRan, bool HandsRan);
+    /// <summary>Dauer der Teilschritte eines Zyklus (Palm- und Landmark-Läufe jeweils summiert).</summary>
+    internal readonly record struct CycleTimings(TimeSpan Face, TimeSpan Palm, TimeSpan Landmark, TimeSpan Total);
+
+    private sealed record CycleResult(IReadOnlyList<FaceLandmarks> Faces, IReadOnlyList<HandLandmarks> Hands, bool FacesRan, bool HandsRan,
+        bool HandsIncluded, bool FacesPublished, CycleTimings Timings);
+
+    /// <summary>Mittelwert und Maximum der Stufendauern über ein Messfenster (nur Zyklen, in denen die Stufe lief).</summary>
+    private sealed class AnalysisStats
+    {
+        private sealed class Series
+        {
+            public int Count;
+            public double SumMs, MaxMs;
+
+            public void Add(TimeSpan value)
+            {
+                var ms = value.TotalMilliseconds;
+                Count++;
+                SumMs += ms;
+                if (ms > MaxMs)
+                    MaxMs = ms;
+            }
+
+            public void Clear() => (Count, SumMs, MaxMs) = (0, 0, 0);
+
+            public string Format() => Count == 0 ? "-" : $"{SumMs / Count:0} ms (max {MaxMs:0})";
+        }
+
+        private readonly Series _face = new(), _palm = new(), _landmark = new(), _total = new();
+
+        public void Add(CycleResult result)
+        {
+            if (result.FacesRan)
+                _face.Add(result.Timings.Face);
+            if (result.HandsRan)
+            {
+                _palm.Add(result.Timings.Palm);
+                _landmark.Add(result.Timings.Landmark);
+            }
+            _total.Add(result.Timings.Total);
+        }
+
+        public void Reset()
+        {
+            _face.Clear();
+            _palm.Clear();
+            _landmark.Clear();
+            _total.Clear();
+        }
+
+        /// <summary>Eine Zeile: Zyklen, tatsächliche Analysen/s sowie Mittelwert und Maximum je Stufe.</summary>
+        public string Summarize(TimeSpan window)
+        {
+            var rate = window.TotalSeconds > 0 ? _total.Count / window.TotalSeconds : 0;
+            return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"Peaceerkennung: {_total.Count} Analysen in {window.TotalSeconds:0} s ({rate:0.0}/s), Dauer je Analyse {_total.Format()}; Gesichter {_face.Format()}, Palm {_palm.Format()}, Handpunkte {_landmark.Format()}.");
+        }
+    }
 
     private sealed class GestureRequestImpl : IGestureRequest
     {

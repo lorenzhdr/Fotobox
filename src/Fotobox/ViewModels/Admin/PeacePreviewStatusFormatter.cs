@@ -53,6 +53,8 @@ public static class PeacePreviewStatusFormatter
         if (status.FacesReady && faces >= 0)
             parts.Add(string.Create(German, $"Gesichter: {faces}"));
         parts.Add(Math.Max(0, status.AnalysesPerSecond).ToString("0.0", German) + " Analysen/s");
+        if (status.MeanCycleMs > 0)
+            parts.Add(string.Create(German, $"Analyse ⌀ {Math.Round(status.MeanCycleMs):0} ms"));
         if (peaceNow)
             parts.Add(PeaceDetected);
         return new PeacePreviewStatusLines(string.Join(" · ", parts), Join(warnings));

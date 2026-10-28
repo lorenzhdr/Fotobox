@@ -15,35 +15,50 @@ public sealed partial class PeaceDetectionService
     private volatile Stage? _inFlight;
     private List<HandLandmarks> _tracked = [];
     private int _faceCursor;
+    // Dauer der Teilschritte des laufenden Zyklus (Palm- und Landmark-Läufe summiert).
+    private TimeSpan _palmTime, _landmarkTime;
 
     private Stage CurrentStage() => _inFlight ?? _faceStage;
 
-    private async Task<CycleResult> RunCycleAsync(BgraImage image, GestureRequestOptions options, long cycle)
+    /// <param name="onFaces">Wird gerufen, sobald die Gesichter feststehen und die Handstufe noch folgt (schneller Gesichtsmodus).</param>
+    private async Task<CycleResult> RunCycleAsync(BgraImage image, GestureRequestOptions options, long cycle, Action<IReadOnlyList<FaceLandmarks>>? onFaces = null)
     {
         var needs = options.Needs;
+        var divisor = Math.Max(1, options.HandCycleDivisor);
         var faceDetector = _face;
         var handDetector = _hand;
         var useFaces = (needs & (GestureNeeds.Faces | GestureNeeds.Hands)) != 0 && faceDetector is not null && _faceStage.Ready && !_faceStage.Broken;
-        var useHands = (needs & GestureNeeds.Hands) != 0 && handDetector is not null && _handStage.Ready && !_handStage.Broken;
+        var wantHands = (needs & GestureNeeds.Hands) != 0 && handDetector is not null && _handStage.Ready && !_handStage.Broken;
+        // Im schnellen Gesichtsmodus läuft die Handstufe nur in jedem n-ten Zyklus.
+        var useHands = wantHands && cycle % divisor == 0;
+
+        var start = _time.GetTimestamp();
+        _palmTime = _landmarkTime = TimeSpan.Zero;
 
         IReadOnlyList<FaceLandmarks> faces = [];
+        var faceTime = TimeSpan.Zero;
         if (useFaces)
         {
             _inFlight = _faceStage;
+            var t0 = _time.GetTimestamp();
             faces = await Guarded(_faceStage, () => faceDetector!.DetectAsync(image, options.MinFaceScore, CancellationToken.None)).ConfigureAwait(false);
+            faceTime = _time.GetElapsedTime(t0);
+            if (useHands && divisor > 1)
+                onFaces?.Invoke(faces);
         }
 
         IReadOnlyList<HandLandmarks> hands = [];
         if (useHands)
         {
             _inFlight = _handStage;
-            hands = await FindHandsAsync(handDetector!, image, faces, useFaces, options.MinHandScore, cycle).ConfigureAwait(false);
+            hands = await FindHandsAsync(handDetector!, image, faces, useFaces, options.MinHandScore, cycle / divisor).ConfigureAwait(false);
         }
-        else
+        else if (!wantHands)
         {
             _tracked = [];
         }
-        return new CycleResult(faces, hands, useFaces, useHands);
+        var timings = new CycleTimings(faceTime, _palmTime, _landmarkTime, _time.GetElapsedTime(start));
+        return new CycleResult(faces, hands, useFaces, useHands, HandsIncluded: useHands || !wantHands, FacesPublished: useFaces && useHands && divisor > 1, timings);
     }
 
     private static async Task<T> Guarded<T>(Stage stage, Func<Task<T>> call)
@@ -59,7 +74,7 @@ public sealed partial class PeaceDetectionService
     }
 
     private async Task<IReadOnlyList<HandLandmarks>> FindHandsAsync(IHandLandmarkDetector detector, BgraImage image,
-        IReadOnlyList<FaceLandmarks> faces, bool facesAvailable, double minHandScore, long cycle)
+        IReadOnlyList<FaceLandmarks> faces, bool facesAvailable, double minHandScore, long handCycle)
     {
         int w = image.Width, h = image.Height;
         var palmBudget = MaxPalmRuns;
@@ -87,17 +102,21 @@ public sealed partial class PeaceDetectionService
                 if (region.IsEmpty || _tracked.Any(t => region.ContainsPoint(t.Box.CenterX, t.Box.CenterY)))
                     continue;
                 palmBudget--;
+                var tp = _time.GetTimestamp();
                 var palms = await Guarded(_handStage, () => detector.DetectPalmsAsync(image, region, PalmsPerRegion, CancellationToken.None)).ConfigureAwait(false);
+                _palmTime += _time.GetElapsedTime(tp);
                 AddPalmRois(rois, palms, w, h);
             }
             _faceCursor = (start + processed) % count;
         }
 
         // (c) Alle FullImageInterval Analysen (ohne Gesichtsstufe jede) zusätzlich das ganze Bild.
-        if (palmBudget > 0 && (!facesAvailable || cycle % FullImageInterval == 0))
+        if (palmBudget > 0 && (!facesAvailable || handCycle % FullImageInterval == 0))
         {
             palmBudget--;
+            var tp = _time.GetTimestamp();
             var palms = await Guarded(_handStage, () => detector.DetectPalmsAsync(image, NormRect.Full, PalmsPerRegion, CancellationToken.None)).ConfigureAwait(false);
+            _palmTime += _time.GetElapsedTime(tp);
             AddPalmRois(rois, palms, w, h);
         }
 
@@ -105,7 +124,9 @@ public sealed partial class PeaceDetectionService
         for (var i = 0; i < rois.Count && i < MaxLandmarkRuns; i++)
         {
             var roi = rois[i];
+            var tl = _time.GetTimestamp();
             var hand = await Guarded(_handStage, () => detector.DetectLandmarksAsync(image, roi, minHandScore, CancellationToken.None)).ConfigureAwait(false);
+            _landmarkTime += _time.GetElapsedTime(tl);
             if (hand is not null)
                 found.Add(hand);
         }

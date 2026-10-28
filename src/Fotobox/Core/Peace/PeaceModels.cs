@@ -20,17 +20,31 @@ public sealed record HandLandmarks(IReadOnlyList<HandPoint> Points, double Score
 [Flags]
 public enum GestureNeeds { None = 0, Faces = 1, Hands = 2 }
 
-/// <summary>Bedarf einer Anforderung: Umfang, Rate (Analysen pro Sekunde) und Mindestscores.</summary>
-public sealed record GestureRequestOptions(GestureNeeds Needs, int AnalysesPerSecond, double MinFaceScore, double MinHandScore);
+/// <summary>
+/// Bedarf einer Anforderung: Umfang, Rate (Analysen pro Sekunde) und Mindestscores. <paramref name="HandCycleDivisor"/> &gt; 1 =
+/// schneller Gesichtsmodus (Bart sichtbar): Gesichter laufen in jedem Zyklus (<paramref name="AnalysesPerSecond"/>), die Handstufe
+/// nur in jedem n-ten (effektive Handrate = Rate / n), und Gesichter werden vor der Handstufe ausgeliefert.
+/// </summary>
+public sealed record GestureRequestOptions(GestureNeeds Needs, int AnalysesPerSecond, double MinFaceScore, double MinHandScore, int HandCycleDivisor = 1);
 
-/// <summary>Zustand der Erkennungsstufen; Gründe sind kurze deutsche Texte für Admin und Log.</summary>
-public sealed record GestureStatus(bool FacesReady, bool HandsReady, string? FaceUnavailableReason, string? HandUnavailableReason, double AnalysesPerSecond)
+/// <summary>
+/// Zustand der Erkennungsstufen; Gründe sind kurze deutsche Texte für Admin und Log. <paramref name="MeanCycleMs"/> = mittlere Dauer
+/// eines Analysezyklus in Millisekunden (0 = unbekannt).
+/// </summary>
+public sealed record GestureStatus(bool FacesReady, bool HandsReady, string? FaceUnavailableReason, string? HandUnavailableReason, double AnalysesPerSecond, double MeanCycleMs = 0)
 {
     public static GestureStatus Starting { get; } = new(false, false, null, null, 0);
 }
 
-/// <summary>Ergebnis einer Analyse; <see cref="SourceWidth"/>/<see cref="SourceHeight"/> = Auflösung des Kamerabilds.</summary>
-public sealed record GestureUpdate(IReadOnlyList<FaceLandmarks> Faces, IReadOnlyList<HandLandmarks> Hands, int SourceWidth, int SourceHeight, GestureStatus Status);
+/// <summary>
+/// Ergebnis einer Analyse; <see cref="SourceWidth"/>/<see cref="SourceHeight"/> = Auflösung des Kamerabilds.
+/// <paramref name="HandsIncluded"/> = die Handstufe hat in diesem Zyklus gelaufen bzw. liefert hier ihr Ergebnis; bei false sind
+/// <see cref="Hands"/> leer, bedeuten aber NICHT „keine Hände“ (reines Gesichts-Update). <paramref name="FacesFresh"/> = die Gesichter
+/// sind neu; bei false wiederholt das Update die Gesichter eines früheren Updates desselben Zyklus (nur zur Zuordnung der Hände).
+/// <paramref name="FrameTime"/> = Zeitpunkt (<see cref="TimeProvider"/>), zu dem das analysierte Bild eintraf (Mindestwert = unbekannt).
+/// </summary>
+public sealed record GestureUpdate(IReadOnlyList<FaceLandmarks> Faces, IReadOnlyList<HandLandmarks> Hands, int SourceWidth, int SourceHeight,
+    GestureStatus Status, bool HandsIncluded = true, bool FacesFresh = true, DateTimeOffset FrameTime = default);
 
 /// <summary>Rohes Bild als BGRA (8 Bit je Kanal, <see cref="Stride"/> Bytes je Zeile).</summary>
 public sealed class BgraImage

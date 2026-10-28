@@ -307,6 +307,115 @@ public class PeaceDetectionServiceTests
         Assert.InRange(request.Status.AnalysesPerSecond, 4.0, 6.0);
     }
 
+    [Fact]
+    public async Task CycleDurations_AreMeasured_AndReportedAsMeanInStatus()
+    {
+        _face.OnDetect = _ =>
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(40)); // YuNet "dauert" 40 ms
+            return Task.FromResult(_face.Faces);
+        };
+        await using var service = NewService();
+        using var request = service.Request(Options(GestureNeeds.Faces));
+        var updates = Collect(request);
+        await WaitReady(request, hands: false);
+
+        _camera.Raise(Frame);
+        await WaitFor(() => updates.Count == 1);
+        await Cycle(updates, 2);
+
+        Assert.InRange(request.Status.MeanCycleMs, 39.9, 40.1);
+    }
+
+    [Fact]
+    public async Task Updates_CarryTheFrameArrivalTime()
+    {
+        await using var service = NewService();
+        using var request = service.Request(Options(GestureNeeds.Faces));
+        var updates = Collect(request);
+        await WaitReady(request, hands: false);
+
+        _time.Advance(TimeSpan.FromSeconds(3));
+        var expected = _time.GetUtcNow();
+        _camera.Raise(Frame);
+        await WaitFor(() => updates.Count == 1);
+
+        Assert.Equal(expected, updates.Single().FrameTime);
+        Assert.True(updates.Single().HandsIncluded);
+        Assert.True(updates.Single().FacesFresh);
+    }
+
+    // ------------------------------------------------------------------ Schneller Gesichtsmodus
+
+    private static GestureRequestOptions Fast(int perSecond = 10, int divisor = 2) =>
+        new(GestureNeeds.Faces | GestureNeeds.Hands, perSecond, 0.6, 0.5, divisor);
+
+    [Fact]
+    public async Task FastFaces_RunHandStageOnlyInEverySecondCycle_AndFacesComeFirst()
+    {
+        _hand.OnPalms = (_, _) => [PeaceFakes.Palm(0.5, 0.6)];
+        _hand.OnLandmarks = _ => PeaceFakes.Hand(0.5, 0.6);
+        await using var service = NewService();
+        using var request = service.Request(Fast());
+        var updates = Collect(request);
+        await WaitReady(request, hands: true);
+        var step = TimeSpan.FromMilliseconds(100);
+
+        // Zyklus 1: nur Gesichter (ein Update, Hände nicht beteiligt).
+        await Cycle(updates, 1, step);
+        var first = updates.ToArray()[0];
+        Assert.False(first.HandsIncluded);
+        Assert.True(first.FacesFresh);
+        Assert.Equal(0, _hand.LandmarkCalls);
+
+        // Zyklus 2: erst ein reines Gesichts-Update, dann das Update mit den Händen (Gesichter wiederholt, nicht neu).
+        await Cycle(updates, 3, step);
+        var all = updates.ToArray();
+        Assert.False(all[1].HandsIncluded);
+        Assert.True(all[1].FacesFresh);
+        Assert.Empty(all[1].Hands);
+        Assert.True(all[2].HandsIncluded);
+        Assert.False(all[2].FacesFresh);
+        Assert.Single(all[2].Hands);
+        Assert.Single(all[2].Faces);
+    }
+
+    [Fact]
+    public async Task FastFaces_HandsKeepBeingTracked_AcrossSkippedCycles()
+    {
+        _hand.OnPalms = (_, _) => [PeaceFakes.Palm(0.5, 0.6)];
+        _hand.OnLandmarks = _ => PeaceFakes.Hand(0.5, 0.6);
+        await using var service = NewService();
+        using var request = service.Request(Fast());
+        var updates = Collect(request);
+        await WaitReady(request, hands: true);
+        var step = TimeSpan.FromMilliseconds(100);
+
+        await Cycle(updates, 1, step); // Zyklus 1 (ohne Hände)
+        await Cycle(updates, 3, step); // Zyklus 2: Palm-Suche
+        var palmsAfterFirstHandCycle = _hand.PalmCalls;
+        await Cycle(updates, 4, step); // Zyklus 3: ohne Hände
+        await Cycle(updates, 6, step); // Zyklus 4: Hände verfolgt, keine neue Palm-Suche um das Gesicht
+
+        Assert.Equal(palmsAfterFirstHandCycle, _hand.PalmCalls);
+        Assert.Single(updates.Last().Hands);
+    }
+
+    [Fact]
+    public async Task DefaultMode_StillDeliversOneUpdatePerCycle_WithHandsIncluded()
+    {
+        await using var service = NewService();
+        using var request = service.Request(Options());
+        var updates = Collect(request);
+        await WaitReady(request, hands: true);
+
+        await Cycle(updates, 1);
+        await Cycle(updates, 2);
+
+        Assert.Equal(2, updates.Count);
+        Assert.All(updates, u => { Assert.True(u.HandsIncluded); Assert.True(u.FacesFresh); });
+    }
+
     // ------------------------------------------------------------------ Stufen
 
     [Fact]

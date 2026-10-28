@@ -88,4 +88,30 @@ public sealed class PeacePreviewStatusFormatterTests
 
         Assert.Equal("Hände: 0 · Gesichter: 0 · 0,0 Analysen/s", lines.Text);
     }
+
+    [Fact]
+    public void MeanCycleDuration_IsShownRoundedAfterTheRate()
+    {
+        var status = Ready() with { MeanCycleMs = 63.4 };
+        var lines = PeacePreviewStatusFormatter.Format(status, 1, 2, peaceNow: false, cameraRunning: true);
+
+        Assert.Equal("Hände: 1 · Gesichter: 2 · 4,8 Analysen/s · Analyse ⌀ 63 ms", lines.Text);
+    }
+
+    [Fact]
+    public void MeanCycleDuration_PrecedesThePeaceBadge()
+    {
+        var status = Ready() with { MeanCycleMs = 120 };
+        var lines = PeacePreviewStatusFormatter.Format(status, 1, 2, peaceNow: true, cameraRunning: true);
+
+        Assert.Equal("Hände: 1 · Gesichter: 2 · 4,8 Analysen/s · Analyse ⌀ 120 ms · Peace erkannt ✌", lines.Text);
+    }
+
+    [Fact]
+    public void UnknownMeanCycleDuration_IsOmitted()
+    {
+        var lines = PeacePreviewStatusFormatter.Format(Ready() with { MeanCycleMs = 0 }, 1, 2, false, true);
+
+        Assert.DoesNotContain("⌀", lines.Text);
+    }
 }
