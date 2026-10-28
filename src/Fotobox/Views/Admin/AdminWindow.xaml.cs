@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -10,6 +11,8 @@ namespace Fotobox.Views.Admin;
 public partial class AdminWindow : Window
 {
     private readonly AdminViewModel _viewModel;
+    // Das Schließen ist freigegeben (über CloseRequested bestätigt oder die Rückfrage beantwortet): Closing fragt nicht erneut.
+    private bool _closeApproved;
 
     public AdminWindow(AdminViewModel viewModel)
     {
@@ -24,6 +27,7 @@ public partial class AdminWindow : Window
             RepeatPinBox.Clear();
         };
         Loaded += OnLoaded;
+        Closing += OnClosing;
         PreviewKeyDown += OnPreviewKeyDown;
 
         // Farbschema: sofort aus dem Entwurf, bei Änderung im Tab „Darstellung“ oder nach „Standardwerte wiederherstellen“ neu.
@@ -50,7 +54,7 @@ public partial class AdminWindow : Window
         var maxHeight = area.Height - 20;
         var maxWidth = area.Width - 20;
         // Auch die Mindestgröße begrenzen: MinHeight/MinWidth haben in WPF Vorrang vor Height/Width, sonst ragt das Fenster
-        // auf kleinen Bildschirmen über den Rand und die Fußleiste (Speichern/Abbrechen) wäre nicht erreichbar.
+        // auf kleinen Bildschirmen über den Rand und die Fußleiste (Speichern/Schließen) wäre nicht erreichbar.
         MinHeight = Math.Min(MinHeight, maxHeight);
         MinWidth = Math.Min(MinWidth, maxWidth);
         Height = Math.Min(Height, maxHeight);
@@ -70,8 +74,25 @@ public partial class AdminWindow : Window
         }
     }
 
+    /// <summary>
+    /// Schließen über das Fenster selbst (X, Alt+F4): bei ungespeicherten Änderungen nachfragen. Wege über die Buttons
+    /// (Schließen, Speichern &amp; schließen, Beenden) haben ihre Rückfrage bzw. das Speichern schon hinter sich.
+    /// </summary>
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (_closeApproved || Application.Current?.Dispatcher.HasShutdownStarted == true)
+            return;
+
+        if (_viewModel.ConfirmDiscardChanges())
+            _closeApproved = true;
+        else
+            e.Cancel = true;
+    }
+
     private void OnCloseRequested(bool save)
     {
+        _closeApproved = true;
+
         // DialogResult schließt das modale Fenster; true = gespeichert.
         try
         {

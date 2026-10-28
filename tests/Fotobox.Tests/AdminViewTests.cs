@@ -353,7 +353,7 @@ public class AdminViewTests
         WithWindow((window, vm) =>
         {
             vm.HintText = "Los: {Fototaste_1}";
-            vm.IsHintBanner = true;
+            vm.HintStyle = HintStyle.Banner;
             var tabs = FindTabControl(window)!;
             tabs.SelectedItem = tabs.Items.OfType<System.Windows.Controls.TabItem>().Single(t => t.Header as string == "Gastansicht");
             var root = (System.Windows.FrameworkElement)window.Content;
@@ -374,10 +374,10 @@ public class AdminViewTests
         });
     }
 
+    public static IEnumerable<object[]> AllHintStyles => Enum.GetValues<HintStyle>().Select(s => new object[] { s });
+
     [StaTheory]
-    [InlineData(HintStyle.Pill)]
-    [InlineData(HintStyle.Plain)]
-    [InlineData(HintStyle.Banner)]
+    [MemberData(nameof(AllHintStyles))]
     public void GuestHint_CanBeCreated_AndShowsOnlyTheChosenStyle(HintStyle style)
     {
         var hint = new GuestHint
@@ -392,8 +392,9 @@ public class AdminViewTests
         hint.Arrange(new System.Windows.Rect(0, 0, 1920, 1080));
         hint.UpdateLayout();
 
+        // Je Darstellung ein Bereich, in der Reihenfolge des Enums.
         var parts = ((System.Windows.Controls.Grid)hint.Content).Children.OfType<System.Windows.Controls.Grid>().ToList();
-        Assert.Equal(3, parts.Count);
+        Assert.Equal(Enum.GetValues<HintStyle>().Length, parts.Count);
         for (var i = 0; i < parts.Count; i++)
         {
             var expected = i == (int)style ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
@@ -403,7 +404,7 @@ public class AdminViewTests
     }
 
     [StaFact]
-    public void GuestHint_LongText_StaysWithinTwoLines()
+    public void GuestHint_LongText_StaysWithinTwoLines_TickerWithinOne()
     {
         var text = new string('W', SettingsLimits.HintTextMaxLength);
         foreach (var style in Enum.GetValues<HintStyle>())
@@ -413,12 +414,98 @@ public class AdminViewTests
             hint.Arrange(new System.Windows.Rect(0, 0, 1920, 1080));
             hint.UpdateLayout();
 
-            // Die Bereiche stehen in der Reihenfolge des Enums (Pille, Schlicht, Banner).
+            // Die Bereiche stehen in der Reihenfolge des Enums.
             var part = ((System.Windows.Controls.Grid)hint.Content).Children.OfType<System.Windows.Controls.Grid>().ElementAt((int)style);
             var block = FindDescendants<System.Windows.Controls.TextBlock>(part).First(t => t.Text == text);
+            if (style == HintStyle.Ticker)
+            {
+                // Laufschrift: eine Zeile, nie umgebrochen oder gekürzt; sie läuft aus dem Band hinaus.
+                Assert.True(block.ActualHeight <= block.LineHeight + 0.5, $"{style}: {block.ActualHeight}");
+                Assert.Equal(System.Windows.TextWrapping.NoWrap, block.TextWrapping);
+                Assert.True(block.ActualWidth > 1500, $"{style}: {block.ActualWidth}");
+                continue;
+            }
             Assert.True(block.ActualHeight <= block.LineHeight * 2 + 0.5, $"{style}: {block.ActualHeight}");
             Assert.True(block.ActualWidth <= 1500 + 0.5, $"{style}: {block.ActualWidth}");
         }
+    }
+
+    // ---- Admin-Tab „Gastansicht“: Wahlkarten für Hinweis-Stile und Mausradzeile
+
+    private static List<System.Windows.Controls.RadioButton> CardsOf(System.Windows.FrameworkElement root, string group) =>
+        FindDescendants<System.Windows.Controls.RadioButton>(root).Where(r => r.GroupName == group).ToList();
+
+    [StaFact]
+    public void AdminWindow_GuestScreenTab_HasNineStyleCardsForPhotoAndVideo_AndFiveWheelCards()
+    {
+        WithWindow((window, vm) =>
+        {
+            var root = ShowTab(window, "Gastansicht");
+
+            var photo = CardsOf(root, "HintStyle");
+            var video = CardsOf(root, "VideoHintStyle");
+            var wheel = CardsOf(root, "WheelHintStyle");
+            Assert.Equal(Enum.GetValues<HintStyle>().Length, photo.Count);
+            Assert.Equal(Enum.GetValues<HintStyle>().Length, video.Count);
+            Assert.Equal(Enum.GetValues<WheelHintStyle>().Length, wheel.Count);
+
+            // Genau die Karte des Entwurfs ist gewählt.
+            Assert.Equal([true, false, false, false, false, false, false, false, false], photo.Select(r => r.IsChecked == true));
+            Assert.Equal([true, false, false, false, false, false, false, false, false], video.Select(r => r.IsChecked == true));
+            Assert.Equal([true, false, false, false, false], wheel.Select(r => r.IsChecked == true));
+
+            // Klick auf eine Karte schreibt in den Entwurf (EnumMatchConverter, zwei Richtungen) …
+            photo[(int)HintStyle.Neon].IsChecked = true;
+            video[(int)HintStyle.Cinema].IsChecked = true;
+            wheel[(int)WheelHintStyle.Chip].IsChecked = true;
+            Assert.Equal(HintStyle.Neon, vm.HintStyle);
+            Assert.Equal(HintStyle.Cinema, vm.VideoHintStyle);
+            Assert.Equal(WheelHintStyle.Chip, vm.WheelHintStyle);
+            Assert.Equal(HintStyle.Neon, vm.Draft.GuestScreen.HintStyle);
+            Assert.Equal([HintStyle.Neon], photo.Where(r => r.IsChecked == true).Select(r => (HintStyle)photo.IndexOf(r)));
+
+            // … und Änderungen am Entwurf wandern auf die Karten (auch das Vorschau-Control folgt).
+            vm.HintStyle = HintStyle.Note;
+            Assert.True(photo[(int)HintStyle.Note].IsChecked);
+            Assert.False(photo[(int)HintStyle.Neon].IsChecked);
+            var hints = FindDescendants<GuestHint>(root).ToList();
+            Assert.Equal(HintStyle.Note, hints[0].HintStyle);
+            Assert.Equal(HintStyle.Cinema, hints[1].HintStyle);
+            Assert.Equal(WheelHintStyle.Chip, hints[0].LayoutHintStyle);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_GuestScreenTab_WheelSection_PreviewFollowsCheckboxTextAndStyle()
+    {
+        WithWindow((window, vm) =>
+        {
+            var root = ShowTab(window, "Gastansicht");
+            var hint = FindDescendants<GuestHint>(root).First();
+            var panel = (System.Windows.Controls.StackPanel)window.FindName("WheelHintPanel");
+            var checkBox = FindDescendants<System.Windows.Controls.CheckBox>(root)
+                .Single(c => c.Content as string == "Mausradzeile anzeigen");
+            Assert.True(checkBox.IsChecked);
+            Assert.True(panel.IsEnabled);
+
+            vm.IsGuestStripDouble = true;
+            Assert.True(hint.ShowLayoutHint);
+            Assert.Equal("Mausrad: Layout wechseln · Ein Foto", hint.LayoutHintText);
+
+            vm.WheelHintText = "Rad drehen";
+            Assert.Equal("Rad drehen", hint.LayoutHintText);
+
+            // Text und Karten werden ausgegraut, die Zeile verschwindet aus der Vorschau.
+            checkBox.IsChecked = false;
+            Assert.False(vm.ShowWheelHint);
+            Assert.False(panel.IsEnabled);
+            Assert.Equal(0.55, panel.Opacity);
+            Assert.False(hint.ShowLayoutHint);
+
+            checkBox.IsChecked = true;
+            Assert.True(panel.IsEnabled);
+            Assert.True(hint.ShowLayoutHint);
+        });
     }
 
     [StaFact]
@@ -570,7 +657,7 @@ public class AdminViewTests
     {
         WithWindow((window, vm) =>
         {
-            vm.IsVideoHintBanner = true;
+            vm.VideoHintStyle = HintStyle.Banner;
             var root = ShowTab(window, "Gastansicht");
 
             var hints = FindDescendants<GuestHint>(root).ToList();

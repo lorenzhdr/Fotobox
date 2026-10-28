@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -83,7 +85,8 @@ public sealed class GuestLayoutItem
 
 /// <summary>
 /// Admin-Ansicht: bearbeitet einen Entwurf (Clone) der Einstellungen. Gespeichert wird erst über
-/// <see cref="SaveCommand"/>; Abbrechen lässt den Store unberührt.
+/// <see cref="ApplyCommand"/> (Fenster bleibt offen) oder <see cref="SaveCommand"/> (speichern und schließen);
+/// Schließen (<see cref="CloseCommand"/>) lässt den Store unberührt.
 /// </summary>
 public sealed class AdminViewModel : ObservableObject, IDisposable
 {
@@ -108,9 +111,15 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     private int _cameraRestartVersion;
     // Mit diesen Kameraeinstellungen wurde die Kamera zuletzt wirklich gestartet (null = nie durch die Admin-Ansicht).
     private CameraSettings? _lastAppliedCamera;
-    // Speicherordner beim Öffnen: Nur ein geänderter Ordner wird beim Speichern per Schreibtest geprüft.
-    private readonly string? _initialPhotoFolder;
-    private readonly string? _initialVideoFolder;
+    // Speicherordner beim Öffnen bzw. beim letzten Speichern: Nur ein geänderter Ordner wird per Schreibtest geprüft.
+    private string? _initialPhotoFolder;
+    private string? _initialVideoFolder;
+    // Gespeicherter Stand des Entwurfs (normalisiertes JSON ohne PIN-Daten) zum Erkennen ungespeicherter Änderungen.
+    private string? _baselineJson;
+    private bool _isSaving;
+    // Schließen wurde bereits angestoßen (Schließen, Speichern & schließen, Beenden): weiteres Speichern ist wirkungslos.
+    private bool _closeRequested;
+    private string _saveStatusMessage = string.Empty;
 
     private CameraDevice? _selectedDevice;
     private ResolutionOption? _selectedResolution;
@@ -224,8 +233,9 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         LoadKeysFromDraft();
         RebuildGuestOrder();
 
-        SaveCommand = new AsyncRelayCommand(SaveAsync);
-        CancelCommand = new RelayCommand(Cancel);
+        SaveCommand = new AsyncRelayCommand(() => SaveCoreAsync(close: true), () => !IsSaving);
+        ApplyCommand = new AsyncRelayCommand(() => SaveCoreAsync(close: false), () => !IsSaving);
+        CloseCommand = new RelayCommand(Close);
         ExitCommand = new RelayCommand(RequestExit);
         ChooseOverlayCommand = new RelayCommand(ChooseOverlay);
         RemoveOverlayCommand = new RelayCommand(RemoveOverlay);
@@ -243,6 +253,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
         Camera.StatusChanged += OnCameraStatusChanged;
         UpdateOverlay();
+        _baselineJson = SnapshotJson();
     }
 
     // ---------------------------------------------------------------- Allgemein
@@ -253,8 +264,12 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     /// <summary>Kamera für die Live-Vorschau.</summary>
     public ICameraService Camera { get; }
 
+    /// <summary>Speichern und die Admin-Ansicht schließen („Speichern &amp; schließen“).</summary>
     public IAsyncRelayCommand SaveCommand { get; }
-    public IRelayCommand CancelCommand { get; }
+    /// <summary>Speichern, die Admin-Ansicht bleibt offen („Übernehmen“).</summary>
+    public IAsyncRelayCommand ApplyCommand { get; }
+    /// <summary>Schließen ohne Speichern; bei ungespeicherten Änderungen mit Rückfrage („Schließen“).</summary>
+    public IRelayCommand CloseCommand { get; }
     public IRelayCommand ExitCommand { get; }
     public IRelayCommand ChooseOverlayCommand { get; }
     public IRelayCommand RemoveOverlayCommand { get; }
@@ -276,12 +291,26 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     /// <summary>Die PIN-Eingabefelder sollen geleert werden.</summary>
     public event Action? PinFieldsCleared;
 
+    /// <summary>Die Einstellungen wurden mindestens einmal erfolgreich gespeichert (Übernehmen oder Speichern &amp; schließen).</summary>
     public bool SettingsSaved { get; private set; }
 
     public bool ExitRequested { get; private set; }
 
-    /// <summary>Kamera wurde mit Entwurfs-Einstellungen neu gestartet (bei Abbrechen zurücksetzen).</summary>
+    /// <summary>Kamera wurde mit Entwurfs-Einstellungen neu gestartet (bei Schließen ohne Speichern zurücksetzen).</summary>
     public bool CameraTouched { get; private set; }
+
+    /// <summary>Ein Speichervorgang läuft (Prüfung oder Schreiben): Übernehmen und Speichern sind dann gesperrt.</summary>
+    public bool IsSaving
+    {
+        get => _isSaving;
+        private set
+        {
+            if (!SetProperty(ref _isSaving, value))
+                return;
+            SaveCommand.NotifyCanExecuteChanged();
+            ApplyCommand.NotifyCanExecuteChanged();
+        }
+    }
 
     public string ValidationMessage
     {
@@ -290,10 +319,104 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _validationMessage, value))
                 OnPropertyChanged(nameof(HasValidationMessage));
+            // Ein neuer Fehler ersetzt die Erfolgsmeldung.
+            if (value.Length > 0)
+                SaveStatusMessage = string.Empty;
         }
     }
 
     public bool HasValidationMessage => _validationMessage.Length > 0;
+
+    /// <summary>„Einstellungen gespeichert.“ nach Übernehmen; leer, sobald sich der Entwurf wieder ändert oder ein Fehler auftritt.</summary>
+    public string SaveStatusMessage
+    {
+        get => _saveStatusMessage;
+        private set
+        {
+            if (SetProperty(ref _saveStatusMessage, value))
+                OnPropertyChanged(nameof(HasSaveStatus));
+        }
+    }
+
+    public bool HasSaveStatus => _saveStatusMessage.Length > 0;
+
+    // ---------------------------------------------------------------- Ungespeicherte Änderungen
+
+    /// <summary>
+    /// Unterscheidet sich der Entwurf vom zuletzt gespeicherten Stand (beim Öffnen bzw. nach dem letzten Speichern), oder ist
+    /// eine neue PIN eingetragen? Verglichen wird das normalisierte JSON ohne PIN-Daten (die PIN ändert sich über den Dienst).
+    /// </summary>
+    public bool HasUnsavedChanges
+    {
+        get
+        {
+            if (_newPin.Length > 0 || _repeatPin.Length > 0)
+                return true;
+            var current = SnapshotJson();
+            // Nicht serialisierbar: lieber einmal zu viel fragen.
+            return current is null || !string.Equals(current, _baselineJson, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>JSON des normalisierten Entwurfs ohne <see cref="AppSettings.Security"/>; null, wenn es sich nicht erzeugen lässt.</summary>
+    private string? SnapshotJson()
+    {
+        try
+        {
+            // Normalize arbeitet auf der Kopie (wie JsonSettingsStore.Save): Der Entwurf selbst bleibt unverändert.
+            var copy = SettingsNormalizer.Normalize(_draft.Clone());
+            copy.Security = new SecuritySettings();
+            return JsonSerializer.Serialize(copy, AppSettings.JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Der Entwurf der Einstellungen konnte nicht verglichen werden.", ex);
+            return null;
+        }
+    }
+
+    /// <summary>Setzt den Vergleichsstand auf den aktuellen Entwurf (nach dem Laden der Listen und nach jedem Speichern).</summary>
+    private void ResetBaseline() => _baselineJson = SnapshotJson();
+
+    /// <summary>
+    /// Fragt vor dem Verwerfen ungespeicherter Änderungen nach. true = Schließen ist in Ordnung (keine Änderungen oder bestätigt).
+    /// Wirft nicht; scheitert die Rückfrage, wird nicht blockiert.
+    /// </summary>
+    public bool ConfirmDiscardChanges()
+    {
+        if (_disposed || _closeRequested || !HasUnsavedChanges)
+            return true;
+
+        try
+        {
+            return _ui.Confirm("Ungespeicherte Änderungen",
+                "Es gibt ungespeicherte Änderungen. Möchten Sie sie verwerfen und den Admin schließen?");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Rückfrage zu ungespeicherten Änderungen fehlgeschlagen.", ex);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Blendet „Einstellungen gespeichert.“ aus, sobald der Entwurf vom gespeicherten Stand abweicht. Inhaltlich statt über
+    /// einzelne Property-Namen, damit Änderungen ohne eigene Benachrichtigung ebenfalls erfasst werden und Hintergrundmeldungen
+    /// (Kamerastatus, Seitengröße …) die Anzeige nicht grundlos löschen.
+    /// </summary>
+    private void HideSaveStatusIfDirty()
+    {
+        if (_saveStatusMessage.Length > 0 && HasUnsavedChanges)
+            SaveStatusMessage = string.Empty;
+    }
+
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (_saveStatusMessage.Length > 0
+            && e.PropertyName is not (nameof(SaveStatusMessage) or nameof(HasSaveStatus) or nameof(IsSaving)))
+            HideSaveStatusIfDirty();
+    }
 
     // ---------------------------------------------------------------- Initialisierung
 
@@ -312,6 +435,11 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             Guard(RefreshPageSpecAsync(), "Seitengröße"));
         // Das Overlay-Vorschaubild hat bereits der Konstruktor geladen.
         RaiseCameraStatus();
+
+        // Das Laden der Listen kann den Entwurf geringfügig angleichen (z. B. verschwundene Auflösung → „Automatisch“): Das ist
+        // keine Änderung des Nutzers und soll beim Schließen nicht nachfragen lassen. Nach einem Speichern gilt dessen Stand.
+        if (!SettingsSaved && !_disposed)
+            ResetBaseline();
     }
 
     /// <summary>Protokolliert einen unerwarteten Fehler einer Ladeaufgabe, statt <see cref="InitializeAsync"/> scheitern zu lassen.</summary>
@@ -363,6 +491,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             _selectedDevice = device;
             OnPropertyChanged(nameof(SelectedDevice));
         }
+        HideSaveStatusIfDirty();   // OnPropertyChanged kam vor der Änderung des Entwurfs
 
         await LoadResolutionsAsync(device.Id);
         await RestartCameraAsync();
@@ -381,6 +510,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 return;
             _draft.Camera.ResolutionWidth = value.Resolution?.Width;
             _draft.Camera.ResolutionHeight = value.Resolution?.Height;
+            HideSaveStatusIfDirty();   // OnPropertyChanged kam vor der Änderung des Entwurfs
             Forget(RestartCameraAsync());
         }
     }
@@ -456,7 +586,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     public CameraSettings? LastAppliedCamera => Volatile.Read(ref _lastAppliedCamera)?.Clone();
 
     /// <summary>
-    /// Stellt nach „Abbrechen“ die gespeicherten Einstellungen (Kamera und Ton) wieder her. Läuft über dasselbe Gate wie
+    /// Stellt nach „Schließen“ ohne Speichern die gespeicherten Einstellungen (Kamera und Ton) wieder her. Läuft über dasselbe Gate wie
     /// <see cref="RestartCameraAsync"/> und verwirft noch wartende Entwurfs-Neustarts.
     /// </summary>
     public async Task RestoreCameraAsync(AppSettings saved)
@@ -469,7 +599,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            AppLog.Error("Kamera konnte nach dem Abbrechen nicht neu gestartet werden.", ex);
+            AppLog.Error("Kamera konnte nach dem Schließen der Einstellungen nicht neu gestartet werden.", ex);
         }
         finally
         {
@@ -795,7 +925,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(GuestOrder));
         OnPropertyChanged(nameof(HasGuestOrder));
         // Die Vorschau der Gastansicht zeigt ab zwei Wahlmöglichkeiten die Layout-Zeile mit dem Namen des Standard-Layouts.
-        OnPropertyChanged(nameof(HintPreviewLayoutText));
+        RaiseWheelHintPreview();
     }
 
     private void RaiseGuestChoices()
@@ -1108,7 +1238,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             // Vorab prüfen, ob die Datei ein gültiges Bild ist (die Vorschau wird dabei komplett gelesen, aber klein dekodiert).
             _ = LoadOverlayPreview(sourcePath);
 
-            // Eine vorhandene Overlay-Datei (ggf. das aktive Overlay) wird nie überschrieben: „Abbrechen“ in der
+            // Eine vorhandene Overlay-Datei (ggf. das aktive Overlay) wird nie überschrieben: „Schließen“ in der
             // Admin-Ansicht könnte das nicht rückgängig machen. Stattdessen eindeutiger Name bzw. identische Datei wiederverwenden.
             var fileName = CopyOverlayToStore(sourcePath);
 
@@ -1273,6 +1403,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 _draft.Appearance.GuestMonitorId = value.Id;
                 _draft.Appearance.GuestMonitorName = _missingMonitorName;
             }
+            HideSaveStatusIfDirty();   // OnPropertyChanged kam vor der Änderung des Entwurfs
             UpdateMonitorHint();
         }
     }
@@ -1387,7 +1518,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
         else
         {
-            MonitorHint = "Die Wahl gilt nach „Speichern“. Die Einstellungen und die PIN-Abfrage öffnen auf demselben Bildschirm.";
+            MonitorHint = "Die Wahl wird mit „Übernehmen“ oder „Speichern & schließen“ gespeichert und wirkt erst nach dem Schließen der Einstellungen. Die Einstellungen und die PIN-Abfrage öffnen auf demselben Bildschirm.";
         }
     }
 
@@ -1991,7 +2122,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         SyncKeysToDraft();
         OnPropertyChanged(nameof(TriggerOnLeftClick));
         OnPropertyChanged(nameof(TriggerOnRightClick));
-        KeyMessage = "Die Tasten wurden auf die Standardbelegung zurückgesetzt. Sie gilt nach „Speichern“.";
+        KeyMessage = "Die Tasten wurden auf die Standardbelegung zurückgesetzt. Sie gilt nach „Übernehmen“ oder „Speichern & schließen“.";
     }
 
     // ---------------------------------------------------------------- Gastansicht
@@ -2008,39 +2139,50 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Darstellung des Hinweises (für die Vorschau).</summary>
-    public HintStyle HintStyle => _draft.GuestScreen.HintStyle;
-
-    /// <summary>Darstellung „Pille“: Rahmen, Farbverlauf und sanftes Pulsieren.</summary>
-    public bool IsHintPill
+    /// <summary>Darstellung des Hinweises (Wahlkarten und Vorschau; gebunden über <c>EnumMatchConverter</c>).</summary>
+    public HintStyle HintStyle
     {
-        get => _draft.GuestScreen.HintStyle == HintStyle.Pill;
-        set => SetHintStyle(HintStyle.Pill, value);
+        get => _draft.GuestScreen.HintStyle;
+        set => SetProperty(_draft.GuestScreen.HintStyle, value, v => _draft.GuestScreen.HintStyle = v);
     }
 
-    /// <summary>Darstellung „Schlicht“: weißer Text mit Schatten.</summary>
-    public bool IsHintPlain
+    /// <summary>Mausradzeile („Mausrad: Layout wechseln · …“) in der Gastansicht anzeigen.</summary>
+    public bool ShowWheelHint
     {
-        get => _draft.GuestScreen.HintStyle == HintStyle.Plain;
-        set => SetHintStyle(HintStyle.Plain, value);
+        get => _draft.GuestScreen.ShowWheelHint;
+        set
+        {
+            if (SetProperty(_draft.GuestScreen.ShowWheelHint, value, v => _draft.GuestScreen.ShowWheelHint = v))
+                RaiseWheelHintPreview();
+        }
     }
 
-    /// <summary>Darstellung „Banner“: dunkles Band über die volle Breite.</summary>
-    public bool IsHintBanner
+    /// <summary>Eigener Text der Mausradzeile (wörtlich, ohne Platzhalter); leer = automatischer Text mit dem Layoutnamen.</summary>
+    public string WheelHintText
     {
-        get => _draft.GuestScreen.HintStyle == HintStyle.Banner;
-        set => SetHintStyle(HintStyle.Banner, value);
+        get => _draft.GuestScreen.WheelHintText ?? string.Empty;
+        set
+        {
+            if (SetProperty(_draft.GuestScreen.WheelHintText ?? string.Empty, value ?? string.Empty,
+                    v => _draft.GuestScreen.WheelHintText = string.IsNullOrWhiteSpace(v) ? null : v))
+                RaiseWheelHintPreview();
+        }
     }
 
-    private void SetHintStyle(HintStyle style, bool selected)
+    /// <summary>Darstellung der Mausradzeile.</summary>
+    public WheelHintStyle WheelHintStyle
     {
-        if (!selected || _draft.GuestScreen.HintStyle == style)
-            return;
-        _draft.GuestScreen.HintStyle = style;
-        OnPropertyChanged(nameof(HintStyle));
-        OnPropertyChanged(nameof(IsHintPill));
-        OnPropertyChanged(nameof(IsHintPlain));
-        OnPropertyChanged(nameof(IsHintBanner));
+        get => _draft.GuestScreen.WheelHintStyle;
+        set => SetProperty(_draft.GuestScreen.WheelHintStyle, value, v => _draft.GuestScreen.WheelHintStyle = v);
+    }
+
+    /// <summary>Die Mausradzeile erscheint in der Vorschau: mindestens zwei Layouts zur Auswahl und die Zeile ist eingeschaltet.</summary>
+    public bool ShowWheelHintPreview => HasGuestOrder && ShowWheelHint;
+
+    private void RaiseWheelHintPreview()
+    {
+        OnPropertyChanged(nameof(ShowWheelHintPreview));
+        OnPropertyChanged(nameof(HintPreviewLayoutText));
     }
 
     // ---------------------------------------------------------------- Darstellung (Admin-Ansicht)
@@ -2085,7 +2227,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         HintTextFormatter.Format(_draft.GuestScreen.HintText, TriggerChords(), TriggerOnLeftClick || TriggerOnRightClick, VideoStartChords());
 
     /// <summary>Zusatzzeile der Vorschau mit dem Namen des Standard-Layouts (sichtbar bei <see cref="HasGuestOrder"/>).</summary>
-    public string HintPreviewLayoutText => GuestLayouts.WheelHint(DefaultGuestLayout, _draft.Layout.StripPhotoCount);
+    public string HintPreviewLayoutText =>
+        GuestLayouts.WheelHintText(_draft.GuestScreen, DefaultGuestLayout, _draft.Layout.StripPhotoCount);
 
     /// <summary>Hinweise zu den Platzhaltern im Hinweistext (leer = alles in Ordnung).</summary>
     public IReadOnlyList<string> HintProblems =>
@@ -2113,36 +2256,11 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Darstellung des Video-Hinweises (für die Vorschau).</summary>
-    public HintStyle VideoHintStyle => _draft.GuestScreen.VideoHintStyle;
-
-    public bool IsVideoHintPill
+    /// <summary>Darstellung des Video-Hinweises (Wahlkarten und Vorschau; gebunden über <c>EnumMatchConverter</c>).</summary>
+    public HintStyle VideoHintStyle
     {
-        get => _draft.GuestScreen.VideoHintStyle == HintStyle.Pill;
-        set => SetVideoHintStyle(HintStyle.Pill, value);
-    }
-
-    public bool IsVideoHintPlain
-    {
-        get => _draft.GuestScreen.VideoHintStyle == HintStyle.Plain;
-        set => SetVideoHintStyle(HintStyle.Plain, value);
-    }
-
-    public bool IsVideoHintBanner
-    {
-        get => _draft.GuestScreen.VideoHintStyle == HintStyle.Banner;
-        set => SetVideoHintStyle(HintStyle.Banner, value);
-    }
-
-    private void SetVideoHintStyle(HintStyle style, bool selected)
-    {
-        if (!selected || _draft.GuestScreen.VideoHintStyle == style)
-            return;
-        _draft.GuestScreen.VideoHintStyle = style;
-        OnPropertyChanged(nameof(VideoHintStyle));
-        OnPropertyChanged(nameof(IsVideoHintPill));
-        OnPropertyChanged(nameof(IsVideoHintPlain));
-        OnPropertyChanged(nameof(IsVideoHintBanner));
+        get => _draft.GuestScreen.VideoHintStyle;
+        set => SetProperty(_draft.GuestScreen.VideoHintStyle, value, v => _draft.GuestScreen.VideoHintStyle = v);
     }
 
     /// <summary>Die Video-Hinweiszeile, wie die Gastansicht sie mit dem aktuellen Entwurf zeigt (leer ohne Video-Starttaste).</summary>
@@ -2387,6 +2505,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
                 _draft.Video.MicrophoneName = device?.Name ?? _missingMicrophoneName;
             }
 
+            HideSaveStatusIfDirty();   // OnPropertyChanged kam vor der Änderung des Entwurfs
             UpdateMicrophoneHint();
         }
     }
@@ -2478,7 +2597,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// Setzt alle Einstellungen im Entwurf auf die Standardwerte zurück (nach Bestätigung). Die PIN (<see cref="AppSettings.Security"/>)
-    /// und die Version bleiben erhalten. Wie jede andere Änderung gilt das Zurücksetzen erst mit „Speichern“; „Abbrechen“ verwirft es.
+    /// und die Version bleiben erhalten. Wie jede andere Änderung gilt das Zurücksetzen erst mit „Übernehmen“ bzw. „Speichern &amp; schließen“; „Schließen“ verwirft es.
     /// </summary>
     public async Task ResetToDefaultsAsync()
     {
@@ -2501,7 +2620,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     {
         if (!_ui.Confirm("Standardwerte wiederherstellen",
                 "Alle Einstellungen außer der PIN werden auf die Standardwerte zurückgesetzt. " +
-                "Die Änderung wird erst mit „Speichern“ übernommen.\nFortfahren?"))
+                "Die Änderung wird erst mit „Übernehmen“ oder „Speichern & schließen“ gespeichert.\nFortfahren?"))
             return;
 
         var cameraBefore = _draft.Camera;
@@ -2728,12 +2847,29 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task SaveAsync()
+    /// <summary>
+    /// Prüft und speichert den Entwurf. <paramref name="close"/> = Speichern &amp; schließen, sonst Übernehmen (Fenster bleibt offen).
+    /// Ein gemeinsames Flag sperrt gleichzeitige Aufrufe, damit Doppelklick bzw. Übernehmen + Speichern nur einmal schreiben.
+    /// </summary>
+    private async Task SaveCoreAsync(bool close)
     {
-        // Kein Fehler darf als unbehandelte Ausnahme aus dem Befehl in den Dispatcher laufen (globaler Handler, Absturz).
-        if (_disposed || SettingsSaved)
+        if (_disposed || _isSaving || _closeRequested)
             return;
 
+        IsSaving = true;
+        try
+        {
+            await SaveCoreCoreAsync(close);
+        }
+        finally
+        {
+            IsSaving = false;
+        }
+    }
+
+    private async Task SaveCoreCoreAsync(bool close)
+    {
+        // Kein Fehler darf als unbehandelte Ausnahme aus dem Befehl in den Dispatcher laufen (globaler Handler, Absturz).
         IReadOnlyList<string> errors;
         try
         {
@@ -2747,7 +2883,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
 
         // Die Admin-Ansicht kann während des Schreibtests geschlossen worden sein.
-        if (_disposed || SettingsSaved)
+        if (_disposed || _closeRequested)
             return;
 
         if (errors.Count > 0)
@@ -2794,15 +2930,37 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
 
         SettingsSaved = true;
         ValidationMessage = string.Empty;
+        // Neuer Vergleichsstand für die Erkennung ungespeicherter Änderungen (gleich nach dem Speichern, ohne await dazwischen).
+        ResetBaseline();
 
-        // Gespeichert: Aufnahmemodus beenden und wartende Entwurfs-Neustarts der Kamera verwerfen. Sonst startete die Kamera
-        // noch mit Entwurfswerten, während das Hauptfenster sie schon mit den gespeicherten Werten neu startet.
-        _capturingEditor = null;
-        Interlocked.Increment(ref _cameraRestartVersion);
-        CloseRequested?.Invoke(true);
+        if (close)
+        {
+            // Gespeichert: Aufnahmemodus beenden und wartende Entwurfs-Neustarts der Kamera verwerfen. Sonst startete die Kamera
+            // noch mit Entwurfswerten, während das Hauptfenster sie schon mit den gespeicherten Werten neu startet.
+            _capturingEditor = null;
+            Interlocked.Increment(ref _cameraRestartVersion);
+            _closeRequested = true;
+            CloseRequested?.Invoke(true);
+            return;
+        }
+
+        // Übernehmen: Das Fenster bleibt offen und die Kamera folgt dem Entwurf weiter (kein Verwerfen wartender Neustarts).
+        // Der gespeicherte Ordner gilt als geprüft, damit er beim nächsten Speichern nicht erneut per Schreibtest geprüft wird.
+        // Der Videoordner wird nur bei aktivem Videomodus geprüft (ValidateVideo) – sonst bleibt er ungeprüft.
+        _initialPhotoFolder = _draft.Storage.PhotoFolder;
+        if (_draft.Video.Enabled)
+            _initialVideoFolder = _draft.Video.Folder;
+        SaveStatusMessage = "Einstellungen gespeichert.";
     }
 
-    private void Cancel() => CloseRequested?.Invoke(false);
+    private void Close()
+    {
+        if (_closeRequested || !ConfirmDiscardChanges())
+            return;
+
+        _closeRequested = true;
+        CloseRequested?.Invoke(false);
+    }
 
     private void RequestExit()
     {
@@ -2811,6 +2969,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             return;
 
         ExitRequested = true;
+        _closeRequested = true;
         CloseRequested?.Invoke(false);
     }
 

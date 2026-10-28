@@ -268,10 +268,10 @@ public partial class BoothViewModelTests
         Assert.Equal(HintStyle.Pill, h.ViewModel.HintStyle);
     }
 
+    public static IEnumerable<object[]> AllHintStyles => Enum.GetValues<HintStyle>().Select(s => new object[] { s });
+
     [Theory]
-    [InlineData(HintStyle.Pill)]
-    [InlineData(HintStyle.Plain)]
-    [InlineData(HintStyle.Banner)]
+    [MemberData(nameof(AllHintStyles))]
     public void HintStyle_FollowsSettings(HintStyle style)
     {
         var h = new Harness();
@@ -281,6 +281,66 @@ public partial class BoothViewModelTests
         h.Settings.RaiseSettingsChanged();
 
         Assert.Equal(style, h.ViewModel.HintStyle);
+    }
+
+    // ---- Mausradzeile
+
+    private static void EnableLayoutChoice(Harness h)
+    {
+        h.Settings.Current.Layout.GuestChoices = [GuestLayout.Single, GuestLayout.StripDouble];
+        h.Settings.RaiseSettingsChanged();
+    }
+
+    [Fact]
+    public void LayoutHint_DefaultsToAutomaticTextAndMatchingStyle()
+    {
+        var h = new Harness();
+        EnableLayoutChoice(h);
+
+        Assert.True(h.ViewModel.ShowLayoutHint);
+        Assert.Equal("Mausrad: Layout wechseln · Ein Foto", h.ViewModel.LayoutHintText);
+        Assert.Equal(WheelHintStyle.Matching, h.ViewModel.LayoutHintStyle);
+    }
+
+    [Fact]
+    public void LayoutHint_CanBeSwitchedOff()
+    {
+        var h = new Harness();
+        EnableLayoutChoice(h);
+        Assert.True(h.ViewModel.ShowLayoutHint);
+
+        h.Settings.Current.GuestScreen.ShowWheelHint = false;
+        h.Settings.RaiseSettingsChanged();
+
+        Assert.False(h.ViewModel.ShowLayoutHint);
+    }
+
+    [Fact]
+    public void LayoutHint_CustomText_IsShownVerbatim()
+    {
+        var h = new Harness();
+        EnableLayoutChoice(h);
+
+        h.Settings.Current.GuestScreen.WheelHintText = "Dreh am Rad {Layout}";
+        h.Settings.RaiseSettingsChanged();
+
+        Assert.Equal("Dreh am Rad {Layout}", h.ViewModel.LayoutHintText);
+    }
+
+    [Theory]
+    [InlineData(WheelHintStyle.Matching)]
+    [InlineData(WheelHintStyle.SmallPill)]
+    [InlineData(WheelHintStyle.Plain)]
+    [InlineData(WheelHintStyle.Chip)]
+    [InlineData(WheelHintStyle.Arrows)]
+    public void LayoutHintStyle_FollowsSettings(WheelHintStyle style)
+    {
+        var h = new Harness();
+
+        h.Settings.Current.GuestScreen.WheelHintStyle = style;
+        h.Settings.RaiseSettingsChanged();
+
+        Assert.Equal(style, h.ViewModel.LayoutHintStyle);
     }
 
     private static void DisableClicks(Harness h)

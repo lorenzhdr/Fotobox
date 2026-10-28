@@ -374,9 +374,12 @@ public sealed class BoothViewModel : ObservableObject
     }
 
     /// <summary>Zusatzzeile unter dem Hinweistext; nur, wenn der Gast überhaupt wählen kann.</summary>
-    public bool ShowLayoutHint => ShowHint && LayoutChoices.Count >= 2;
+    public bool ShowLayoutHint => ShowHint && LayoutChoices.Count >= 2 && (Settings.Current.GuestScreen?.ShowWheelHint ?? true);
 
-    public string LayoutHintText => GuestLayouts.WheelHint(SelectedLayout, Settings.Current.Layout.StripPhotoCount);
+    public string LayoutHintText => GuestLayouts.WheelHintText(Settings.Current.GuestScreen, SelectedLayout, Settings.Current.Layout.StripPhotoCount);
+
+    /// <summary>Darstellung der Mausradzeile (<see cref="WheelHintStyle"/>).</summary>
+    public WheelHintStyle LayoutHintStyle => Settings.Current.GuestScreen?.WheelHintStyle ?? WheelHintStyle.Matching;
 
     /// <summary>
     /// Wählt das nächste (<paramref name="direction"/> &gt; 0) bzw. vorherige Layout, zyklisch, und blendet die Vorschauliste

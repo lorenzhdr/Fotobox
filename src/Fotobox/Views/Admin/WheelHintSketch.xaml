@@ -1,0 +1,62 @@
+<UserControl x:Class="Fotobox.Views.Admin.WheelHintSketch"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Fotobox.Views.Admin"
+             xmlns:core="clr-namespace:Fotobox.Core"
+             xmlns:conv="clr-namespace:Fotobox.Views.Converters"
+             Width="120" Height="68" IsHitTestVisible="False" Focusable="False">
+
+    <!-- Skizze einer Darstellung der Mausradzeile (Hinweis als weißer Balken, darunter die Zeile). Bewusst fest eingefärbt. -->
+    <UserControl.Resources>
+        <conv:EnumMatchVisibilityConverter x:Key="KindVis" />
+    </UserControl.Resources>
+
+    <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
+        <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#5A6478" Offset="0" />
+                <GradientStop Color="#2B3347" Offset="1" />
+            </LinearGradientBrush>
+        </Border.Background>
+        <Grid>
+            <!-- Der Hinweis selbst, nur angedeutet -->
+            <Border Height="5" Width="70" Background="#E6FFFFFF" CornerRadius="2.5"
+                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,30" />
+
+            <!-- Passend zum Hinweis: dünne helle Zeile -->
+            <Border Height="3" Width="52" Background="#D9FFFFFF" CornerRadius="1.5"
+                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,14"
+                    Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:WheelHintSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:WheelHintStyle.Matching}}" />
+
+            <!-- Kleine Pille -->
+            <Border HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,8"
+                    Width="58" Height="14" CornerRadius="7" BorderThickness="1" BorderBrush="#E59A4A" Background="#D9101828"
+                    Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:WheelHintSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:WheelHintStyle.SmallPill}}">
+                <Border Height="2.5" Width="34" Background="White" CornerRadius="1.25" />
+            </Border>
+
+            <!-- Schlichter Text: kleiner, halbtransparent -->
+            <Border Height="2.5" Width="40" Background="#99FFFFFF" CornerRadius="1.25"
+                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,14"
+                    Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:WheelHintSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:WheelHintStyle.Plain}}" />
+
+            <!-- Chip: heller Chip mit „⇅“ und dunklem Text -->
+            <Border HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,8"
+                    Width="58" Height="14" CornerRadius="7" Background="#EBF3F5FA"
+                    Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:WheelHintSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:WheelHintStyle.Chip}}">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="⇅" FontFamily="Segoe UI Symbol, Segoe UI" FontSize="9" Foreground="#3B4A78" Margin="0,0,4,0" VerticalAlignment="Center" />
+                    <Border Height="2.5" Width="28" Background="#1B2236" CornerRadius="1.25" VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <!-- Pfeile: ‹ Text › -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,10"
+                        Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:WheelHintSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:WheelHintStyle.Arrows}}">
+                <TextBlock Text="‹" FontSize="15" FontWeight="Bold" Foreground="#F5C26B" VerticalAlignment="Center" Margin="0,-3,6,0" />
+                <Border Height="3" Width="34" Background="#D9FFFFFF" CornerRadius="1.5" VerticalAlignment="Center" />
+                <TextBlock Text="›" FontSize="15" FontWeight="Bold" Foreground="#F5C26B" VerticalAlignment="Center" Margin="6,-3,0,0" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

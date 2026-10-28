@@ -101,18 +101,46 @@ public sealed class AdminLauncher : IAdminLauncher
 
         window.ShowDialog();
 
-        // Abbrechen: Wurde die Kamera mit Entwurfs-Einstellungen neu gestartet, wieder auf den gespeicherten Stand bringen.
-        // (Bei Speichern oder Beenden übernimmt das Hauptfenster bzw. die Anwendung.)
-        if (!viewModel.SettingsSaved && !viewModel.ExitRequested && viewModel.CameraTouched)
+        var handling = DecideCameraHandling(viewModel.SettingsSaved, viewModel.ExitRequested, viewModel.CameraTouched,
+            cameraBefore, videoBefore, viewModel.LastAppliedCamera, _settings.Current);
+        // Nie gespeichert (Schließen): Wurde die Kamera mit Entwurfs-Einstellungen neu gestartet, wieder auf den gespeicherten
+        // Stand bringen. (Bei Speichern oder Beenden übernimmt das Hauptfenster bzw. die Anwendung.)
+        if (handling.RestoreCamera)
         {
             _ = viewModel.RestoreCameraAsync(_settings.Current.Clone());
         }
 
-        var cameraChanged = viewModel.SettingsSaved
-            && (CameraNeedsRestart(cameraBefore, viewModel.LastAppliedCamera, _settings.Current.Camera)
-                || videoBefore.RequiresCameraRestartComparedTo(_settings.Current.Video));
+        var cameraChanged = handling.CameraChanged;
         AppLog.Info($"Admin-Ansicht geschlossen (gespeichert: {viewModel.SettingsSaved}, Kamera geändert: {cameraChanged}, beenden: {viewModel.ExitRequested}).");
         return new AdminResult(viewModel.SettingsSaved, viewModel.ExitRequested, cameraChanged);
+    }
+
+    /// <summary>Was nach dem Schließen der Admin-Ansicht mit der Kamera zu tun ist.</summary>
+    /// <param name="RestoreCamera">Die Admin-Ansicht stellt die Kamera selbst auf den gespeicherten Stand zurück (nie gespeichert).</param>
+    /// <param name="CameraChanged">Das Hauptfenster startet die Kamera mit den gespeicherten Einstellungen neu (<see cref="AdminResult.CameraChanged"/>).</param>
+    public readonly record struct CameraHandling(bool RestoreCamera, bool CameraChanged);
+
+    /// <summary>
+    /// Entscheidet, wie die Kamera nach dem Schließen wieder zu den gespeicherten Einstellungen kommt – genau auf einem Weg,
+    /// damit sie nicht doppelt neu startet:
+    /// <list type="bullet">
+    /// <item>Nie gespeichert (nur Schließen): Hat die Admin-Ansicht die Kamera mit Entwurfswerten gestartet, stellt sie
+    /// sie selbst zurück (<see cref="CameraHandling.RestoreCamera"/>); das Hauptfenster startet nichts.</item>
+    /// <item>Mindestens einmal gespeichert (Übernehmen und/oder Speichern &amp; schließen): Das Hauptfenster startet die Kamera
+    /// neu, wenn sich die gespeicherten Einstellungen gegenüber dem Öffnen geändert haben oder die Kamera zuletzt mit etwas anderem
+    /// gestartet wurde – das deckt auch eine nach dem Übernehmen verstellte und beim Schließen verworfene Kamera ab (letzter
+    /// Start ≠ gespeicherter Stand) sowie einen übernommenen Ton-/Mikrofonwechsel.</item>
+    /// </list>
+    /// Beim Beenden der Anwendung wird nichts unternommen.
+    /// </summary>
+    public static CameraHandling DecideCameraHandling(bool settingsSaved, bool exitRequested, bool cameraTouched,
+        CameraSettings cameraBefore, VideoSettings videoBefore, CameraSettings? lastApplied, AppSettings saved)
+    {
+        var restore = !settingsSaved && !exitRequested && cameraTouched;
+        var cameraChanged = settingsSaved
+            && (CameraNeedsRestart(cameraBefore, lastApplied, saved.Camera)
+                || videoBefore.RequiresCameraRestartComparedTo(saved.Video));
+        return new CameraHandling(restore, cameraChanged);
     }
 
     /// <summary>Unterscheiden sich die Kameraeinstellungen so, dass die Kamera neu gestartet werden muss? (Spiegeln zählt nicht.)</summary>
