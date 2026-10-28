@@ -331,6 +331,60 @@ public sealed class FunOverlayViewModelTests
     }
 
     [Fact]
+    public void LockOnSettings_FollowTheSettings_AndNotify()
+    {
+        NoContext();
+        Assert.Equal(1200, _vm.LockOnMilliseconds);
+        Assert.Equal(50, _vm.LockOnIntensityPercent);
+        var changed = new List<string?>();
+        _vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        _vm.SetActive(true, Settings(s =>
+        {
+            s.LockOnMilliseconds = 3000;
+            s.LockOnIntensityPercent = 80;
+        }), mirror: false);
+
+        Assert.Equal(3000, _vm.LockOnMilliseconds);
+        Assert.Equal(80, _vm.LockOnIntensityPercent);
+        Assert.Contains(nameof(FunOverlayViewModel.LockOnMilliseconds), changed);
+        Assert.Contains(nameof(FunOverlayViewModel.LockOnIntensityPercent), changed);
+
+        // Geänderte Werte gelten sofort (SameSettings erkennt sie), ohne die Erkennung neu anzufordern.
+        _vm.SetActive(true, Settings(s => s.LockOnIntensityPercent = 20), mirror: false);
+        Assert.Equal(20, _vm.LockOnIntensityPercent);
+        Assert.Equal(1200, _vm.LockOnMilliseconds);
+        Assert.Single(_detection.Requests);
+    }
+
+    [Fact]
+    public void SoundCues_CarryTheLockOnIntensity()
+    {
+        NoContext();
+        _vm.SetActive(true, Settings(s => s.LockOnIntensityPercent = 85), mirror: false);
+
+        Run(1.6, Person());
+
+        Assert.Contains(FunSoundCue.Acquire, _sound.Played);
+        Assert.Contains(FunSoundCue.Lock, _sound.Played);
+        Assert.NotEmpty(_sound.Intensities);
+        Assert.All(_sound.Intensities, i => Assert.Equal(85, i));
+    }
+
+    [Fact]
+    public void LockOnDuration_ChangedViaConfigure_AppliesToTheSimulation()
+    {
+        NoContext();
+        var settings = Settings(s => s.LockOnMilliseconds = 3000);
+        _vm.Simulate(settings, mirror: false);
+
+        Run(2.0);
+        Assert.Equal(FunPhase.LockingOn, _vm.Snapshot.Phase);
+        Run(1.1);
+        Assert.Equal(FunPhase.ShowingText, _vm.Snapshot.Phase);
+    }
+
+    [Fact]
     public void VisibleRegion_IsPassedToTheEngine_SoPeopleOutsideAreIgnored()
     {
         NoContext();

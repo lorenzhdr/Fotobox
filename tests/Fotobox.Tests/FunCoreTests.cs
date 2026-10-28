@@ -88,6 +88,8 @@ public sealed class FunCoreTests : IDisposable
             s.Fun.MaxTargets = 99;
             s.Fun.SensitivityPercent = 999;
             s.Fun.DwellMilliseconds = 99_999;
+            s.Fun.LockOnMilliseconds = 99_999;
+            s.Fun.LockOnIntensityPercent = 999;
             s.Fun.AnalysesPerSecond = 99;
         }).Fun;
 
@@ -98,6 +100,8 @@ public sealed class FunCoreTests : IDisposable
         Assert.Equal(SettingsLimits.FunMaxTargetsMax, f.MaxTargets);
         Assert.Equal(SettingsLimits.FunSensitivityMax, f.SensitivityPercent);
         Assert.Equal(SettingsLimits.FunDwellMillisecondsMax, f.DwellMilliseconds);
+        Assert.Equal(SettingsLimits.FunLockOnMillisecondsMax, f.LockOnMilliseconds);
+        Assert.Equal(SettingsLimits.FunLockOnIntensityMax, f.LockOnIntensityPercent);
         Assert.Equal(SettingsLimits.FunAnalysesPerSecondMax, f.AnalysesPerSecond);
     }
 
@@ -113,6 +117,8 @@ public sealed class FunCoreTests : IDisposable
             s.Fun.MaxTargets = 0;
             s.Fun.SensitivityPercent = 0;
             s.Fun.DwellMilliseconds = -5;
+            s.Fun.LockOnMilliseconds = 0;
+            s.Fun.LockOnIntensityPercent = -20;
             s.Fun.AnalysesPerSecond = 0;
         }).Fun;
 
@@ -123,7 +129,38 @@ public sealed class FunCoreTests : IDisposable
         Assert.Equal(SettingsLimits.FunMaxTargetsMin, f.MaxTargets);
         Assert.Equal(SettingsLimits.FunSensitivityMin, f.SensitivityPercent);
         Assert.Equal(SettingsLimits.FunDwellMillisecondsMin, f.DwellMilliseconds);
+        Assert.Equal(SettingsLimits.FunLockOnMillisecondsMin, f.LockOnMilliseconds);
+        Assert.Equal(SettingsLimits.FunLockOnIntensityMin, f.LockOnIntensityPercent);
         Assert.Equal(SettingsLimits.FunAnalysesPerSecondMin, f.AnalysesPerSecond);
+    }
+
+    [Fact]
+    public void Fun_LockOnDefaults_MatchTheFormerBehaviour_AndOldFilesGetThem()
+    {
+        var d = new FunSettings();
+        Assert.Equal(1200, d.LockOnMilliseconds);
+        Assert.Equal(50, d.LockOnIntensityPercent);
+        Assert.Equal(FunEngine.LockOnDuration.TotalMilliseconds, d.LockOnMilliseconds);
+        Assert.Equal((500, 5000, 100), (SettingsLimits.FunLockOnMillisecondsMin, SettingsLimits.FunLockOnMillisecondsMax, SettingsLimits.FunLockOnMillisecondsStep));
+        Assert.Equal((0, 100, 5), (SettingsLimits.FunLockOnIntensityMin, SettingsLimits.FunLockOnIntensityMax, SettingsLimits.FunLockOnIntensityStep));
+
+        var store = StoreWithFile("{ \"Version\": 2, \"Fun\": { \"Enabled\": true, \"CooldownSeconds\": 30 } }");
+        Assert.False(store.LoadFailed);
+        Assert.Equal(1200, store.Current.Fun.LockOnMilliseconds);
+        Assert.Equal(50, store.Current.Fun.LockOnIntensityPercent);
+        Assert.Equal(2, store.Current.Version); // keine Versionsänderung
+
+        var withValues = StoreWithFile("{ \"Version\": 2, \"Fun\": { \"LockOnMilliseconds\": 2500, \"LockOnIntensityPercent\": 80 } }");
+        Assert.Equal(2500, withValues.Current.Fun.LockOnMilliseconds);
+        Assert.Equal(80, withValues.Current.Fun.LockOnIntensityPercent);
+    }
+
+    [Fact]
+    public void Fun_Clone_CopiesTheLockOnValues()
+    {
+        var clone = new FunSettings { LockOnMilliseconds = 3300, LockOnIntensityPercent = 15 }.Clone();
+        Assert.Equal(3300, clone.LockOnMilliseconds);
+        Assert.Equal(15, clone.LockOnIntensityPercent);
     }
 
     [Fact]
@@ -712,6 +749,53 @@ public sealed class FunCoreTests : IDisposable
 
         var middle = samples.Length / 2;
         Assert.All(samples.Skip(middle - 100).Take(200), s => Assert.Equal(0, s));
+    }
+
+    private static short[] Samples(byte[] wav)
+    {
+        var samples = new short[(wav.Length - 44) / 2];
+        Buffer.BlockCopy(wav, 44, samples, 0, wav.Length - 44);
+        return samples;
+    }
+
+    [Theory]
+    [InlineData(FunSoundCue.Acquire)]
+    [InlineData(FunSoundCue.Lock)]
+    [InlineData(FunSoundCue.Text)]
+    public void ToneSynth_NeutralIntensity_EqualsTheStandardTone(FunSoundCue cue)
+    {
+        Assert.Same(ToneSynth.Create(cue), ToneSynth.Create(cue, 50));
+        Assert.Equal(ToneSynth.Create(cue), ToneSynth.Create(cue, 52)); // gleiche 5-%-Stufe
+    }
+
+    [Theory]
+    [InlineData(FunSoundCue.Acquire)]
+    [InlineData(FunSoundCue.Lock)]
+    [InlineData(FunSoundCue.Text)]
+    public void ToneSynth_Intensity_ScalesTheAmplitude_WithoutClipping(FunSoundCue cue)
+    {
+        var standardPeak = Samples(ToneSynth.Create(cue)).Max(s => Math.Abs((int)s));
+
+        var quiet = Samples(ToneSynth.Create(cue, 0)).Max(s => Math.Abs((int)s));
+        var loud = Samples(ToneSynth.Create(cue, 100)).Max(s => Math.Abs((int)s));
+
+        Assert.InRange(quiet / (double)standardPeak, 0.33, 0.37);   // ca. 0,35
+        Assert.InRange(loud / (double)standardPeak, 1.58, 1.62);    // ca. 1,6
+        Assert.True(quiet > 0);                                      // noch hörbar
+        Assert.True(loud < short.MaxValue * 0.7);                    // kein Übersteuern, weit unter der 16-Bit-Grenze
+        Assert.True(ToneSynth.Create(cue, 25).Length == ToneSynth.Create(cue).Length); // gleiche Länge
+        var mid = Samples(ToneSynth.Create(cue, 75)).Max(s => Math.Abs((int)s));
+        Assert.InRange(mid, standardPeak, loud);
+    }
+
+    [Fact]
+    public void ToneSynth_Intensity_IsCachedPerFivePercentStep_AndClamped()
+    {
+        Assert.Same(ToneSynth.Create(FunSoundCue.Lock, 80), ToneSynth.Create(FunSoundCue.Lock, 80));
+        Assert.Same(ToneSynth.Create(FunSoundCue.Lock, 81), ToneSynth.Create(FunSoundCue.Lock, 79));
+        Assert.Same(ToneSynth.Create(FunSoundCue.Lock, 100), ToneSynth.Create(FunSoundCue.Lock, 5000));
+        Assert.Same(ToneSynth.Create(FunSoundCue.Lock, 0), ToneSynth.Create(FunSoundCue.Lock, -30));
+        Assert.NotSame(ToneSynth.Create(FunSoundCue.Lock, 80), ToneSynth.Create(FunSoundCue.Lock, 85));
     }
 
     [Fact]

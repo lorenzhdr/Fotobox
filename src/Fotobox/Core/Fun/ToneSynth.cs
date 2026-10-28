@@ -16,13 +16,38 @@ public static class ToneSynth
     private const double Volume = 0.35;
     private const double FadeSeconds = 0.006; // kurzes Ein-/Ausblenden gegen Knacken
 
-    private static readonly ConcurrentDictionary<FunSoundCue, byte[]> Cache = new();
+    private static readonly ConcurrentDictionary<(FunSoundCue Cue, int Step), byte[]> Cache = new();
 
-    public static byte[] Create(FunSoundCue cue) => Cache.GetOrAdd(cue, Build);
+    /// <summary>Ton in der Standardlautstärke (entspricht der Intensität <see cref="LockOnTuning.NeutralPercent"/>).</summary>
+    public static byte[] Create(FunSoundCue cue) => Create(cue, LockOnTuning.NeutralPercent);
 
-    private static byte[] Build(FunSoundCue cue)
+    /// <summary>
+    /// Ton mit Lautstärke nach der Intensität der Einrast-Animation (<see cref="LockOnTuning.SoundGain"/>, auf 5-%-Stufen gerundet,
+    /// je Stufe gecacht). Bei 50 % gleicht das Ergebnis dem Standardton Byte für Byte. Die Abtastwerte werden auf den
+    /// 16-Bit-Bereich begrenzt; bei der Standardspitze von 0,35 und dem Höchstfaktor 1,6 (Spitze 0,56) greift das nie.
+    /// </summary>
+    public static byte[] Create(FunSoundCue cue, int intensityPercent) =>
+        Cache.GetOrAdd((cue, LockOnTuning.SoundStep(intensityPercent)), key => Build(key.Cue, key.Step));
+
+    private static byte[] Build(FunSoundCue cue, int step)
     {
-        var samples = cue switch
+        var samples = BuildSamples(cue);
+        if (step != LockOnTuning.NeutralPercent)
+            samples = Scale(samples, LockOnTuning.SoundGain(step));
+        return ToWav(samples);
+    }
+
+    private static short[] Scale(short[] samples, double gain)
+    {
+        var scaled = new short[samples.Length];
+        for (var i = 0; i < samples.Length; i++)
+            scaled[i] = (short)Math.Clamp((int)Math.Round(samples[i] * gain), -short.MaxValue, short.MaxValue);
+        return scaled;
+    }
+
+    private static short[] BuildSamples(FunSoundCue cue)
+    {
+        return cue switch
         {
             FunSoundCue.Acquire => Tone(0.080, 1800, 1800),
             FunSoundCue.Lock => Concat(Tone(0.070, 2400, 2400), Silence(0.050), Tone(0.070, 2400, 2400)),
@@ -32,7 +57,6 @@ public static class ToneSynth
             FunSoundCue.Explosion => ExplosionSamples(),
             _ => Silence(0.01),
         };
-        return ToWav(samples);
     }
 
     /// <summary>Sinuston mit gleitender Frequenz (Phase wird aufsummiert, damit der Verlauf stetig bleibt).</summary>

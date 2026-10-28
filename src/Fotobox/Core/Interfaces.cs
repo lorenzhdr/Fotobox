@@ -166,6 +166,11 @@ public interface IPersonDetectionRequest : IDisposable
 public interface IFunSoundPlayer
 {
     void Play(Fun.FunSoundCue cue);
+    /// <summary>
+    /// Wie <see cref="Play(Fun.FunSoundCue)"/> mit Lautstärke nach der Intensität der Einrast-Animation (0–100, 50 = Standardlautstärke).
+    /// Standard: Intensität ignorieren.
+    /// </summary>
+    void Play(Fun.FunSoundCue cue, int intensityPercent) => Play(cue);
     /// <summary>Beendet einen laufenden Ton sofort.</summary>
     void Stop();
 }

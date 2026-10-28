@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Animation;
 using Fotobox.Core;
 using Fotobox.Core.Fun;
 using Fotobox.Views.Booth;
@@ -195,6 +196,121 @@ public class FunViewsTests
         Assert.Single(overlay.Visuals);
         overlay.Visuals[1].StopAnimations();
         Assert.Equal(0, overlay.Visuals[1].Pulse);
+    }
+
+    // ---- Einrast-Dauer und -Intensität
+
+    private static TimeSpan Seconds(double seconds) => TimeSpan.FromSeconds(seconds);
+
+    [StaTheory]
+    [InlineData(LockOnAnimation.ShrinkPulse, 500)]
+    [InlineData(LockOnAnimation.ShrinkPulse, 1200)]
+    [InlineData(LockOnAnimation.ShrinkPulse, 5000)]
+    [InlineData(LockOnAnimation.Pulse, 500)]
+    [InlineData(LockOnAnimation.Pulse, 1200)]
+    [InlineData(LockOnAnimation.Pulse, 5000)]
+    [InlineData(LockOnAnimation.ScanPulse, 500)]
+    [InlineData(LockOnAnimation.ScanPulse, 1200)]
+    [InlineData(LockOnAnimation.ScanPulse, 5000)]
+    public void LockOnPlan_EndsExactlyAtTheConfiguredDuration_ForEveryAnimationAndIntensity(LockOnAnimation animation, int milliseconds)
+    {
+        foreach (var intensity in new[] { 0, 50, 100 })
+        {
+            var plan = TargetVisual.CreatePlan(animation, TimeSpan.FromMilliseconds(milliseconds), intensity);
+            Assert.InRange(plan.End.TotalMilliseconds, milliseconds - 1.0, milliseconds + 1.0);
+        }
+    }
+
+    [StaFact]
+    public void LockOnPlan_At1200msAnd50Percent_IsIdenticalToTheFormerHandWrittenTimes()
+    {
+        var shrink = TargetVisual.CreatePlan(LockOnAnimation.ShrinkPulse, Seconds(1.2), 50);
+        Assert.Equal(1.8, shrink.Shrink!.From);
+        Assert.Equal(1.0, shrink.Shrink.To);
+        Assert.Equal(Seconds(0.4), shrink.Shrink.Duration.TimeSpan);
+        Assert.Equal(Seconds(0.3), shrink.Fade!.Duration.TimeSpan);
+        Assert.Equal(Seconds(0.4), shrink.Pulse.BeginTime);
+        Assert.Equal(Seconds(0.8 / 6), shrink.Pulse.Duration.TimeSpan);
+        Assert.Equal(1.0, shrink.Pulse.To);
+        Assert.Equal(0.0, shrink.Pulse.From);
+        Assert.Equal(3, shrink.Pulse.RepeatBehavior.Count);
+        Assert.True(shrink.Pulse.AutoReverse);
+
+        var pulse = TargetVisual.CreatePlan(LockOnAnimation.Pulse, Seconds(1.2), 50);
+        Assert.Equal(Seconds(0), pulse.Pulse.BeginTime);
+        Assert.Equal(Seconds(0.2), pulse.Pulse.Duration.TimeSpan);
+        Assert.Equal(1.0, pulse.Pulse.To);
+        Assert.Null(pulse.Shrink);
+        Assert.Null(pulse.Scan);
+
+        var scan = TargetVisual.CreatePlan(LockOnAnimation.ScanPulse, Seconds(1.2), 50);
+        Assert.Equal(Seconds(0.5), scan.Scan!.KeyFrames[1].KeyTime.TimeSpan);
+        Assert.Equal(Seconds(0.5), scan.Pulse.BeginTime);
+        Assert.Equal(Seconds(0.7 / 6), scan.Pulse.Duration.TimeSpan);
+        Assert.Equal(1.0, scan.Pulse.To);
+    }
+
+    [StaFact]
+    public void LockOnPlan_TimesScaleWithTheDuration()
+    {
+        var plan = TargetVisual.CreatePlan(LockOnAnimation.ShrinkPulse, Seconds(2.4), 50);
+        Assert.Equal(Seconds(0.8), plan.Shrink!.Duration.TimeSpan);
+        Assert.Equal(Seconds(0.6), plan.Fade!.Duration.TimeSpan);
+        Assert.Equal(Seconds(0.8), plan.Pulse.BeginTime);
+
+        var scan = TargetVisual.CreatePlan(LockOnAnimation.ScanPulse, Seconds(0.6), 50);
+        Assert.Equal(Seconds(0.25), scan.Scan!.KeyFrames[1].KeyTime.TimeSpan);
+        Assert.Equal(Seconds(0.25), scan.Pulse.BeginTime);
+    }
+
+    [StaFact]
+    public void LockOnPlan_Intensity_ControlsMovementAndPulseHeight()
+    {
+        double Start(int p) => TargetVisual.CreatePlan(LockOnAnimation.ShrinkPulse, Seconds(1.2), p).Shrink!.From!.Value;
+        double Peak(int p) => TargetVisual.CreatePlan(LockOnAnimation.Pulse, Seconds(1.2), p).Pulse.To!.Value;
+
+        Assert.Equal(1.2, Start(0));
+        Assert.Equal(1.8, Start(50));
+        Assert.Equal(2.4, Start(100));
+        Assert.Equal(0.4, Peak(0));
+        Assert.Equal(1.0, Peak(50));
+        Assert.Equal(1.6, Peak(100));
+    }
+
+    [StaFact]
+    public void Blink_Intensity_ControlsTempoAndContrast_FiftyPercentIsTheFormerBlink()
+    {
+        var former = TargetVisual.CreateBlink(50);
+        Assert.Equal(1.0, former.From);
+        Assert.Equal(0.3, former.To);
+        Assert.Equal(TimeSpan.FromMilliseconds(180), former.Duration.TimeSpan);
+        Assert.True(former.AutoReverse);
+        Assert.Equal(RepeatBehavior.Forever, former.RepeatBehavior);
+
+        var calm = TargetVisual.CreateBlink(0);
+        var wild = TargetVisual.CreateBlink(100);
+        Assert.Equal(TimeSpan.FromMilliseconds(300), calm.Duration.TimeSpan);
+        Assert.Equal(TimeSpan.FromMilliseconds(120), wild.Duration.TimeSpan);
+        Assert.Equal(0.6, calm.To);
+        Assert.Equal(0.1, wild.To);
+    }
+
+    [StaFact]
+    public void TargetOverlay_PassesDurationAndIntensityToTheElements()
+    {
+        var overlay = Overlay();
+        Assert.Equal(1200, overlay.LockOnMilliseconds);
+        Assert.Equal(50, overlay.LockOnIntensity);
+
+        overlay.LockOnMilliseconds = 500;
+        overlay.LockOnIntensity = 100;
+        overlay.Snapshot = Snapshot(Target(1, 0.1, locking: true, lockStart: T0));
+
+        var visual = overlay.Visuals[1];
+        Assert.Equal(100, visual.Intensity);
+        Assert.True(visual.IsLocking);
+        overlay.Snapshot = Snapshot(Target(1, 0.1, locking: false, lockStart: T0));
+        visual.StopAnimations();
     }
 
     [StaFact]

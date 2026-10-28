@@ -52,7 +52,7 @@ public sealed class FunOverlayViewModel : ObservableObject, IDisposable
         _time = time;
         _engine = new FunEngine(time);
         _engine.Changed += (_, _) => OnEngineChanged();
-        _engine.SoundCue += (_, cue) => _sound.Play(cue);
+        _engine.SoundCue += (_, cue) => _sound.Play(cue, _settings.LockOnIntensityPercent);
     }
 
     /// <summary>Instanz ohne Erkennung und Ton (nur für Ansichtsmodelle, die das Feature nie aktivieren, z. B. in Tests).</summary>
@@ -78,6 +78,10 @@ public sealed class FunOverlayViewModel : ObservableObject, IDisposable
     public TargetBoxStyle BoxStyle => _settings.BoxStyle;
     public TargetColor Color => _settings.Color;
     public LockOnAnimation Animation => _settings.Animation;
+    /// <summary>Dauer der Einrast-Animation in Millisekunden (für <c>TargetOverlay</c>).</summary>
+    public int LockOnMilliseconds => _settings.LockOnMilliseconds;
+    /// <summary>Intensität der Einrast-Animation in Prozent (für <c>TargetOverlay</c>).</summary>
+    public int LockOnIntensityPercent => _settings.LockOnIntensityPercent;
     public FunTextPosition TextPosition => _settings.TextPosition;
     public FunTextStyle TextStyle => _settings.TextStyle;
     public HintStyle TextHintStyle => _settings.TextHintStyle;
@@ -260,6 +264,8 @@ public sealed class FunOverlayViewModel : ObservableObject, IDisposable
         if (previous.BoxStyle != settings.BoxStyle) OnPropertyChanged(nameof(BoxStyle));
         if (previous.Color != settings.Color) OnPropertyChanged(nameof(Color));
         if (previous.Animation != settings.Animation) OnPropertyChanged(nameof(Animation));
+        if (previous.LockOnMilliseconds != settings.LockOnMilliseconds) OnPropertyChanged(nameof(LockOnMilliseconds));
+        if (previous.LockOnIntensityPercent != settings.LockOnIntensityPercent) OnPropertyChanged(nameof(LockOnIntensityPercent));
         if (previous.TextPosition != settings.TextPosition) OnPropertyChanged(nameof(TextPosition));
         if (previous.TextStyle != settings.TextStyle) OnPropertyChanged(nameof(TextStyle));
         if (previous.TextHintStyle != settings.TextHintStyle) OnPropertyChanged(nameof(TextHintStyle));

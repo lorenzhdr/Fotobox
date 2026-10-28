@@ -153,6 +153,8 @@ internal static class SettingsNormalizer
         f.MaxTargets = Math.Clamp(f.MaxTargets, SettingsLimits.FunMaxTargetsMin, SettingsLimits.FunMaxTargetsMax);
         f.SensitivityPercent = Math.Clamp(f.SensitivityPercent, SettingsLimits.FunSensitivityMin, SettingsLimits.FunSensitivityMax);
         f.DwellMilliseconds = Math.Clamp(f.DwellMilliseconds, SettingsLimits.FunDwellMillisecondsMin, SettingsLimits.FunDwellMillisecondsMax);
+        f.LockOnMilliseconds = Math.Clamp(f.LockOnMilliseconds, SettingsLimits.FunLockOnMillisecondsMin, SettingsLimits.FunLockOnMillisecondsMax);
+        f.LockOnIntensityPercent = Math.Clamp(f.LockOnIntensityPercent, SettingsLimits.FunLockOnIntensityMin, SettingsLimits.FunLockOnIntensityMax);
         f.AnalysesPerSecond = Math.Clamp(f.AnalysesPerSecond, SettingsLimits.FunAnalysesPerSecondMin, SettingsLimits.FunAnalysesPerSecondMax);
 
         if (!Enum.IsDefined(f.Method))

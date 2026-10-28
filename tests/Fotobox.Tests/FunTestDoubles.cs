@@ -53,9 +53,17 @@ internal sealed class FakeDetectionRequest(FunSettings initial) : IPersonDetecti
 internal sealed class FakeSoundPlayer : IFunSoundPlayer
 {
     public List<FunSoundCue> Played { get; } = [];
+    /// <summary>Intensität je Aufruf von <see cref="Play(FunSoundCue, int)"/> (gleiche Reihenfolge wie <see cref="Played"/> bei diesen Aufrufen).</summary>
+    public List<int> Intensities { get; } = [];
     public int Stops { get; private set; }
 
     public void Play(FunSoundCue cue) => Played.Add(cue);
+
+    public void Play(FunSoundCue cue, int intensityPercent)
+    {
+        Played.Add(cue);
+        Intensities.Add(intensityPercent);
+    }
     public void Stop() => Stops++;
 }
 

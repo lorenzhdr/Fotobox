@@ -107,6 +107,10 @@ public static class SettingsLimits
     public const int FunSensitivityMin = 10, FunSensitivityMax = 95;
     /// <summary>Fun: So lange muss eine Person erkannt sein, bevor sie anvisiert wird.</summary>
     public const int FunDwellMillisecondsMin = 0, FunDwellMillisecondsMax = 3000;
+    /// <summary>Fun: Dauer der Einrast-Animation (Millisekunden, in 100er-Schritten einstellbar), danach erscheint der Text.</summary>
+    public const int FunLockOnMillisecondsMin = 500, FunLockOnMillisecondsMax = 5000, FunLockOnMillisecondsStep = 100;
+    /// <summary>Fun: Intensität der Einrast-Animation in Prozent (Bewegung, Leuchten, Blinken, Lautstärke); 50 = bisheriges Aussehen.</summary>
+    public const int FunLockOnIntensityMin = 0, FunLockOnIntensityMax = 100, FunLockOnIntensityStep = 5;
     /// <summary>Fun: Analysen pro Sekunde (Rechenlast); das Livebild hat immer Vorrang.</summary>
     public const int FunAnalysesPerSecondMin = 1, FunAnalysesPerSecondMax = 10;
     /// <summary>Peace: Haltedauer des Zeichens in Millisekunden (100er-Schritte).</summary>
@@ -411,6 +415,10 @@ public sealed class FunSettings
     public int MaxTargets { get; set; } = 6;
     public int SensitivityPercent { get; set; } = 50;
     public int DwellMilliseconds { get; set; } = 800;
+    /// <summary>Dauer des Einrastens (Zielmarke zieht sich zusammen, „LOCKING…“ blinkt) bis zum Erscheinen des Texts.</summary>
+    public int LockOnMilliseconds { get; set; } = 1200;
+    /// <summary>Wie auffällig das Einrasten ist (Bewegung, Leuchten, Blinken, Lautstärke der Töne); 50 = bisheriges Verhalten.</summary>
+    public int LockOnIntensityPercent { get; set; } = 50;
     public int AnalysesPerSecond { get; set; } = 5;
     public bool SoundEnabled { get; set; }
 
