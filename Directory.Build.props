@@ -3,7 +3,7 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.0.0-beta</Version>
+    <Version>2.1.0</Version>
     <Company>Fotobox+</Company>
     <Product>Fotobox+</Product>
   </PropertyGroup>
