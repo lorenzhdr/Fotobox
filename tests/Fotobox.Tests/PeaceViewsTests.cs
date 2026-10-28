@@ -216,6 +216,31 @@ public class PeaceViewsTests
         RenderToBitmap(overlay);
     }
 
+    [Theory]
+    [InlineData(120, 100, 110)]
+    [InlineData(120, 1000, 200)]
+    [InlineData(40, 0, 40)]
+    [InlineData(200, 10, 105)]
+    [InlineData(60, 20, 40)]
+    public void PeaceOverlay_GlideDuration_FollowsTheMeasuredIntervalWithinLimits(double previous, double interval, double expected)
+    {
+        Assert.Equal(expected, PeaceOverlay.GlideDuration(previous, interval), 6);
+    }
+
+    [StaFact]
+    public void PeaceOverlay_GlideDuration_StartsAtDefault_AndStaysWithinLimits()
+    {
+        var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080 };
+        Layout(overlay);
+        Assert.Equal(PeaceOverlay.DefaultGlideMs, overlay.MoustacheGlideMs);
+
+        for (var i = 0; i < 6; i++)
+            overlay.Moustaches = [View(1, MoustacheStyle.Twirl, 0.3 + i * 0.02)]; // Aktualisierungen ohne Pause
+
+        Assert.InRange(overlay.MoustacheGlideMs, PeaceOverlay.MinGlideMs, PeaceOverlay.MaxGlideMs);
+        Assert.True(overlay.MoustacheGlideMs < PeaceOverlay.DefaultGlideMs);
+    }
+
     [StaFact]
     public void PeaceOverlay_AnimationTimerIsNotSubscribedWhenNotLoaded()
     {

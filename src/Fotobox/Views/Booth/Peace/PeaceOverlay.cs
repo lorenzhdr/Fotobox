@@ -8,13 +8,15 @@ namespace Fotobox.Views.Booth.Peace;
 
 /// <summary>
 /// Zeichnet Bärte, den Haltefortschritt der Peace-Hand und (im Admin) die Handpunkte über dem Livebild (nur Darstellung, nimmt keine
-/// Eingaben an). Zwischen zwei Aktualisierungen wandern Bärte und Hände über rund 120 ms linear zur neuen Lage (Zuordnung per
-/// Gesichts- bzw. Hand-Id); der Takt (<see cref="CompositionTarget.Rendering"/>) ist nur angemeldet, solange etwas wandert und das
+/// Eingaben an). Zwischen zwei Aktualisierungen wandern Bärte und Hände linear zur neuen Lage (Zuordnung per Gesichts- bzw.
+/// Hand-Id) – über den zuletzt gemessenen Abstand der Aktualisierungen (<see cref="MinGlideMs"/> bis <see cref="MaxGlideMs"/>, vor der
+/// ersten Messung <see cref="DefaultGlideMs"/>), damit die Bewegung weder stehen bleibt noch der Lage hinterherläuft; der Takt (<see cref="CompositionTarget.Rendering"/>) ist nur angemeldet, solange etwas wandert und das
 /// Element sichtbar und geladen ist.
 /// </summary>
 public sealed class PeaceOverlay : FrameworkElement
 {
-    private const double InterpolationMs = 120;
+    /// <summary>Kürzeste und längste Gleitdauer sowie der Wert vor der ersten Messung (Millisekunden).</summary>
+    public const double MinGlideMs = 40, MaxGlideMs = 200, DefaultGlideMs = 120;
 
     private static FrameworkPropertyMetadata RenderMetadata(object? defaultValue) =>
         new(defaultValue, FrameworkPropertyMetadataOptions.AffectsRender);
@@ -68,7 +70,9 @@ public sealed class PeaceOverlay : FrameworkElement
 
     private readonly Dictionary<int, Glide> _moustacheGlides = [];
     private readonly Dictionary<int, HandGlide> _handGlides = [];
-    private long _glideStart;
+    private long _moustacheGlideStart, _handGlideStart;
+    private double _moustacheGlideMs = DefaultGlideMs, _handGlideMs = DefaultGlideMs;
+    private long _lastMoustacheUpdate, _lastHandUpdate;
     private bool _subscribed;
 
     public PeaceOverlay()
@@ -129,20 +133,31 @@ public sealed class PeaceOverlay : FrameworkElement
         set => SetValue(ShowLandmarksProperty, value);
     }
 
+    /// <summary>Aktuelle Gleitdauer der Bärte in Millisekunden (für Tests).</summary>
+    internal double MoustacheGlideMs => _moustacheGlideMs;
+
     /// <summary>Ist der Animationstakt gerade angemeldet (für Tests).</summary>
     internal bool IsAnimating => _subscribed;
 
     // ---- Bewegung zwischen zwei Aktualisierungen ----
 
-    private double Progress01()
+    /// <summary>Gleitdauer aus dem Abstand zweier Aktualisierungen: geglättet mit der vorigen Dauer und auf 40–200 ms begrenzt.</summary>
+    internal static double GlideDuration(double previousMs, double intervalMs) =>
+        Math.Clamp(0.5 * previousMs + 0.5 * intervalMs, MinGlideMs, MaxGlideMs);
+
+    private static double Progress01(long start, double durationMs)
     {
-        var elapsed = (Stopwatch.GetTimestamp() - _glideStart) * 1000.0 / Stopwatch.Frequency;
-        return Math.Clamp(elapsed / InterpolationMs, 0, 1);
+        var elapsed = (Stopwatch.GetTimestamp() - start) * 1000.0 / Stopwatch.Frequency;
+        return Math.Clamp(elapsed / durationMs, 0, 1);
     }
+
+    private double MoustacheProgress() => Progress01(_moustacheGlideStart, _moustacheGlideMs);
+
+    private double HandProgress() => Progress01(_handGlideStart, _handGlideMs);
 
     private void OnMoustachesChanged()
     {
-        var t = Progress01();
+        var t = MoustacheProgress();
         var current = new Dictionary<int, MoustachePose>();
         foreach (var (id, glide) in _moustacheGlides)
             current[id] = Lerp(glide.From, glide.To, t);
@@ -155,12 +170,20 @@ public sealed class PeaceOverlay : FrameworkElement
             _moustacheGlides[view.FaceId] = new Glide(from, view.Pose);
             changed |= from != view.Pose;
         }
-        RestartGlide(changed);
+        if (changed)
+        {
+            var now = Stopwatch.GetTimestamp();
+            if (_lastMoustacheUpdate != 0)
+                _moustacheGlideMs = GlideDuration(_moustacheGlideMs, (now - _lastMoustacheUpdate) * 1000.0 / Stopwatch.Frequency);
+            _lastMoustacheUpdate = now;
+            _moustacheGlideStart = now;
+            UpdateSubscription();
+        }
     }
 
     private void OnHandsChanged()
     {
-        var t = Progress01();
+        var t = HandProgress();
         var current = new Dictionary<int, (HandPoint[] Points, NormRect Box)>();
         foreach (var (id, glide) in _handGlides)
             current[id] = (LerpPoints(glide.From, glide.To, t), LerpBox(glide.FromBox, glide.ToBox, t));
@@ -180,20 +203,24 @@ public sealed class PeaceOverlay : FrameworkElement
             }
             _handGlides[view.TrackId] = new HandGlide(from, to, fromBox, view.Box);
         }
-        RestartGlide(changed);
+        if (changed)
+        {
+            var now = Stopwatch.GetTimestamp();
+            if (_lastHandUpdate != 0)
+                _handGlideMs = GlideDuration(_handGlideMs, (now - _lastHandUpdate) * 1000.0 / Stopwatch.Frequency);
+            _lastHandUpdate = now;
+            _handGlideStart = now;
+            UpdateSubscription();
+        }
     }
 
-    private void RestartGlide(bool changed)
-    {
-        if (!changed)
-            return;
-        _glideStart = Stopwatch.GetTimestamp();
-        UpdateSubscription();
-    }
+    // Läuft noch eine Bewegung (Bart oder Hand)?
+    private bool IsGliding() =>
+        (_moustacheGlides.Count > 0 && MoustacheProgress() < 1) || (_handGlides.Count > 0 && HandProgress() < 1);
 
     private void UpdateSubscription()
     {
-        var wanted = IsLoaded && IsVisible && (_moustacheGlides.Count > 0 || _handGlides.Count > 0) && Progress01() < 1;
+        var wanted = IsLoaded && IsVisible && IsGliding();
         if (wanted && !_subscribed)
         {
             CompositionTarget.Rendering += OnRendering;
@@ -216,7 +243,7 @@ public sealed class PeaceOverlay : FrameworkElement
     private void OnRendering(object? sender, EventArgs e)
     {
         InvalidateVisual();
-        if (Progress01() >= 1)
+        if (!IsGliding())
             Unsubscribe();
     }
 
@@ -229,7 +256,8 @@ public sealed class PeaceOverlay : FrameworkElement
         if (!(viewW > 0) || !(viewH > 0))
             return;
 
-        var t = Progress01();
+        var tMoustache = MoustacheProgress();
+        var tHand = HandProgress();
         var unit = Math.Clamp(viewH / 1080.0, 0.45, 2.5);
         var imageW = ImageWidth;
         var imageH = ImageHeight;
@@ -244,7 +272,7 @@ public sealed class PeaceOverlay : FrameworkElement
 
         foreach (var view in Moustaches ?? [])
         {
-            var pose = _moustacheGlides.TryGetValue(view.FaceId, out var glide) ? Lerp(glide.From, glide.To, t) : view.Pose;
+            var pose = _moustacheGlides.TryGetValue(view.FaceId, out var glide) ? Lerp(glide.From, glide.To, tMoustache) : view.Pose;
             var center = OverlayMapper.MapPoint(pose.Center, ImageWidth, ImageHeight, viewW, viewH, Fit, Mirror);
             MoustacheRenderer.Draw(drawingContext, view.Style, new Point(center.X, center.Y), pose.WidthPx * scale, pose.AngleRad, Mirror);
         }
@@ -255,8 +283,8 @@ public sealed class PeaceOverlay : FrameworkElement
             HandPoint[]? points = null;
             if (_handGlides.TryGetValue(hand.TrackId, out var glide))
             {
-                box = LerpBox(glide.FromBox, glide.ToBox, t);
-                points = LerpPoints(glide.From, glide.To, t);
+                box = LerpBox(glide.FromBox, glide.ToBox, tHand);
+                points = LerpPoints(glide.From, glide.To, tHand);
             }
 
             if (ShowHoldProgress && hand.Progress > 0)
