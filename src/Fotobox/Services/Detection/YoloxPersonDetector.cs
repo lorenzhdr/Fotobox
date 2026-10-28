@@ -71,6 +71,9 @@ public sealed class YoloxPersonDetector : IPersonDetector
                 InterOpNumThreads = 1,
                 GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
             };
+            // Die ORT-Threads schlafen zwischen den Analysen (im Leerlauf 5/s), statt aktiv zu warten: spart CPU, Ergebnisse bleiben gleich.
+            options.AddSessionConfigEntry("session.intra_op.allow_spinning", "0");
+            options.AddSessionConfigEntry("session.inter_op.allow_spinning", "0");
             var session = new InferenceSession(_modelPath, options);
             try
             {
@@ -80,8 +83,17 @@ public sealed class YoloxPersonDetector : IPersonDetector
                     && meta.Dimensions[2] > 0 && meta.Dimensions[2] == meta.Dimensions[3])
                     size = meta.Dimensions[2];
 
+                // Aufwärmlauf: Der erste Run ist deutlich langsamer (Speicher-Arena, Kernel-Initialisierung). Er soll in der großzügigen
+                // Ladefrist (InitTimeout) laufen statt in der 2-s-Frist der ersten Analyse, denn schon ein Analyse-Timeout schaltet
+                // dauerhaft auf die Gesichtserkennung um. Ein Fehler hier gilt als Ladefehler; der Puffer wird von RunCore weiterverwendet.
+                var warmup = new float[YoloxPreprocessor.RequiredLength(size)];
+                using (var input = OrtValue.CreateTensorValueFromMemory(OrtMemoryInfo.DefaultInstance, warmup.AsMemory(), [1L, 3L, size, size]))
+                using (var runOptions = new RunOptions())
+                    session.Run(runOptions, [inputName], [input], [session.OutputNames[0]]).Dispose();
+
                 _inputName = inputName;
                 _inputSize = size;
+                _inputBuffer = warmup;
                 _session = session;
             }
             catch

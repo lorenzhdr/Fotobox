@@ -112,17 +112,30 @@ public static class CameraStartRetry
 /// <summary>
 /// Wartezeit der Reconnect-Schleife: Liefert die Kamera bei Wiederverbindungsversuchen wiederholt kein Bild,
 /// wird das Intervall gedämpft, damit nicht dauernd neue MediaCapture-Objekte entstehen.
+/// Hängt zusätzlich noch eine frühere Kamera-Operation im Treiber, wird nur selten neu versucht (<see cref="ShouldAttempt"/>).
 /// </summary>
 public static class CameraReconnectBackoff
 {
     public static readonly TimeSpan BaseInterval = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan SlowInterval = TimeSpan.FromSeconds(15);
 
+    /// <summary>Abstand der Versuche, solange noch eine frühere Kamera-Operation im Treiber hängt.</summary>
+    public static readonly TimeSpan HangingRetryInterval = TimeSpan.FromMinutes(5);
+
     /// <summary>Anzahl aufeinanderfolgender Versuche ohne Bild, ab der das lange Intervall gilt.</summary>
     public const int SlowAfterNoImageAttempts = 3;
 
     public static TimeSpan GetInterval(int consecutiveNoImageAttempts) =>
         consecutiveNoImageAttempts >= SlowAfterNoImageAttempts ? SlowInterval : BaseInterval;
+
+    /// <summary>
+    /// Ob die Wiederverbindung jetzt einen Versuch starten soll. Solange noch eine frühere Kamera-Operation im Treiber hängt,
+    /// würde jeder neue Versuch nur ein weiteres MediaCapture mit hängender Operation hinterlassen; dann wird nur alle
+    /// <see cref="HangingRetryInterval"/> trotzdem versucht. Endet die hängende Operation (z. B. beim Abziehen/Einstecken),
+    /// geht es sofort normal weiter.
+    /// </summary>
+    public static bool ShouldAttempt(int hangingOperations, TimeSpan sinceLastAttempt) =>
+        hangingOperations <= 0 || sinceLastAttempt >= HangingRetryInterval;
 }
 
 /// <summary>Ein Kameraschritt (Initialisierung, Formatwahl, Start …) hat seine Frist überschritten.</summary>

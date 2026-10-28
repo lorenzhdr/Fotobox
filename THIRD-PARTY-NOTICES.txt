@@ -53,3 +53,22 @@ ONNX Runtime enthält eigene Drittkomponenten; deren Hinweise stehen in der
 Datei ThirdPartyNotices.txt des NuGet-Pakets bzw. des Repositorys.
 ONNX Runtime includes its own third-party components; see ThirdPartyNotices.txt
 in the NuGet package or repository.
+
+
+3. Microsoft Visual C++ Runtime (msvcp140*.dll, vcruntime140*.dll u. a.)
+------------------------------------------------------------------------
+Copyright (c) Microsoft Corporation. Alle Rechte vorbehalten. / All rights reserved.
+
+Die Visual-C++-Laufzeitbibliotheken (z. B. msvcp140.dll, msvcp140_1.dll,
+vcruntime140.dll, vcruntime140_1.dll) liegen der Anwendung app-lokal bei, damit
+die ONNX Runtime auch auf PCs ohne installierte VC++ Redistributable startet.
+Sie werden unverändert als "Distributable Code" gemäß den Microsoft-Software-
+Lizenzbedingungen für Visual Studio weitergegeben.
+The Visual C++ runtime libraries (e.g. msvcp140.dll, msvcp140_1.dll,
+vcruntime140.dll, vcruntime140_1.dll) are bundled with the application so that
+ONNX Runtime also starts on PCs without the VC++ Redistributable installed.
+They are redistributed unmodified as "Distributable Code" under the Microsoft
+Software License Terms for Visual Studio.
+
+Weitere Informationen / More information:
+https://learn.microsoft.com/visualstudio/releases/2022/redistribution
