@@ -66,6 +66,9 @@ public sealed class AdminFunTabTests : IDisposable
         Assert.Equal(HintStyle.Pill, vm.SelectedFunHintStyle.Style);
         Assert.Equal(6, vm.FunTextSeconds);
         Assert.Equal(20, vm.FunCooldownSeconds);
+        Assert.True(vm.FunSwapTriggers);
+        Assert.False(vm.FunRepeatEnabled);
+        Assert.Equal(60, vm.FunRepeatSeconds);
         Assert.Equal(15, vm.FunMinSizePercent);
         Assert.Equal(6, vm.FunMaxTargets);
         Assert.Equal(50, vm.FunSensitivityPercent);
@@ -92,6 +95,9 @@ public sealed class AdminFunTabTests : IDisposable
         vm.SelectedFunHintStyle = vm.FunHintStyles.Single(o => o.Style == HintStyle.Neon);
         vm.FunTextSeconds = 12;
         vm.FunCooldownSeconds = 45;
+        vm.FunSwapTriggers = false;
+        vm.FunRepeatEnabled = true;
+        vm.FunRepeatSeconds = 120;
         vm.FunMinSizePercent = 30;
         vm.FunMaxTargets = 3;
         vm.FunSensitivityPercent = 70;
@@ -113,6 +119,9 @@ public sealed class AdminFunTabTests : IDisposable
         Assert.Equal(HintStyle.Neon, fun.TextHintStyle);
         Assert.Equal(12, fun.TextSeconds);
         Assert.Equal(45, fun.CooldownSeconds);
+        Assert.False(fun.SwapTriggers);
+        Assert.True(fun.RepeatEnabled);
+        Assert.Equal(120, fun.RepeatSeconds);
         Assert.Equal(30, fun.MinSizePercent);
         Assert.Equal(3, fun.MaxTargets);
         Assert.Equal(70, fun.SensitivityPercent);
@@ -191,6 +200,9 @@ public sealed class AdminFunTabTests : IDisposable
         vm.FunTextStyle = FunTextStyle.Hint;
         vm.SelectedFunHintStyle = vm.FunHintStyles.Single(o => o.Style == HintStyle.Cinema);
         vm.FunCooldownSeconds = 90;
+        vm.FunRepeatEnabled = true;
+        vm.FunRepeatSeconds = 45;
+        vm.FunSwapTriggers = false;
         vm.FunSoundEnabled = true;
 
         await vm.ApplyCommand.ExecuteAsync(null);
@@ -205,6 +217,9 @@ public sealed class AdminFunTabTests : IDisposable
         Assert.Equal(FunTextStyle.Hint, saved.TextStyle);
         Assert.Equal(HintStyle.Cinema, saved.TextHintStyle);
         Assert.Equal(90, saved.CooldownSeconds);
+        Assert.True(saved.RepeatEnabled);
+        Assert.Equal(45, saved.RepeatSeconds);
+        Assert.False(saved.SwapTriggers);
         Assert.True(saved.SoundEnabled);
         Assert.False(vm.HasUnsavedChanges);
     }
@@ -249,6 +264,9 @@ public sealed class AdminFunTabTests : IDisposable
         vm.FunTextStyle = FunTextStyle.Hint;
         vm.SelectedFunHintStyle = vm.FunHintStyles.Single(o => o.Style == HintStyle.Note);
         vm.FunCooldownSeconds = 300;
+        vm.FunRepeatEnabled = true;
+        vm.FunRepeatSeconds = 200;
+        vm.FunSwapTriggers = false;
         vm.FunSoundEnabled = true;
         _ui.ConfirmResult = true;
         var raised = new List<string?>();
@@ -268,6 +286,9 @@ public sealed class AdminFunTabTests : IDisposable
         Assert.Equal(defaults.TextStyle, fun.TextStyle);
         Assert.Equal(defaults.TextHintStyle, fun.TextHintStyle);
         Assert.Equal(defaults.CooldownSeconds, fun.CooldownSeconds);
+        Assert.Equal(defaults.RepeatEnabled, fun.RepeatEnabled);
+        Assert.Equal(defaults.RepeatSeconds, fun.RepeatSeconds);
+        Assert.Equal(defaults.SwapTriggers, fun.SwapTriggers);
         Assert.False(fun.SoundEnabled);
         Assert.Equal("hash:4711", vm.Draft.Security.PinHash);
 
@@ -405,8 +426,12 @@ public sealed class AdminFunTabTests : IDisposable
             Assert.Equal(2, Cards(root, "FunTextStyle").Count);
             Assert.Equal(3, FindDescendants<TargetStyleSketch>(root).Count());
             Assert.Equal(3, FindDescendants<LockOnSketch>(root).Count());
-            // Sieben Zahlenfelder: fünf bei „Erkennung“ sowie Anzeigedauer und Pause beim Text.
-            Assert.Equal(7, FindDescendants<NumberStepper>((DependencyObject)window.FindName("FunPersonsPage")).Count());
+            // Acht Zahlenfelder: fünf bei „Erkennung“ sowie Anzeigedauer, Pause und Wiederholungsabstand beim Text.
+            Assert.Equal(8, FindDescendants<NumberStepper>((DependencyObject)window.FindName("FunPersonsPage")).Count());
+            Assert.Contains(FindDescendants<ToggleButton>(root),
+                c => System.Windows.Automation.AutomationProperties.GetName(c) == "Personentausch löst aus");
+            Assert.Contains(FindDescendants<ToggleButton>(root),
+                c => System.Windows.Automation.AutomationProperties.GetName(c) == "Bei gleicher Gruppe wiederholen");
             Assert.Contains(FindDescendants<ToggleButton>(root),
                 c => System.Windows.Automation.AutomationProperties.GetName(c) == "Zielerfassung einschalten");
         });

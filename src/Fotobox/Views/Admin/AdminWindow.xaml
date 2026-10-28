@@ -1564,7 +1564,21 @@
                                             <TextBlock Text="Pause bis zur nächsten Erfassung" Style="{StaticResource FieldLabel}" />
                                             <local:NumberStepper Value="{Binding FunCooldownSeconds}" Minimum="{x:Static core:SettingsLimits.FunCooldownSecondsMin}" Maximum="{x:Static core:SettingsLimits.FunCooldownSecondsMax}" Step="5" Suffix=" s" />
                                             <TextBlock Style="{StaticResource Hint}"
-                                                       Text="Nach dem Text löst dieselbe Gruppe so lange nicht erneut aus. Kommen weitere Personen hinzu, löst die Erfassung trotzdem sofort wieder aus." />
+                                                       Text="Nach dem Text löst dieselbe Gruppe so lange nicht erneut aus. Kommt während der Pause eine weitere Person hinzu, löst die Erfassung sofort wieder aus; kommt sie, solange der Text läuft, folgt direkt nach dem Text eine eigene Meldung." />
+
+                                            <CheckBox Content="Personentausch löst aus" IsChecked="{Binding FunSwapTriggers}" Margin="0,16,0,0"
+                                                      AutomationProperties.Name="Personentausch löst aus" />
+                                            <TextBlock Style="{StaticResource Hint}"
+                                                       Text="Geht eine Person und kommt eine andere, zählt das als neue Person, auch wenn die Anzahl gleich bleibt." />
+
+                                            <CheckBox Content="Bei gleicher Gruppe wiederholen" IsChecked="{Binding FunRepeatEnabled}" Margin="0,16,0,0"
+                                                      AutomationProperties.Name="Bei gleicher Gruppe wiederholen" />
+                                            <StackPanel IsEnabled="{Binding FunRepeatEnabled}">
+                                                <TextBlock Text="Wiederholen alle" Style="{StaticResource FieldLabel}" />
+                                                <local:NumberStepper Value="{Binding FunRepeatSeconds}" Minimum="{x:Static core:SettingsLimits.FunRepeatSecondsMin}" Maximum="{x:Static core:SettingsLimits.FunRepeatSecondsMax}" Step="5" Suffix=" s" />
+                                            </StackPanel>
+                                            <TextBlock Style="{StaticResource Hint}"
+                                                       Text="Bleibt dieselbe Gruppe im Bild, rasten alle Personen nach dieser Zeit erneut ein und der Text erscheint noch einmal. Die Zeit läuft ab dem Ende des Texts, frühestens nach der Pause." />
                                         </StackPanel>
                                     </Border>
 

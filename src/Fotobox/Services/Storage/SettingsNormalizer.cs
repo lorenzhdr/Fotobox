@@ -148,6 +148,7 @@ internal static class SettingsNormalizer
 
         f.TextSeconds = Math.Clamp(f.TextSeconds, SettingsLimits.FunTextSecondsMin, SettingsLimits.FunTextSecondsMax);
         f.CooldownSeconds = Math.Clamp(f.CooldownSeconds, SettingsLimits.FunCooldownSecondsMin, SettingsLimits.FunCooldownSecondsMax);
+        f.RepeatSeconds = Math.Clamp(f.RepeatSeconds, SettingsLimits.FunRepeatSecondsMin, SettingsLimits.FunRepeatSecondsMax);
         f.MinSizePercent = Math.Clamp(f.MinSizePercent, SettingsLimits.FunMinSizePercentMin, SettingsLimits.FunMinSizePercentMax);
         f.MaxTargets = Math.Clamp(f.MaxTargets, SettingsLimits.FunMaxTargetsMin, SettingsLimits.FunMaxTargetsMax);
         f.SensitivityPercent = Math.Clamp(f.SensitivityPercent, SettingsLimits.FunSensitivityMin, SettingsLimits.FunSensitivityMax);

@@ -58,6 +58,22 @@ public sealed class FunCoreTests : IDisposable
         Assert.Equal(d.SensitivityPercent, f.SensitivityPercent);
         Assert.Equal(d.DwellMilliseconds, f.DwellMilliseconds);
         Assert.Equal(d.AnalysesPerSecond, f.AnalysesPerSecond);
+        Assert.True(f.SwapTriggers);
+        Assert.False(f.RepeatEnabled);
+        Assert.Equal(60, f.RepeatSeconds);
+    }
+
+    [Fact]
+    public void Fun_OldFileWithoutRepeatAndSwapFields_GetsDefaults()
+    {
+        var store = StoreWithFile("{ \"Version\": 2, \"Fun\": { \"Enabled\": true, \"CooldownSeconds\": 30 } }");
+
+        Assert.False(store.LoadFailed);
+        var f = store.Current.Fun;
+        Assert.Equal(30, f.CooldownSeconds);
+        Assert.True(f.SwapTriggers);
+        Assert.False(f.RepeatEnabled);
+        Assert.Equal(60, f.RepeatSeconds);
     }
 
     [Fact]
@@ -67,6 +83,7 @@ public sealed class FunCoreTests : IDisposable
         {
             s.Fun.TextSeconds = 9999;
             s.Fun.CooldownSeconds = 99_999;
+            s.Fun.RepeatSeconds = 99_999;
             s.Fun.MinSizePercent = 999;
             s.Fun.MaxTargets = 99;
             s.Fun.SensitivityPercent = 999;
@@ -76,6 +93,7 @@ public sealed class FunCoreTests : IDisposable
 
         Assert.Equal(SettingsLimits.FunTextSecondsMax, f.TextSeconds);
         Assert.Equal(SettingsLimits.FunCooldownSecondsMax, f.CooldownSeconds);
+        Assert.Equal(SettingsLimits.FunRepeatSecondsMax, f.RepeatSeconds);
         Assert.Equal(SettingsLimits.FunMinSizePercentMax, f.MinSizePercent);
         Assert.Equal(SettingsLimits.FunMaxTargetsMax, f.MaxTargets);
         Assert.Equal(SettingsLimits.FunSensitivityMax, f.SensitivityPercent);
@@ -90,6 +108,7 @@ public sealed class FunCoreTests : IDisposable
         {
             s.Fun.TextSeconds = -1;
             s.Fun.CooldownSeconds = -1;
+            s.Fun.RepeatSeconds = 0;
             s.Fun.MinSizePercent = -1;
             s.Fun.MaxTargets = 0;
             s.Fun.SensitivityPercent = 0;
@@ -99,6 +118,7 @@ public sealed class FunCoreTests : IDisposable
 
         Assert.Equal(SettingsLimits.FunTextSecondsMin, f.TextSeconds);
         Assert.Equal(SettingsLimits.FunCooldownSecondsMin, f.CooldownSeconds);
+        Assert.Equal(SettingsLimits.FunRepeatSecondsMin, f.RepeatSeconds);
         Assert.Equal(SettingsLimits.FunMinSizePercentMin, f.MinSizePercent);
         Assert.Equal(SettingsLimits.FunMaxTargetsMin, f.MaxTargets);
         Assert.Equal(SettingsLimits.FunSensitivityMin, f.SensitivityPercent);
@@ -488,13 +508,92 @@ public sealed class FunCoreTests : IDisposable
     }
 
     [Fact]
-    public void Tracker_ReappearsAfterTimeout_GetsNewId()
+    public void Tracker_ConfirmedTargetReappearingWithinRecoveryWindow_TakesOverIdAndConfirmation()
+    {
+        var (tracker, time) = NewTracker(dwellMs: 500);
+        var box = new NormRect(0.2, 0.2, 0.2, 0.5);
+        tracker.Update([box]);
+        time.Advance(TimeSpan.FromMilliseconds(500));
+        var id = Assert.Single(tracker.Update([box])).Id;
+        Assert.True(Assert.Single(tracker.Prune()).IsConfirmed);
+
+        time.Advance(TimeSpan.FromSeconds(1)); // länger als der Aussetzer-Timeout
+        Assert.Empty(tracker.Prune());
+        Assert.Equal([id], tracker.RememberedIds);
+
+        var back = Assert.Single(tracker.Update([box]));
+        Assert.Equal(id, back.Id);
+        Assert.True(back.IsConfirmed); // keine erneute Verweildauer
+        Assert.Empty(tracker.RememberedIds);
+    }
+
+    [Fact]
+    public void Tracker_ReappearsAfterRecoveryWindow_GetsNewId()
     {
         var (tracker, time) = NewTracker();
         var box = new NormRect(0.2, 0.2, 0.2, 0.5);
         var id = Assert.Single(tracker.Update([box])).Id;
-        time.Advance(TimeSpan.FromSeconds(1));
+        time.Advance(TimeSpan.FromMilliseconds(2900));
+        Assert.Empty(tracker.Prune());
+        Assert.True(tracker.HasRemembered);
+
+        time.Advance(TimeSpan.FromMilliseconds(100)); // 3 s seit dem letzten Treffer
+        Assert.Empty(tracker.Prune());
+        Assert.False(tracker.HasRemembered);
         Assert.NotEqual(id, Assert.Single(tracker.Update([box])).Id);
+    }
+
+    [Fact]
+    public void Tracker_UnconfirmedTargetIsNotRemembered()
+    {
+        var (tracker, time) = NewTracker(dwellMs: 800);
+        var box = new NormRect(0.2, 0.2, 0.2, 0.5);
+        var id = Assert.Single(tracker.Update([box])).Id;
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Empty(tracker.Prune());
+        Assert.False(tracker.HasRemembered);
+
+        var again = Assert.Single(tracker.Update([box]));
+        Assert.NotEqual(id, again.Id);
+        Assert.False(again.IsConfirmed);
+    }
+
+    [Fact]
+    public void Tracker_RecoversByCenterDistance_WhenOverlapIsSmall()
+    {
+        var (tracker, time) = NewTracker();
+        var old = new NormRect(0.2, 0.2, 0.2, 0.5);
+        var id = Assert.Single(tracker.Update([old])).Id;
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        var small = new NormRect(0.25, 0.35, 0.1, 0.15); // Mitte nah, IoU unter 0,3
+        Assert.True(old.IoU(small) < TargetTracker.MinIoU);
+        Assert.Equal(id, Assert.Single(tracker.Update([small])).Id);
+    }
+
+    [Fact]
+    public void Tracker_FarAwayBox_DoesNotRecoverALostTarget()
+    {
+        var (tracker, time) = NewTracker();
+        var id = Assert.Single(tracker.Update([new NormRect(0.1, 0.2, 0.15, 0.5)])).Id;
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        var other = Assert.Single(tracker.Update([new NormRect(0.7, 0.2, 0.15, 0.5)]));
+        Assert.NotEqual(id, other.Id);
+    }
+
+    [Fact]
+    public void Tracker_TwoLostTargets_AreRecoveredByTheNearestBox()
+    {
+        var (tracker, time) = NewTracker();
+        var left = new NormRect(0.1, 0.2, 0.15, 0.5);
+        var right = new NormRect(0.7, 0.2, 0.15, 0.5);
+        var ids = tracker.Update([left, right]).ToDictionary(t => t.Box.X, t => t.Id);
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        var back = tracker.Update([right, left]).ToDictionary(t => t.Box.X, t => t.Id);
+        Assert.Equal(ids[left.X], back[left.X]);
+        Assert.Equal(ids[right.X], back[right.X]);
     }
 
     [Fact]

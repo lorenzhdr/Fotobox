@@ -46,6 +46,12 @@ public sealed class FunEngine
     private DateTimeOffset? _emptySince;
     private readonly HashSet<int> _known = [];
     private readonly Dictionary<int, DateTimeOffset> _lockStart = [];
+    // Neue Personen, die während des Texts erschienen: Sie bekommen nur einen Zielrahmen und rasten nach dem Text ein.
+    private readonly HashSet<int> _pending = [];
+    // Anzahl der Personen beim Beginn der Meldung: Sie bestimmt den Text (du/ihr, {Anzahl}) bis zum Textende.
+    private int _textCount = 1;
+    // Ende des letzten Texts (geplanter Zeitpunkt); Grundlage der Wiederholung. Null: kein Text seit der letzten Erfassung.
+    private DateTimeOffset? _lastTextEnd;
 
     private FunSnapshot _snapshot = FunSnapshot.Empty;
     private readonly List<FunSoundCue> _pendingCues = [];
@@ -65,7 +71,7 @@ public sealed class FunEngine
     /// <summary>Signalton fällig; wird nur ausgelöst, wenn <see cref="FunSettings.SoundEnabled"/> gesetzt ist.</summary>
     public event EventHandler<FunSoundCue>? SoundCue;
 
-    /// <summary>Einstellungen übernehmen (Kopie); wirkt sofort, auch auf den angezeigten Text.</summary>
+    /// <summary>Einstellungen übernehmen (Kopie); wirkt sofort, auch auf den angezeigten Text (die Personenzahl des Texts bleibt).</summary>
     public void Configure(FunSettings settings, bool mirror)
     {
         _settings = settings.Clone();
@@ -146,6 +152,9 @@ public sealed class FunEngine
         _emptySince = null;
         _known.Clear();
         _lockStart.Clear();
+        _pending.Clear();
+        _textCount = 1;
+        _lastTextEnd = null;
         _pendingCues.Clear();
     }
 
@@ -159,8 +168,10 @@ public sealed class FunEngine
             .Take(Math.Max(1, _settings.MaxTargets))
             .ToList();
 
-        var alive = tracked.Select(t => t.Id).ToHashSet();
+        // Auch vorgemerkte (kurz verlorene) Spuren bleiben bekannt: Findet der Tracker sie wieder, ist das keine neue Person.
+        var alive = tracked.Select(t => t.Id).Concat(_tracker.RememberedIds).ToHashSet();
         _known.RemoveWhere(id => !alive.Contains(id));
+        _pending.RemoveWhere(id => !alive.Contains(id));
         foreach (var id in _lockStart.Keys.Where(id => !alive.Contains(id)).ToList())
             _lockStart.Remove(id);
     }
@@ -179,36 +190,41 @@ public sealed class FunEngine
 
         var count = _confirmed.Count;
 
-        // Episode: Sie endet, wenn eine Weile niemand mehr da war.
+        // Episode: Sie endet, wenn eine Weile niemand mehr da war und der Tracker keine Spur mehr vormerkt
+        // (eine wiedergefundene Spur gehört noch zur selben Episode).
         if (count == 0)
         {
             _emptySince ??= now;
-            if (now - _emptySince.Value >= EpisodeEndAfterEmpty)
-            {
-                _episodeMax = 0;
-                _episodeTriggered = false;
-                _known.Clear();
-            }
+            if (now - _emptySince.Value >= EpisodeEndAfterEmpty && !_tracker.HasRemembered)
+                EndEpisode(now);
         }
         else
         {
             _emptySince = null;
         }
 
-        // Niemand mehr da: Einrasten wird abgebrochen, ein laufender Text sofort ausgeblendet.
-        if (count == 0)
-        {
-            if (_phase == FunPhase.LockingOn)
-                _phase = FunPhase.Watching;
-            else if (_phase == FunPhase.ShowingText)
-                EnterCooldown(now);
-        }
+        // Niemand mehr da: Einrasten wird abgebrochen. Ein laufender Text bleibt bis zu seinem Ende oder dem Ende der
+        // Episode stehen (kurze Aussetzer der Erkennung blenden ihn nicht aus).
+        if (count == 0 && _phase == FunPhase.LockingOn)
+            _phase = FunPhase.Watching;
 
         StepTime(now);
 
         Trigger(now, _confirmed.Count);
 
         Publish(now);
+    }
+
+    private void EndEpisode(DateTimeOffset now)
+    {
+        _episodeMax = 0;
+        _episodeTriggered = false;
+        _known.Clear();
+        _pending.Clear();
+        _lastTextEnd = null;
+        // Ein noch laufender Text endet mit der Episode; die Pause beginnt jetzt.
+        if (_phase == FunPhase.ShowingText)
+            EnterCooldown(now);
     }
 
     private void StepTime(DateTimeOffset now)
@@ -221,18 +237,40 @@ public sealed class FunEngine
                 Cue(FunSoundCue.Lock);
                 _phase = FunPhase.ShowingText;
                 _phaseEnd += TimeSpan.FromSeconds(Math.Max(0, _settings.TextSeconds));
+                // Der Text bleibt bei der Personenzahl vom Beginn der Meldung (kein Umschalten du/ihr während der Anzeige).
+                _textCount = Math.Max(1, _confirmed.Count);
                 Cue(FunSoundCue.Text);
             }
             else if (_phase == FunPhase.ShowingText && _phaseEnd <= now)
             {
-                _phase = FunPhase.Cooldown;
-                _phaseEnd += TimeSpan.FromSeconds(Math.Max(0, _settings.CooldownSeconds));
+                var textEnd = _phaseEnd;
                 if (_simActive)
                 {
+                    _phase = FunPhase.Cooldown;
+                    _phaseEnd += TimeSpan.FromSeconds(Math.Max(0, _settings.CooldownSeconds));
                     // Simulation zu Ende: das Ziel verschwindet mit dem Text.
                     _simActive = false;
                     _confirmed = [];
                     _emptySince ??= now;
+                }
+                else
+                {
+                    var waiting = _confirmed.Where(t => _pending.Contains(t.Id)).ToList();
+                    _pending.Clear();
+                    _lastTextEnd = textEnd;
+                    if (waiting.Count > 0)
+                    {
+                        // Personen, die während des Texts dazukamen und noch da sind: sofort eine eigene Meldung.
+                        LockOn(waiting, textEnd);
+                        _phase = FunPhase.LockingOn;
+                        _phaseEnd = textEnd + LockOnDuration;
+                        Cue(FunSoundCue.Acquire);
+                    }
+                    else
+                    {
+                        _phase = FunPhase.Cooldown;
+                        _phaseEnd += TimeSpan.FromSeconds(Math.Max(0, _settings.CooldownSeconds));
+                    }
                 }
             }
             else if (_phase == FunPhase.Cooldown && _phaseEnd <= now)
@@ -256,6 +294,9 @@ public sealed class FunEngine
     {
         if (count > 0)
         {
+            // Personen, die in dieser Episode noch nicht bekannt waren (neue Spur).
+            var fresh = _confirmed.Where(t => !_known.Contains(t.Id)).ToList();
+
             if (_episodeMax == 0)
             {
                 if (_phase == FunPhase.Watching)
@@ -277,28 +318,38 @@ public sealed class FunEngine
                 Cue(FunSoundCue.Acquire);
                 _episodeTriggered = true;
             }
-            else if (count > _episodeMax)
+            else if (count > _episodeMax || (_settings.SwapTriggers && fresh.Count > 0))
             {
-                // B: Zuwachs – nur die neuen Ziele rasten ein, in jeder Phase.
-                LockOn(_confirmed.Where(t => !_known.Contains(t.Id)), now);
-                _episodeMax = count;
+                // B: Zuwachs (oder bei SwapTriggers: Personentausch) – nur die neuen Ziele rasten ein.
+                _episodeMax = Math.Max(_episodeMax, count);
                 _episodeTriggered = true;
                 switch (_phase)
                 {
                     case FunPhase.ShowingText:
-                        var end = now + TimeSpan.FromSeconds(Math.Max(0, _settings.TextSeconds));
-                        if (end > _phaseEnd)
-                            _phaseEnd = end;
+                        // Der Text läuft unverändert weiter; die Neuen bekommen nur einen Zielrahmen und eine eigene Meldung danach.
+                        foreach (var t in fresh)
+                            _pending.Add(t.Id);
                         break;
                     case FunPhase.LockingOn:
+                        LockOn(fresh, now);
                         var lockEnd = now + LockOnDuration;
                         if (lockEnd > _phaseEnd)
                             _phaseEnd = lockEnd;
+                        Cue(FunSoundCue.Acquire);
                         break;
                     default:
+                        LockOn(fresh, now);
                         StartLockingOn(now);
+                        Cue(FunSoundCue.Acquire);
                         break;
                 }
+            }
+            else if (_phase == FunPhase.Watching && _episodeTriggered && _settings.RepeatEnabled && _lastTextEnd is { } textEnd
+                && now >= textEnd + TimeSpan.FromSeconds(Math.Max(0, _settings.RepeatSeconds)))
+            {
+                // Wiederholung: Dieselbe Gruppe ist noch da (die Pause ist vorbei, sonst wäre die Phase nicht Watching).
+                LockOn(_confirmed, now);
+                StartLockingOn(now);
                 Cue(FunSoundCue.Acquire);
             }
         }
@@ -312,6 +363,7 @@ public sealed class FunEngine
     {
         _phase = FunPhase.LockingOn;
         _phaseEnd = now + LockOnDuration;
+        _lastTextEnd = null;
     }
 
     private void LockOn(IEnumerable<TrackedTarget> targets, DateTimeOffset now)
@@ -362,7 +414,10 @@ public sealed class FunEngine
         var count = _confirmed.Count;
         if (count == 0)
         {
-            return FunSnapshot.Empty with { Phase = _phase };
+            // Der Text bleibt auch ohne sichtbare Ziele stehen (kurzer Aussetzer der Erkennung), bis er endet.
+            return _phase == FunPhase.ShowingText
+                ? new FunSnapshot([], _phase, true, FunTextFormatter.Resolve(_settings, _textCount), 0)
+                : FunSnapshot.Empty with { Phase = _phase };
         }
 
         var ordered = _confirmed
@@ -380,7 +435,7 @@ public sealed class FunEngine
         }
 
         var showText = _phase == FunPhase.ShowingText;
-        return new FunSnapshot(targets, _phase, showText, showText ? FunTextFormatter.Resolve(_settings, count) : "", count);
+        return new FunSnapshot(targets, _phase, showText, showText ? FunTextFormatter.Resolve(_settings, _textCount) : "", count);
     }
 
     private static bool SameSnapshot(FunSnapshot a, FunSnapshot b)

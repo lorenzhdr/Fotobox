@@ -198,7 +198,7 @@ public sealed class FunEngineTests
     }
 
     [Fact]
-    public void Increase_DuringText_ExtendsTextAndLocksOnlyNewTarget()
+    public void Increase_DuringText_KeepsTextFixed_AndLocksTheNewTargetAfterwards()
     {
         var rig = new Rig();
         rig.Run(0.1, P1);
@@ -207,17 +207,47 @@ public sealed class FunEngineTests
         Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
         var cuesBefore = rig.Cues.Count;
 
-        rig.Run(0.1, P1, P2); // t = 3,4 s → Text läuft bis 9,4 s
+        rig.Run(0.1, P1, P2); // t = 3,4 s: P2 bekommt nur einen Rahmen, der Text bleibt
         Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
-        Assert.Equal(FunSettings.DefaultPluralText, rig.Snap.Text);
+        Assert.Equal(2, rig.Snap.Count);
+        Assert.Equal(FunSettings.DefaultSingularText, rig.Snap.Text);
+        Assert.All(rig.Snap.Targets, t => Assert.False(t.IsLockingOn));
+        Assert.Equal(cuesBefore, rig.Cues.Count); // weder Ton noch Einrast-Animation
+
+        rig.Run(3.8, P1, P2); // t = 7,2 s: der Text wurde nicht verlängert oder umgestellt
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.Equal(FunSettings.DefaultSingularText, rig.Snap.Text);
+        Assert.Equal(cuesBefore, rig.Cues.Count);
+
+        rig.Run(0.1, P1, P2); // t = 7,3 s: Textende, sofort Einrasten, nur für P2
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        Assert.False(rig.Snap.ShowText);
         Assert.False(rig.Snap.Targets.Single(t => t.Box.X < 0.2).IsLockingOn);
         Assert.True(rig.Snap.Targets.Single(t => t.Box.X > 0.3).IsLockingOn);
         Assert.Equal([FunSoundCue.Acquire], rig.Cues.Skip(cuesBefore));
 
-        rig.Run(5.9, P1, P2); // t = 9,3 s
+        rig.Run(1.2, P1, P2); // t = 8,5 s: neue Meldung mit aktueller Anzahl
         Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
-        rig.Run(0.1, P1, P2); // t = 9,4 s
+        Assert.Equal(FunSettings.DefaultPluralText, rig.Snap.Text);
+        Assert.Equal([FunSoundCue.Acquire, FunSoundCue.Lock, FunSoundCue.Text], rig.Cues.Skip(cuesBefore));
+
+        rig.Run(6, P1, P2);   // Text zu Ende, niemand vorgemerkt: Pause
         Assert.Equal(FunPhase.Cooldown, rig.Snap.Phase);
+    }
+
+    [Fact]
+    public void NewPersonLeavesBeforeTextEnds_GoesToCooldownInsteadOfNewMessage()
+    {
+        var rig = new Rig();
+        rig.Run(0.1, P1);
+        rig.Run(1.2, P1);   // Text bis 7,3 s
+        rig.Run(2.0, P1);   // t = 3,3 s
+        rig.Run(0.5, P1, P2);
+        rig.Run(3.5, P1);   // t = 7,3 s; P2 ist längst weg
+
+        Assert.Equal(FunPhase.Cooldown, rig.Snap.Phase);
+        Assert.Equal(1, rig.Cues.Count(c => c == FunSoundCue.Acquire));
+        Assert.Equal(3, rig.Cues.Count);
     }
 
     [Fact]
@@ -245,35 +275,221 @@ public sealed class FunEngineTests
         var rig = new Rig();
         rig.Run(0.1, P1, P2);               // A (Acquire 1)
         rig.Run(1.2, P1, P2);               // Text
-        rig.Run(0.1, P1, P2, P3);           // Zuwachs 2 → 3 (Acquire 2)
+        rig.Run(0.1, P1, P2, P3);           // Zuwachs 2 → 3 während des Texts: vorgemerkt, noch kein Ton
         Assert.Equal(3, rig.Snap.Count);
         rig.Run(1.0, P1, P2);               // P3 weg (länger als 700 ms) → zurück auf 2
         Assert.Equal(2, rig.Snap.Count);
-        rig.Run(0.3, P1, P2, P3);           // P3 wieder da: gleiche Episode, kein neuer Zuwachs über das Maximum
+        rig.Run(0.3, P1, P2, P3);           // P3 wieder da: gleiche Person, kein neuer Zuwachs
         Assert.Equal(3, rig.Snap.Count);
+        Assert.Equal(1, rig.Cues.Count(c => c == FunSoundCue.Acquire));
 
+        rig.Run(5.0, P1, P2, P3);           // Textende (7,3 s): genau eine Meldung für P3
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
         Assert.Equal(2, rig.Cues.Count(c => c == FunSoundCue.Acquire));
+    }
+
+    [Fact]
+    public void Flicker_DuringCooldown_DoesNotRetrigger()
+    {
+        var rig = new Rig();
+        rig.RunToCooldown(P1, P2);
+        var cues = rig.Cues.Count;
+
+        rig.Run(1.5, P1);                   // P2 fehlt 1,5 s (länger als der Tracker-Timeout)
+        Assert.Equal(1, rig.Snap.Count);
+        rig.Run(0.5, P1, P2);               // P2 ist wieder da: gleiche Person
+        Assert.Equal(2, rig.Snap.Count);
+        Assert.Equal(cues, rig.Cues.Count);
+        Assert.Equal(FunPhase.Cooldown, rig.Snap.Phase);
+    }
+
+    // ---- Personentausch
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Swap_NewPersonWithSameCount_TriggersOnlyWhenEnabled(bool swapTriggers)
+    {
+        var rig = new Rig(s => { s.CooldownSeconds = 0; s.TextSeconds = 2; s.SwapTriggers = swapTriggers; });
+        rig.Run(0.1, P1);
+        rig.Run(1.2, P1);
+        rig.Run(2.0, P1);
+        Assert.Equal(FunPhase.Watching, rig.Snap.Phase);
+        var cuesBefore = rig.Cues.Count;
+
+        rig.Run(1.0);          // P1 geht (Episode läuft weiter)
+        rig.Run(0.1, P2);      // P2 kommt, die Anzahl bleibt 1
+
+        Assert.Equal(swapTriggers, rig.Snap.Phase == FunPhase.LockingOn);
+        Assert.Equal(swapTriggers ? cuesBefore + 1 : cuesBefore, rig.Cues.Count);
+        if (swapTriggers)
+            Assert.True(Assert.Single(rig.Snap.Targets).IsLockingOn);
+    }
+
+    [Fact]
+    public void Swap_DuringText_IsPendingUntilTheTextEnds()
+    {
+        var rig = new Rig();
+        rig.Run(0.1, P1);
+        rig.Run(1.2, P1);   // Text bis 7,3 s
+        rig.Run(2.0, P1);   // t = 3,3 s
+        var cues = rig.Cues.Count;
+
+        rig.Run(1.0, P2);   // P1 geht, P2 kommt: Anzahl bleibt 1, Text bleibt
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.Equal(cues, rig.Cues.Count);
+        Assert.False(Assert.Single(rig.Snap.Targets).IsLockingOn);
+
+        rig.Run(3.0, P2);   // t = 7,3 s
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        Assert.True(Assert.Single(rig.Snap.Targets).IsLockingOn);
+        Assert.Equal(FunSoundCue.Acquire, rig.Cues[^1]);
+    }
+
+    // ---- Wiederholung
+
+    [Fact]
+    public void SameGroup_WithoutRepeat_StaysQuietFor90Seconds()
+    {
+        var rig = new Rig();
+        rig.RunToCooldown(P1, P2);
+        rig.Run(90, P1, P2);
+
+        Assert.Equal(FunPhase.Watching, rig.Snap.Phase);
+        Assert.Equal(3, rig.Cues.Count);
+    }
+
+    [Fact]
+    public void Repeat_RelocksTheSameGroupAfterTheConfiguredTime_CountingFromEachTextEnd()
+    {
+        var rig = new Rig(s => { s.RepeatEnabled = true; s.RepeatSeconds = 60; });
+        rig.Run(0.1, P1, P2);
+        rig.Run(1.2, P1, P2);
+        rig.Run(6, P1, P2);                     // Textende bei t = 7,3 s
+        Assert.Equal(FunPhase.Cooldown, rig.Snap.Phase);
+        var cues = rig.Cues.Count;
+
+        rig.Run(59.9, P1, P2);                  // t = 67,2 s
+        Assert.Equal(FunPhase.Watching, rig.Snap.Phase);
+        Assert.Equal(cues, rig.Cues.Count);
+
+        rig.Run(0.1, P1, P2);                   // t = 67,3 s: 60 s nach dem Textende
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        Assert.All(rig.Snap.Targets, t => Assert.True(t.IsLockingOn));
+        Assert.Equal(FunSoundCue.Acquire, rig.Cues[^1]);
+
+        rig.Run(1.2, P1, P2);
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.Equal(FunSettings.DefaultPluralText, rig.Snap.Text);
+
+        rig.Run(6, P1, P2);                     // zweites Textende bei t = 74,5 s
+        Assert.Equal(FunPhase.Cooldown, rig.Snap.Phase);
+        rig.Run(59.9, P1, P2);                  // t = 134,4 s
+        Assert.Equal(FunPhase.Watching, rig.Snap.Phase);
+        rig.Run(0.1, P1, P2);                   // t = 134,5 s: wieder 60 s nach dem Textende
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+    }
+
+    [Fact]
+    public void Repeat_ShorterThanCooldown_WaitsForTheCooldown()
+    {
+        var rig = new Rig(s => { s.RepeatEnabled = true; s.RepeatSeconds = 10; s.CooldownSeconds = 30; });
+        rig.Run(0.1, P1);
+        rig.Run(1.2, P1);
+        rig.Run(6, P1);                         // Textende bei t = 7,3 s, Pause bis 37,3 s
+        rig.Run(29.9, P1);                      // t = 37,2 s
+        Assert.Equal(FunPhase.Cooldown, rig.Snap.Phase);
+
+        rig.Run(0.1, P1);                       // t = 37,3 s: Pause vorbei, Wiederholung war längst fällig
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+    }
+
+    [Fact]
+    public void Repeat_DoesNotFire_AfterTheGroupLeftAndTheEpisodeEnded()
+    {
+        var rig = new Rig(s => { s.RepeatEnabled = true; s.RepeatSeconds = 10; s.CooldownSeconds = 0; });
+        rig.Run(0.1, P1);
+        rig.Run(1.2, P1);
+        rig.Run(6, P1);                         // Textende, Pause 0
+        rig.Run(6);                             // niemand mehr, die Episode endet
+        var cues = rig.Cues.Count;
+
+        rig.Run(30);
+        Assert.Equal(FunPhase.Watching, rig.Snap.Phase);
+        Assert.Equal(cues, rig.Cues.Count);
+    }
+
+    // ---- Aussetzer der Erkennung
+
+    [Theory]
+    [InlineData(1.5)]
+    [InlineData(2.5)]
+    public void DetectionGap_DuringText_NeitherHidesTextNorTriggersAgain(double gapSeconds)
+    {
+        var rig = new Rig(s => s.DwellMilliseconds = 800);
+        rig.Run(0.9, P1);   // bestätigt bei t = 0,9 s, Text von 2,1 bis 8,1 s
+        rig.Run(1.2, P1);
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+
+        rig.Run(gapSeconds);
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.True(rig.Snap.ShowText);
+        Assert.Equal(FunSettings.DefaultSingularText, rig.Snap.Text);
+        Assert.Empty(rig.Snap.Targets);
+
+        rig.Run(1.0, P1);   // dieselbe Person: keine neue Verweildauer, keine neue Auslösung
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.Single(rig.Snap.Targets);
+        Assert.Equal([FunSoundCue.Acquire, FunSoundCue.Lock, FunSoundCue.Text], rig.Cues);
+    }
+
+    [Fact]
+    public void DetectionGap_ReturnedPersonIsConfirmedAtOnce_WithoutNewDwell()
+    {
+        var rig = new Rig(s => { s.DwellMilliseconds = 800; s.CooldownSeconds = 0; s.TextSeconds = 2; });
+        rig.Run(0.9, P1);
+        rig.Run(1.2, P1);
+        rig.Run(2.0, P1);
+        Assert.Equal(FunPhase.Watching, rig.Snap.Phase);
+
+        rig.Run(1.5);
+        rig.Run(0.1, P1);   // kein Warten auf die Verweildauer: sofort wieder bestätigt
+        Assert.Single(rig.Snap.Targets);
+        Assert.Equal(FunPhase.Watching, rig.Snap.Phase);
     }
 
     // ---- Verschwinden und Episode
 
     [Fact]
-    public void NobodyLeft_DuringText_HidesTextAtOnce_AndStartsCooldown()
+    public void NobodyLeft_DuringText_KeepsTextUntilTheEpisodeEnds_ThenStartsCooldown()
     {
         var rig = new Rig();
         rig.Run(0.1, P1);
-        rig.Run(1.2, P1);
+        rig.Run(1.2, P1);   // Text 1,3 bis 7,3 s; P1 zuletzt bei t = 1,3 s gesehen
         Assert.True(rig.Snap.ShowText);
 
-        rig.Run(0.6);  // Ziel wird noch 700 ms gehalten
+        rig.Run(0.6);       // Ziel wird noch 700 ms gehalten
         Assert.True(rig.Snap.ShowText);
 
-        rig.Run(0.1);  // 700 ms ohne Treffer → weg
+        rig.Run(0.1);       // 700 ms ohne Treffer: kein Ziel mehr, der Text bleibt
         Assert.Equal(0, rig.Snap.Count);
+        Assert.Empty(rig.Snap.Targets);
+        Assert.True(rig.Snap.ShowText);
+        Assert.Equal(FunSettings.DefaultSingularText, rig.Snap.Text);
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+
+        rig.Run(2.2);       // t = 4,2 s: die Spur wird noch vorgemerkt
+        Assert.True(rig.Snap.ShowText);
+
+        rig.Run(0.1);       // t = 4,3 s: Episode zu Ende, jetzt beginnt die Pause
         Assert.False(rig.Snap.ShowText);
         Assert.Equal("", rig.Snap.Text);
         Assert.Equal(FunPhase.Cooldown, rig.Snap.Phase);
-        Assert.Empty(rig.Snap.Targets);
+
+        rig.Run(19.9);      // Pause ab dem Ende der Episode (20 s)
+        Assert.Equal(FunPhase.Cooldown, rig.Snap.Phase);
+        rig.Run(0.1);
+        Assert.Equal(FunPhase.Watching, rig.Snap.Phase);
     }
 
     [Fact]
@@ -393,7 +609,7 @@ public sealed class FunEngineTests
     // ---- Text live
 
     [Fact]
-    public void Text_FollowsSettingsAndCountLive()
+    public void Text_FollowsSettingsLive_ButStaysFixedForTheCountDuringDisplay()
     {
         var rig = new Rig();
         rig.Run(0.1, P1);
@@ -406,10 +622,11 @@ public sealed class FunEngineTests
 
         rig.Settings.PluralText = "Hallo {Anzahl}!";
         rig.Engine.Configure(rig.Settings, mirror: false);
-        rig.Run(0.1, P1, P2);
-        Assert.Equal("Hallo 2!", rig.Snap.Text);
+        rig.Run(0.1, P1, P2);               // Zuwachs: Text bleibt bei „du“
+        Assert.Equal("Hallo 1", rig.Snap.Text);
+        Assert.Equal(2, rig.Snap.Count);
 
-        rig.Run(1.0, P1); // P2 geht: zurück zu "du"
+        rig.Run(1.0, P1);                   // P2 geht wieder: ebenfalls unverändert
         Assert.Equal("Hallo 1", rig.Snap.Text);
         Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
     }
