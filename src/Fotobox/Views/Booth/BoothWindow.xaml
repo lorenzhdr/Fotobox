@@ -282,6 +282,14 @@
         <!-- Live-Bild -->
         <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}" ShowStatusOverlay="False" />
 
+        <!-- Fun „Zielerfassung“: Zielboxen über dem Livebild (nur im Leerlauf, nie im Foto/Video); der Ausschnitt geht zurück an die Engine -->
+        <booth:TargetOverlay Snapshot="{Binding Fun.Snapshot}" ImageWidth="{Binding Fun.ImageWidth}"
+                             ImageHeight="{Binding Fun.ImageHeight}" Mirror="{Binding Fun.Mirror}"
+                             BoxStyle="{Binding Fun.BoxStyle}" BoxColor="{Binding Fun.Color}"
+                             Animation="{Binding Fun.Animation}"
+                             VisibleRegion="{Binding Fun.VisibleRegion, Mode=OneWayToSource}"
+                             Visibility="{Binding Fun.IsShown, Converter={StaticResource BoolToVis}}" />
+
         <!-- Dezenter Verlauf unten für die Lesbarkeit des Hinweises -->
         <Border VerticalAlignment="Bottom" Height="320" IsHitTestVisible="False">
             <Border.Background>
@@ -301,6 +309,11 @@
         <!-- Video-Hinweiszeile oben im Bild (nur bei aktivem Videomodus, im Leerlauf mit laufender Kamera) -->
         <booth:GuestHint Position="Top" Text="{Binding VideoHintText}" HintStyle="{Binding VideoHintStyle}"
                          Visibility="{Binding ShowVideoHint, Converter={StaticResource BoolToVis}}" />
+
+        <!-- Fun-Text der Zielerfassung (HUD oder Hinweis-Stil); ersetzt an gleicher Stelle den Foto- bzw. Video-Hinweis -->
+        <booth:FunText IsShown="{Binding Fun.TextVisible}" Text="{Binding Fun.Text}"
+                       Position="{Binding Fun.TextPosition}" TextStyle="{Binding Fun.TextStyle}"
+                       HintStyle="{Binding Fun.TextHintStyle}" Color="{Binding Fun.Color}" />
 
         <!-- Layout-Vorschauliste: erscheint kurz beim Drehen des Mausrads, alle Layouts untereinander, das gewählte hervorgehoben -->
         <Border x:Name="LayoutCard" Style="{StaticResource LayoutListFade}"

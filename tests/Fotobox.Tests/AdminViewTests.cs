@@ -331,6 +331,8 @@ public class AdminViewTests
             var headers = tabs.Items.OfType<System.Windows.Controls.TabItem>().Select(t => t.Header as string).ToList();
 
             Assert.Equal(headers.IndexOf("Gastansicht") + 1, headers.IndexOf("Darstellung"));
+            // Der Tab „Fun“ steht ganz unten in der Liste.
+            Assert.Equal(headers.Count - 1, headers.IndexOf("Fun"));
         });
     }
 

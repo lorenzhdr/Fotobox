@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Fotobox.Core;
 using Fotobox.Services.Storage;
+using Fotobox.ViewModels.Booth;
 
 namespace Fotobox.ViewModels.Admin;
 
@@ -33,6 +34,12 @@ public sealed record MonitorOption(string? Id, string Display)
 
 /// <summary>Eintrag der Mikrofon-Auswahl; <c>Id == null</c> bedeutet Windows-Standardmikrofon.</summary>
 public sealed record MicrophoneOption(string? Id, string Display)
+{
+    public override string ToString() => Display;
+}
+
+/// <summary>Eintrag der Hinweis-Stil-Auswahl (Fun-Text im Hinweis-Stil).</summary>
+public sealed record HintStyleOption(HintStyle Style, string Display)
 {
     public override string ToString() => Display;
 }
@@ -180,9 +187,16 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         folder => FolderProbe.TryEnsureWritable(folder, out var error) ? null : error ?? "unbekannter Fehler";
 
     public AdminViewModel(ISettingsStore store, IPinService pin, ICameraService camera, IPrintService print, IAdminUi ui,
-        TimeProvider? time = null, IDisplayService? displays = null)
+        TimeProvider? time = null, IDisplayService? displays = null,
+        IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null)
     {
         _time = time ?? TimeProvider.System;
+        // Live-Vorschau im Tab „Fun“: eigene Zielerfassung (nicht aus dem Container, sonst hielte dieser jede Instanz). Ohne Dienste
+        // (Tests) inert: Sie startet keine Erkennung, der Test-Knopf funktioniert trotzdem.
+        FunPreview = detection is not null && sound is not null
+            ? new FunOverlayViewModel(detection, sound, _time)
+            : FunOverlayViewModel.CreateInert();
+        FunPreview.PropertyChanged += OnFunPreviewPropertyChanged;
         _store = store;
         _pin = pin;
         Camera = camera;
@@ -250,6 +264,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         CancelKeyCaptureCommand = new RelayCommand(CancelKeyCapture);
         ResetKeysCommand = new RelayCommand(ResetKeys);
         ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
+        TestFunPreviewCommand = new RelayCommand(TestFunPreview);
 
         Camera.StatusChanged += OnCameraStatusChanged;
         UpdateOverlay();
@@ -413,8 +428,13 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
+        // Läuft die Vorschau im Tab „Fun“, gelten geänderte Entwurfswerte sofort.
+        if (_isFunTabSelected && !_disposed && AffectsFunPreview(e.PropertyName))
+            UpdateFunPreview();
         if (_saveStatusMessage.Length > 0
-            && e.PropertyName is not (nameof(SaveStatusMessage) or nameof(HasSaveStatus) or nameof(IsSaving)))
+            && e.PropertyName is not (nameof(SaveStatusMessage) or nameof(HasSaveStatus) or nameof(IsSaving)
+                or nameof(FunPreviewStatusText) or nameof(FunPreviewWarningText) or nameof(HasFunPreviewWarning)
+                or nameof(FunPreviewCameraRunning) or nameof(FunPreviewNoCamera) or nameof(IsFunTabSelected)))
             HideSaveStatusIfDirty();
     }
 
@@ -716,7 +736,12 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             _sync.Post(_ => RaiseCameraStatus(), null);
     }
 
-    private void RaiseCameraStatus() => OnPropertyChanged(nameof(CameraStatusText));
+    private void RaiseCameraStatus()
+    {
+        OnPropertyChanged(nameof(CameraStatusText));
+        OnPropertyChanged(nameof(FunPreviewCameraRunning));
+        OnPropertyChanged(nameof(FunPreviewNoCamera));
+    }
 
     // ---------------------------------------------------------------- Ablauf
 
@@ -2593,6 +2618,234 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
             MicrophoneHint = null;
     }
 
+    // ---------------------------------------------------------------- Fun „Zielerfassung“
+
+    /// <summary>Zielerfassung aktiv; alle weiteren Einstellungen des Tabs „Fun“ sind sonst ausgegraut.</summary>
+    public bool FunEnabled
+    {
+        get => _draft.Fun.Enabled;
+        set => SetProperty(_draft.Fun.Enabled, value, v => _draft.Fun.Enabled = v);
+    }
+
+    /// <summary>Erkennungsverfahren (Wahlkarten, gebunden über <c>EnumMatchConverter</c>).</summary>
+    public DetectionMethod FunMethod
+    {
+        get => _draft.Fun.Method;
+        set => SetProperty(_draft.Fun.Method, value, v => _draft.Fun.Method = v);
+    }
+
+    /// <summary>Was die Zielbox umrahmt (Kopf, Oberkörper, ganze Person).</summary>
+    public TargetScope FunScope
+    {
+        get => _draft.Fun.Scope;
+        set => SetProperty(_draft.Fun.Scope, value, v => _draft.Fun.Scope = v);
+    }
+
+    public TargetBoxStyle FunBoxStyle
+    {
+        get => _draft.Fun.BoxStyle;
+        set => SetProperty(_draft.Fun.BoxStyle, value, v => _draft.Fun.BoxStyle = v);
+    }
+
+    public TargetColor FunColor
+    {
+        get => _draft.Fun.Color;
+        set => SetProperty(_draft.Fun.Color, value, v => _draft.Fun.Color = v);
+    }
+
+    public LockOnAnimation FunAnimation
+    {
+        get => _draft.Fun.Animation;
+        set => SetProperty(_draft.Fun.Animation, value, v => _draft.Fun.Animation = v);
+    }
+
+    public int FunAnalysesPerSecond
+    {
+        get => _draft.Fun.AnalysesPerSecond;
+        set => SetProperty(_draft.Fun.AnalysesPerSecond, value, v => _draft.Fun.AnalysesPerSecond = v);
+    }
+
+    public int FunSensitivityPercent
+    {
+        get => _draft.Fun.SensitivityPercent;
+        set => SetProperty(_draft.Fun.SensitivityPercent, value, v => _draft.Fun.SensitivityPercent = v);
+    }
+
+    public int FunMinSizePercent
+    {
+        get => _draft.Fun.MinSizePercent;
+        set => SetProperty(_draft.Fun.MinSizePercent, value, v => _draft.Fun.MinSizePercent = v);
+    }
+
+    public int FunMaxTargets
+    {
+        get => _draft.Fun.MaxTargets;
+        set => SetProperty(_draft.Fun.MaxTargets, value, v => _draft.Fun.MaxTargets = v);
+    }
+
+    public int FunDwellMilliseconds
+    {
+        get => _draft.Fun.DwellMilliseconds;
+        set => SetProperty(_draft.Fun.DwellMilliseconds, value, v => _draft.Fun.DwellMilliseconds = v);
+    }
+
+    public int FunTextSeconds
+    {
+        get => _draft.Fun.TextSeconds;
+        set => SetProperty(_draft.Fun.TextSeconds, value, v => _draft.Fun.TextSeconds = v);
+    }
+
+    public int FunCooldownSeconds
+    {
+        get => _draft.Fun.CooldownSeconds;
+        set => SetProperty(_draft.Fun.CooldownSeconds, value, v => _draft.Fun.CooldownSeconds = v);
+    }
+
+    /// <summary>Text bei einer Person (Platzhalter <c>{Anzahl}</c>); leer = <see cref="FunSingularTextPlaceholder"/>.</summary>
+    public string FunSingularText
+    {
+        get => _draft.Fun.SingularText ?? string.Empty;
+        set => SetProperty(_draft.Fun.SingularText ?? string.Empty, value ?? string.Empty,
+            v => _draft.Fun.SingularText = string.IsNullOrWhiteSpace(v) ? null : v);
+    }
+
+    /// <summary>Text bei mehreren Personen (Platzhalter <c>{Anzahl}</c>); leer = <see cref="FunPluralTextPlaceholder"/>.</summary>
+    public string FunPluralText
+    {
+        get => _draft.Fun.PluralText ?? string.Empty;
+        set => SetProperty(_draft.Fun.PluralText ?? string.Empty, value ?? string.Empty,
+            v => _draft.Fun.PluralText = string.IsNullOrWhiteSpace(v) ? null : v);
+    }
+
+    /// <summary>Der Standardtext bei einer Person (Platzhalter im Eingabefeld, solange es leer ist).</summary>
+    public string FunSingularTextPlaceholder => FunSettings.DefaultSingularText;
+
+    /// <summary>Der Standardtext bei mehreren Personen.</summary>
+    public string FunPluralTextPlaceholder => FunSettings.DefaultPluralText;
+
+    public FunTextPosition FunTextPosition
+    {
+        get => _draft.Fun.TextPosition;
+        set => SetProperty(_draft.Fun.TextPosition, value, v => _draft.Fun.TextPosition = v);
+    }
+
+    /// <summary>HUD (Tipp-Effekt) oder Hinweis-Stil.</summary>
+    public FunTextStyle FunTextStyle
+    {
+        get => _draft.Fun.TextStyle;
+        set
+        {
+            if (SetProperty(_draft.Fun.TextStyle, value, v => _draft.Fun.TextStyle = v))
+                OnPropertyChanged(nameof(FunHintStyleVisible));
+        }
+    }
+
+    /// <summary>Die Auswahl des Hinweis-Stils ist nur sichtbar, wenn der Fun-Text im Hinweis-Stil erscheint.</summary>
+    public bool FunHintStyleVisible => _draft.Fun.TextStyle == FunTextStyle.Hint;
+
+    /// <summary>Die neun Hinweis-Stile mit deutschen Namen (dieselben wie bei den Wahlkarten im Tab „Gastansicht“).</summary>
+    public IReadOnlyList<HintStyleOption> FunHintStyles { get; } =
+    [
+        new(HintStyle.Pill, "Pille"),
+        new(HintStyle.Plain, "Schlicht"),
+        new(HintStyle.Banner, "Banner"),
+        new(HintStyle.Neon, "Neon"),
+        new(HintStyle.Bubble, "Sprechblase"),
+        new(HintStyle.Ticker, "Laufschrift"),
+        new(HintStyle.Glass, "Glas"),
+        new(HintStyle.Note, "Zettel"),
+        new(HintStyle.Cinema, "Kino"),
+    ];
+
+    /// <summary>Gewählter Hinweis-Stil des Fun-Texts (nur bei <see cref="FunTextStyle"/> = Hinweis-Stil wirksam).</summary>
+    public HintStyleOption SelectedFunHintStyle
+    {
+        get => FunHintStyles.FirstOrDefault(o => o.Style == _draft.Fun.TextHintStyle) ?? FunHintStyles[0];
+        set
+        {
+            if (value is null)
+                return;
+            SetProperty(_draft.Fun.TextHintStyle, value.Style, v => _draft.Fun.TextHintStyle = v);
+        }
+    }
+
+    public bool FunSoundEnabled
+    {
+        get => _draft.Fun.SoundEnabled;
+        set => SetProperty(_draft.Fun.SoundEnabled, value, v => _draft.Fun.SoundEnabled = v);
+    }
+
+    // ---------------------------------------------------------------- Fun: Live-Vorschau
+
+    private bool _isFunTabSelected;
+
+    /// <summary>Eigene Zielerfassung der Vorschau im Tab „Fun“ (Overlay und Text binden daran, wie die Gastansicht an ihre).</summary>
+    public FunOverlayViewModel FunPreview { get; }
+
+    /// <summary>
+    /// Der Tab „Fun“ ist ausgewählt. Nur dann läuft die Erkennung der Vorschau (offene Anforderung, Timer); beim Wechsel zu einem
+    /// anderen Tab und beim Schließen wird sie freigegeben.
+    /// </summary>
+    public bool IsFunTabSelected
+    {
+        get => _isFunTabSelected;
+        set
+        {
+            if (SetProperty(ref _isFunTabSelected, value))
+                UpdateFunPreview();
+        }
+    }
+
+    /// <summary>Die Kamera liefert ein Livebild (sonst zeigt die Vorschau einen Hinweis).</summary>
+    public bool FunPreviewCameraRunning => Camera.Status == CameraStatus.Running;
+
+    public bool FunPreviewNoCamera => !FunPreviewCameraRunning;
+
+    /// <summary>Test-Knopf: lässt ein simuliertes Ziel mit den aktuellen Entwurfswerten einrasten (auch ohne Kamera).</summary>
+    public IRelayCommand TestFunPreviewCommand { get; }
+
+    public string FunPreviewStatusText => FunPreviewStatus.Text;
+
+    public string FunPreviewWarningText => FunPreviewStatus.Warning ?? string.Empty;
+
+    public bool HasFunPreviewWarning => FunPreviewStatus.Warning is not null;
+
+    private FunPreviewStatusLines FunPreviewStatus =>
+        FunPreview.IsActive
+            ? FunPreviewStatusFormatter.Format(FunPreview.Status, FunPreview.Snapshot.Count)
+            : new FunPreviewStatusLines(string.Empty, null);
+
+    private void TestFunPreview()
+    {
+        if (_disposed)
+            return;
+        FunPreview.Simulate(_draft.Fun.Clone(), MirrorPreview);
+    }
+
+    // Läuft die Vorschau-Erkennung, gelten die Entwurfswerte sofort (geänderte Einstellungen oder Spiegelung → SetActive erneut).
+    private void UpdateFunPreview()
+    {
+        if (!_disposed)
+            FunPreview.SetActive(_isFunTabSelected, _draft.Fun, MirrorPreview);
+    }
+
+    private static bool AffectsFunPreview(string? propertyName) =>
+        string.IsNullOrEmpty(propertyName) // alle Eigenschaften (Standardwerte wiederhergestellt)
+        || propertyName == nameof(MirrorPreview)
+        || (propertyName.StartsWith("Fun", StringComparison.Ordinal) && !propertyName.StartsWith("FunPreview", StringComparison.Ordinal))
+        || propertyName.StartsWith("SelectedFun", StringComparison.Ordinal);
+
+    private void OnFunPreviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(FunOverlayViewModel.Status) or nameof(FunOverlayViewModel.Snapshot)
+            or nameof(FunOverlayViewModel.IsActive))
+        {
+            OnPropertyChanged(nameof(FunPreviewStatusText));
+            OnPropertyChanged(nameof(FunPreviewWarningText));
+            OnPropertyChanged(nameof(HasFunPreviewWarning));
+        }
+    }
+
     // ---------------------------------------------------------------- Standardwerte
 
     /// <summary>
@@ -2634,6 +2887,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         _draft.GuestScreen = defaults.GuestScreen;
         _draft.Appearance = defaults.Appearance;
         _draft.Video = defaults.Video;
+        _draft.Fun = defaults.Fun;
         // Security (PIN) und Version bleiben bewusst unverändert.
         RebuildMonitorOptions(_monitorList);
         RebuildMicrophoneOptions(_microphoneList);
@@ -2978,6 +3232,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         if (_disposed)
             return;
         _disposed = true;
+        FunPreview.PropertyChanged -= OnFunPreviewPropertyChanged;
+        FunPreview.Dispose();
         Camera.StatusChanged -= OnCameraStatusChanged;
         _lifetime.Cancel();
         _lifetime.Dispose();

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows.Media.Imaging;
 using Fotobox.Core;
+using Fotobox.Services.Detection;
 using Fotobox.Services.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -42,6 +43,50 @@ public class AppServicesTests
             controller.TryCancel();
             controller.Cancel();
         }
+    }
+
+    [Fact]
+    public async Task PersonDetectionService_IsRegisteredAsSingleton_WithoutTouchingTheCamera()
+    {
+        var services = new ServiceCollection();
+        App.RegisterServices(services);
+        var camera = new DetectionFakeCamera();
+        services.AddSingleton<ICameraService>(camera);
+
+        await using var provider = services.BuildServiceProvider();
+
+        var detection = provider.GetRequiredService<IPersonDetectionService>();
+        Assert.IsType<PersonDetectionService>(detection);
+        Assert.Same(detection, provider.GetRequiredService<IPersonDetectionService>());
+        Assert.Equal(0, camera.Subscribers); // ohne Anforderung kein Abo
+    }
+
+    [Fact]
+    public async Task FunServices_AreRegistered_AndGuestViewAndAdminReceiveTheRealOnes()
+    {
+        var services = new ServiceCollection();
+        App.RegisterServices(services);
+        services.AddSingleton<ISettingsStore>(new TestSettingsStore());
+        services.AddSingleton<ICameraService>(new DetectionFakeCamera());
+        services.AddSingleton<IPrintService, NoPrinting>();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var sound = provider.GetRequiredService<IFunSoundPlayer>();
+        Assert.IsType<Fotobox.Services.Audio.FunSoundPlayer>(sound);
+        Assert.Same(sound, provider.GetRequiredService<IFunSoundPlayer>());
+
+        // Transient: Gastansicht und Admin-Vorschau bekommen je ein eigenes Exemplar.
+        var a = provider.GetRequiredService<Fotobox.ViewModels.Booth.FunOverlayViewModel>();
+        var b = provider.GetRequiredService<Fotobox.ViewModels.Booth.FunOverlayViewModel>();
+        Assert.NotSame(a, b);
+        Assert.False(a.IsInert);
+
+        // Die optionalen Konstruktorparameter dürfen nicht still auf „inert“ bzw. null zurückfallen.
+        var booth = provider.GetRequiredService<Fotobox.ViewModels.Booth.BoothViewModel>();
+        Assert.False(booth.Fun.IsInert);
+        var launcher = Assert.IsType<Fotobox.Views.Admin.AdminLauncher>(provider.GetRequiredService<IAdminLauncher>());
+        Assert.True(launcher.HasFunServices);
     }
 
     private sealed class TestSettingsStore : ISettingsStore

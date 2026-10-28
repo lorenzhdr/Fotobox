@@ -1,0 +1,58 @@
+<UserControl x:Class="Fotobox.Views.Admin.LockOnSketch"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Fotobox.Views.Admin"
+             xmlns:core="clr-namespace:Fotobox.Core"
+             xmlns:conv="clr-namespace:Fotobox.Views.Converters"
+             Width="120" Height="68" IsHitTestVisible="False" Focusable="False">
+
+    <!--
+        Skizze einer Einrast-Animation: Zielecken in der gewählten Farbe, dazu ein Hinweis auf die Bewegung
+        (Zusammenziehen: großer Geisterrahmen mit Pfeilen nach innen; Pulsieren: Wellenringe; Scan-Linie: Linie quer durch die Box).
+        Bewusst fest eingefärbt (wie die Gastansicht), nicht aus den Admin-Paletten.
+    -->
+    <UserControl.Resources>
+        <conv:EnumMatchVisibilityConverter x:Key="KindVis" />
+    </UserControl.Resources>
+
+    <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
+        <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#3A4358" Offset="0" />
+                <GradientStop Color="#171C2A" Offset="1" />
+            </LinearGradientBrush>
+        </Border.Background>
+        <Grid>
+            <!-- Zusammenziehen: gestrichelter großer Rahmen, Pfeile nach innen -->
+            <Grid Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:LockOnSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:LockOnAnimation.ShrinkPulse}}">
+                <Rectangle Width="100" Height="56" Stroke="#66FFFFFF" StrokeThickness="1" StrokeDashArray="3 3"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <TextBlock Text="↘" Foreground="#99FFFFFF" FontSize="13" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="26,6,0,0" />
+                <TextBlock Text="↙" Foreground="#99FFFFFF" FontSize="13" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,26,0" />
+                <TextBlock Text="↗" Foreground="#99FFFFFF" FontSize="13" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="26,0,0,6" />
+                <TextBlock Text="↖" Foreground="#99FFFFFF" FontSize="13" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,26,6" />
+            </Grid>
+
+            <!-- Pulsieren (auch nach dem Zusammenziehen bzw. der Scan-Linie): Wellenringe -->
+            <Rectangle Width="64" Height="46" Stroke="{Binding BoxBrush, RelativeSource={RelativeSource AncestorType=local:LockOnSketch}}"
+                       StrokeThickness="1" Opacity="0.55" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:LockOnSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:LockOnAnimation.Pulse}}" />
+            <Rectangle Width="78" Height="55" Stroke="{Binding BoxBrush, RelativeSource={RelativeSource AncestorType=local:LockOnSketch}}"
+                       StrokeThickness="1" Opacity="0.28" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:LockOnSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:LockOnAnimation.Pulse}}" />
+
+            <!-- Scan-Linie quer durch die Box -->
+            <Grid Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:LockOnSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:LockOnAnimation.ScanPulse}}">
+                <Rectangle Width="50" Height="9" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-12,0,0"
+                           Fill="{Binding BoxBrush, RelativeSource={RelativeSource AncestorType=local:LockOnSketch}}" Opacity="0.2" />
+                <Rectangle Width="50" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-12,0,0"
+                           Fill="{Binding BoxBrush, RelativeSource={RelativeSource AncestorType=local:LockOnSketch}}" />
+            </Grid>
+
+            <!-- Die Zielecken selbst -->
+            <Path Data="M0,10 L0,0 L10,0 M34,0 L44,0 L44,10 M44,26 L44,36 L34,36 M10,36 L0,36 L0,26"
+                  Width="44" Height="36" Stretch="None" HorizontalAlignment="Center" VerticalAlignment="Center"
+                  StrokeThickness="2" Stroke="{Binding BoxBrush, RelativeSource={RelativeSource AncestorType=local:LockOnSketch}}" />
+        </Grid>
+    </Border>
+</UserControl>

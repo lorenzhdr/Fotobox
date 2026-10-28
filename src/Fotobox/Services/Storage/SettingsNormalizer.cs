@@ -34,6 +34,7 @@ internal static class SettingsNormalizer
         s.GuestScreen ??= new GuestScreenSettings();
         s.Appearance ??= new AppearanceSettings();
         s.Video ??= new VideoSettings();
+        s.Fun ??= new FunSettings();
 
         s.Flow.CountdownSeconds = Math.Clamp(s.Flow.CountdownSeconds, SettingsLimits.CountdownMin, SettingsLimits.CountdownMax);
         s.Flow.PreviewSeconds = Math.Clamp(s.Flow.PreviewSeconds, SettingsLimits.PreviewMin, SettingsLimits.PreviewMax);
@@ -67,6 +68,7 @@ internal static class SettingsNormalizer
             s.Version = AppSettings.CurrentVersion;
 
         NormalizeVideo(s.Video);
+        NormalizeFun(s.Fun);
 
         // PinIterations wird bewusst nicht geklemmt: Ein anderer Wert passte nicht mehr zum gespeicherten Hash (siehe PinService).
 
@@ -131,6 +133,44 @@ internal static class SettingsNormalizer
         if (string.IsNullOrWhiteSpace(v.Folder))
             v.Folder = null;
         v.FilePrefix = SanitizePrefix(v.FilePrefix, VideoSettings.DefaultFilePrefix);
+    }
+
+    /// <summary>
+    /// Fun-Einstellungen: Zahlen auf <see cref="SettingsLimits"/> klemmen, unbekannte Enum-Werte auf den Standard setzen.
+    /// Eigene Texte: Steuerzeichen/Zeilenumbrüche → Leerzeichen, Länge auf <see cref="SettingsLimits.HintTextMaxLength"/>
+    /// begrenzt, nur Leerraum → null (= Standardtext).
+    /// </summary>
+    private static void NormalizeFun(FunSettings f)
+    {
+        var defaults = new FunSettings();
+
+        f.TextSeconds = Math.Clamp(f.TextSeconds, SettingsLimits.FunTextSecondsMin, SettingsLimits.FunTextSecondsMax);
+        f.CooldownSeconds = Math.Clamp(f.CooldownSeconds, SettingsLimits.FunCooldownSecondsMin, SettingsLimits.FunCooldownSecondsMax);
+        f.MinSizePercent = Math.Clamp(f.MinSizePercent, SettingsLimits.FunMinSizePercentMin, SettingsLimits.FunMinSizePercentMax);
+        f.MaxTargets = Math.Clamp(f.MaxTargets, SettingsLimits.FunMaxTargetsMin, SettingsLimits.FunMaxTargetsMax);
+        f.SensitivityPercent = Math.Clamp(f.SensitivityPercent, SettingsLimits.FunSensitivityMin, SettingsLimits.FunSensitivityMax);
+        f.DwellMilliseconds = Math.Clamp(f.DwellMilliseconds, SettingsLimits.FunDwellMillisecondsMin, SettingsLimits.FunDwellMillisecondsMax);
+        f.AnalysesPerSecond = Math.Clamp(f.AnalysesPerSecond, SettingsLimits.FunAnalysesPerSecondMin, SettingsLimits.FunAnalysesPerSecondMax);
+
+        if (!Enum.IsDefined(f.Method))
+            f.Method = defaults.Method;
+        if (!Enum.IsDefined(f.Scope))
+            f.Scope = defaults.Scope;
+        if (!Enum.IsDefined(f.BoxStyle))
+            f.BoxStyle = defaults.BoxStyle;
+        if (!Enum.IsDefined(f.Color))
+            f.Color = defaults.Color;
+        if (!Enum.IsDefined(f.Animation))
+            f.Animation = defaults.Animation;
+        if (!Enum.IsDefined(f.TextPosition))
+            f.TextPosition = defaults.TextPosition;
+        if (!Enum.IsDefined(f.TextStyle))
+            f.TextStyle = defaults.TextStyle;
+        if (!Enum.IsDefined(f.TextHintStyle))
+            f.TextHintStyle = defaults.TextHintStyle;
+
+        f.SingularText = SanitizeHintText(f.SingularText);
+        f.PluralText = SanitizeHintText(f.PluralText);
     }
 
     /// <summary>

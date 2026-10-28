@@ -28,6 +28,8 @@ public partial class AdminWindow : Window
         };
         Loaded += OnLoaded;
         Closing += OnClosing;
+        // Die Erkennung der Fun-Vorschau endet mit dem Fenster (nicht erst mit dem Dispose des Ansichtsmodells).
+        Closed += (_, _) => viewModel.IsFunTabSelected = false;
         PreviewKeyDown += OnPreviewKeyDown;
 
         // Farbschema: sofort aus dem Entwurf, bei Änderung im Tab „Darstellung“ oder nach „Standardwerte wiederherstellen“ neu.
@@ -141,8 +143,13 @@ public partial class AdminWindow : Window
     private void OnTabSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         // SelectionChanged der ComboBoxen im Tab-Inhalt bubbelt bis hierher.
-        if (ReferenceEquals(e.OriginalSource, sender) && _viewModel.IsKeyCaptureActive)
+        if (!ReferenceEquals(e.OriginalSource, sender))
+            return;
+
+        if (_viewModel.IsKeyCaptureActive)
             _viewModel.CancelKeyCapture();
+        // Die Erkennung der Fun-Vorschau läuft nur, solange dieser Tab ausgewählt ist.
+        _viewModel.IsFunTabSelected = ReferenceEquals(((TabControl)sender).SelectedItem, FunTab);
     }
 
     private void OnNewPinChanged(object sender, RoutedEventArgs e) =>

@@ -3,6 +3,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Fotobox.Core;
+using Fotobox.Core.Fun;
 using Fotobox.Services.Camera;
 
 namespace Fotobox.ViewModels.Booth;
@@ -38,16 +39,31 @@ public sealed class BoothViewModel : ObservableObject
     private bool _isLayoutPreviewVisible;
     private LayoutOption[] _layoutOptions = [];
     private int[] _stripSlots = [];
+    private bool _isShutDown;
 
     /// <summary>Geparste Tastenbelegung (Reihenfolge der Auslöser-Tasten bleibt für den Hinweistext erhalten).</summary>
     private sealed record KeyMap(IReadOnlyList<KeyChord> Trigger, HashSet<KeyChord> Admin, HashSet<KeyChord> Cancel,
         IReadOnlyList<KeyChord> VideoStart, HashSet<KeyChord> VideoStop);
 
-    public BoothViewModel(BoothController controller, ICameraService camera, ISettingsStore settings)
+    /// <param name="fun">Zielerfassung der gesamten Gastansicht (DI); ohne Angabe eine untätige Instanz (Tests).</param>
+    public BoothViewModel(BoothController controller, ICameraService camera, ISettingsStore settings,
+        FunOverlayViewModel? fun = null)
     {
         Controller = controller;
         Camera = camera;
         Settings = settings;
+        Fun = fun ?? FunOverlayViewModel.CreateInert();
+        Fun.PropertyChanged += (_, e) =>
+        {
+            // Der Fun-Text ersetzt die Hinweiszeile an derselben Stelle (unten = Foto-Hinweis, oben = Video-Hinweis).
+            if (e.PropertyName is nameof(FunOverlayViewModel.TextVisible) or nameof(FunOverlayViewModel.TextPosition)
+                or nameof(FunOverlayViewModel.IsShown))
+            {
+                OnPropertyChanged(nameof(ShowHint));
+                OnPropertyChanged(nameof(ShowLayoutHint));
+                OnPropertyChanged(nameof(ShowVideoHint));
+            }
+        };
         _dispatcher = Dispatcher.CurrentDispatcher;
         _layoutPreviewTimer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher) { Interval = LayoutPreviewDuration };
         _layoutPreviewTimer.Tick += (_, _) => HideLayoutPreview();
@@ -70,6 +86,12 @@ public sealed class BoothViewModel : ObservableObject
     public BoothController Controller { get; }
     public ICameraService Camera { get; }
     public ISettingsStore Settings { get; }
+
+    /// <summary>
+    /// Fun „Zielerfassung“ (Zielboxen und Text über dem Livebild). Aktiv genau dann, wenn eingeschaltet, im Leerlauf, Kamera läuft
+    /// und die Admin-Ansicht zu ist (<see cref="UpdateFun"/>).
+    /// </summary>
+    public FunOverlayViewModel Fun { get; }
 
     /// <summary>Wird bei jedem neuen Countdown-Wert (&gt; 0) ausgelöst – für die Zahlen-Animation.</summary>
     public event EventHandler? CountdownTicked;
@@ -173,8 +195,14 @@ public sealed class BoothViewModel : ObservableObject
         }
     }
 
-    /// <summary>Hinweis „Drücke … für ein Foto“ – nur wenn ein Foto auch wirklich möglich ist.</summary>
-    public bool ShowHint => IsIdle && Camera.Status == CameraStatus.Running;
+    /// <summary>Leerlauf mit laufender Kamera: Grundlage der Hinweiszeilen.</summary>
+    private bool IdleWithCamera => IsIdle && Camera.Status == CameraStatus.Running;
+
+    /// <summary>
+    /// Hinweis „Drücke … für ein Foto“ – nur wenn ein Foto auch wirklich möglich ist. Zeigt die Zielerfassung ihren Text unten,
+    /// entfällt er (der Fun-Text nimmt den Platz ein).
+    /// </summary>
+    public bool ShowHint => IdleWithCamera && !(Fun.TextVisible && Fun.TextPosition == FunTextPosition.Bottom);
 
     /// <summary>
     /// Hinweistext: der eigene Text aus den Einstellungen mit eingesetzten Platzhaltern, sonst automatisch mit den eingestellten
@@ -222,7 +250,8 @@ public sealed class BoothViewModel : ObservableObject
     /// Solange die Layout-Vorschauliste eingeblendet ist, entfällt sie (die Liste ist mittig und hoch, sie würde sonst bei
     /// kleinen Bildschirmen überlappen).
     /// </summary>
-    public bool ShowVideoHint => ShowHint && !IsLayoutPreviewVisible && VideoHintText.Length > 0;
+    public bool ShowVideoHint => IdleWithCamera && !IsLayoutPreviewVisible && VideoHintText.Length > 0
+        && !(Fun.TextVisible && Fun.TextPosition == FunTextPosition.Top);
 
     public bool IsVideoCountdown => Controller.State == BoothState.VideoCountdown;
     /// <summary>Countdown-Anzeige (Zahl, Abdunklung) für Foto- und Videodurchgang.</summary>
@@ -504,6 +533,7 @@ public sealed class BoothViewModel : ObservableObject
             _isAdminOpen = value;
             OnPropertyChanged(nameof(IsAdminOpen));
             OnPropertyChanged(nameof(CanOpenAdmin));
+            UpdateFun();
         }
     }
 
@@ -586,7 +616,9 @@ public sealed class BoothViewModel : ObservableObject
     /// </summary>
     public void Shutdown()
     {
+        _isShutDown = true;
         _layoutPreviewTimer.Stop();
+        Fun.SetActive(false, new FunSettings(), false);
         Controller.Cancel();
     }
 
@@ -629,6 +661,7 @@ public sealed class BoothViewModel : ObservableObject
         if (_isLayoutPreviewVisible && !CanChooseLayout)
             HideLayoutPreview();
 
+        UpdateFun();
         OnPropertyChanged(string.Empty);
 
         var value = Controller.CountdownValue;
@@ -637,6 +670,25 @@ public sealed class BoothViewModel : ObservableObject
             _lastCountdown = value;
             if (value > 0)
                 CountdownTicked?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>
+    /// Entscheidet neu, ob die Zielerfassung läuft: eingeschaltet, Leerlauf, Kamera läuft, Admin zu. Billig und wiederholbar
+    /// (<see cref="FunOverlayViewModel.SetActive"/> tut bei unveränderten Einstellungen nichts); mit dem Auslösen ist sie sofort aus.
+    /// </summary>
+    private void UpdateFun()
+    {
+        try
+        {
+            var fun = Settings.Current.Fun;
+            var active = !_isShutDown && fun is { Enabled: true } && IsIdle && !IsAdminOpen
+                && Camera.Status == CameraStatus.Running;
+            Fun.SetActive(active, fun ?? new FunSettings(), MirrorPreview);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Zielerfassung konnte nicht umgeschaltet werden.", ex);
         }
     }
 

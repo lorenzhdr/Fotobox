@@ -27,6 +27,21 @@ public enum VideoQuality { High, Medium, Low }
 /// <summary>Farbschema der Admin-Ansicht und der PIN-Dialoge; <see cref="System"/> folgt dem Windows-App-Modus.</summary>
 public enum AdminThemeMode { System, Light, Dark }
 
+/// <summary>Fun „Zielerfassung“: Ganzkörper per KI-Modell (ONNX) oder Gesichter per Windows-<c>FaceDetector</c>.</summary>
+public enum DetectionMethod { Body, Face }
+/// <summary>Was die Zielbox umrahmt. Bei Gesichtserkennung wird aus dem Gesicht hochgerechnet.</summary>
+public enum TargetScope { Head, UpperBody, FullBody }
+/// <summary>Aussehen der Zielbox. Neue Stile nur hinten anhängen.</summary>
+public enum TargetBoxStyle { Corners, Rectangle, CornersCrosshair }
+/// <summary>Feste Farbpalette für Zielbox, Beschriftung und HUD-Text. Neue Farben nur hinten anhängen.</summary>
+public enum TargetColor { Red, Green, Cyan, Yellow, White }
+/// <summary>Einrasten einer neuen Zielbox: Zusammenziehen + Pulsieren, nur Pulsieren, Scan-Linie + Pulsieren.</summary>
+public enum LockOnAnimation { ShrinkPulse, Pulse, ScanPulse }
+/// <summary>Position des Fun-Texts in der Gastansicht.</summary>
+public enum FunTextPosition { Center, Bottom, Top }
+/// <summary>Fun-Text im eigenen HUD-Stil (Tipp-Effekt) oder in einem der Hinweis-Stile (<see cref="FunSettings.TextHintStyle"/>).</summary>
+public enum FunTextStyle { Hud, Hint }
+
 /// <summary>Gemeinsame Wertebereiche für Admin-UI, Validierung und Normalisierung.</summary>
 public static class SettingsLimits
 {
@@ -72,6 +87,20 @@ public static class SettingsLimits
     public const int MicrophoneNameMaxLength = 200;
     /// <summary>Länge der PIN (Ziffern).</summary>
     public const int PinMinLength = 4, PinMaxLength = 12;
+    /// <summary>Fun: Anzeigedauer des Texts nach dem Einrasten.</summary>
+    public const int FunTextSecondsMin = 2, FunTextSecondsMax = 30;
+    /// <summary>Fun: Pause nach dem Text, bevor eine neu auftauchende Gruppe wieder auslöst (Zuwachs löst trotzdem aus).</summary>
+    public const int FunCooldownSecondsMin = 0, FunCooldownSecondsMax = 600;
+    /// <summary>Fun: Mindesthöhe einer Zielbox in Prozent der Bildhöhe (kleinere = Hintergrund, ignoriert).</summary>
+    public const int FunMinSizePercentMin = 5, FunMinSizePercentMax = 80;
+    /// <summary>Fun: Höchstzahl gleichzeitiger Zielboxen (die größten gewinnen).</summary>
+    public const int FunMaxTargetsMin = 1, FunMaxTargetsMax = 10;
+    /// <summary>Fun: Empfindlichkeit in Prozent; Mindestkonfidenz = (100 − Wert) / 100.</summary>
+    public const int FunSensitivityMin = 10, FunSensitivityMax = 95;
+    /// <summary>Fun: So lange muss eine Person erkannt sein, bevor sie anvisiert wird.</summary>
+    public const int FunDwellMillisecondsMin = 0, FunDwellMillisecondsMax = 3000;
+    /// <summary>Fun: Analysen pro Sekunde (Rechenlast); das Livebild hat immer Vorrang.</summary>
+    public const int FunAnalysesPerSecondMin = 1, FunAnalysesPerSecondMax = 10;
 }
 
 /// <summary>
@@ -158,6 +187,7 @@ public sealed class AppSettings
     public GuestScreenSettings GuestScreen { get; set; } = new();
     public AppearanceSettings Appearance { get; set; } = new();
     public VideoSettings Video { get; set; } = new();
+    public FunSettings Fun { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -319,6 +349,46 @@ public sealed class VideoSettings
 
     /// <summary>Öffnet die Kamera-Session ein Mikrofon?</summary>
     public bool UsesAudio => Enabled && RecordAudio;
+}
+
+/// <summary>
+/// Fun „Zielerfassung“: Personen im Livebild der Gastansicht (nur im Leerlauf) mit Zielboxen „TARGET n“ markieren, einrasten lassen
+/// und einen Text einblenden. Nur Darstellung in der Gastansicht, nie im Foto oder Video.
+/// </summary>
+public sealed class FunSettings
+{
+    public bool Enabled { get; set; } = true;
+    public DetectionMethod Method { get; set; } = DetectionMethod.Body;
+    public TargetScope Scope { get; set; } = TargetScope.FullBody;
+    public TargetBoxStyle BoxStyle { get; set; } = TargetBoxStyle.Corners;
+    public TargetColor Color { get; set; } = TargetColor.Red;
+    public LockOnAnimation Animation { get; set; } = LockOnAnimation.ShrinkPulse;
+    /// <summary>Text bei einer Person (Platzhalter <c>{Anzahl}</c>); null/leer = <see cref="DefaultSingularText"/>.</summary>
+    public string? SingularText { get; set; }
+    /// <summary>Text bei mehreren Personen (Platzhalter <c>{Anzahl}</c>); null/leer = <see cref="DefaultPluralText"/>.</summary>
+    public string? PluralText { get; set; }
+    public FunTextPosition TextPosition { get; set; } = FunTextPosition.Center;
+    public FunTextStyle TextStyle { get; set; } = FunTextStyle.Hud;
+    /// <summary>Hinweis-Stil des Texts, wenn <see cref="TextStyle"/> = <see cref="FunTextStyle.Hint"/>.</summary>
+    public HintStyle TextHintStyle { get; set; } = HintStyle.Pill;
+    public int TextSeconds { get; set; } = 6;
+    public int CooldownSeconds { get; set; } = 20;
+    public int MinSizePercent { get; set; } = 15;
+    public int MaxTargets { get; set; } = 6;
+    public int SensitivityPercent { get; set; } = 50;
+    public int DwellMilliseconds { get; set; } = 800;
+    public int AnalysesPerSecond { get; set; } = 5;
+    public bool SoundEnabled { get; set; }
+
+    public const string DefaultSingularText = "Hey du, nimm doch ein Foto oder Video mit mir auf!";
+    public const string DefaultPluralText = "Hey ihr, nehmt doch ein Foto oder Video mit mir auf!";
+
+    /// <summary>Mindestkonfidenz einer Erkennung (0,05 … 0,9) aus der Empfindlichkeit.</summary>
+    [JsonIgnore]
+    public double MinConfidence => Math.Clamp((100 - SensitivityPercent) / 100.0, 0.05, 0.9);
+
+    /// <summary>Tiefe Kopie.</summary>
+    public FunSettings Clone() => (FunSettings)MemberwiseClone();
 }
 
 public sealed class SecuritySettings
