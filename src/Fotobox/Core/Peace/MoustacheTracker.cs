@@ -4,13 +4,36 @@ namespace Fotobox.Core.Peace;
 
 /// <summary>
 /// UI-freie Verfolgung der Bärte: Je Gesicht (Id aus dem <see cref="FaceTracker"/>) ein Bart mit geglätteter Lage und stabilem
-/// Stil. Eine Sitzung (<see cref="StartSession"/>) legt fest, wer einen Bart bekommt und wann er endet. Zeit über
+/// Stil. Die Lage wird je Größe (Mitte x/y, Breite, Winkel) per One-Euro-Filter geglättet (ruhig im Stillstand, schnell bei
+/// Bewegung); <see cref="Views"/> schreibt die Mitte um das Alter der Beobachtung (jetzt − Bildzeit, höchstens
+/// <see cref="MaxPredictionAge"/> und <see cref="MaxPredictionFaceWidths"/> Gesichtsbreiten) per geschätzter Geschwindigkeit fort,
+/// <see cref="ExportPlanInput"/> (Foto) liefert dagegen die gefilterte Lage ohne Vorhersage. Eine Sitzung (<see cref="StartSession"/>) legt fest, wer einen Bart bekommt und wann er endet. Zeit über
 /// <see cref="TimeProvider"/>; nicht threadsicher (UI-Thread).
 /// </summary>
 public sealed class MoustacheTracker
 {
-    /// <summary>Glättung (EMA) von Mitte, Breite und Winkel.</summary>
-    public const double SmoothingAlpha = 0.5;
+    // One-Euro-Parameter. Mitte und Breite werden in Bildpixeln gefiltert, die Geschwindigkeit für die Grenzfrequenz in
+    // Gesichtsbreiten pro Sekunde gemessen (unabhängig vom Abstand zur Kamera). Grenzfrequenz = MinCutoff + Beta · Geschwindigkeit:
+    // bei 10 Beobachtungen/s ergibt MinCutoff 0,8 Hz im Stillstand rund 30 % Gewicht der neuen Messung (ruhig), bei einer
+    // Bewegung von 0,5 Gesichtsbreiten/s steigt die Grenzfrequenz auf rund 6 Hz (Gewicht ~80 %, kaum Nachlauf).
+    /// <summary>Grenzfrequenz (Hz) von Mitte, Breite und Winkel im Stillstand.</summary>
+    public const double MinCutoff = 0.8;
+    /// <summary>Zuwachs der Grenzfrequenz je Gesichtsbreite/s für die Mitte.</summary>
+    public const double PositionBeta = 10;
+    /// <summary>Zuwachs der Grenzfrequenz je (Breitenänderung/s ÷ Breite) für die Bartbreite.</summary>
+    public const double WidthBeta = 6;
+    /// <summary>Zuwachs der Grenzfrequenz je rad/s für den Winkel.</summary>
+    public const double AngleBeta = 8;
+    /// <summary>Grenzfrequenz (Hz) der Geschwindigkeitsschätzung.</summary>
+    public const double VelocityCutoff = 2.0;
+    /// <summary>Größtes Alter einer Beobachtung, um das die Mitte in <see cref="Views"/> fortgeschrieben wird.</summary>
+    public static readonly TimeSpan MaxPredictionAge = TimeSpan.FromMilliseconds(150);
+    /// <summary>Größter Weg der Vorhersage in Gesichtsbreiten.</summary>
+    public const double MaxPredictionFaceWidths = 0.3;
+    /// <summary>Beobachtungen eines Gesichts, die näher beieinander liegen, werden nicht gefiltert (die Geschwindigkeitsschätzung würde springen).</summary>
+    public static readonly TimeSpan MinSampleInterval = TimeSpan.FromMilliseconds(20);
+    /// <summary>Liegen zwei Beobachtungen eines Gesichts weiter auseinander, beginnt die Glättung von vorn.</summary>
+    public static readonly TimeSpan SmoothingGap = TimeSpan.FromMilliseconds(700);
     /// <summary>So lange dürfen alle bebarteten Gesichter fehlen, bevor „bis zum nächsten Foto bzw. bis die Person verschwindet“ endet.</summary>
     public static readonly TimeSpan GoneTimeout = TimeSpan.FromMilliseconds(1500);
     /// <summary>So lange wird ein Bart ohne frische Beobachtung noch gezeichnet (überbrückt Aussetzer der Erkennung).</summary>
@@ -27,8 +50,17 @@ public sealed class MoustacheTracker
         public required MoustacheStyle Style { get; init; }
         public required DateTimeOffset FirstSeen { get; init; }
         public DateTimeOffset LastSeen { get; set; }
+        /// <summary>Gefilterte Lage zum Zeitpunkt <see cref="SampleTime"/> (ohne Vorhersage).</summary>
         public MoustachePose Pose { get; set; }
         public NormRect FaceBox { get; set; }
+        public DateTimeOffset SampleTime { get; set; }
+        public double ImageWidth { get; set; }
+        public double ImageHeight { get; set; }
+        // Mitte in Bildpixeln.
+        public OneEuroFilter X { get; } = new(MinCutoff, PositionBeta, VelocityCutoff);
+        public OneEuroFilter Y { get; } = new(MinCutoff, PositionBeta, VelocityCutoff);
+        public OneEuroFilter Width { get; } = new(MinCutoff, WidthBeta, VelocityCutoff);
+        public OneEuroFilter Angle { get; } = new(MinCutoff, AngleBeta, VelocityCutoff);
     }
 
     private readonly TimeProvider _time;
@@ -50,6 +82,7 @@ public sealed class MoustacheTracker
     private double _lastWidth;
     private double _lastHeight;
     private DateTimeOffset _lastFacesAt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastFrameAt = DateTimeOffset.MinValue;
 
     public MoustacheTracker(TimeProvider time, Func<int, int>? random = null)
     {
@@ -71,7 +104,7 @@ public sealed class MoustacheTracker
             return _entries.Values
                 .Where(e => now - e.LastSeen <= ViewTimeout)
                 .OrderBy(e => e.FaceId)
-                .Select(e => new MoustacheView(e.FaceId, e.Style, e.Pose))
+                .Select(e => new MoustacheView(e.FaceId, e.Style, Predict(e, now)))
                 .ToList();
         }
     }
@@ -96,7 +129,7 @@ public sealed class MoustacheTracker
         _accountedAt = now;
 
         if (_lastFaces.Count > 0 && now - _lastFacesAt <= SeedMaxAge)
-            Apply(_lastFaces, _lastWidth, _lastHeight, now, refreshLastSeen: false);
+            Apply(_lastFaces, _lastWidth, _lastHeight, now, _lastFrameAt, refreshLastSeen: false);
     }
 
     /// <summary>Beendet die Sitzung; alle Bärte verschwinden.</summary>
@@ -121,16 +154,22 @@ public sealed class MoustacheTracker
         _hold = hold;
     }
 
-    /// <summary>Gesichter einer Analyse (mit Ids) samt Bildgröße in Pixeln (für die Geometrie).</summary>
-    public void OnFaces(IReadOnlyList<TrackedFace> faces, double imageWidth, double imageHeight)
+    /// <summary>
+    /// Gesichter einer Analyse (mit Ids) samt Bildgröße in Pixeln (für die Geometrie). <paramref name="frameTime"/> = Zeitpunkt,
+    /// zu dem das analysierte Bild eintraf (null, unbekannt oder in der Zukunft = jetzt); aus dem Alter berechnet <see cref="Views"/>
+    /// die Vorhersage.
+    /// </summary>
+    public void OnFaces(IReadOnlyList<TrackedFace> faces, double imageWidth, double imageHeight, DateTimeOffset? frameTime = null)
     {
         var now = _time.GetUtcNow();
+        var sample = frameTime is { } t && t > DateTimeOffset.MinValue && t <= now ? t : now;
         _lastFaces = faces;
         _lastWidth = imageWidth;
         _lastHeight = imageHeight;
         _lastFacesAt = now;
+        _lastFrameAt = sample;
         if (_active)
-            Apply(faces, imageWidth, imageHeight, now, refreshLastSeen: true);
+            Apply(faces, imageWidth, imageHeight, now, sample, refreshLastSeen: true);
     }
 
     /// <summary>Zeitgesteuerte Enden (feste Dauer, Personen verschwunden) und Aufräumen.</summary>
@@ -181,7 +220,7 @@ public sealed class MoustacheTracker
         _accountedAt = now;
     }
 
-    private void Apply(IReadOnlyList<TrackedFace> faces, double w, double h, DateTimeOffset now, bool refreshLastSeen)
+    private void Apply(IReadOnlyList<TrackedFace> faces, double w, double h, DateTimeOffset now, DateTimeOffset sample, bool refreshLastSeen)
     {
         foreach (var face in faces)
         {
@@ -199,13 +238,16 @@ public sealed class MoustacheTracker
                     LastSeen = now,
                     Pose = raw,
                 };
+                SeedFilters(entry, raw, w, h, sample);
                 _entries[face.Id] = entry;
             }
             else
             {
-                entry.Pose = Smooth(entry.Pose, raw);
-                if (refreshLastSeen)
-                    entry.LastSeen = now;
+                var dt = (sample - entry.SampleTime).TotalSeconds;
+                if (dt > SmoothingGap.TotalSeconds || entry.ImageWidth != w || entry.ImageHeight != h)
+                    SeedFilters(entry, raw, w, h, sample);
+                else if (dt >= MinSampleInterval.TotalSeconds)
+                    Smooth(entry, raw, face.Face.Box, w, h, dt, sample);
             }
             entry.FaceBox = face.Face.Box;
             if (refreshLastSeen)
@@ -217,15 +259,58 @@ public sealed class MoustacheTracker
             _entries.Remove(id);
     }
 
-    private static MoustachePose Smooth(MoustachePose old, MoustachePose observed)
+    // Neue Spur (oder lange Lücke): Lage sofort übernehmen, Filter und Geschwindigkeit zurücksetzen.
+    private static void SeedFilters(Entry entry, MoustachePose raw, double w, double h, DateTimeOffset sample)
     {
-        static double Mix(double o, double n) => SmoothingAlpha * n + (1 - SmoothingAlpha) * o;
-        var delta = observed.AngleRad - old.AngleRad;
-        while (delta > Math.PI) delta -= 2 * Math.PI;
-        while (delta <= -Math.PI) delta += 2 * Math.PI;
-        return new MoustachePose(
-            new NormPoint(Mix(old.Center.X, observed.Center.X), Mix(old.Center.Y, observed.Center.Y)),
-            Mix(old.WidthPx, observed.WidthPx),
-            old.AngleRad + SmoothingAlpha * delta);
+        entry.X.Reset(raw.Center.X * w);
+        entry.Y.Reset(raw.Center.Y * h);
+        entry.Width.Reset(raw.WidthPx);
+        entry.Angle.Reset(raw.AngleRad);
+        entry.Pose = raw;
+        entry.SampleTime = sample;
+        entry.ImageWidth = w;
+        entry.ImageHeight = h;
+    }
+
+    private static void Smooth(Entry entry, MoustachePose raw, NormRect box, double w, double h, double dt, DateTimeOffset sample)
+    {
+        var faceWidthPx = Math.Max(1, box.Width * w);
+        var x = entry.X.Filter(raw.Center.X * w, dt, faceWidthPx);
+        var y = entry.Y.Filter(raw.Center.Y * h, dt, faceWidthPx);
+        var width = entry.Width.Filter(raw.WidthPx, dt, Math.Max(1, entry.Width.Value));
+
+        // Winkel entrollen: Das Ziel liegt immer auf dem kürzesten Weg zum gefilterten Wert (kein Sprung bei ±π).
+        var delta = WrapAngle(raw.AngleRad - entry.Angle.Value);
+        var angle = entry.Angle.Filter(entry.Angle.Value + delta, dt);
+
+        entry.Pose = new MoustachePose(new NormPoint(x / w, y / h), width, WrapAngle(angle));
+        entry.SampleTime = sample;
+    }
+
+    private static double WrapAngle(double angle)
+    {
+        while (angle > Math.PI) angle -= 2 * Math.PI;
+        while (angle <= -Math.PI) angle += 2 * Math.PI;
+        return angle;
+    }
+
+    // Mitte um das Alter der Beobachtung fortschreiben (Breite und Winkel bleiben stehen).
+    private static MoustachePose Predict(Entry entry, DateTimeOffset now)
+    {
+        var age = Math.Min((now - entry.SampleTime).TotalSeconds, MaxPredictionAge.TotalSeconds);
+        if (!(age > 0) || entry.ImageWidth <= 0 || entry.ImageHeight <= 0)
+            return entry.Pose;
+
+        var dx = entry.X.Velocity * age;
+        var dy = entry.Y.Velocity * age;
+        var limit = MaxPredictionFaceWidths * entry.FaceBox.Width * entry.ImageWidth;
+        var length = Math.Sqrt(dx * dx + dy * dy);
+        if (length > limit && length > 0)
+        {
+            dx *= limit / length;
+            dy *= limit / length;
+        }
+        var center = new NormPoint(entry.Pose.Center.X + dx / entry.ImageWidth, entry.Pose.Center.Y + dy / entry.ImageHeight);
+        return entry.Pose with { Center = center };
     }
 }
