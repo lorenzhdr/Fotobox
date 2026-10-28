@@ -97,6 +97,8 @@ public static class SettingsLimits
     public const int FunTextSecondsMin = 2, FunTextSecondsMax = 30;
     /// <summary>Fun: Pause nach dem Text, bevor eine neu auftauchende Gruppe wieder auslöst (Zuwachs löst trotzdem aus).</summary>
     public const int FunCooldownSecondsMin = 0, FunCooldownSecondsMax = 600;
+    /// <summary>Fun: Abstand der Wiederholung bei gleichbleibender Gruppe, gerechnet ab dem Ende des Texts.</summary>
+    public const int FunRepeatSecondsMin = 10, FunRepeatSecondsMax = 600;
     /// <summary>Fun: Mindesthöhe einer Zielbox in Prozent der Bildhöhe (kleinere = Hintergrund, ignoriert).</summary>
     public const int FunMinSizePercentMin = 5, FunMinSizePercentMax = 80;
     /// <summary>Fun: Höchstzahl gleichzeitiger Zielboxen (die größten gewinnen).</summary>
@@ -396,6 +398,15 @@ public sealed class FunSettings
     public HintStyle TextHintStyle { get; set; } = HintStyle.Pill;
     public int TextSeconds { get; set; } = 6;
     public int CooldownSeconds { get; set; } = 20;
+    /// <summary>
+    /// Ein Personentausch löst aus: Eine neu bestätigte Person (neue Spur), die in dieser Episode noch nicht da war, zählt wie
+    /// ein Zuwachs, auch wenn die Anzahl gleich bleibt. Aus: nur ein Anstieg über die bisherige Höchstzahl löst aus.
+    /// </summary>
+    public bool SwapTriggers { get; set; } = true;
+    /// <summary>Bleibt dieselbe Gruppe da, löst die Erfassung nach <see cref="RepeatSeconds"/> erneut aus.</summary>
+    public bool RepeatEnabled { get; set; }
+    /// <summary>Abstand der Wiederholung ab Textende (frühestens nach der Pause); nur mit <see cref="RepeatEnabled"/>.</summary>
+    public int RepeatSeconds { get; set; } = 60;
     public int MinSizePercent { get; set; } = 15;
     public int MaxTargets { get; set; } = 6;
     public int SensitivityPercent { get; set; } = 50;

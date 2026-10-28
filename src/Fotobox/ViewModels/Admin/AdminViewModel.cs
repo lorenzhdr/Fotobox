@@ -2721,6 +2721,26 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         set => SetProperty(_draft.Fun.CooldownSeconds, value, v => _draft.Fun.CooldownSeconds = v);
     }
 
+    /// <summary>Ein Personentausch (neue Person bei gleicher Anzahl) löst die Erfassung aus.</summary>
+    public bool FunSwapTriggers
+    {
+        get => _draft.Fun.SwapTriggers;
+        set => SetProperty(_draft.Fun.SwapTriggers, value, v => _draft.Fun.SwapTriggers = v);
+    }
+
+    /// <summary>Bei gleichbleibender Gruppe nach <see cref="FunRepeatSeconds"/> erneut erfassen.</summary>
+    public bool FunRepeatEnabled
+    {
+        get => _draft.Fun.RepeatEnabled;
+        set => SetProperty(_draft.Fun.RepeatEnabled, value, v => _draft.Fun.RepeatEnabled = v);
+    }
+
+    public int FunRepeatSeconds
+    {
+        get => _draft.Fun.RepeatSeconds;
+        set => SetProperty(_draft.Fun.RepeatSeconds, value, v => _draft.Fun.RepeatSeconds = v);
+    }
+
     /// <summary>Text bei einer Person (Platzhalter <c>{Anzahl}</c>); leer = <see cref="FunSingularTextPlaceholder"/>.</summary>
     public string FunSingularText
     {
