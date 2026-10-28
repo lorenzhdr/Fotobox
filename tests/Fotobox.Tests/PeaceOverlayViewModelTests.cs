@@ -421,4 +421,113 @@ public sealed class PeaceOverlayViewModelTests
         Assert.False(vm.IsShown);
         vm.SetMode(PeaceMode.Off, new PeaceSettings(), false);
     }
+
+    // ---- schneller Gesichtsmodus und Bildzeit
+
+    [Fact]
+    public void VisibleMoustache_SwitchesToFastFaceMode_AndBackWhenItEnds()
+    {
+        using var vm = Create();
+        var settings = Settings(s => s.AnalysesPerSecond = 5);
+        vm.SetMode(PeaceMode.Watching, settings, false);
+        _service.Last.RaiseUpdated([Face], []);
+        var request = _service.Last;
+
+        vm.StartMoustache(new PeaceTrigger(PeaceAction.Moustache, 1, 1, new NormPoint(0.5, 0.6)));
+        var fast = Assert.Single(request.Updates);
+        Assert.Equal(GestureNeeds.Faces | GestureNeeds.Hands, fast.Needs);
+        Assert.Equal(10, fast.AnalysesPerSecond);
+        Assert.Equal(2, fast.HandCycleDivisor); // effektive Handrate 10 / 2 = 5/s, wie eingestellt
+
+        vm.OnPhotoCompleted();
+        Assert.Equal(2, request.Updates.Count);
+        Assert.Equal(1, request.Updates[1].HandCycleDivisor);
+        Assert.Equal(5, request.Updates[1].AnalysesPerSecond);
+    }
+
+    [Fact]
+    public void FastFaceMode_KeepsTheConfiguredHandRate_ForHigherSettings()
+    {
+        using var vm = Create();
+        vm.SetMode(PeaceMode.Watching, Settings(s => s.AnalysesPerSecond = 8), false);
+        _service.Last.RaiseUpdated([Face], []);
+
+        vm.StartMoustache(new PeaceTrigger(PeaceAction.Moustache, 1, 1, new NormPoint(0.5, 0.6)));
+
+        var fast = Assert.Single(_service.Last.Updates);
+        Assert.Equal(16, fast.AnalysesPerSecond);
+        Assert.Equal(8, fast.AnalysesPerSecond / fast.HandCycleDivisor);
+    }
+
+    [Fact]
+    public void FacesOnlyMode_StaysFacesOnlyEvenWithAMoustache()
+    {
+        using var vm = Create();
+        vm.SetMode(PeaceMode.FollowMoustache, Settings(), false);
+        _service.Last.RaiseUpdated([Face], []);
+        vm.StartMoustache(new PeaceTrigger(PeaceAction.Moustache, 1, 1, new NormPoint(0.5, 0.6)));
+
+        Assert.Empty(_service.Last.Updates);
+        Assert.Equal(GestureNeeds.Faces, _service.Last.Options.Needs);
+    }
+
+    [Fact]
+    public void FacesOnlyUpdate_DoesNotAffectTheHandsOrTheHold()
+    {
+        using var vm = Create();
+        var actions = new List<PeaceTrigger>();
+        vm.ActionRequested += (_, t) => actions.Add(t);
+        vm.SetMode(PeaceMode.Watching, Settings(), false);
+        var status = _service.Last.Status;
+
+        // Hände nur alle 200 ms, dazwischen reine Gesichts-Updates mit leerer Handliste.
+        for (var i = 0; i < 14; i++)
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(100));
+            var withHands = i % 2 == 0;
+            _service.Last.RaiseUpdated(new GestureUpdate([Face], withHands ? [Peace] : [], 1280, 720, status,
+                HandsIncluded: withHands, FacesFresh: true, FrameTime: _time.GetUtcNow()));
+        }
+
+        Assert.Single(vm.Hands);
+        Assert.Single(actions); // Peace wurde über 1 s gehalten
+    }
+
+    [Fact]
+    public void RepeatedFaces_AreOnlyUsedToMatchHands_NotTrackedAgain()
+    {
+        using var vm = Create();
+        vm.SetMode(PeaceMode.Watching, Settings(), false);
+        var status = _service.Last.Status;
+        var handNearFace = PeaceHandFixtures.Hand(HandPose.Peace, cx: 0.5, cy: 0.45);
+        _service.Last.RaiseUpdated(new GestureUpdate([Face], [], 1280, 720, status, HandsIncluded: false, FacesFresh: true, FrameTime: _time.GetUtcNow()));
+        Assert.Equal(1, vm.FaceCount);
+
+        // Das Hand-Update wiederholt die Gesichter nur (hier bewusst leer): Zuordnung über die zuvor verfolgten Gesichter.
+        _service.Last.RaiseUpdated(new GestureUpdate([], [handNearFace], 1280, 720, status, HandsIncluded: true, FacesFresh: false, FrameTime: _time.GetUtcNow()));
+
+        Assert.Equal(1, vm.FaceCount);
+        Assert.NotNull(Assert.Single(vm.Hands).FaceId);
+    }
+
+    [Fact]
+    public void FrameTime_ShiftsTheShownBeardAheadOfTheFilteredPose()
+    {
+        using var vm = Create(_guest);
+        vm.SetMode(PeaceMode.Watching, Settings(), false);
+        var status = _service.Last.Status;
+        _service.Last.RaiseUpdated([PeaceHandFixtures.Face(0.4, 0.3, 0.12)], []);
+        vm.StartMoustache(new PeaceTrigger(PeaceAction.Moustache, 1, 1, new NormPoint(0.5, 0.6)));
+
+        for (var i = 1; i <= 10; i++)
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(100));
+            _service.Last.RaiseUpdated(new GestureUpdate([PeaceHandFixtures.Face(0.4 + 0.01 * i, 0.3, 0.12)], [], 1280, 720, status,
+                HandsIncluded: false, FacesFresh: true, FrameTime: _time.GetUtcNow() - TimeSpan.FromMilliseconds(100)));
+        }
+
+        var shown = vm.Moustaches.Single().Pose.Center.X;
+        var filtered = _guest.Current!.Tracks.Single().Pose.Center.X; // Foto-Pfad: ohne Vorhersage
+        Assert.True(shown > filtered);
+    }
 }
