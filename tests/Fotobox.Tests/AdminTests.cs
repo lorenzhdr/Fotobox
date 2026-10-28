@@ -2258,9 +2258,6 @@ public sealed class AdminViewModelTests : IDisposable
 
         Assert.Equal(string.Empty, vm.HintText);
         Assert.Equal(HintStyle.Pill, vm.HintStyle);
-        Assert.True(vm.IsHintPill);
-        Assert.False(vm.IsHintPlain);
-        Assert.False(vm.IsHintBanner);
         Assert.Equal("Drücke die Leertaste oder klicke für ein Foto 📸", vm.HintPreviewText);
         Assert.False(vm.HasHintProblems);
         Assert.Empty(vm.HintProblems);
@@ -2287,29 +2284,108 @@ public sealed class AdminViewModelTests : IDisposable
     }
 
     [Fact]
-    public void HintStyle_Choice_WritesDraftAndKeepsExactlyOneSelected()
+    public void HintStyle_Choice_WritesDraftAndRaisesTheProperty()
     {
         var vm = CreateViewModel();
         var raised = new List<string?>();
         vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
 
-        vm.IsHintBanner = true;
+        vm.HintStyle = HintStyle.Banner;
 
         Assert.Equal(HintStyle.Banner, vm.Draft.GuestScreen.HintStyle);
         Assert.Equal(HintStyle.Banner, vm.HintStyle);
-        Assert.True(vm.IsHintBanner);
-        Assert.False(vm.IsHintPill);
-        Assert.False(vm.IsHintPlain);
-        Assert.Contains(nameof(AdminViewModel.IsHintPill), raised);
         Assert.Contains(nameof(AdminViewModel.HintStyle), raised);
 
-        // Das Abwählen durch die Radio-Gruppe ändert nichts; erst die neue Wahl.
-        vm.IsHintBanner = false;
-        Assert.Equal(HintStyle.Banner, vm.Draft.GuestScreen.HintStyle);
-        vm.IsHintPlain = true;
+        // Derselbe Wert löst nichts mehr aus.
+        raised.Clear();
+        vm.HintStyle = HintStyle.Banner;
+        Assert.Empty(raised);
+
+        vm.HintStyle = HintStyle.Plain;
         Assert.Equal(HintStyle.Plain, vm.Draft.GuestScreen.HintStyle);
-        Assert.True(vm.IsHintPlain);
-        Assert.False(vm.IsHintBanner);
+    }
+
+    [Fact]
+    public void HintStyle_RadioBinding_ThroughEnumMatchConverter_SelectsExactlyOneStyle()
+    {
+        var vm = CreateViewModel();
+        var converter = new Fotobox.Views.Converters.EnumMatchConverter();
+
+        foreach (var style in Enum.GetValues<HintStyle>())
+        {
+            // Die gewählte Karte schreibt ihren Wert (ConvertBack true → Parameter) in den Entwurf …
+            vm.HintStyle = (HintStyle)converter.ConvertBack(true, typeof(HintStyle), style, System.Globalization.CultureInfo.InvariantCulture);
+            Assert.Equal(style, vm.Draft.GuestScreen.HintStyle);
+
+            // … und genau eine Karte ist gewählt; das Abwählen der anderen ändert nichts (DoNothing).
+            var selected = Enum.GetValues<HintStyle>().Where(other =>
+                (bool)converter.Convert(vm.HintStyle, typeof(bool), other, System.Globalization.CultureInfo.InvariantCulture)).ToList();
+            Assert.Equal([style], selected);
+            Assert.Same(System.Windows.Data.Binding.DoNothing,
+                converter.ConvertBack(false, typeof(HintStyle), style, System.Globalization.CultureInfo.InvariantCulture));
+        }
+    }
+
+    [Fact]
+    public void WheelHint_Defaults_ShownAutomaticAndMatching()
+    {
+        var vm = CreateViewModel();
+
+        Assert.True(vm.ShowWheelHint);
+        Assert.Equal(string.Empty, vm.WheelHintText);
+        Assert.Equal(WheelHintStyle.Matching, vm.WheelHintStyle);
+        Assert.False(vm.ShowWheelHintPreview);   // ohne mindestens zwei Gast-Layouts keine Zeile
+        Assert.Equal("Mausrad: Layout wechseln · Ein Foto", vm.HintPreviewLayoutText);
+    }
+
+    [Fact]
+    public void WheelHint_Settings_WriteDraft_AndPreviewFollows()
+    {
+        var vm = CreateViewModel();
+        vm.IsGuestStripDouble = true;   // zweites Gast-Layout → die Zeile erscheint in der Vorschau
+        Assert.True(vm.HasGuestOrder);
+        Assert.True(vm.ShowWheelHintPreview);
+
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.WheelHintText = "Scrollen: {Layout}";
+        Assert.Equal("Scrollen: {Layout}", vm.Draft.GuestScreen.WheelHintText);
+        Assert.Equal("Scrollen: {Layout}", vm.HintPreviewLayoutText);   // wörtlich, ohne Platzhalter
+        Assert.Contains(nameof(AdminViewModel.HintPreviewLayoutText), raised);
+
+        vm.WheelHintText = "   ";
+        Assert.Null(vm.Draft.GuestScreen.WheelHintText);
+        Assert.Equal("Mausrad: Layout wechseln · Ein Foto", vm.HintPreviewLayoutText);
+
+        vm.WheelHintStyle = WheelHintStyle.Chip;
+        Assert.Equal(WheelHintStyle.Chip, vm.Draft.GuestScreen.WheelHintStyle);
+        Assert.Contains(nameof(AdminViewModel.WheelHintStyle), raised);
+
+        raised.Clear();
+        vm.ShowWheelHint = false;
+        Assert.False(vm.Draft.GuestScreen.ShowWheelHint);
+        Assert.False(vm.ShowWheelHintPreview);
+        Assert.Contains(nameof(AdminViewModel.ShowWheelHintPreview), raised);
+
+        vm.ShowWheelHint = true;
+        Assert.True(vm.ShowWheelHintPreview);
+    }
+
+    [Fact]
+    public void WheelHint_Save_WritesToStore()
+    {
+        var vm = CreateViewModel();
+        vm.ShowWheelHint = false;
+        vm.WheelHintText = "Weiter mit dem Rad";
+        vm.WheelHintStyle = WheelHintStyle.Arrows;
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.True(vm.SettingsSaved);
+        Assert.False(_store.Current.GuestScreen.ShowWheelHint);
+        Assert.Equal("Weiter mit dem Rad", _store.Current.GuestScreen.WheelHintText);
+        Assert.Equal(WheelHintStyle.Arrows, _store.Current.GuestScreen.WheelHintStyle);
     }
 
     [Fact]
@@ -2317,7 +2393,7 @@ public sealed class AdminViewModelTests : IDisposable
     {
         var vm = CreateViewModel();
         vm.HintText = "Drücke {Fototasten}";
-        vm.IsHintPlain = true;
+        vm.HintStyle = HintStyle.Plain;
 
         vm.SaveCommand.Execute(null);
 
@@ -2430,12 +2506,18 @@ public sealed class AdminViewModelTests : IDisposable
     {
         var vm = CreateViewModel();
         vm.HintText = "Mein Text";
-        vm.IsHintBanner = true;
+        vm.HintStyle = HintStyle.Banner;
+        vm.ShowWheelHint = false;
+        vm.WheelHintText = "Rad drehen";
+        vm.WheelHintStyle = WheelHintStyle.Arrows;
 
         vm.ResetKeysCommand.Execute(null);
 
         Assert.Equal("Mein Text", vm.HintText);
         Assert.Equal(HintStyle.Banner, vm.Draft.GuestScreen.HintStyle);
+        Assert.False(vm.ShowWheelHint);
+        Assert.Equal("Rad drehen", vm.WheelHintText);
+        Assert.Equal(WheelHintStyle.Arrows, vm.WheelHintStyle);
     }
 
     // ------------------------------------------------------------------ Reihenfolge der Gastauswahl
@@ -2970,7 +3052,10 @@ public sealed class AdminViewModelTests : IDisposable
         vm.FilePrefix = "Party";
         vm.Draft.Storage.PhotoFolder = Path.Combine(_dir, "fotos");
         vm.HintText = "Drücke {Fototaste_1} {Klick}";
-        vm.IsHintBanner = true;
+        vm.HintStyle = HintStyle.Banner;
+        vm.ShowWheelHint = false;
+        vm.WheelHintText = "Rad drehen";
+        vm.WheelHintStyle = WheelHintStyle.SmallPill;
         vm.IsAdminThemeDark = true;
         vm.TriggerOnLeftClick = false;
         vm.TriggerOnRightClick = false;
@@ -3022,6 +3107,13 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.True(vm.Draft.Input.TriggerOnRightClick);
         Assert.Null(vm.Draft.GuestScreen.HintText);
         Assert.Equal(HintStyle.Pill, vm.Draft.GuestScreen.HintStyle);
+        Assert.True(vm.Draft.GuestScreen.ShowWheelHint);
+        Assert.Null(vm.Draft.GuestScreen.WheelHintText);
+        Assert.Equal(WheelHintStyle.Matching, vm.Draft.GuestScreen.WheelHintStyle);
+        // Die gebundenen Eigenschaften lesen den Entwurf neu.
+        Assert.True(vm.ShowWheelHint);
+        Assert.Equal(string.Empty, vm.WheelHintText);
+        Assert.Equal(WheelHintStyle.Matching, vm.WheelHintStyle);
     }
 
     [Fact]
@@ -3176,8 +3268,9 @@ public sealed class AdminViewModelTests : IDisposable
         // Gastansicht
         Assert.Equal(string.Empty, vm.HintText);
         Assert.Equal(HintStyle.Pill, vm.HintStyle);
-        Assert.True(vm.IsHintPill);
-        Assert.False(vm.IsHintBanner);
+        Assert.True(vm.ShowWheelHint);
+        Assert.Equal(string.Empty, vm.WheelHintText);
+        Assert.Equal(WheelHintStyle.Matching, vm.WheelHintStyle);
         Assert.Equal("Drücke die Leertaste oder klicke für ein Foto 📸", vm.HintPreviewText);
         Assert.False(vm.HasHintProblems);
 

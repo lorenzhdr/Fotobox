@@ -1,0 +1,129 @@
+<UserControl x:Class="Fotobox.Views.Admin.HintStyleSketch"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Fotobox.Views.Admin"
+             xmlns:core="clr-namespace:Fotobox.Core"
+             xmlns:conv="clr-namespace:Fotobox.Views.Converters"
+             Width="120" Height="68" IsHitTestVisible="False" Focusable="False">
+
+    <!--
+        Skizze eines Hinweis-Stils für die Wahlkarten im Admin (Foto: unten, Video: oben; AtTop spiegelt senkrecht).
+        Bewusst fest eingefärbt (wie die Gastansicht), nicht aus den Admin-Paletten.
+    -->
+    <UserControl.Resources>
+        <conv:EnumMatchVisibilityConverter x:Key="KindVis" />
+        <DrawingBrush x:Key="MiniHoles" TileMode="Tile" Stretch="None"
+                      Viewbox="0,0,8,5" ViewboxUnits="Absolute" Viewport="0,0,8,5" ViewportUnits="Absolute">
+            <DrawingBrush.Drawing>
+                <GeometryDrawing Brush="#E6D8D2C4">
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="2.2,1,3.6,3" RadiusX="0.8" RadiusY="0.8" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+            </DrawingBrush.Drawing>
+        </DrawingBrush>
+        <Style x:Key="SketchContent" TargetType="Grid">
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding AtTop, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}}" Value="True">
+                    <Setter Property="RenderTransform">
+                        <Setter.Value>
+                            <ScaleTransform ScaleX="1" ScaleY="-1" />
+                        </Setter.Value>
+                    </Setter>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
+        <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#5A6478" Offset="0" />
+                <GradientStop Color="#2B3347" Offset="1" />
+            </LinearGradientBrush>
+        </Border.Background>
+        <Grid Style="{StaticResource SketchContent}">
+            <!-- Pille -->
+            <Border HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,9"
+                    Width="82" Height="18" CornerRadius="9" BorderThickness="1.2"
+                    BorderBrush="#F5C26B" Background="#3A1F52"
+                    Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:HintStyle.Pill}}">
+                <Border Height="3" Width="50" Background="White" CornerRadius="1.5" />
+            </Border>
+
+            <!-- Schlicht -->
+            <Border Height="4" Width="62" Background="White" CornerRadius="2"
+                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,16"
+                    Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:HintStyle.Plain}}" />
+
+            <!-- Banner -->
+            <Border VerticalAlignment="Bottom" Height="26" Background="#CC101828"
+                    BorderBrush="#F5C26B" BorderThickness="0,1.2,0,0"
+                    Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:HintStyle.Banner}}">
+                <Border Height="4" Width="62" Background="White" CornerRadius="2" />
+            </Border>
+
+            <!-- Neon: helle Schrift mit pinkem und türkisem Leuchten -->
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,16"
+                  Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:HintStyle.Neon}}">
+                <Grid.Effect>
+                    <DropShadowEffect Color="#FF2E9A" BlurRadius="12" ShadowDepth="0" Opacity="0.85" />
+                </Grid.Effect>
+                <Border Height="4" Width="62" Background="#F7FDFF" CornerRadius="2">
+                    <Border.Effect>
+                        <DropShadowEffect Color="#19E3FF" BlurRadius="6" ShadowDepth="0" Opacity="0.95" />
+                    </Border.Effect>
+                </Border>
+            </Grid>
+
+            <!-- Sprechblase: weiße Blase mit Spitze zum Bildrand hin -->
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,8"
+                        Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:HintStyle.Bubble}}">
+                <Border Width="80" Height="22" CornerRadius="11" Background="White">
+                    <Border Height="3" Width="46" Background="#1B2236" CornerRadius="1.5" />
+                </Border>
+                <Path Fill="White" Data="M0,0 L11,0 L7,8 Z" HorizontalAlignment="Center" Margin="0,-0.5,0,0" />
+            </StackPanel>
+
+            <!-- Laufschrift: Band mit Textbalken, der aus dem Band hinausläuft -->
+            <Border VerticalAlignment="Bottom" Height="26" Background="#CC101828"
+                    BorderBrush="#F5C26B" BorderThickness="0,1.2,0,0" ClipToBounds="True"
+                    Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:HintStyle.Ticker}}">
+                <Grid>
+                    <Border Height="4" Width="46" Background="White" CornerRadius="2" HorizontalAlignment="Left" Margin="10,0,0,0" />
+                    <Border Height="4" Width="38" Background="#99FFFFFF" CornerRadius="2" HorizontalAlignment="Left" Margin="64,0,0,0" />
+                </Grid>
+            </Border>
+
+            <!-- Glas -->
+            <Border HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,10"
+                    Width="86" Height="24" CornerRadius="9" BorderThickness="1" BorderBrush="#99FFFFFF" Background="#40FFFFFF"
+                    Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:HintStyle.Glass}}">
+                <Border Height="4" Width="50" Background="White" CornerRadius="2" />
+            </Border>
+
+            <!-- Zettel -->
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,10" RenderTransformOrigin="0.5,0.5"
+                  Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:HintStyle.Note}}">
+                <Grid.RenderTransform>
+                    <RotateTransform Angle="-3" />
+                </Grid.RenderTransform>
+                <Border Width="76" Height="26" CornerRadius="2" Background="#FFF6DC">
+                    <Border Height="3" Width="44" Background="#2B2118" CornerRadius="1.5" />
+                </Border>
+                <Rectangle Width="22" Height="8" Fill="#A6E9D9A0" VerticalAlignment="Top" Margin="0,-4,0,0" />
+            </Grid>
+
+            <!-- Kino -->
+            <Border VerticalAlignment="Bottom" Height="30" Background="#0A0A0A"
+                    Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:HintStyle.Cinema}}">
+                <Grid>
+                    <Border Height="5" VerticalAlignment="Top" Background="{StaticResource MiniHoles}" />
+                    <Border Height="5" VerticalAlignment="Bottom" Background="{StaticResource MiniHoles}" />
+                    <Border Height="4" Width="50" Background="#F5C26B" CornerRadius="2" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

@@ -803,18 +803,16 @@ public sealed class AdminVideoTests : IDisposable
     }
 
     [Fact]
-    public void VideoHint_Style_RadioFlagsAreExclusive_AndSaved()
+    public void VideoHint_Style_WritesDraft_AndIsSaved()
     {
         var vm = CreateViewModel();
-        Assert.True(vm.IsVideoHintPill);
+        Assert.Equal(HintStyle.Pill, vm.VideoHintStyle);
 
-        vm.IsVideoHintBanner = true;
-        Assert.False(vm.IsVideoHintPill);
-        Assert.True(vm.IsVideoHintBanner);
+        vm.VideoHintStyle = HintStyle.Banner;
         Assert.Equal(HintStyle.Banner, vm.VideoHintStyle);
         Assert.Equal(HintStyle.Pill, vm.HintStyle);   // der Foto-Hinweis bleibt unberührt
 
-        vm.IsVideoHintPlain = true;
+        vm.VideoHintStyle = HintStyle.Plain;
         Assert.Equal(HintStyle.Plain, vm.VideoHintStyle);
 
         vm.VideoHintText = "Los!";
@@ -880,7 +878,7 @@ public sealed class AdminVideoTests : IDisposable
         vm.Draft.Video.Folder = Path.Combine(_dir, "Clips");
         vm.VideoFilePrefix = "Clip";
         vm.VideoHintText = "Eigener Text";
-        vm.IsVideoHintBanner = true;
+        vm.VideoHintStyle = HintStyle.Banner;
         Keys(vm, KeyAction.VideoStart).Keys[0].RemoveCommand.Execute(null);
         _ui.ConfirmResult = true;
 
@@ -910,7 +908,7 @@ public sealed class AdminVideoTests : IDisposable
         Assert.True(vm.IsDefaultVideoFolder);
         Assert.Equal(AppInfo.DefaultVideoFolder, vm.VideoFolderDisplay);
         Assert.Equal(["Eingabetaste"], Keys(vm, KeyAction.VideoStart).Keys.Select(k => k.DisplayName));
-        Assert.True(vm.IsVideoHintPill);
+        Assert.Equal(HintStyle.Pill, vm.VideoHintStyle);
         Assert.Equal(string.Empty, vm.VideoHintText);
         Assert.Equal("Drücke die Eingabetaste für ein Video 🎬", vm.VideoHintPreviewText);
     }

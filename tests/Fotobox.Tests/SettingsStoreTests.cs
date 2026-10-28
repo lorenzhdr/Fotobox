@@ -667,7 +667,7 @@ public sealed class SettingsStoreTests : IDisposable
     {
         Directory.CreateDirectory(_dir);
         File.WriteAllText(SettingsPath,
-            "{ \"Flow\": { \"CountdownSeconds\": 3 }, \"GuestScreen\": { \"HintStyle\": \"Neon\", \"HintText\": \"Hallo\" } }");
+            "{ \"Flow\": { \"CountdownSeconds\": 3 }, \"GuestScreen\": { \"HintStyle\": \"Hologramm\", \"HintText\": \"Hallo\" } }");
 
         var s = new JsonSettingsStore(_dir).Current;
 

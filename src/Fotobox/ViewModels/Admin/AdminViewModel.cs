@@ -925,7 +925,7 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(GuestOrder));
         OnPropertyChanged(nameof(HasGuestOrder));
         // Die Vorschau der Gastansicht zeigt ab zwei Wahlmöglichkeiten die Layout-Zeile mit dem Namen des Standard-Layouts.
-        OnPropertyChanged(nameof(HintPreviewLayoutText));
+        RaiseWheelHintPreview();
     }
 
     private void RaiseGuestChoices()
@@ -2139,39 +2139,50 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Darstellung des Hinweises (für die Vorschau).</summary>
-    public HintStyle HintStyle => _draft.GuestScreen.HintStyle;
-
-    /// <summary>Darstellung „Pille“: Rahmen, Farbverlauf und sanftes Pulsieren.</summary>
-    public bool IsHintPill
+    /// <summary>Darstellung des Hinweises (Wahlkarten und Vorschau; gebunden über <c>EnumMatchConverter</c>).</summary>
+    public HintStyle HintStyle
     {
-        get => _draft.GuestScreen.HintStyle == HintStyle.Pill;
-        set => SetHintStyle(HintStyle.Pill, value);
+        get => _draft.GuestScreen.HintStyle;
+        set => SetProperty(_draft.GuestScreen.HintStyle, value, v => _draft.GuestScreen.HintStyle = v);
     }
 
-    /// <summary>Darstellung „Schlicht“: weißer Text mit Schatten.</summary>
-    public bool IsHintPlain
+    /// <summary>Mausradzeile („Mausrad: Layout wechseln · …“) in der Gastansicht anzeigen.</summary>
+    public bool ShowWheelHint
     {
-        get => _draft.GuestScreen.HintStyle == HintStyle.Plain;
-        set => SetHintStyle(HintStyle.Plain, value);
+        get => _draft.GuestScreen.ShowWheelHint;
+        set
+        {
+            if (SetProperty(_draft.GuestScreen.ShowWheelHint, value, v => _draft.GuestScreen.ShowWheelHint = v))
+                RaiseWheelHintPreview();
+        }
     }
 
-    /// <summary>Darstellung „Banner“: dunkles Band über die volle Breite.</summary>
-    public bool IsHintBanner
+    /// <summary>Eigener Text der Mausradzeile (wörtlich, ohne Platzhalter); leer = automatischer Text mit dem Layoutnamen.</summary>
+    public string WheelHintText
     {
-        get => _draft.GuestScreen.HintStyle == HintStyle.Banner;
-        set => SetHintStyle(HintStyle.Banner, value);
+        get => _draft.GuestScreen.WheelHintText ?? string.Empty;
+        set
+        {
+            if (SetProperty(_draft.GuestScreen.WheelHintText ?? string.Empty, value ?? string.Empty,
+                    v => _draft.GuestScreen.WheelHintText = string.IsNullOrWhiteSpace(v) ? null : v))
+                RaiseWheelHintPreview();
+        }
     }
 
-    private void SetHintStyle(HintStyle style, bool selected)
+    /// <summary>Darstellung der Mausradzeile.</summary>
+    public WheelHintStyle WheelHintStyle
     {
-        if (!selected || _draft.GuestScreen.HintStyle == style)
-            return;
-        _draft.GuestScreen.HintStyle = style;
-        OnPropertyChanged(nameof(HintStyle));
-        OnPropertyChanged(nameof(IsHintPill));
-        OnPropertyChanged(nameof(IsHintPlain));
-        OnPropertyChanged(nameof(IsHintBanner));
+        get => _draft.GuestScreen.WheelHintStyle;
+        set => SetProperty(_draft.GuestScreen.WheelHintStyle, value, v => _draft.GuestScreen.WheelHintStyle = v);
+    }
+
+    /// <summary>Die Mausradzeile erscheint in der Vorschau: mindestens zwei Layouts zur Auswahl und die Zeile ist eingeschaltet.</summary>
+    public bool ShowWheelHintPreview => HasGuestOrder && ShowWheelHint;
+
+    private void RaiseWheelHintPreview()
+    {
+        OnPropertyChanged(nameof(ShowWheelHintPreview));
+        OnPropertyChanged(nameof(HintPreviewLayoutText));
     }
 
     // ---------------------------------------------------------------- Darstellung (Admin-Ansicht)
@@ -2216,7 +2227,8 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         HintTextFormatter.Format(_draft.GuestScreen.HintText, TriggerChords(), TriggerOnLeftClick || TriggerOnRightClick, VideoStartChords());
 
     /// <summary>Zusatzzeile der Vorschau mit dem Namen des Standard-Layouts (sichtbar bei <see cref="HasGuestOrder"/>).</summary>
-    public string HintPreviewLayoutText => GuestLayouts.WheelHint(DefaultGuestLayout, _draft.Layout.StripPhotoCount);
+    public string HintPreviewLayoutText =>
+        GuestLayouts.WheelHintText(_draft.GuestScreen, DefaultGuestLayout, _draft.Layout.StripPhotoCount);
 
     /// <summary>Hinweise zu den Platzhaltern im Hinweistext (leer = alles in Ordnung).</summary>
     public IReadOnlyList<string> HintProblems =>
@@ -2244,36 +2256,11 @@ public sealed class AdminViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Darstellung des Video-Hinweises (für die Vorschau).</summary>
-    public HintStyle VideoHintStyle => _draft.GuestScreen.VideoHintStyle;
-
-    public bool IsVideoHintPill
+    /// <summary>Darstellung des Video-Hinweises (Wahlkarten und Vorschau; gebunden über <c>EnumMatchConverter</c>).</summary>
+    public HintStyle VideoHintStyle
     {
-        get => _draft.GuestScreen.VideoHintStyle == HintStyle.Pill;
-        set => SetVideoHintStyle(HintStyle.Pill, value);
-    }
-
-    public bool IsVideoHintPlain
-    {
-        get => _draft.GuestScreen.VideoHintStyle == HintStyle.Plain;
-        set => SetVideoHintStyle(HintStyle.Plain, value);
-    }
-
-    public bool IsVideoHintBanner
-    {
-        get => _draft.GuestScreen.VideoHintStyle == HintStyle.Banner;
-        set => SetVideoHintStyle(HintStyle.Banner, value);
-    }
-
-    private void SetVideoHintStyle(HintStyle style, bool selected)
-    {
-        if (!selected || _draft.GuestScreen.VideoHintStyle == style)
-            return;
-        _draft.GuestScreen.VideoHintStyle = style;
-        OnPropertyChanged(nameof(VideoHintStyle));
-        OnPropertyChanged(nameof(IsVideoHintPill));
-        OnPropertyChanged(nameof(IsVideoHintPlain));
-        OnPropertyChanged(nameof(IsVideoHintBanner));
+        get => _draft.GuestScreen.VideoHintStyle;
+        set => SetProperty(_draft.GuestScreen.VideoHintStyle, value, v => _draft.GuestScreen.VideoHintStyle = v);
     }
 
     /// <summary>Die Video-Hinweiszeile, wie die Gastansicht sie mit dem aktuellen Entwurf zeigt (leer ohne Video-Starttaste).</summary>

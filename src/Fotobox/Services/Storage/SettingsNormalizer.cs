@@ -78,6 +78,9 @@ internal static class SettingsNormalizer
         if (!Enum.IsDefined(s.GuestScreen.VideoHintStyle))
             s.GuestScreen.VideoHintStyle = HintStyle.Pill;
         s.GuestScreen.VideoHintText = SanitizeHintText(s.GuestScreen.VideoHintText);
+        if (!Enum.IsDefined(s.GuestScreen.WheelHintStyle))
+            s.GuestScreen.WheelHintStyle = WheelHintStyle.Matching;
+        s.GuestScreen.WheelHintText = SanitizeHintText(s.GuestScreen.WheelHintText);
 
         if (!Enum.IsDefined(s.Appearance.AdminTheme))
             s.Appearance.AdminTheme = AdminThemeMode.System;

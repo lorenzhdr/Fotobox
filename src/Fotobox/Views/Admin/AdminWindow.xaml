@@ -448,7 +448,10 @@
 
             <!-- ============================== Gastansicht ============================== -->
             <TabItem Header="Gastansicht" Tag="&#xE7F4;">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" xmlns:conv="clr-namespace:Fotobox.Views.Converters">
+                    <ScrollViewer.Resources>
+                        <conv:EnumMatchConverter x:Key="EnumMatch" />
+                    </ScrollViewer.Resources>
                     <Border Style="{StaticResource Card}">
                         <StackPanel MaxWidth="780" HorizontalAlignment="Left">
                             <TextBlock Text="Gastansicht" Style="{StaticResource SectionTitle}" />
@@ -466,65 +469,164 @@
                             <TextBlock Text="Darstellung" Style="{StaticResource FieldLabel}" />
                             <UniformGrid Columns="3" Margin="0,0,-14,0">
                                 <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
-                                             IsChecked="{Binding IsHintPill}"
+                                             IsChecked="{Binding HintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Pill}}"
                                              AutomationProperties.Name="Pille">
                                     <StackPanel>
-                                        <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
-                                            <Border.Background>
-                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                    <GradientStop Color="#5A6478" Offset="0" />
-                                                    <GradientStop Color="#2B3347" Offset="1" />
-                                                </LinearGradientBrush>
-                                            </Border.Background>
-                                            <Border HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,9"
-                                                    Width="82" Height="18" CornerRadius="9" BorderThickness="1.2"
-                                                    BorderBrush="#F5C26B" Background="#3A1F52">
-                                                <Border Height="3" Width="50" Background="White" CornerRadius="1.5" />
-                                            </Border>
-                                        </Border>
+                                        <local:HintStyleSketch Kind="Pill" />
                                         <TextBlock Text="Pille" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
                                         <TextBlock Text="Goldener Rahmen, pulsiert sanft." Style="{StaticResource Hint}" TextAlignment="Center" />
                                     </StackPanel>
                                 </RadioButton>
                                 <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
-                                             IsChecked="{Binding IsHintPlain}"
+                                             IsChecked="{Binding HintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Plain}}"
                                              AutomationProperties.Name="Schlicht">
                                     <StackPanel>
-                                        <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
-                                            <Border.Background>
-                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                    <GradientStop Color="#5A6478" Offset="0" />
-                                                    <GradientStop Color="#2B3347" Offset="1" />
-                                                </LinearGradientBrush>
-                                            </Border.Background>
-                                            <Border Height="4" Width="62" Background="White" CornerRadius="2"
-                                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,16" />
-                                        </Border>
+                                        <local:HintStyleSketch Kind="Plain" />
                                         <TextBlock Text="Schlicht" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
                                         <TextBlock Text="Weißer Text mit Schatten." Style="{StaticResource Hint}" TextAlignment="Center" />
                                     </StackPanel>
                                 </RadioButton>
                                 <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
-                                             IsChecked="{Binding IsHintBanner}"
+                                             IsChecked="{Binding HintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Banner}}"
                                              AutomationProperties.Name="Banner">
                                     <StackPanel>
-                                        <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
-                                            <Border.Background>
-                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                    <GradientStop Color="#5A6478" Offset="0" />
-                                                    <GradientStop Color="#2B3347" Offset="1" />
-                                                </LinearGradientBrush>
-                                            </Border.Background>
-                                            <Border VerticalAlignment="Bottom" Height="26" Background="#CC101828"
-                                                    BorderBrush="#F5C26B" BorderThickness="0,1.2,0,0">
-                                                <Border Height="4" Width="62" Background="White" CornerRadius="2" />
-                                            </Border>
-                                        </Border>
+                                        <local:HintStyleSketch Kind="Banner" />
                                         <TextBlock Text="Banner" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
                                         <TextBlock Text="Dunkles Band über die ganze Breite." Style="{StaticResource Hint}" TextAlignment="Center" />
                                     </StackPanel>
                                 </RadioButton>
+                                <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
+                                             IsChecked="{Binding HintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Neon}}"
+                                             AutomationProperties.Name="Neon">
+                                    <StackPanel>
+                                        <local:HintStyleSketch Kind="Neon" />
+                                        <TextBlock Text="Neon" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                        <TextBlock Text="Leuchtende Schrift in Pink und Türkis." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
+                                             IsChecked="{Binding HintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Bubble}}"
+                                             AutomationProperties.Name="Sprechblase">
+                                    <StackPanel>
+                                        <local:HintStyleSketch Kind="Bubble" />
+                                        <TextBlock Text="Sprechblase" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                        <TextBlock Text="Weiße Blase mit Spitze, wippt leicht." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
+                                             IsChecked="{Binding HintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Ticker}}"
+                                             AutomationProperties.Name="Laufschrift">
+                                    <StackPanel>
+                                        <local:HintStyleSketch Kind="Ticker" />
+                                        <TextBlock Text="Laufschrift" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                        <TextBlock Text="Einzeilig, läuft über ein dunkles Band." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
+                                             IsChecked="{Binding HintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Glass}}"
+                                             AutomationProperties.Name="Glas">
+                                    <StackPanel>
+                                        <local:HintStyleSketch Kind="Glass" />
+                                        <TextBlock Text="Glas" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                        <TextBlock Text="Durchscheinende helle Karte." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
+                                             IsChecked="{Binding HintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Note}}"
+                                             AutomationProperties.Name="Zettel">
+                                    <StackPanel>
+                                        <local:HintStyleSketch Kind="Note" />
+                                        <TextBlock Text="Zettel" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                        <TextBlock Text="Schiefer Notizzettel mit Klebestreifen." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="HintStyle" Style="{StaticResource CardRadio}"
+                                             IsChecked="{Binding HintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Cinema}}"
+                                             AutomationProperties.Name="Kino">
+                                    <StackPanel>
+                                        <local:HintStyleSketch Kind="Cinema" />
+                                        <TextBlock Text="Kino" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                        <TextBlock Text="Filmstreifen mit goldener Schrift." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
                             </UniformGrid>
+
+                            <!-- Mausradzeile (Layoutwahl per Mausrad) -->
+                            <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,28,0,0" Padding="0,22,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Mausradzeile" FontSize="18" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Kleine Zeile unter dem Foto-Hinweis, die auf den Layoutwechsel per Mausrad hinweist. Erscheint nur, wenn im Tab „Layout“ mindestens zwei Layouts für Gäste ausgewählt sind." />
+                                    <CheckBox Content="Mausradzeile anzeigen" IsChecked="{Binding ShowWheelHint}" Margin="0,14,0,0" />
+
+                                    <StackPanel x:Name="WheelHintPanel" IsEnabled="{Binding ShowWheelHint}">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsEnabled" Value="False">
+                                                        <Setter Property="Opacity" Value="0.55" />
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
+
+                                        <TextBlock Text="Text der Mausradzeile" Style="{StaticResource FieldLabel}" />
+                                        <TextBox Text="{Binding WheelHintText, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.HintTextMaxLength}"
+                                                 Width="620" HorizontalAlignment="Left" AutomationProperties.Name="Text der Mausradzeile" />
+                                        <TextBlock Style="{StaticResource Hint}"
+                                                   Text="Leer lassen für den automatischen Text „Mausrad: Layout wechseln · &lt;Layout&gt;“. Ein eigener Text wird wörtlich angezeigt, ohne Layoutnamen." />
+
+                                        <TextBlock Text="Darstellung" Style="{StaticResource FieldLabel}" />
+                                        <UniformGrid Columns="3" Margin="0,0,-14,0">
+                                            <RadioButton GroupName="WheelHintStyle" Style="{StaticResource CardRadio}"
+                                                         IsChecked="{Binding WheelHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:WheelHintStyle.Matching}}"
+                                                         AutomationProperties.Name="Mausradzeile: Passend zum Hinweis">
+                                                <StackPanel>
+                                                    <local:WheelHintSketch Kind="Matching" />
+                                                    <TextBlock Text="Passend zum Hinweis" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                    <TextBlock Text="Wie der Hinweis, nur dezenter." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                                </StackPanel>
+                                            </RadioButton>
+                                            <RadioButton GroupName="WheelHintStyle" Style="{StaticResource CardRadio}"
+                                                         IsChecked="{Binding WheelHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:WheelHintStyle.SmallPill}}"
+                                                         AutomationProperties.Name="Mausradzeile: Kleine Pille">
+                                                <StackPanel>
+                                                    <local:WheelHintSketch Kind="SmallPill" />
+                                                    <TextBlock Text="Kleine Pille" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                    <TextBlock Text="Schmale dunkle Pille mit Goldrand." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                                </StackPanel>
+                                            </RadioButton>
+                                            <RadioButton GroupName="WheelHintStyle" Style="{StaticResource CardRadio}"
+                                                         IsChecked="{Binding WheelHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:WheelHintStyle.Plain}}"
+                                                         AutomationProperties.Name="Mausradzeile: Schlichter Text">
+                                                <StackPanel>
+                                                    <local:WheelHintSketch Kind="Plain" />
+                                                    <TextBlock Text="Schlichter Text" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                    <TextBlock Text="Halbtransparent, mit Schatten." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                                </StackPanel>
+                                            </RadioButton>
+                                            <RadioButton GroupName="WheelHintStyle" Style="{StaticResource CardRadio}"
+                                                         IsChecked="{Binding WheelHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:WheelHintStyle.Chip}}"
+                                                         AutomationProperties.Name="Mausradzeile: Chip">
+                                                <StackPanel>
+                                                    <local:WheelHintSketch Kind="Chip" />
+                                                    <TextBlock Text="Chip" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                    <TextBlock Text="Kleiner heller Chip mit „⇅“." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                                </StackPanel>
+                                            </RadioButton>
+                                            <RadioButton GroupName="WheelHintStyle" Style="{StaticResource CardRadio}"
+                                                         IsChecked="{Binding WheelHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:WheelHintStyle.Arrows}}"
+                                                         AutomationProperties.Name="Mausradzeile: Pfeile">
+                                                <StackPanel>
+                                                    <local:WheelHintSketch Kind="Arrows" />
+                                                    <TextBlock Text="Pfeile" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                    <TextBlock Text="Text zwischen goldenen Pfeilen." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                                </StackPanel>
+                                            </RadioButton>
+                                        </UniformGrid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
 
                             <!-- Video-Hinweis (oben im Bild) -->
                             <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,28,0,0" Padding="0,22,0,0">
@@ -554,62 +656,84 @@
                                     <TextBlock Text="Darstellung" Style="{StaticResource FieldLabel}" />
                                     <UniformGrid Columns="3" Margin="0,0,-14,0">
                                         <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
-                                                     IsChecked="{Binding IsVideoHintPill}"
+                                                     IsChecked="{Binding VideoHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Pill}}"
                                                      AutomationProperties.Name="Video-Hinweis: Pille">
                                             <StackPanel>
-                                                <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
-                                                    <Border.Background>
-                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                            <GradientStop Color="#5A6478" Offset="0" />
-                                                            <GradientStop Color="#2B3347" Offset="1" />
-                                                        </LinearGradientBrush>
-                                                    </Border.Background>
-                                                    <Border HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,9,0,0"
-                                                            Width="82" Height="18" CornerRadius="9" BorderThickness="1.2"
-                                                            BorderBrush="#F5C26B" Background="#3A1F52">
-                                                        <Border Height="3" Width="50" Background="White" CornerRadius="1.5" />
-                                                    </Border>
-                                                </Border>
+                                                <local:HintStyleSketch Kind="Pill" AtTop="True" />
                                                 <TextBlock Text="Pille" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
                                                 <TextBlock Text="Goldener Rahmen, pulsiert sanft." Style="{StaticResource Hint}" TextAlignment="Center" />
                                             </StackPanel>
                                         </RadioButton>
                                         <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
-                                                     IsChecked="{Binding IsVideoHintPlain}"
+                                                     IsChecked="{Binding VideoHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Plain}}"
                                                      AutomationProperties.Name="Video-Hinweis: Schlicht">
                                             <StackPanel>
-                                                <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
-                                                    <Border.Background>
-                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                            <GradientStop Color="#5A6478" Offset="0" />
-                                                            <GradientStop Color="#2B3347" Offset="1" />
-                                                        </LinearGradientBrush>
-                                                    </Border.Background>
-                                                    <Border Height="4" Width="62" Background="White" CornerRadius="2"
-                                                            HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16,0,0" />
-                                                </Border>
+                                                <local:HintStyleSketch Kind="Plain" AtTop="True" />
                                                 <TextBlock Text="Schlicht" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
                                                 <TextBlock Text="Weißer Text mit Schatten." Style="{StaticResource Hint}" TextAlignment="Center" />
                                             </StackPanel>
                                         </RadioButton>
                                         <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
-                                                     IsChecked="{Binding IsVideoHintBanner}"
+                                                     IsChecked="{Binding VideoHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Banner}}"
                                                      AutomationProperties.Name="Video-Hinweis: Banner">
                                             <StackPanel>
-                                                <Border Width="120" Height="68" CornerRadius="4" ClipToBounds="True">
-                                                    <Border.Background>
-                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                            <GradientStop Color="#5A6478" Offset="0" />
-                                                            <GradientStop Color="#2B3347" Offset="1" />
-                                                        </LinearGradientBrush>
-                                                    </Border.Background>
-                                                    <Border VerticalAlignment="Top" Height="26" Background="#CC101828"
-                                                            BorderBrush="#F5C26B" BorderThickness="0,0,0,1.2">
-                                                        <Border Height="4" Width="62" Background="White" CornerRadius="2" />
-                                                    </Border>
-                                                </Border>
+                                                <local:HintStyleSketch Kind="Banner" AtTop="True" />
                                                 <TextBlock Text="Banner" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
                                                 <TextBlock Text="Dunkles Band über die ganze Breite." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding VideoHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Neon}}"
+                                                     AutomationProperties.Name="Video-Hinweis: Neon">
+                                            <StackPanel>
+                                                <local:HintStyleSketch Kind="Neon" AtTop="True" />
+                                                <TextBlock Text="Neon" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Leuchtende Schrift in Pink und Türkis." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding VideoHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Bubble}}"
+                                                     AutomationProperties.Name="Video-Hinweis: Sprechblase">
+                                            <StackPanel>
+                                                <local:HintStyleSketch Kind="Bubble" AtTop="True" />
+                                                <TextBlock Text="Sprechblase" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Weiße Blase mit Spitze, wippt leicht." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding VideoHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Ticker}}"
+                                                     AutomationProperties.Name="Video-Hinweis: Laufschrift">
+                                            <StackPanel>
+                                                <local:HintStyleSketch Kind="Ticker" AtTop="True" />
+                                                <TextBlock Text="Laufschrift" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Einzeilig, läuft über ein dunkles Band." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding VideoHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Glass}}"
+                                                     AutomationProperties.Name="Video-Hinweis: Glas">
+                                            <StackPanel>
+                                                <local:HintStyleSketch Kind="Glass" AtTop="True" />
+                                                <TextBlock Text="Glas" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Durchscheinende helle Karte." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding VideoHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Note}}"
+                                                     AutomationProperties.Name="Video-Hinweis: Zettel">
+                                            <StackPanel>
+                                                <local:HintStyleSketch Kind="Note" AtTop="True" />
+                                                <TextBlock Text="Zettel" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Schiefer Notizzettel mit Klebestreifen." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="VideoHintStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding VideoHintStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:HintStyle.Cinema}}"
+                                                     AutomationProperties.Name="Video-Hinweis: Kino">
+                                            <StackPanel>
+                                                <local:HintStyleSketch Kind="Cinema" AtTop="True" />
+                                                <TextBlock Text="Kino" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Filmstreifen mit goldener Schrift." Style="{StaticResource Hint}" TextAlignment="Center" />
                                             </StackPanel>
                                         </RadioButton>
                                     </UniformGrid>
@@ -641,7 +765,8 @@
                                             </Border.Background>
                                         </Border>
                                         <booth:GuestHint Text="{Binding HintPreviewText}" HintStyle="{Binding HintStyle}"
-                                                         LayoutHintText="{Binding HintPreviewLayoutText}" ShowLayoutHint="{Binding HasGuestOrder}" />
+                                                         LayoutHintText="{Binding HintPreviewLayoutText}" ShowLayoutHint="{Binding ShowWheelHintPreview}"
+                                                         LayoutHintStyle="{Binding WheelHintStyle}" />
                                         <!-- Video-Zeile oben im Bild (nur bei aktivem Videomodus und vorhandener Starttaste) -->
                                         <booth:GuestHint Text="{Binding VideoHintPreviewText}" HintStyle="{Binding VideoHintStyle}"
                                                          Position="Top" x:Name="VideoHintPreview"

@@ -2,11 +2,15 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:Fotobox.Views.Booth"
+             xmlns:core="clr-namespace:Fotobox.Core"
+             xmlns:conv="clr-namespace:Fotobox.Views.Converters"
              FontFamily="Segoe UI Variable Display, Segoe UI"
              IsHitTestVisible="False" Focusable="False">
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <!-- Je Darstellung ein Bereich; sichtbar ist nur der zum gewählten HintStyle passende (Parameter = Enum-Wert). -->
+        <conv:EnumMatchVisibilityConverter x:Key="StyleVis" />
 
         <SolidColorBrush x:Key="Gold" Color="#F5C26B" />
         <LinearGradientBrush x:Key="PillBackground" StartPoint="0,0" EndPoint="1,1">
@@ -17,32 +21,21 @@
             <GradientStop Color="#FFF8D98B" Offset="0" />
             <GradientStop Color="#FFE59A4A" Offset="1" />
         </LinearGradientBrush>
-
-        <!-- Je Darstellung ein Bereich; sichtbar ist nur der zum gewählten HintStyle passende. -->
-        <Style x:Key="ShowWhenPill" TargetType="Grid">
-            <Setter Property="Visibility" Value="Collapsed" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Pill">
-                    <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        <Style x:Key="ShowWhenPlain" TargetType="Grid">
-            <Setter Property="Visibility" Value="Collapsed" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Plain">
-                    <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        <Style x:Key="ShowWhenBanner" TargetType="Grid">
-            <Setter Property="Visibility" Value="Collapsed" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Banner">
-                    <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
+        <LinearGradientBrush x:Key="GlassBackground" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#44FFFFFF" Offset="0" />
+            <GradientStop Color="#26FFFFFF" Offset="1" />
+        </LinearGradientBrush>
+        <!-- Perforation des Kino-Streifens: Kachel aus einem abgerundeten Loch -->
+        <DrawingBrush x:Key="FilmHoles" TileMode="Tile" Stretch="None"
+                      Viewbox="0,0,48,26" ViewboxUnits="Absolute" Viewport="0,0,48,26" ViewportUnits="Absolute">
+            <DrawingBrush.Drawing>
+                <GeometryDrawing Brush="#E6D8D2C4">
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="15,6,18,14" RadiusX="4" RadiusY="4" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+            </DrawingBrush.Drawing>
+        </DrawingBrush>
 
         <!--
             Hinweistext: höchstens zwei Zeilen (feste Zeilenhöhe, MaxHeight = 2 × LineHeight), zentriert, Rest wird abgeschnitten.
@@ -59,13 +52,25 @@
             <Setter Property="MaxWidth" Value="1500" />
         </Style>
 
-        <!-- Dezente Zusatzzeile: Layout per Mausrad wechseln (nur mit mehreren Wahlmöglichkeiten). -->
+        <!--
+            Dezente Zusatzzeile: Layout per Mausrad wechseln (nur mit mehreren Wahlmöglichkeiten). Diese Textzeile ist die
+            Darstellung „Passend zum Hinweis“ (WheelHintStyle.Matching); die vier anderen zeigt WheelHintSlot.
+        -->
         <Style x:Key="LayoutHintLine" TargetType="TextBlock">
             <Setter Property="Text" Value="{Binding LayoutHintText, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" />
-            <Setter Property="Visibility" Value="{Binding ShowLayoutHint, RelativeSource={RelativeSource AncestorType=local:GuestHint}, Converter={StaticResource BoolToVis}}" />
+            <Setter Property="Visibility" Value="Collapsed" />
             <Setter Property="Foreground" Value="#D9FFFFFF" />
             <Setter Property="FontSize" Value="26" />
             <Setter Property="HorizontalAlignment" Value="Center" />
+            <Style.Triggers>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding ShowLayoutHint, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="True" />
+                        <Condition Binding="{Binding LayoutHintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Matching" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Visibility" Value="Visible" />
+                </MultiDataTrigger>
+            </Style.Triggers>
         </Style>
 
         <!--
@@ -76,6 +81,8 @@
             auch eingeklappte Eltern). Sonst liefen sie unsichtbar weiter und kosten Render-Zeit über dem Livebild.
             Start und Stopp stehen bewusst im selben Style (ohne BasedOn): StopStoryboard findet den Namen des
             BeginStoryboard nur im Namensbereich des Styles, der die Trigger besitzt, nicht in einem abgeleiteten.
+            Animiert wird immer eine am Element selbst gesetzte (nicht aus dem Style stammende) Transformation bzw. ein
+            solcher Effekt, weil Werte aus einem Style eingefroren und damit nicht animierbar sind.
         -->
         <Style x:Key="HintPillPlacement" TargetType="Border">
             <Setter Property="VerticalAlignment" Value="Bottom" />
@@ -135,11 +142,133 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+
+        <!-- Neon: das Pink-Leuchten (Effekt am Grid selbst) pulsiert sanft, solange es sichtbar ist -->
+        <Style x:Key="NeonPlacement" TargetType="Grid">
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,0,80" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="VerticalAlignment" Value="Top" />
+                    <Setter Property="Margin" Value="0,60,0,0" />
+                </DataTrigger>
+                <Trigger Property="IsVisible" Value="True">
+                    <Trigger.EnterActions>
+                        <BeginStoryboard x:Name="NeonGlowStoryboard">
+                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.Effect).(DropShadowEffect.Opacity)"
+                                                 From="0.4" To="0.95" Duration="0:0:1.4">
+                                    <DoubleAnimation.EasingFunction>
+                                        <SineEase EasingMode="EaseInOut" />
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                    <Trigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="NeonGlowStoryboard" />
+                    </Trigger.ExitActions>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Sprechblase: wippt sanft auf und ab (TranslateY ±6 px); Spitze unten (Foto-Zeile) bzw. oben (Video-Zeile) -->
+        <Style x:Key="BubblePlacement" TargetType="Grid">
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,0,80" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="VerticalAlignment" Value="Top" />
+                    <Setter Property="Margin" Value="0,60,0,0" />
+                </DataTrigger>
+                <Trigger Property="IsVisible" Value="True">
+                    <Trigger.EnterActions>
+                        <BeginStoryboard x:Name="BubbleBobStoryboard">
+                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)"
+                                                 From="-6" To="6" Duration="0:0:1.2">
+                                    <DoubleAnimation.EasingFunction>
+                                        <SineEase EasingMode="EaseInOut" />
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                    <Trigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="BubbleBobStoryboard" />
+                    </Trigger.ExitActions>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="BubbleTailDown" TargetType="Path">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="BubbleTailUp" TargetType="Path">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Laufschrift: Band wie das Banner (Goldkante oben bzw. unten); der Text läuft per Code (GuestHint.xaml.cs) -->
+        <Style x:Key="TickerPlacement" TargetType="Border">
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="Padding" Value="0,26,0,32" />
+            <Setter Property="BorderThickness" Value="0,3,0,0" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="VerticalAlignment" Value="Top" />
+                    <Setter Property="Padding" Value="0,26,0,26" />
+                    <Setter Property="BorderThickness" Value="0,0,0,3" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Glas und Zettel: schwebende Karte wie die Pille, ohne Animation -->
+        <Style x:Key="FloatingPlacement" TargetType="FrameworkElement">
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,0,80" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="VerticalAlignment" Value="Top" />
+                    <Setter Property="Margin" Value="0,60,0,0" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <!-- Der Zettel ragt durch Drehung und Klebestreifen etwas über seinen Rahmen hinaus -->
+        <Style x:Key="NotePlacement" TargetType="Grid" BasedOn="{StaticResource FloatingPlacement}">
+            <Setter Property="Margin" Value="0,0,0,96" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="Margin" Value="0,76,0,0" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Kino: Band über die volle Breite am unteren bzw. oberen Rand -->
+        <Style x:Key="CinemaPlacement" TargetType="Border">
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="VerticalAlignment" Value="Top" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
         <!-- Pille: Rahmen, Farbverlauf, goldener Schimmer und sanftes Pulsieren -->
-        <Grid Style="{StaticResource ShowWhenPill}">
+        <Grid Visibility="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}, Converter={StaticResource StyleVis}, ConverterParameter={x:Static core:HintStyle.Pill}}">
             <Border Style="{StaticResource HintPillPlacement}" HorizontalAlignment="Center"
                     Padding="56,22" CornerRadius="60" BorderThickness="2.5"
                     Background="{StaticResource PillBackground}" BorderBrush="{StaticResource GoldBorder}"
@@ -153,10 +282,11 @@
                 <TextBlock Style="{StaticResource HintTextBlock}" FontSize="38" LineHeight="52" MaxHeight="104" />
             </Border>
             <TextBlock Style="{StaticResource LayoutHintLine}" VerticalAlignment="Bottom" Margin="0,0,0,30" />
+            <local:WheelHintSlot VerticalAlignment="Bottom" Margin="0,0,0,30" />
         </Grid>
 
         <!-- Schlicht: weißer Text mit kräftigem dunklem Schatten, ohne Rahmen und Hintergrund -->
-        <Grid Style="{StaticResource ShowWhenPlain}">
+        <Grid Visibility="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}, Converter={StaticResource StyleVis}, ConverterParameter={x:Static core:HintStyle.Plain}}">
             <TextBlock Style="{StaticResource PlainHintPlacement}" FontSize="42" LineHeight="56" MaxHeight="112"
                        HorizontalAlignment="Center">
                 <TextBlock.Effect>
@@ -168,16 +298,147 @@
                     <DropShadowEffect Color="Black" BlurRadius="10" ShadowDepth="2" Direction="270" Opacity="0.9" />
                 </TextBlock.Effect>
             </TextBlock>
+            <local:WheelHintSlot VerticalAlignment="Bottom" Margin="0,0,0,30" />
         </Grid>
 
         <!-- Banner: dunkles Band über die volle Breite am unteren Rand mit dünner goldener Oberkante -->
-        <Grid Style="{StaticResource ShowWhenBanner}">
+        <Grid Visibility="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}, Converter={StaticResource StyleVis}, ConverterParameter={x:Static core:HintStyle.Banner}}">
             <Border Style="{StaticResource BannerPlacement}" Background="#CC101828"
                     BorderBrush="{StaticResource Gold}">
                 <StackPanel>
                     <TextBlock Style="{StaticResource HintTextBlock}" FontSize="48" LineHeight="64" MaxHeight="128"
                                HorizontalAlignment="Center" />
                     <TextBlock Style="{StaticResource LayoutHintLine}" Margin="0,12,0,0" />
+                    <local:WheelHintSlot Margin="0,12,0,0" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Neon: helle Schrift mit türkisem Glimmen (am Text) und pinkem, sanft pulsierendem Leuchten (am Grid) -->
+        <Grid Visibility="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}, Converter={StaticResource StyleVis}, ConverterParameter={x:Static core:HintStyle.Neon}}">
+            <Grid Style="{StaticResource NeonPlacement}">
+                <Grid.Effect>
+                    <DropShadowEffect Color="#FF2E9A" BlurRadius="30" ShadowDepth="0" Opacity="0.7" />
+                </Grid.Effect>
+                <TextBlock Style="{StaticResource HintTextBlock}" FontSize="46" LineHeight="62" MaxHeight="124"
+                           Foreground="#FFF7FDFF">
+                    <TextBlock.Effect>
+                        <DropShadowEffect Color="#19E3FF" BlurRadius="14" ShadowDepth="0" Opacity="0.95" />
+                    </TextBlock.Effect>
+                </TextBlock>
+            </Grid>
+            <TextBlock Style="{StaticResource LayoutHintLine}" Foreground="#E6F7FDFF" VerticalAlignment="Bottom" Margin="0,0,0,30">
+                <TextBlock.Effect>
+                    <DropShadowEffect Color="#19E3FF" BlurRadius="12" ShadowDepth="0" Opacity="0.8" />
+                </TextBlock.Effect>
+            </TextBlock>
+            <local:WheelHintSlot VerticalAlignment="Bottom" Margin="0,0,0,30" />
+        </Grid>
+
+        <!-- Sprechblase: weiße Blase mit Spitze, wippt leicht -->
+        <Grid Visibility="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}, Converter={StaticResource StyleVis}, ConverterParameter={x:Static core:HintStyle.Bubble}}">
+            <Grid Style="{StaticResource BubblePlacement}">
+                <Grid.RenderTransform>
+                    <TranslateTransform X="0" Y="0" />
+                </Grid.RenderTransform>
+                <Grid.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="22" ShadowDepth="4" Direction="270" Opacity="0.4" />
+                </Grid.Effect>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Path Grid.Row="0" Style="{StaticResource BubbleTailUp}" Fill="White" HorizontalAlignment="Center"
+                      Margin="0,0,0,-1" Data="M16,0 L44,26 L0,26 Z" />
+                <Border Grid.Row="1" Background="White" CornerRadius="42" Padding="52,20">
+                    <TextBlock Style="{StaticResource HintTextBlock}" FontSize="38" LineHeight="52" MaxHeight="104"
+                               Foreground="#FF1B2236" />
+                </Border>
+                <Path Grid.Row="2" Style="{StaticResource BubbleTailDown}" Fill="White" HorizontalAlignment="Center"
+                      Margin="0,-1,0,0" Data="M0,0 L44,0 L28,26 Z" />
+            </Grid>
+            <TextBlock Style="{StaticResource LayoutHintLine}" VerticalAlignment="Bottom" Margin="0,0,0,30" />
+            <local:WheelHintSlot VerticalAlignment="Bottom" Margin="0,0,0,30" />
+        </Grid>
+
+        <!-- Laufschrift: dunkles Band mit Goldkante, der Text (eine Zeile) läuft endlos von rechts nach links -->
+        <Grid Visibility="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}, Converter={StaticResource StyleVis}, ConverterParameter={x:Static core:HintStyle.Ticker}}">
+            <Border Style="{StaticResource TickerPlacement}" Background="#CC101828"
+                    BorderBrush="{StaticResource Gold}">
+                <StackPanel>
+                    <Canvas x:Name="TickerCanvas" Height="64" ClipToBounds="True">
+                        <TextBlock x:Name="TickerText" Foreground="White" FontSize="48" FontWeight="SemiBold"
+                                   TextWrapping="NoWrap" LineHeight="64" LineStackingStrategy="BlockLineHeight">
+                            <TextBlock.RenderTransform>
+                                <TranslateTransform X="0" Y="0" />
+                            </TextBlock.RenderTransform>
+                        </TextBlock>
+                    </Canvas>
+                    <TextBlock Style="{StaticResource LayoutHintLine}" Margin="0,12,0,0" />
+                    <local:WheelHintSlot Margin="0,12,0,0" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Glas: halbtransparente helle Karte mit dünnem weißem Rand (ohne Hintergrundunschärfe) -->
+        <Grid Visibility="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}, Converter={StaticResource StyleVis}, ConverterParameter={x:Static core:HintStyle.Glass}}">
+            <Border Style="{StaticResource FloatingPlacement}" Padding="52,22" CornerRadius="28" BorderThickness="1.5"
+                    Background="{StaticResource GlassBackground}" BorderBrush="#80FFFFFF">
+                <TextBlock Style="{StaticResource HintTextBlock}" FontSize="38" LineHeight="52" MaxHeight="104">
+                    <TextBlock.Effect>
+                        <DropShadowEffect Color="Black" BlurRadius="10" ShadowDepth="2" Direction="270" Opacity="0.7" />
+                    </TextBlock.Effect>
+                </TextBlock>
+            </Border>
+            <TextBlock Style="{StaticResource LayoutHintLine}" VerticalAlignment="Bottom" Margin="0,0,0,30">
+                <TextBlock.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="10" ShadowDepth="2" Direction="270" Opacity="0.8" />
+                </TextBlock.Effect>
+            </TextBlock>
+            <local:WheelHintSlot VerticalAlignment="Bottom" Margin="0,0,0,30" />
+        </Grid>
+
+        <!-- Zettel: leicht schiefe cremefarbene Karte mit Klebestreifen und Handschrift -->
+        <Grid Visibility="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}, Converter={StaticResource StyleVis}, ConverterParameter={x:Static core:HintStyle.Note}}">
+            <Grid Style="{StaticResource NotePlacement}" RenderTransformOrigin="0.5,0.5">
+                <Grid.RenderTransform>
+                    <RotateTransform Angle="-2" />
+                </Grid.RenderTransform>
+                <Border Background="#FFFFF6DC" CornerRadius="4" Padding="48,30,48,26">
+                    <Border.Effect>
+                        <DropShadowEffect Color="Black" BlurRadius="18" ShadowDepth="5" Direction="270" Opacity="0.45" />
+                    </Border.Effect>
+                    <TextBlock Style="{StaticResource HintTextBlock}" FontFamily="Segoe Print, Segoe UI" FontWeight="Normal"
+                               FontSize="32" LineHeight="50" MaxHeight="100" Foreground="#FF2B2118" />
+                </Border>
+                <Rectangle Width="130" Height="34" Fill="#A6E9D9A0" HorizontalAlignment="Center" VerticalAlignment="Top"
+                           Margin="0,-17,0,0" RenderTransformOrigin="0.5,0.5">
+                    <Rectangle.RenderTransform>
+                        <RotateTransform Angle="3" />
+                    </Rectangle.RenderTransform>
+                </Rectangle>
+            </Grid>
+            <TextBlock Style="{StaticResource LayoutHintLine}" VerticalAlignment="Bottom" Margin="0,0,0,30">
+                <TextBlock.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="10" ShadowDepth="2" Direction="270" Opacity="0.8" />
+                </TextBlock.Effect>
+            </TextBlock>
+            <local:WheelHintSlot VerticalAlignment="Bottom" Margin="0,0,0,30" />
+        </Grid>
+
+        <!-- Kino: schwarzer Filmstreifen mit Perforation oben und unten, goldene Schrift -->
+        <Grid Visibility="{Binding HintStyle, RelativeSource={RelativeSource AncestorType=local:GuestHint}, Converter={StaticResource StyleVis}, ConverterParameter={x:Static core:HintStyle.Cinema}}">
+            <Border Style="{StaticResource CinemaPlacement}" Background="#FF0A0A0A">
+                <StackPanel>
+                    <Border Height="26" Background="{StaticResource FilmHoles}" />
+                    <StackPanel Margin="60,14,60,14">
+                        <TextBlock Style="{StaticResource HintTextBlock}" FontSize="44" LineHeight="60" MaxHeight="120"
+                                   Foreground="{StaticResource Gold}" HorizontalAlignment="Center" />
+                        <TextBlock Style="{StaticResource LayoutHintLine}" Foreground="#CCF5C26B" Margin="0,10,0,0" />
+                        <local:WheelHintSlot Margin="0,10,0,0" />
+                    </StackPanel>
+                    <Border Height="26" Background="{StaticResource FilmHoles}" />
                 </StackPanel>
             </Border>
         </Grid>

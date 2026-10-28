@@ -241,7 +241,7 @@ public sealed class VideoSettingsNormalizerTests : IDisposable
     [Fact]
     public void VideoHintStyle_UnknownNameInJson_BecomesPill()
     {
-        var store = StoreWithFile("{ \"Version\": 2, \"GuestScreen\": { \"VideoHintStyle\": \"Neon\" } }");
+        var store = StoreWithFile("{ \"Version\": 2, \"GuestScreen\": { \"VideoHintStyle\": \"Hologramm\" } }");
 
         Assert.False(store.LoadFailed);
         Assert.Equal(HintStyle.Pill, store.Current.GuestScreen.VideoHintStyle);

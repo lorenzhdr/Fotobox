@@ -45,4 +45,14 @@ public static class GuestLayouts
     /// <summary>Zusatzzeile der Gastansicht unter dem Hinweistext (auch in der Admin-Vorschau): „Mausrad: Layout wechseln · Ein Foto“.</summary>
     public static string WheelHint(GuestLayout g, int stripPhotoCount) =>
         $"Mausrad: Layout wechseln · {DisplayName(g, stripPhotoCount)}";
+
+    /// <summary>
+    /// Text der Mausradzeile: ein eigener Text (<see cref="GuestScreenSettings.WheelHintText"/>) wird wörtlich angezeigt (keine Platzhalter,
+    /// kein Layoutname), sonst der automatische Text <see cref="WheelHint"/>.
+    /// </summary>
+    public static string WheelHintText(GuestScreenSettings? screen, GuestLayout g, int stripPhotoCount)
+    {
+        var custom = screen?.WheelHintText;
+        return string.IsNullOrWhiteSpace(custom) ? WheelHint(g, stripPhotoCount) : custom;
+    }
 }

@@ -10,8 +10,16 @@ public enum StripStyle { DoubleCut, Single }
 public enum GuestLayout { Single, StripDouble, StripSingle, Overlay }
 /// <summary>Auto: Strip → Hochformat, sonst Querformat.</summary>
 public enum PageOrientation { Auto, Portrait, Landscape }
-/// <summary>Darstellung des Hinweistexts in der Gastansicht: Pille mit Rahmen, schlichter Text mit Schatten oder Band über die volle Breite.</summary>
-public enum HintStyle { Pill, Plain, Banner }
+/// <summary>
+/// Darstellung des Hinweistexts in der Gastansicht: Pille mit Rahmen, schlichter Text mit Schatten, Band über die volle Breite,
+/// Neon-Schrift, Sprechblase, Laufschrift, Glaskarte, Zettel oder Kino-Filmstreifen. Neue Stile nur hinten anhängen (Reihenfolge = Reihenfolge der Bereiche in <c>GuestHint</c>).
+/// </summary>
+public enum HintStyle { Pill, Plain, Banner, Neon, Bubble, Ticker, Glass, Note, Cinema }
+/// <summary>
+/// Darstellung der Mausradzeile („Mausrad: Layout wechseln · …“): passend zum Hinweis-Stil (wie bisher), kleine Pille, schlichter Text,
+/// Chip oder Pfeile.
+/// </summary>
+public enum WheelHintStyle { Matching, SmallPill, Plain, Chip, Arrows }
 
 /// <summary>Qualitätsstufe der Videoaufnahme (MP4/H.264); die Auflösung ist immer die der laufenden Kamera.</summary>
 public enum VideoQuality { High, Medium, Low }
@@ -229,6 +237,11 @@ public sealed class GuestScreenSettings
     /// </summary>
     public string? VideoHintText { get; set; }
     public HintStyle VideoHintStyle { get; set; } = HintStyle.Pill;
+    /// <summary>Mausradzeile der Layoutwahl anzeigen (erscheint nur, wenn Gäste zwischen mindestens zwei Layouts wählen können).</summary>
+    public bool ShowWheelHint { get; set; } = true;
+    /// <summary>Eigener Text der Mausradzeile (wörtlich, ohne Platzhalter); null = automatischer Text mit dem Namen des Layouts.</summary>
+    public string? WheelHintText { get; set; }
+    public WheelHintStyle WheelHintStyle { get; set; } = WheelHintStyle.Matching;
 }
 
 /// <summary>Darstellung: Farbschema der Admin-Ansicht und Monitor der Gastansicht.</summary>

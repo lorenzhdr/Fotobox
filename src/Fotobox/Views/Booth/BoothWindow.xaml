@@ -292,9 +292,10 @@
             </Border.Background>
         </Border>
 
-        <!-- Hinweis (Pille, schlichter Text oder Band, je nach Einstellung) samt Zusatzzeile zur Layoutwahl per Mausrad -->
+        <!-- Hinweis (Pille, schlichter Text, Band, Neon, Sprechblase, Laufschrift, Glas, Zettel oder Kino, je nach Einstellung) samt Zusatzzeile zur Layoutwahl per Mausrad -->
         <booth:GuestHint Text="{Binding HintText}" HintStyle="{Binding HintStyle}"
                          LayoutHintText="{Binding LayoutHintText}" ShowLayoutHint="{Binding ShowLayoutHint}"
+                         LayoutHintStyle="{Binding LayoutHintStyle}"
                          Visibility="{Binding ShowHint, Converter={StaticResource BoolToVis}}" />
 
         <!-- Video-Hinweiszeile oben im Bild (nur bei aktivem Videomodus, im Leerlauf mit laufender Kamera) -->
