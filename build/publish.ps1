@@ -265,8 +265,18 @@ function Copy-VcRuntime {
         return $false
     }
 
+    $expectedMachine = 0x8664
+    if ($Arch -eq 'arm64') { $expectedMachine = 0xAA64 }
+
     Write-Host "VC++-Runtime ($Arch, msvcp140.dll $crtVersion) wird app-lokal kopiert:"
     foreach ($dll in @(Get-ChildItem -LiteralPath $crtDir -Filter '*.dll' -File)) {
+        # Die arm64-Redist enthält auch ARM64EC-DLLs mit x64-Kopf (z. B. vcruntime140_1.dll) für emulierten x64-Code;
+        # native arm64-Dateien brauchen sie nicht. Nur DLLs der Zielarchitektur kopieren (fehlt etwas, meldet es die Importprüfung).
+        $dllInfo = Get-PeInfo -Path $dll.FullName
+        if (-not $dllInfo -or $dllInfo.Machine -ne $expectedMachine) {
+            Write-Host "  ($($dll.Name) übersprungen: andere Architektur)"
+            continue
+        }
         Copy-Item -LiteralPath $dll.FullName -Destination $PublishDir -Force
         Write-Host "  $($dll.Name)"
     }
