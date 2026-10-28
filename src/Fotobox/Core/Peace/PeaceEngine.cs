@@ -7,10 +7,12 @@ namespace Fotobox.Core.Peace;
 /// </summary>
 public sealed class PeaceEngine
 {
-    /// <summary>Längster Aussetzer des Zeichens, den das Halten übersteht.</summary>
-    public static readonly TimeSpan GapTolerance = TimeSpan.FromMilliseconds(250);
-    /// <summary>So lange darf keine Hand Peace zeigen, bevor die Engine wieder scharf wird.</summary>
-    public static readonly TimeSpan RearmQuietTime = TimeSpan.FromMilliseconds(400);
+    /// <summary>Untergrenze für den längsten Aussetzer des Zeichens, den das Halten übersteht.</summary>
+    public static readonly TimeSpan MinGapTolerance = TimeSpan.FromMilliseconds(250);
+    /// <summary>Untergrenze dafür, wie lange keine Hand Peace zeigen darf, bevor die Engine wieder scharf wird.</summary>
+    public static readonly TimeSpan MinRearmQuietTime = TimeSpan.FromMilliseconds(400);
+    /// <summary>Beide Fristen umfassen mindestens so viele Analyseabstände, damit eine verspätete oder verpasste Analyse nicht stört.</summary>
+    public const double AnalysisIntervalFactor = 2.5;
 
     private sealed class HandState
     {
@@ -39,6 +41,8 @@ public sealed class PeaceEngine
     private IReadOnlyList<TrackedFace> _faces = [];
     private PeaceSnapshot _snapshot = PeaceSnapshot.Empty;
     private bool _gesturesEnabled;
+    private TimeSpan _gapTolerance = MinGapTolerance;
+    private TimeSpan _rearmQuietTime = MinRearmQuietTime;
 
     public PeaceEngine(TimeProvider time, Func<int, int>? random = null)
     {
@@ -57,6 +61,12 @@ public sealed class PeaceEngine
 
     /// <summary>Ist die Engine scharf (kann nach Haltedauer auslösen, sofern <see cref="GesturesEnabled"/>)?</summary>
     public bool IsArmed => _armed;
+
+    /// <summary>Längster Aussetzer, den das Halten übersteht (abhängig von der Analyserate).</summary>
+    public TimeSpan GapTolerance => _gapTolerance;
+
+    /// <summary>So lange darf keine Hand Peace zeigen, bevor die Engine wieder scharf wird (abhängig von der Analyserate).</summary>
+    public TimeSpan RearmQuietTime => _rearmQuietTime;
 
     /// <summary>
     /// Auslösen erlaubt (nur im Leerlauf). Bei false wird nie ausgelöst und kein Halten gezählt; die Prüfung „Hand wieder unten“
@@ -82,6 +92,10 @@ public sealed class PeaceEngine
         _settings = settings.Clone();
         _noActionLogged = false;
         _moustacheAvailable = moustacheAvailable;
+        var interval = TimeSpan.FromSeconds(AnalysisIntervalFactor / Math.Max(1, settings.AnalysesPerSecond));
+        _gapTolerance = interval > MinGapTolerance ? interval : MinGapTolerance;
+        _rearmQuietTime = interval > MinRearmQuietTime ? interval : MinRearmQuietTime;
+        _handTracker.LostAfter = interval;
     }
 
     /// <summary>
@@ -109,7 +123,7 @@ public sealed class PeaceEngine
 
             var verdict = PeaceGestureClassifier.Classify(tracked.Hand, _settings.SensitivityPercent, _aspect);
             state.IsPeace = verdict.IsPeace;
-            if (state.HoldStart is not null && now - state.LastPeace > GapTolerance)
+            if (state.HoldStart is not null && now - state.LastPeace > _gapTolerance)
                 state.HoldStart = null; // Aussetzer zu lang: Halten beginnt von vorn
             if (verdict.IsPeace)
             {
@@ -150,7 +164,7 @@ public sealed class PeaceEngine
     {
         var changed = force;
 
-        foreach (var id in _states.Where(kv => now - kv.Value.LastSeen >= HandTracker.LostTimeout).Select(kv => kv.Key).ToList())
+        foreach (var id in _states.Where(kv => now - kv.Value.LastSeen >= _handTracker.LostAfter).Select(kv => kv.Key).ToList())
         {
             _states.Remove(id);
             changed = true;
@@ -158,14 +172,14 @@ public sealed class PeaceEngine
 
         foreach (var state in _states.Values)
         {
-            if (state.HoldStart is not null && (now - state.LastPeace > GapTolerance || !_armed || !_gesturesEnabled))
+            if (state.HoldStart is not null && (now - state.LastPeace > _gapTolerance || !_armed || !_gesturesEnabled))
             {
                 state.HoldStart = null;
                 changed = true;
             }
         }
 
-        if (!_armed && now - _lastTriggerAt >= Cooldown && now - _lastAnyPeaceAt >= RearmQuietTime)
+        if (!_armed && now - _lastTriggerAt >= Cooldown && now - _lastAnyPeaceAt >= _rearmQuietTime)
             _armed = true;
 
         PeaceTrigger? trigger = null;

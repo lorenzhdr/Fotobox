@@ -91,7 +91,7 @@ public sealed class PeaceEngineTests
     [Fact]
     public void LongerGap_ResetsTheHold()
     {
-        var engine = Create();
+        var engine = Create(Settings(s => s.AnalysesPerSecond = 10)); // 10/s → Mindestfrist 250 ms
         Step(engine, 0, Peace);
         Hold(engine, 400, Peace);
         Step(engine, 300, Fist);
@@ -106,12 +106,33 @@ public sealed class PeaceEngineTests
     [Fact]
     public void Tick_AloneCompletesTheHold_AndResetsOnGap()
     {
-        var engine = Create();
+        var engine = Create(Settings(s => s.AnalysesPerSecond = 10));
         Step(engine, 0, Peace);
         _time.Advance(TimeSpan.FromMilliseconds(300));
         engine.Tick(); // Aussetzer > 250 ms
         Assert.Equal(0, engine.Snapshot.Hands.Single().Progress, 3);
         Assert.Empty(_triggers);
+    }
+
+    [Theory]
+    [InlineData(10, 250)]
+    [InlineData(5, 500)]
+    [InlineData(1, 2500)]
+    public void GapTolerance_GrowsWithAnalysisInterval(int analysesPerSecond, int expectedMs)
+    {
+        var engine = Create(Settings(s => s.AnalysesPerSecond = analysesPerSecond));
+        Assert.Equal(TimeSpan.FromMilliseconds(expectedMs), engine.GapTolerance);
+    }
+
+    [Fact]
+    public void SlowAnalyses_OneSecondApart_StillCompleteTheHold()
+    {
+        var engine = Create(Settings(s => { s.AnalysesPerSecond = 1; s.HoldMilliseconds = 2000; }));
+        Step(engine, 0, Peace);
+        Step(engine, 1000, Peace);
+        Assert.Empty(_triggers);
+        Step(engine, 1000, Peace);
+        Assert.Single(_triggers);
     }
 
     [Fact]
@@ -284,7 +305,7 @@ public sealed class PeaceEngineTests
     [Fact]
     public void LostHand_DisappearsAfter400ms()
     {
-        var engine = Create();
+        var engine = Create(Settings(s => s.AnalysesPerSecond = 10)); // bei 10/s gilt die Mindestfrist
         Step(engine, 0, Peace);
         Assert.Single(engine.Snapshot.Hands);
         _time.Advance(TimeSpan.FromMilliseconds(450));

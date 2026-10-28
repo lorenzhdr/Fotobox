@@ -27,6 +27,14 @@ public sealed class HandTracker
     private readonly TimeProvider _time;
     private readonly List<Track> _tracks = [];
     private int _nextId = 1;
+    private TimeSpan _lostAfter = LostTimeout;
+
+    /// <summary>Wirksame Verlustfrist; nie kürzer als <see cref="LostTimeout"/> (bei seltenen Analysen länger).</summary>
+    public TimeSpan LostAfter
+    {
+        get => _lostAfter;
+        set => _lostAfter = value > LostTimeout ? value : LostTimeout;
+    }
 
     public HandTracker(TimeProvider time) => _time = time;
 
@@ -37,7 +45,7 @@ public sealed class HandTracker
         if (!(aspect > 0))
             aspect = 1;
         var now = _time.GetUtcNow();
-        _tracks.RemoveAll(t => now - t.LastSeen >= LostTimeout);
+        _tracks.RemoveAll(t => now - t.LastSeen >= _lostAfter);
 
         var valid = hands.Where(h => h.Points is { Count: >= PeaceGestureClassifier.PointCount }).ToList();
 

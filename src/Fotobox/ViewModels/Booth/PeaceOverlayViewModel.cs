@@ -43,6 +43,8 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     private readonly TimeProvider _time;
     private readonly IFunSoundPlayer _sound;
     private readonly GuestMoustacheState? _guestState;
+    /// <summary>Analyserate, solange der Bart im Countdown dem Gesicht folgt (nur Gesichter, billig).</summary>
+    private const int FollowRate = 10;
     private readonly FaceTracker _faceTracker;
     private readonly PeaceEngine _engine;
     private readonly MoustacheTracker _tracker;
@@ -194,12 +196,14 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         _mode = mode;
 
         _engine.Configure(_settings, MoustacheAvailable);
+        var rate = mode == PeaceMode.Watching ? Math.Max(1, _settings.AnalysesPerSecond) : FollowRate;
+        _faceTracker.LostAfter = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor / rate);
         _engine.GesturesEnabled = mode == PeaceMode.Watching;
         _tracker.SetHoldExpiry(mode == PeaceMode.FollowMoustache);
 
         var options = mode == PeaceMode.Watching
             ? new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, _settings.AnalysesPerSecond, MinFaceScore, _settings.MinHandScore)
-            : new GestureRequestOptions(GestureNeeds.Faces, 10, MinFaceScore, _settings.MinHandScore);
+            : new GestureRequestOptions(GestureNeeds.Faces, FollowRate, MinFaceScore, _settings.MinHandScore);
 
         if (_request is null)
         {
