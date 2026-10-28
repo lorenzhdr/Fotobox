@@ -172,6 +172,18 @@ public sealed partial class AdminViewModel
     /// <summary>Eigene Peaceerkennung der Vorschau (ohne Bart-Zustand der Gastansicht, damit ein Test nie in ein echtes Foto gelangt).</summary>
     public PeaceOverlayViewModel PeacePreview { get; }
 
+    private bool _peacePreviewShowFacePoints;
+
+    /// <summary>
+    /// Zeigt in der Vorschau die fünf Gesichtspunkte (Augen, Nase, Mundwinkel) jedes Gesichts, um die Lage des Bartes zu beurteilen.
+    /// Nur Anzeige: nicht gespeichert, nicht Teil des Entwurfs, Standard aus, nie in der Gastansicht.
+    /// </summary>
+    public bool PeacePreviewShowFacePoints
+    {
+        get => _peacePreviewShowFacePoints;
+        set => SetProperty(ref _peacePreviewShowFacePoints, value);
+    }
+
     /// <summary>Test-Knopf: Selbstzerstörungs-Countdown mit Explosion in der Vorschau, ohne Foto.</summary>
     public IRelayCommand TestSelfDestructCommand { get; }
 

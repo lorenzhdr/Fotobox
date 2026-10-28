@@ -199,6 +199,36 @@ public class PeaceViewsTests
     }
 
     [StaFact]
+    public void PeaceOverlay_FacePoints_AreDrawnOnlyWhenEnabled_AtTheMappedPositions()
+    {
+        var face = PeaceHandFixtures.Face(0.3, 0.4, 0.12);
+        var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Fit = OverlayFit.Uniform, Faces = [face] };
+        Layout(overlay);
+
+        byte AlphaAt(NormPoint p)
+        {
+            var bitmap = new RenderTargetBitmap(1920, 1080, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(overlay);
+            var pixel = new byte[4];
+            bitmap.CopyPixels(new Int32Rect((int)Math.Round(p.X * 1920), (int)Math.Round(p.Y * 1080), 1, 1), pixel, 4, 0);
+            return pixel[3];
+        }
+
+        Assert.Equal(0, AlphaAt(face.Nose)); // ausgeschaltet: nichts gezeichnet
+        overlay.ShowFaceLandmarks = true;
+        Layout(overlay);
+        Assert.True(AlphaAt(face.Nose) > 200);
+        Assert.True(AlphaAt(face.RightEye) > 200);
+        Assert.True(AlphaAt(face.MouthLeft) > 200);
+
+        // Gespiegelt wandern die Punkte auf die andere Seite.
+        overlay.Mirror = true;
+        Layout(overlay);
+        Assert.True(AlphaAt(new NormPoint(1 - face.RightEye.X, face.RightEye.Y)) > 200);
+        Assert.Equal(0, AlphaAt(face.RightEye));
+    }
+
+    [StaFact]
     public void PeaceOverlay_UpdatesWithChangingDataWithoutException()
     {
         var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, ShowLandmarks = true, ShowHoldProgress = true };

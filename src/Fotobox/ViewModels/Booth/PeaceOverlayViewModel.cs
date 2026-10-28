@@ -63,6 +63,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     private PeaceMode _mode;
     private IReadOnlyList<MoustacheView> _moustaches = [];
     private IReadOnlyList<HandView> _hands = [];
+    private IReadOnlyList<FaceLandmarks> _faces = [];
     private double _imageWidth;
     private double _imageHeight;
     private bool _peaceDetectedNow;
@@ -126,6 +127,13 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
             if (SetProperty(ref _hands, value))
                 RefreshShown();
         }
+    }
+
+    /// <summary>Gesichter der letzten Analyse mit ihren fünf Punkten (nur für die Punkteanzeige der Admin-Vorschau).</summary>
+    public IReadOnlyList<FaceLandmarks> Faces
+    {
+        get => _faces;
+        private set => SetProperty(ref _faces, value);
     }
 
     /// <summary>Auflösung des Kamerabilds; 0 = unbekannt.</summary>
@@ -402,6 +410,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         Hands = [];
         Moustaches = [];
         FaceCount = 0;
+        Faces = [];
         PeaceDetectedNow = false;
         MoustacheActive = false;
     }
@@ -455,6 +464,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
             _realFaces = tracked;
             _realFacesAt = _time.GetUtcNow();
             FaceCount = tracked.Count;
+            Faces = update.Faces;
             _tracker.OnFaces(tracked, w, h, update.FrameTime);
         }
         // Ein reines Gesichts-Update sagt nichts über die Hände: die Engine bekommt sie erst mit dem Ergebnis der Handstufe.

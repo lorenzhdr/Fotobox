@@ -69,6 +69,7 @@
                                                Text="Keine Kamera – „Selbstzerstörung testen“ und „Bart testen“ funktionieren trotzdem."
                                                Visibility="{Binding FunPreviewNoCamera, Converter={StaticResource BoolToVis}}" />
                                     <peace:PeaceOverlay x:Name="PeacePreviewOverlay" Fit="Uniform" ShowLandmarks="True" ShowHoldProgress="True"
+                                                        Faces="{Binding PeacePreview.Faces}" ShowFaceLandmarks="{Binding PeacePreviewShowFacePoints}"
                                                         Moustaches="{Binding PeacePreview.Moustaches}" Hands="{Binding PeacePreview.Hands}"
                                                         ImageWidth="{Binding PeacePreview.ImageWidth}" ImageHeight="{Binding PeacePreview.ImageHeight}"
                                                         Mirror="{Binding MirrorPreview}" />
@@ -97,6 +98,10 @@
                                 <Button x:Name="PeaceTestMoustacheButton" Content="Bart testen" Command="{Binding TestMoustacheCommand}"
                                         Margin="10,0,0,0" VerticalAlignment="Top" />
                             </StackPanel>
+                            <CheckBox x:Name="PeaceShowFacePointsCheck" Content="Gesichtspunkte anzeigen" Margin="0,12,0,0"
+                                      IsChecked="{Binding PeacePreviewShowFacePoints}" AutomationProperties.Name="Gesichtspunkte anzeigen" />
+                            <TextBlock Style="{DynamicResource Hint}" Margin="0,2,0,0"
+                                       Text="Zeichnet Augen, Nase und Mundwinkel jedes erkannten Gesichts in die Vorschau (nur zur Kontrolle, wird nicht gespeichert)." />
                             <TextBlock x:Name="PeacePreviewStatus" Text="{Binding PeacePreviewStatusText}" FontSize="14"
                                        Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
                             <TextBlock x:Name="PeacePreviewWarning" Text="{Binding PeacePreviewWarningText}" FontSize="13"

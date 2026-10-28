@@ -32,6 +32,13 @@ public sealed class PeaceOverlay : FrameworkElement
         nameof(Hands), typeof(IReadOnlyList<HandView>), typeof(PeaceOverlay),
         RenderMetadata(null, (d, _) => ((PeaceOverlay)d).OnHandsChanged()));
 
+    /// <summary>Gesichter mit ihren fünf Punkten; gezeichnet nur mit <see cref="ShowFaceLandmarks"/> (Admin-Vorschau).</summary>
+    public static readonly DependencyProperty FacesProperty = DependencyProperty.Register(
+        nameof(Faces), typeof(IReadOnlyList<FaceLandmarks>), typeof(PeaceOverlay), RenderMetadata(null));
+
+    public static readonly DependencyProperty ShowFaceLandmarksProperty = DependencyProperty.Register(
+        nameof(ShowFaceLandmarks), typeof(bool), typeof(PeaceOverlay), RenderMetadata(false));
+
     /// <summary>Auflösung des Kamerabilds; 0 = unbekannt (dann 16:9).</summary>
     public static readonly DependencyProperty ImageWidthProperty = DependencyProperty.Register(
         nameof(ImageWidth), typeof(double), typeof(PeaceOverlay), RenderMetadata(0.0));
@@ -55,6 +62,9 @@ public sealed class PeaceOverlay : FrameworkElement
     private static readonly Brush GreenBrush = Frozen(Color.FromRgb(0x3D, 0xDC, 0x84));
     private static readonly Brush WhiteBrush = Frozen(Colors.White);
     private static readonly Brush YellowBrush = Frozen(Color.FromRgb(0xFF, 0xD6, 0x0A));
+    private static readonly Brush EyeBrush = Frozen(Color.FromRgb(0x4F, 0xC3, 0xF7));
+    private static readonly Brush NoseBrush = Frozen(Color.FromRgb(0xFF, 0xB7, 0x4D));
+    private static readonly Brush MouthBrush = Frozen(Color.FromRgb(0xF0, 0x62, 0x92));
     private static readonly Brush BackRingBrush = Frozen(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF));
 
     /// <summary>Knochenlinien der 21 Handpunkte (MediaPipe).</summary>
@@ -95,6 +105,19 @@ public sealed class PeaceOverlay : FrameworkElement
     {
         get => (IReadOnlyList<HandView>?)GetValue(HandsProperty);
         set => SetValue(HandsProperty, value);
+    }
+
+    public IReadOnlyList<FaceLandmarks>? Faces
+    {
+        get => (IReadOnlyList<FaceLandmarks>?)GetValue(FacesProperty);
+        set => SetValue(FacesProperty, value);
+    }
+
+    /// <summary>Zeichnet die fünf Gesichtspunkte (Augen, Nase, Mundwinkel) jedes Gesichts; nie in der Gastansicht.</summary>
+    public bool ShowFaceLandmarks
+    {
+        get => (bool)GetValue(ShowFaceLandmarksProperty);
+        set => SetValue(ShowFaceLandmarksProperty, value);
     }
 
     public double ImageWidth
@@ -277,6 +300,12 @@ public sealed class PeaceOverlay : FrameworkElement
             MoustacheRenderer.Draw(drawingContext, view.Style, new Point(center.X, center.Y), pose.WidthPx * scale, pose.AngleRad, Mirror);
         }
 
+        if (ShowFaceLandmarks)
+        {
+            foreach (var face in Faces ?? [])
+                DrawFacePoints(drawingContext, face, viewW, viewH, unit);
+        }
+
         foreach (var hand in Hands ?? [])
         {
             var box = hand.Box;
@@ -328,6 +357,23 @@ public sealed class PeaceOverlay : FrameworkElement
         }
         arc.Freeze();
         dc.DrawGeometry(null, pen, arc);
+    }
+
+    // Die fünf YuNet-Punkte: Augen (blau), Nase (orange), Mundwinkel (rosa), weiß umrandet.
+    private void DrawFacePoints(DrawingContext dc, FaceLandmarks face, double viewW, double viewH, double unit)
+    {
+        var outline = new Pen(WhiteBrush, 2 * unit);
+        void Dot(NormPoint p, Brush brush)
+        {
+            var m = OverlayMapper.MapPoint(p, ImageWidth, ImageHeight, viewW, viewH, Fit, Mirror);
+            dc.DrawEllipse(brush, outline, new Point(m.X, m.Y), 6 * unit, 6 * unit);
+        }
+
+        Dot(face.RightEye, EyeBrush);
+        Dot(face.LeftEye, EyeBrush);
+        Dot(face.Nose, NoseBrush);
+        Dot(face.MouthRight, MouthBrush);
+        Dot(face.MouthLeft, MouthBrush);
     }
 
     private void DrawLandmarks(DrawingContext dc, HandPoint[] points, bool isPeace, double viewW, double viewH, double unit)
