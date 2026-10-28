@@ -3,6 +3,100 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              IsHitTestVisible="False" Focusable="False">
 
-    <!-- Platzhalter: Alarm-Look, Vignette und Explosion folgen. Vertrag: Animationen laufen nur, solange IsVisible. -->
-    <Grid />
+    <!-- Alarm-Look der Selbstzerstörung. Feste Farben, keine Schatten/Effekte über dem Livebild (dunkles Band statt Schatten).
+         Vertrag: Alle Animationen laufen nur, solange das Element sichtbar ist (Start/Stopp im Code-behind). -->
+    <UserControl.Resources>
+        <!-- Gelb-schwarzer Warnstreifen (45 Grad) -->
+        <DrawingBrush x:Key="HazardBrush" TileMode="Tile" Viewport="0,0,48,48" ViewportUnits="Absolute"
+                      Viewbox="0,0,40,40" ViewboxUnits="Absolute">
+            <DrawingBrush.Drawing>
+                <DrawingGroup>
+                    <GeometryDrawing Brush="#FFFFC800">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="0,0,40,40" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#FF1A1A1A">
+                        <GeometryDrawing.Geometry>
+                            <PathGeometry Figures="M0,20 L20,0 L40,0 L0,40 Z M20,40 L40,20 L40,40 Z" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                </DrawingGroup>
+            </DrawingBrush.Drawing>
+        </DrawingBrush>
+
+        <RadialGradientBrush x:Key="VignetteBrush" RadiusX="0.75" RadiusY="0.75">
+            <GradientStop Color="#00FF0000" Offset="0.35" />
+            <GradientStop Color="#66FF0000" Offset="0.72" />
+            <GradientStop Color="#EEC80000" Offset="1" />
+        </RadialGradientBrush>
+
+        <RadialGradientBrush x:Key="PulseBrush">
+            <GradientStop Color="#FFFFF4C0" Offset="0" />
+            <GradientStop Color="#FFFFB020" Offset="0.30" />
+            <GradientStop Color="#CCFF5A00" Offset="0.62" />
+            <GradientStop Color="#00FF2A00" Offset="1" />
+        </RadialGradientBrush>
+    </UserControl.Resources>
+
+    <Grid ClipToBounds="True">
+        <Grid x:Name="ShakeHost" RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+                <TranslateTransform x:Name="ShakeTransform" />
+            </Grid.RenderTransform>
+
+            <!-- Pulsierende rote Vignette -->
+            <Rectangle x:Name="Vignette" Fill="{StaticResource VignetteBrush}" Opacity="0.4" />
+
+            <!-- Warnstreifen oben und unten -->
+            <Rectangle x:Name="StripeTop" Height="40" VerticalAlignment="Top" Fill="{StaticResource HazardBrush}" Margin="24,24,24,0" />
+            <Rectangle x:Name="StripeBottom" Height="40" VerticalAlignment="Bottom" Fill="{StaticResource HazardBrush}" Margin="24,0,24,24" />
+
+            <!-- Inhalt in fester 1920x1080-Referenz, skaliert mit der Ansicht -->
+            <Viewbox Stretch="Uniform">
+                <Grid Width="1920" Height="1080">
+                    <!-- Kopfzeile -->
+                    <Border VerticalAlignment="Top" Margin="0,112,0,0" Height="132" Background="#CC120000">
+                        <TextBlock x:Name="HeaderText" Text="⚠ SELBSTZERSTÖRUNG EINGELEITET ⚠" Foreground="#FFFF3A3A"
+                                   FontSize="76" FontWeight="Bold" FontFamily="Segoe UI, Segoe UI Emoji"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <!-- Alarm-Ziffern auf dunklem Band -->
+                    <Border VerticalAlignment="Center" Margin="0,40,0,0" Height="400" Background="#C4000000"
+                            BorderBrush="#FFE01818" BorderThickness="0,4">
+                        <TextBlock x:Name="DigitsText" Text="00:10" Foreground="#FFFF2A2A"
+                                   FontFamily="Consolas, Courier New" FontSize="360" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   RenderTransformOrigin="0.5,0.5">
+                            <TextBlock.RenderTransform>
+                                <ScaleTransform x:Name="DigitsScale" ScaleX="1" ScaleY="1" />
+                            </TextBlock.RenderTransform>
+                        </TextBlock>
+                    </Border>
+
+                    <!-- Unterzeile -->
+                    <Border VerticalAlignment="Bottom" Margin="0,0,0,150" Height="104" Background="#CC120000"
+                            HorizontalAlignment="Center" Padding="64,0">
+                        <TextBlock x:Name="SubText" Text="Bitte Ruhe bewahren" Foreground="#FFFFE14A"
+                                   FontSize="56" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                </Grid>
+            </Viewbox>
+
+            <!-- Blinkender roter Rahmen -->
+            <Border x:Name="Frame" BorderBrush="#FFFF1C1C" BorderThickness="24" Opacity="0.9" />
+        </Grid>
+
+        <!-- Explosion: Impuls, Blitz und Glitch-Balken (liegen über allem, wackeln nicht mit) -->
+        <Rectangle x:Name="Pulse" Fill="{StaticResource PulseBrush}" Opacity="0" Visibility="Collapsed"
+                   RenderTransformOrigin="0.5,0.5">
+            <Rectangle.RenderTransform>
+                <ScaleTransform x:Name="PulseScale" ScaleX="0.2" ScaleY="0.2" />
+            </Rectangle.RenderTransform>
+        </Rectangle>
+        <Grid x:Name="GlitchLayer" />
+        <Rectangle x:Name="Flash" Fill="White" Opacity="0" Visibility="Collapsed" />
+    </Grid>
 </UserControl>

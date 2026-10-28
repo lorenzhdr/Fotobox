@@ -27,8 +27,9 @@ public static class ToneSynth
             FunSoundCue.Acquire => Tone(0.080, 1800, 1800),
             FunSoundCue.Lock => Concat(Tone(0.070, 2400, 2400), Silence(0.050), Tone(0.070, 2400, 2400)),
             FunSoundCue.Text => Tone(0.150, 1000, 1400),
-            // Peaceerkennung: Platzhalter, die endgültigen Töne folgen.
-            FunSoundCue.SelfDestructTick or FunSoundCue.SelfDestructTickFast or FunSoundCue.Explosion => Silence(0.05),
+            FunSoundCue.SelfDestructTick => Concat(Siren(0.55, 600, 1200), Silence(0.05), Tone(0.12, 1500, 1500)),
+            FunSoundCue.SelfDestructTickFast => Concat(Tone(0.09, 1900, 1900), Silence(0.05), Tone(0.09, 2300, 2300)),
+            FunSoundCue.Explosion => ExplosionSamples(),
             _ => Silence(0.01),
         };
         return ToWav(samples);
@@ -49,6 +50,65 @@ public static class ToneSynth
             var envelope = Math.Min(1.0, Math.Min((double)(i + 1) / fade, (double)(count - i) / fade));
             data[i] = (short)Math.Round(Math.Sin(phase) * envelope * Volume * short.MaxValue);
         }
+        return data;
+    }
+
+    /// <summary>Sirenen-Sweep: Sinus mit etwas Oberwelle für den schärferen Klang, auf die Standard-Lautstärke normiert.</summary>
+    private static short[] Siren(double seconds, double startHz, double endHz)
+    {
+        var count = (int)Math.Round(seconds * SampleRate);
+        var raw = new double[count];
+        var phase = 0.0;
+        for (var i = 0; i < count; i++)
+        {
+            var t = count <= 1 ? 0 : (double)i / (count - 1);
+            phase += 2 * Math.PI * (startHz + (endHz - startHz) * t) / SampleRate;
+            raw[i] = Math.Sin(phase) + 0.35 * Math.Sin(2 * phase) + 0.12 * Math.Sin(3 * phase);
+        }
+        return Finish(raw);
+    }
+
+    /// <summary>
+    /// Explosion (0,8 s): Rauschen, das beim Abklingen dumpfer wird (Tiefpass mit sinkender Grenze), dazu ein tiefes Grollen bei 60 Hz.
+    /// Deterministisch durch den festen Startwert.
+    /// </summary>
+    private static short[] ExplosionSamples()
+    {
+        const double seconds = 0.8;
+        var count = (int)Math.Round(seconds * SampleRate);
+        var random = new Random(42);
+        var raw = new double[count];
+        var lowpass = 0.0;
+        for (var i = 0; i < count; i++)
+        {
+            var t = (double)i / SampleRate;
+            var u = (double)i / (count - 1);
+            var coefficient = 0.55 - 0.50 * Math.Sqrt(u); // hell am Anfang, dumpf am Ende
+            lowpass += coefficient * ((random.NextDouble() * 2 - 1) - lowpass);
+            var noise = lowpass * Math.Exp(-t / 0.20);
+            var rumble = Math.Sin(2 * Math.PI * 60 * t + 2.0 * Math.Sin(2 * Math.PI * 7 * t)) * Math.Exp(-t / 0.38);
+            var attack = Math.Min(1.0, t / 0.004);
+            raw[i] = (1.6 * noise + 0.55 * rumble) * attack;
+        }
+        return Finish(raw);
+    }
+
+    /// <summary>Auf die Standard-Lautstärke normieren (Spitze = <see cref="Volume"/>) und Anfang/Ende kurz ausblenden.</summary>
+    private static short[] Finish(double[] raw)
+    {
+        var fade = Math.Max(1, (int)Math.Round(FadeSeconds * SampleRate));
+        var peak = 0.0;
+        for (var i = 0; i < raw.Length; i++)
+        {
+            var envelope = Math.Min(1.0, Math.Min((double)(i + 1) / fade, (double)(raw.Length - i) / fade));
+            raw[i] *= envelope;
+            peak = Math.Max(peak, Math.Abs(raw[i]));
+        }
+
+        var data = new short[raw.Length];
+        var gain = peak > 0 ? Volume * short.MaxValue / peak : 0;
+        for (var i = 0; i < raw.Length; i++)
+            data[i] = (short)Math.Round(raw[i] * gain);
         return data;
     }
 

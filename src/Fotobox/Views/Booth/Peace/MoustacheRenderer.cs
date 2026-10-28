@@ -10,6 +10,8 @@ namespace Fotobox.Views.Booth.Peace;
 public static class MoustacheRenderer
 {
     private static readonly Brush Fill = CreateFill();
+    private static readonly Brush GlossFill = CreateGloss();
+    private static readonly Pen Outline = CreateOutline();
 
     /// <summary>
     /// Zeichnet einen Bart mit Mitte <paramref name="center"/> (Ansichtskoordinaten), Breite <paramref name="widthPx"/> und Winkel
@@ -27,7 +29,9 @@ public static class MoustacheRenderer
         matrix.Translate(center.X, center.Y);
 
         dc.PushTransform(new MatrixTransform(matrix));
-        dc.DrawGeometry(Fill, null, MoustacheShapes.Get(style));
+        var geometry = MoustacheShapes.Get(style);
+        dc.DrawGeometry(Fill, Outline, geometry);
+        dc.DrawGeometry(GlossFill, null, geometry);
         dc.Pop();
     }
 
@@ -54,10 +58,41 @@ public static class MoustacheRenderer
         return target;
     }
 
+    // Dunkelbraun mit weichem Verlauf: oben etwas heller, unten fast schwarz.
     private static Brush CreateFill()
     {
-        var brush = new SolidColorBrush(Color.FromRgb(0x3B, 0x24, 0x14));
+        var brush = new LinearGradientBrush(
+            [
+                new GradientStop(Color.FromRgb(0x5A, 0x38, 0x20), 0.0),
+                new GradientStop(Color.FromRgb(0x3A, 0x22, 0x13), 0.45),
+                new GradientStop(Color.FromRgb(0x1A, 0x0E, 0x08), 1.0),
+            ],
+            new Point(0, 0), new Point(0, 1));
         brush.Freeze();
         return brush;
+    }
+
+    // Dezenter Glanz im oberen Drittel: durchscheinendes Hellbraun, das nach unten ausläuft.
+    private static Brush CreateGloss()
+    {
+        var brush = new LinearGradientBrush(
+            [
+                new GradientStop(Color.FromArgb(0x55, 0xA8, 0x74, 0x48), 0.0),
+                new GradientStop(Color.FromArgb(0x22, 0x8A, 0x5A, 0x34), 0.28),
+                new GradientStop(Color.FromArgb(0x00, 0x8A, 0x5A, 0x34), 0.5),
+            ],
+            new Point(0, 0), new Point(0, 1));
+        brush.Freeze();
+        return brush;
+    }
+
+    // Feine dunkle Kontur (Einheitsmaß: wird mit der Breite skaliert).
+    private static Pen CreateOutline()
+    {
+        var brush = new SolidColorBrush(Color.FromRgb(0x10, 0x09, 0x05));
+        brush.Freeze();
+        var pen = new Pen(brush, 0.006) { LineJoin = PenLineJoin.Round };
+        pen.Freeze();
+        return pen;
     }
 }
