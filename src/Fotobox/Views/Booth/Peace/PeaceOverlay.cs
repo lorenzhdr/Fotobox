@@ -92,6 +92,8 @@ public sealed class PeaceOverlay : FrameworkElement
     private readonly Dictionary<int, (WobbleState State, long At)> _wobble = [];
     // Neue Bärte, deren Textur noch nicht fertig ist: Das Plopp beginnt erst mit dem ersten sichtbaren Bild.
     private readonly HashSet<int> _popPending = [];
+    // Verschwinden (nach Mittelfinger): Beginn je Gesicht; der Bart schrumpft nach MoustacheVanish.Scale, danach liefert das Ansichtsmodell ihn nicht mehr.
+    private readonly Dictionary<int, long> _vanishStart = [];
 
     // Eine Textur wurde fertig (Erzeugerthread): auf dem UI-Thread neu zeichnen.
     private void OnTextureReady()
@@ -231,6 +233,7 @@ public sealed class PeaceOverlay : FrameworkElement
             _popStart.Clear();
             _popPending.Clear();
             _wobble.Clear();
+            _vanishStart.Clear();
             return;
         }
 
@@ -238,6 +241,16 @@ public sealed class PeaceOverlay : FrameworkElement
         _wobble.Clear();
         foreach (var view in views)
         {
+            if (view.Vanishing)
+            {
+                // Verschwindender Bart: Beginn merken, das Plopp-Gedächtnis löschen (ein neuer Bart auf diesem Gesicht plopt wieder).
+                _vanishStart.TryAdd(view.FaceId, now);
+                _popped.Remove(view.FaceId);
+                _popStart.Remove(view.FaceId);
+                _popPending.Remove(view.FaceId);
+                continue;
+            }
+            _vanishStart.Remove(view.FaceId);
             if (_popped.Add(view.FaceId))
             {
                 // Ist schon irgendeine Textur dieses Bartes fertig, beginnt das Plopp sofort, sonst erst mit dem ersten sichtbaren Bild.
@@ -254,7 +267,13 @@ public sealed class PeaceOverlay : FrameworkElement
         foreach (var id in _popStart.Keys.Where(id => views.All(v => v.FaceId != id)).ToList())
             _popStart.Remove(id);
         _popPending.RemoveWhere(id => views.All(v => v.FaceId != id));
+        foreach (var id in _vanishStart.Keys.Where(id => views.All(v => v.FaceId != id)).ToList())
+            _vanishStart.Remove(id);
     }
+
+    /// <summary>Skalierung eines verschwindenden Bartes (1 → ~1,08 → 0); 1, wenn er nicht verschwindet.</summary>
+    internal double VanishScaleOf(int faceId) =>
+        _vanishStart.TryGetValue(faceId, out var start) ? MoustacheVanish.Scale(Seconds(start)) : 1;
 
     internal double PopScaleOf(int faceId) =>
         _popPending.Contains(faceId) ? 0
@@ -263,9 +282,14 @@ public sealed class PeaceOverlay : FrameworkElement
     internal WobbleState CurrentWobbleOf(int faceId) =>
         _wobble.TryGetValue(faceId, out var w) ? w.State.Advance(Seconds(w.At)) : WobbleState.Rest;
 
-    // Läuft noch ein Plopp, oder schwingt ein Bart noch?
+    // Läuft noch ein Plopp oder Verschwinden, oder schwingt ein Bart noch?
     private bool IsMoving()
     {
+        foreach (var (_, start) in _vanishStart)
+        {
+            if (MoustacheVanish.IsRunning(Seconds(start)))
+                return true;
+        }
         foreach (var (_, start) in _popStart)
         {
             if (MoustachePop.IsRunning(Seconds(start)))
@@ -407,6 +431,17 @@ public sealed class PeaceOverlay : FrameworkElement
             }
             var pose = _moustacheGlides.TryGetValue(view.FaceId, out var glide) ? Lerp(glide.From, glide.To, tMoustache) : view.Pose;
             var center = OverlayMapper.MapPoint(pose.Center, ImageWidth, ImageHeight, viewW, viewH, Fit, Mirror);
+            if (view.Vanishing)
+            {
+                // Verschwinden: um denselben Drehpunkt wie das Plopp schrumpfen, ohne Wippen; bei 0 ist nichts mehr zu zeichnen.
+                var vanish = VanishScaleOf(view.FaceId);
+                if (vanish > 0)
+                {
+                    MoustacheRenderer.Draw(drawingContext, view.Style, view.Color, new Point(center.X, center.Y), pose.WidthPx * scale, pose.AngleRad, Mirror,
+                        vanish, 0, 0);
+                }
+                continue;
+            }
             var wobble = CurrentWobbleOf(view.FaceId);
             MoustacheRenderer.Draw(drawingContext, view.Style, view.Color, new Point(center.X, center.Y), pose.WidthPx * scale, pose.AngleRad, Mirror,
                 PopScaleOf(view.FaceId), wobble.Offset, wobble.Angle);

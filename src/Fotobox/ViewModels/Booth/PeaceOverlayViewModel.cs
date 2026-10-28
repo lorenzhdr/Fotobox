@@ -50,6 +50,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     private const int MaxFastRate = 20;
     private readonly FaceTracker _faceTracker;
     private readonly PeaceEngine _engine;
+    private readonly MiddleFingerEngine _mfEngine;
     private readonly MoustacheTracker _tracker;
 
     private IGestureRequest? _request;
@@ -60,6 +61,10 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     private bool _disposed;
 
     private PeaceSettings _settings = new();
+    // Mittelfinger: Einstellungen (null = aus), von außen gemeldete Ziele (z. B. laufende Selbstzerstörung) und ob gerade etwas aufzuheben ist.
+    private MiddleFingerSettings? _mf;
+    private MiddleFingerTargets _mfExternal;
+    private bool _mfWatching;
     private PeaceMode _mode;
     private IReadOnlyList<MoustacheView> _moustaches = [];
     private IReadOnlyList<HandView> _hands = [];
@@ -90,9 +95,12 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         _guestState = guestState;
         _faceTracker = new FaceTracker(time);
         _engine = new PeaceEngine(time, random);
+        _mfEngine = new MiddleFingerEngine(time);
         _tracker = new MoustacheTracker(time, random);
         _engine.Triggered += OnEngineTriggered;
         _engine.Changed += (_, _) => RefreshHands();
+        _mfEngine.Triggered += OnMiddleFingerEngineTriggered;
+        _mfEngine.Changed += (_, _) => OnPropertyChanged(nameof(MiddleFingerDetectedNow));
     }
 
     /// <summary>Instanz ohne Erkennung und Ton (für Ansichtsmodelle, die das Feature nie aktivieren, z. B. in Tests).</summary>
@@ -186,6 +194,30 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _faceCount, value);
     }
 
+    /// <summary>
+    /// Zeigt gerade (innerhalb der Aussetzer-Toleranz) irgendeine Hand den Mittelfinger? Nur für die Admin-Vorschau; die Auswertung
+    /// läuft in jeder Betriebsart außer <see cref="PeaceMode.Off"/>, solange Hände angefordert sind.
+    /// </summary>
+    public bool MiddleFingerDetectedNow => _mfEngine.DetectedNow;
+
+    /// <summary>
+    /// Gibt es gerade etwas, das ein Mittelfinger aufheben würde (sichtbarer Bart oder von außen gemeldete Ziele), und ist die Erkennung
+    /// dafür eingeschaltet? Nur dann werden im Countdown Hände angefordert (CPU) und der Mittelfinger gezählt.
+    /// </summary>
+    public bool MiddleFingerWatching => _mfWatching;
+
+    /// <summary>
+    /// Zeigt noch ein Bart etwas an: aktive Sitzung oder die Verschwinden-Animation nach <see cref="VanishMoustaches"/> (0,3 s). Hält
+    /// die Betriebsart der Gastansicht am Leben, damit die Animation nicht abbricht. Zeitabhängig, ohne Änderungsmeldung.
+    /// </summary>
+    public bool HasMoustacheVisuals => _tracker.IsActive || _tracker.IsVanishing;
+
+    /// <summary>
+    /// Ein Mittelfinger wurde lange genug gehalten, während etwas aufzuheben war (auf dem UI-Thread). Das Ansichtsmodell hebt selbst
+    /// nichts auf: Der Abonnent entscheidet (Gastansicht: Selbstzerstörung abbrechen und <see cref="VanishMoustaches"/>).
+    /// </summary>
+    public event EventHandler? MiddleFingerTriggered;
+
     /// <summary>Eine Peace-Aktion soll ausgeführt werden (auf dem UI-Thread; für alle Aktionen, bei Schnurrbart startet der Aufrufer <see cref="StartMoustache"/>).</summary>
     public event EventHandler<PeaceTrigger>? ActionRequested;
 
@@ -197,8 +229,14 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     /// verfolgt und nie Aktionen ausgelöst, auch wenn kein Bart aktiv ist (der Aufrufer wählt dann besser <see cref="PeaceMode.Off"/>).
     /// Der Parameter <paramref name="mirror"/> ist für die Darstellung gedacht (übernimmt <c>PeaceOverlay</c>) und hier ohne Wirkung.
     /// Wiederholte Aufrufe mit geänderten Einstellungen wirken sofort.
+    /// <para>
+    /// Mittelfinger: Mit <paramref name="middleFinger"/> (null = aus) und den von außen gemeldeten <paramref name="external"/>-Zielen
+    /// (z. B. <see cref="MiddleFingerTargets.SelfDestruct"/> im Selbstzerstörungs-Countdown; ein aktiver Bart zählt von selbst) wird
+    /// <see cref="MiddleFingerWatching"/> bestimmt. Nur dann fordert <see cref="PeaceMode.FollowMoustache"/> auch Hände an.
+    /// </para>
     /// </summary>
-    public void SetMode(PeaceMode mode, PeaceSettings settings, bool mirror)
+    public void SetMode(PeaceMode mode, PeaceSettings settings, bool mirror,
+        MiddleFingerSettings? middleFinger = null, MiddleFingerTargets external = MiddleFingerTargets.None)
     {
         ArgumentNullException.ThrowIfNull(settings);
         if (_disposed)
@@ -206,6 +244,8 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         _ = mirror;
 
         _settings = settings.Clone();
+        _mf = middleFinger?.Clone();
+        _mfExternal = external;
         if (mode == PeaceMode.Off)
         {
             var changed = _mode != PeaceMode.Off;
@@ -224,6 +264,8 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         _engine.Configure(_settings, MoustacheAvailable);
         _engine.GesturesEnabled = mode == PeaceMode.Watching;
         _tracker.SetHoldExpiry(mode == PeaceMode.FollowMoustache);
+        _mfEngine.Configure(_mf ?? new MiddleFingerSettings { Enabled = false }, _settings.AnalysesPerSecond);
+        UpdateMiddleFingerWatching();
 
         var options = BuildOptions();
         _faceTracker.LostAfter = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor / Math.Max(1, options.AnalysesPerSecond));
@@ -258,7 +300,10 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         }
 
         if (wasOff)
+        {
             _engine.Reset();
+            _mfEngine.Reset();
+        }
         StartTimer();
         if (modeChanged)
             OnPropertyChanged(nameof(Mode));
@@ -281,7 +326,10 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Admin „Bart testen“: Bart ohne Kamera auf einem Platzhaltergesicht bzw. am erkannten Gesicht (nie im echten Foto).</summary>
-    public void StartTestMoustache()
+    public void StartTestMoustache() => StartTestMoustache(TestMoustacheSeconds);
+
+    /// <summary>Wie <see cref="StartTestMoustache()"/> mit eigener Dauer (Sekunden, z. B. länger für den Test der Mittelfingererkennung).</summary>
+    public void StartTestMoustache(int seconds)
     {
         if (_disposed)
             return;
@@ -291,7 +339,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         var h = _imageHeight > 0 ? _imageHeight : 1080;
         _testSession = true;
         _testPlaceholder = !HasFreshRealFaces();
-        _tracker.StartSession(MoustacheTargets.Everyone, _settings.MoustacheStyle, null, MoustacheVisibility.FixedDuration, TestMoustacheSeconds, _settings.RandomStyles);
+        _tracker.StartSession(MoustacheTargets.Everyone, _settings.MoustacheStyle, null, MoustacheVisibility.FixedDuration, Math.Max(1, seconds), _settings.RandomStyles);
         if (_testPlaceholder)
             _tracker.OnFaces([PlaceholderFace], w, h);
         StartTimer();
@@ -305,6 +353,20 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
             return;
         _tracker.OnPhotoCompleted();
         RefreshMoustaches();
+    }
+
+    /// <summary>
+    /// Hebt alle sichtbaren Bärte auf (Mittelfinger): Sie verschwinden mit einer 0,3-s-Animation, der Bart-Zustand für die
+    /// Foto-Planung ist sofort leer (ein Foto danach bekommt keinen Bart) und der schnelle Gesichtsmodus endet.
+    /// </summary>
+    /// <returns>true, wenn ein Bart sichtbar war.</returns>
+    public bool VanishMoustaches()
+    {
+        if (_disposed)
+            return false;
+        var had = _tracker.Dismiss();
+        RefreshMoustaches();
+        return had;
     }
 
     /// <summary>Tick der Selbstzerstörung (<paramref name="secondsRemaining"/> Sekunden übrig); nur bei eingeschaltetem Ton.</summary>
@@ -339,18 +401,38 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     /// Bedarf der Anforderung zur Betriebsart: Im Leerlauf Gesichter und Hände mit der eingestellten Rate; solange ein Bart sichtbar
     /// ist (schneller Gesichtsmodus), laufen die Gesichter doppelt so schnell (mindestens <see cref="FollowRate"/>) und die Handstufe
     /// nur in jedem zweiten Zyklus, also weiter mit der eingestellten Handrate (die <see cref="PeaceEngine"/>-Fristen gelten dafür).
+    /// In <see cref="PeaceMode.FollowMoustache"/> kommen Hände nur hinzu, solange <see cref="MiddleFingerWatching"/> gilt (mit Bart wie im
+    /// schnellen Gesichtsmodus, ohne Bart mit der eingestellten Rate).
     /// </summary>
     private GestureRequestOptions BuildOptions()
     {
-        if (_mode != PeaceMode.Watching)
-            return new GestureRequestOptions(GestureNeeds.Faces, FollowRate, MinFaceScore, _settings.MinHandScore);
+        var watching = _mode == PeaceMode.Watching;
+        // Solange etwas aufzuheben ist, reicht für den Mittelfinger die niedrigere der beiden Mindestwerte.
+        var minHand = _mfWatching && _mf is not null ? Math.Min(_settings.MinHandScore, _mf.MinHandScore) : _settings.MinHandScore;
+
+        // Ohne Hände bleibt es bei billigen Gesichtern (Hände brauchen ohnehin die Gesichter als Suchbereiche).
+        if (!watching && !_mfWatching)
+            return new GestureRequestOptions(GestureNeeds.Faces, FollowRate, MinFaceScore, minHand);
 
         if (_tracker.IsActive)
         {
             var cycleRate = Math.Clamp(Math.Max(FollowRate, FastHandDivisor * Math.Max(1, _settings.AnalysesPerSecond)), 1, MaxFastRate);
-            return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, cycleRate, MinFaceScore, _settings.MinHandScore, FastHandDivisor);
+            return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, cycleRate, MinFaceScore, minHand, FastHandDivisor);
         }
-        return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, _settings.AnalysesPerSecond, MinFaceScore, _settings.MinHandScore);
+        return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, _settings.AnalysesPerSecond, MinFaceScore, minHand);
+    }
+
+    // Gibt es etwas aufzuheben? Setzt die Engine scharf bzw. aus; true, wenn sich das geändert hat (dann muss die Anforderung neu bestimmt werden).
+    private bool UpdateMiddleFingerWatching()
+    {
+        var watching = _mode != PeaceMode.Off && _mf is not null
+            && _mf.Wants(_mfExternal | (_tracker.IsActive ? MiddleFingerTargets.Moustache : MiddleFingerTargets.None));
+        if (watching == _mfWatching)
+            return false;
+        _mfWatching = watching;
+        _mfEngine.Applicable = watching;
+        OnPropertyChanged(nameof(MiddleFingerWatching));
+        return true;
     }
 
     // Schaltet die Anforderung zwischen normalem und schnellem Gesichtsmodus um, wenn ein Bart beginnt oder endet.
@@ -399,6 +481,13 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         StopTimer();
         _engine.GesturesEnabled = false;
         _engine.Reset();
+        var mfWasWatching = _mfWatching;
+        _mfWatching = false;
+        _mfEngine.Applicable = false;
+        _mfEngine.Reset();
+        _mfExternal = MiddleFingerTargets.None;
+        if (mfWasWatching)
+            OnPropertyChanged(nameof(MiddleFingerWatching));
         _faceTracker.Reset();
         _tracker.EndSession();
         _testSession = false;
@@ -440,6 +529,18 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         }
     }
 
+    private void OnMiddleFingerEngineTriggered(object? sender, EventArgs e)
+    {
+        try
+        {
+            MiddleFingerTriggered?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Mittelfingererkennung: Aktion konnte nicht ausgeführt werden.", ex);
+        }
+    }
+
     private void OnUpdated(object? sender, GestureUpdate update)
     {
         if (_disposed || _mode == PeaceMode.Off || !ReferenceEquals(sender, _request))
@@ -469,7 +570,10 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         }
         // Ein reines Gesichts-Update sagt nichts über die Hände: die Engine bekommt sie erst mit dem Ergebnis der Handstufe.
         if (update.HandsIncluded)
+        {
             _engine.OnUpdate(update.Hands, tracked, aspect);
+            _mfEngine.OnUpdate(update.Hands, aspect);
+        }
         RefreshMoustaches();
     }
 
@@ -505,7 +609,8 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
             Moustaches = views;
         var wasActive = MoustacheActive;
         MoustacheActive = _tracker.IsActive;
-        if (wasActive != _tracker.IsActive)
+        var mfChanged = UpdateMiddleFingerWatching();
+        if (wasActive != _tracker.IsActive || mfChanged)
             RefreshRequest();
         if (!_tracker.IsActive)
         {
@@ -564,6 +669,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
             }
             _tracker.Tick();
             _engine.Tick();
+            _mfEngine.Tick();
             RefreshMoustaches();
         }
         catch (Exception ex)
@@ -572,7 +678,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (_mode == PeaceMode.Off && !_tracker.IsActive)
+        if (_mode == PeaceMode.Off && !_tracker.IsActive && !_tracker.IsVanishing)
             StopTimer();
     }
 
