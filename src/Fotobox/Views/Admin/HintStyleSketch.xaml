@@ -64,26 +64,25 @@
                 <Border Height="4" Width="62" Background="White" CornerRadius="2" />
             </Border>
 
-            <!-- Neon: helle Schrift mit pinkem und türkisem Leuchten -->
-            <Grid HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,16"
+            <!-- Neon: dicker pinker Strich mit hellem Kern (Leuchten angedeutet), darunter türkise Röhre; ohne Effekte -->
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,14"
                   Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:HintStyle.Neon}}">
-                <Grid.Effect>
-                    <DropShadowEffect Color="#FF2E9A" BlurRadius="12" ShadowDepth="0" Opacity="0.85" />
-                </Grid.Effect>
-                <Border Height="4" Width="62" Background="#F7FDFF" CornerRadius="2">
-                    <Border.Effect>
-                        <DropShadowEffect Color="#19E3FF" BlurRadius="6" ShadowDepth="0" Opacity="0.95" />
-                    </Border.Effect>
-                </Border>
+                <Border Width="78" Height="22" CornerRadius="11" Background="#33FF2E97" />
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Border Width="62" Height="6" CornerRadius="3" Background="#FF2E97" HorizontalAlignment="Center">
+                        <Border Width="56" Height="2" CornerRadius="1" Background="#FFE4F4" />
+                    </Border>
+                    <Border Width="40" Height="2.5" CornerRadius="1.25" Background="#35F2FF" Margin="0,3,0,0" HorizontalAlignment="Center" />
+                </StackPanel>
             </Grid>
 
-            <!-- Sprechblase: weiße Blase mit Spitze zum Bildrand hin -->
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,8"
+            <!-- Sprechblase: weiße Blase mit Spitze zur Bildmitte hin (bei der Foto-Zeile unten also nach oben) -->
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,10"
                         Visibility="{Binding Kind, RelativeSource={RelativeSource AncestorType=local:HintStyleSketch}, Converter={StaticResource KindVis}, ConverterParameter={x:Static core:HintStyle.Bubble}}">
+                <Path Fill="White" Data="M0,8 L11,8 L7,0 Z" HorizontalAlignment="Center" Margin="0,0,0,-0.5" />
                 <Border Width="80" Height="22" CornerRadius="11" Background="White">
                     <Border Height="3" Width="46" Background="#1B2236" CornerRadius="1.5" />
                 </Border>
-                <Path Fill="White" Data="M0,0 L11,0 L7,8 Z" HorizontalAlignment="Center" Margin="0,-0.5,0,0" />
             </StackPanel>
 
             <!-- Laufschrift: Band mit Textbalken, der aus dem Band hinausläuft -->

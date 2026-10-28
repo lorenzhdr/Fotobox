@@ -26,10 +26,28 @@ public sealed partial class GuestHint : UserControl
         nameof(LayoutHintText), typeof(string), typeof(GuestHint), new PropertyMetadata(string.Empty));
 
     public static readonly DependencyProperty ShowLayoutHintProperty = DependencyProperty.Register(
-        nameof(ShowLayoutHint), typeof(bool), typeof(GuestHint), new PropertyMetadata(false));
+        nameof(ShowLayoutHint), typeof(bool), typeof(GuestHint), new PropertyMetadata(false, OnWheelHintChanged));
 
     public static readonly DependencyProperty LayoutHintStyleProperty = DependencyProperty.Register(
-        nameof(LayoutHintStyle), typeof(WheelHintStyle), typeof(GuestHint), new PropertyMetadata(WheelHintStyle.Matching));
+        nameof(LayoutHintStyle), typeof(WheelHintStyle), typeof(GuestHint),
+        new PropertyMetadata(WheelHintStyle.Matching, OnWheelHintChanged));
+
+    private static readonly DependencyPropertyKey WheelSlotActivePropertyKey = DependencyProperty.RegisterReadOnly(
+        nameof(WheelSlotActive), typeof(bool), typeof(GuestHint), new PropertyMetadata(false));
+
+    /// <summary>
+    /// Wahr, wenn die Mausradzeile sichtbar ist und vom <see cref="WheelHintSlot"/> gezeichnet wird (Darstellung ungleich „Passend“).
+    /// Die schwebenden Hinweise rücken dann nach oben, damit der Slot Abstand zum Hinweis hat; „Passend“ bleibt unverändert.
+    /// </summary>
+    public static readonly DependencyProperty WheelSlotActiveProperty = WheelSlotActivePropertyKey.DependencyProperty;
+
+    private static void OnWheelHintChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var hint = (GuestHint)d;
+        hint.SetValue(WheelSlotActivePropertyKey, hint.ShowLayoutHint && hint.LayoutHintStyle != WheelHintStyle.Matching);
+    }
+
+    public bool WheelSlotActive => (bool)GetValue(WheelSlotActiveProperty);
 
     /// <summary>Lage in der Gastansicht: <see cref="HintPosition.Bottom"/> (Foto-Zeile) oder <see cref="HintPosition.Top"/> (Video-Zeile).</summary>
     public static readonly DependencyProperty PositionProperty = DependencyProperty.Register(

@@ -125,10 +125,28 @@ public class GuestHintStyleTests
         }
     }
 
-    // ---- Sprechblase: Spitze zeigt zum Bildrand
+    // ---- Sprechblase: Spitze zeigt zur Bildmitte
+
+    private static List<Point> Points(Path path)
+    {
+        var geometry = path.Data.GetFlattenedPathGeometry();
+        var points = new List<Point>();
+        foreach (var figure in geometry.Figures)
+        {
+            points.Add(figure.StartPoint);
+            foreach (var segment in figure.Segments)
+            {
+                if (segment is PolyLineSegment poly)
+                    points.AddRange(poly.Points);
+                else if (segment is LineSegment line)
+                    points.Add(line.Point);
+            }
+        }
+        return points;
+    }
 
     [StaFact]
-    public void Bubble_TailPointsDown_AtBottom_AndUp_AtTop()
+    public void Bubble_TailPointsToTheCenter_UpAtBottom_AndDownAtTop()
     {
         foreach (var position in Enum.GetValues<HintPosition>())
         {
@@ -140,13 +158,88 @@ public class GuestHintStyleTests
 
             var visible = tails.Single(t => EffectivelyVisible(t, part));
             var body = Descendants<Border>(part).First(b => b.CornerRadius.TopLeft >= 40);
-            var tailPoint = visible.TranslatePoint(new Point(0, 0), part).Y;
+            var tailTop = visible.TranslatePoint(new Point(0, 0), part).Y;
             var bodyTop = body.TranslatePoint(new Point(0, 0), part).Y;
+            var bodyBottom = bodyTop + body.ActualHeight;
+
+            // Foto-Zeile unten: Spitze über der Blase (zur Bildmitte); Video-Zeile oben: Spitze unter der Blase.
             if (position == HintPosition.Bottom)
-                Assert.True(tailPoint > bodyTop, "Spitze unter der Blase");
+                Assert.True(tailTop + visible.ActualHeight <= bodyTop + 1.5, "Spitze liegt über der Blase");
             else
-                Assert.True(tailPoint < bodyTop, "Spitze über der Blase");
+                Assert.True(tailTop >= bodyBottom - 1.5, "Spitze liegt unter der Blase");
+
+            // Der einzelne Eckpunkt am äußeren Rand der Spitze ist spitz: oben bei Bottom, unten bei Top.
+            var points = Points(visible);
+            var extremeY = position == HintPosition.Bottom ? points.Min(p => p.Y) : points.Max(p => p.Y);
+            Assert.Single(points.Where(p => Math.Abs(p.Y - extremeY) < 0.01).DistinctBy(p => (p.X, p.Y)));
         }
+    }
+
+    // ---- Abstand der Mausradzeile (Slot) zum Hinweis
+
+    private static IEnumerable<FrameworkElement> VisibleChildren(Panel panel) =>
+        panel.Children.OfType<FrameworkElement>().Where(c => c.Visibility == Visibility.Visible);
+
+    private static Rect BoundsIn(FrameworkElement element, FrameworkElement ancestor) =>
+        element.TransformToAncestor(ancestor).TransformBounds(new Rect(element.RenderSize));
+
+    public static IEnumerable<object[]> AllStylesAndSlotVariants =>
+        from s in Enum.GetValues<HintStyle>()
+        from w in Enum.GetValues<WheelHintStyle>()
+        where w != WheelHintStyle.Matching
+        select new object[] { s, w };
+
+    [StaTheory]
+    [MemberData(nameof(AllStylesAndSlotVariants))]
+    public void WheelSlot_KeepsMinimumGapToTheHint_AndToTheScreenEdge(HintStyle style, WheelHintStyle wheel)
+    {
+        var hint = new GuestHint
+        {
+            Text = "Drücke die Leertaste für ein Foto", HintStyle = style, LayoutHintText = WheelText, ShowLayoutHint = true,
+            LayoutHintStyle = wheel,
+        };
+        Layout(hint);
+        var part = ActivePart(hint, style);
+        var slot = Descendants<WheelHintSlot>(part).Single();
+        var slotBounds = BoundsIn(slot, part);
+
+        // Unterkante des Slots mindestens 24 px vom Bildrand.
+        Assert.True(1080 - slotBounds.Bottom >= 24, $"Rand {1080 - slotBounds.Bottom}");
+
+        double gap;
+        if (slot.Parent is StackPanel stack)
+        {
+            // Band-Stile: Der Slot sitzt im Band unter dem Hinweis; sichtbarer Vorgänger = Hinweis (die Passend-Zeile ist eingeklappt).
+            var previous = VisibleChildren(stack).TakeWhile(c => !ReferenceEquals(c, slot)).Last();
+            gap = slotBounds.Top - BoundsIn(previous, part).Bottom;
+        }
+        else
+        {
+            // Schwebende Stile: Der Hinweis ist das Element neben Slot und Passend-Zeile; Animationsausschlag abziehen.
+            var main = VisibleChildren(part).First(c => c is not WheelHintSlot && !(c is TextBlock t && t.Text == WheelText));
+            var swing = style switch { HintStyle.Pill => 3.0, HintStyle.Bubble => 6.0, _ => 0.0 };
+            gap = slotBounds.Top - BoundsIn(main, part).Bottom - swing;
+        }
+        Assert.True(gap >= 20, $"Abstand {gap}");
+    }
+
+    [StaTheory]
+    [InlineData(HintStyle.Pill)]
+    [InlineData(HintStyle.Plain)]
+    public void MatchingWheelLine_LeavesTheHintWhereItWas(HintStyle style)
+    {
+        // „Passend“ muss unverändert bleiben: Hinweis 80 px über dem unteren Rand, Zeile 30 px.
+        var hint = new GuestHint
+        {
+            Text = "Drücke die Leertaste", HintStyle = style, LayoutHintText = WheelText, ShowLayoutHint = true,
+            LayoutHintStyle = WheelHintStyle.Matching,
+        };
+        Layout(hint);
+        var part = ActivePart(hint, style);
+        var main = VisibleChildren(part).First(c => c is not WheelHintSlot && !(c is TextBlock t && t.Text == WheelText));
+        var line = VisibleChildren(part).OfType<TextBlock>().Single(t => t.Text == WheelText);
+        Assert.Equal(80, 1080 - BoundsIn(main, part).Bottom, 0.5);
+        Assert.Equal(30, 1080 - BoundsIn(line, part).Bottom, 0.5);
     }
 
     // ---- Laufschrift
@@ -289,7 +382,7 @@ public class GuestHintStyleTests
                 return Descendants<Border>(part).First(b => b.CornerRadius.TopLeft >= 60).Opacity < 1;   // Grundwert 1, Puls 0,85 … 1
             case HintStyle.Neon:
                 var glow = (DropShadowEffect)Descendants<Grid>(part).First(g => g.Effect is DropShadowEffect).Effect;
-                return Math.Abs(glow.Opacity - 0.7) > 0.001;   // Grundwert 0,7, Pulsieren 0,4 … 0,95
+                return Math.Abs(glow.Opacity - 0.8) > 0.001;   // Grundwert 0,8, Pulsieren 0,6 … 1
             case HintStyle.Bubble:
                 var bob = (TranslateTransform)Descendants<Grid>(part).First(g => g.RenderTransform is TranslateTransform).RenderTransform;
                 return Math.Abs(bob.Y) > 0.001;   // Grundwert 0, Wippen −6 … 6
