@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Fotobox.Core.Peace;
 
 namespace Fotobox.Core;
 
@@ -29,7 +30,8 @@ public sealed class BoothController(
     IPhotoStorage storage,
     ISettingsStore settings,
     TimeProvider time,
-    IVideoStorage? videoStorage = null)
+    IVideoStorage? videoStorage = null,
+    IPhotoDecorator? photoDecorator = null)
 {
     private static readonly TimeSpan Second = TimeSpan.FromSeconds(1);
     /// <summary>Obergrenze für die (blockierende) Seitengrößen-Abfrage des Druckers.</summary>
@@ -38,6 +40,8 @@ public sealed class BoothController(
     private static readonly TimeSpan SaveTimeout = TimeSpan.FromSeconds(30);
     /// <summary>Reserve des harten Druck-Limits über dem Druck-Timeout der Einstellungen (der Druckdienst bricht vorher von selbst ab).</summary>
     private static readonly TimeSpan PrintHardLimitReserve = TimeSpan.FromSeconds(30);
+    /// <summary>Obergrenze für <see cref="IPhotoDecorator.DecorateAsync"/> je Aufnahme (danach gilt das unverzierte Foto).</summary>
+    public static readonly TimeSpan PhotoDecorateTimeout = TimeSpan.FromSeconds(3);
     /// <summary>So lange bleibt die „Fertig“-Meldung nach erfolgreichem Druck stehen.</summary>
     public static readonly TimeSpan PrintedDisplay = TimeSpan.FromSeconds(5);
     /// <summary>So lange bleibt die Meldung „Druck abgebrochen“ (bzw. „Abbrechen nicht möglich“) stehen.</summary>
@@ -89,6 +93,7 @@ public sealed class BoothController(
     private readonly ConcurrentDictionary<PageSpecKey, Task<PageSpec>> _pageQueries = new();
 
     private int _countdownValue;
+    private CountdownStyle _countdownStyle;
     private int _shotIndex;
     private int _shotCount;
     private BitmapSource? _previewImage;
@@ -124,6 +129,11 @@ public sealed class BoothController(
 
     /// <summary>Aktueller Countdown-Wert (0 = kein Countdown / Pause zwischen Fotos).</summary>
     public int CountdownValue { get => _countdownValue; private set => Set(ref _countdownValue, value); }
+    /// <summary>
+    /// Darstellung des Countdowns im laufenden Durchgang (aus <see cref="TriggerOptions.Style"/>); außerhalb eines Durchgangs
+    /// <see cref="CountdownStyle.Normal"/>. Bleibt bis nach <see cref="FlashRequested"/> gesetzt. Änderungen kommen über <see cref="Changed"/>.
+    /// </summary>
+    public CountdownStyle CountdownStyle { get => _countdownStyle; private set => Set(ref _countdownStyle, value); }
     /// <summary>1-basierte Nummer der aktuellen Aufnahme.</summary>
     public int ShotIndex { get => _shotIndex; private set => Set(ref _shotIndex, value); }
     public int ShotCount { get => _shotCount; private set => Set(ref _shotCount, value); }
@@ -223,8 +233,17 @@ public sealed class BoothController(
     /// Die gespeicherten Einstellungen werden nie verändert; nur bei einem vom Standard abweichenden Gast-Layout arbeitet
     /// der Durchgang auf einer angepassten Kopie.
     /// </summary>
-    public bool TryTrigger(GuestLayout? layout = null)
+    public bool TryTrigger(GuestLayout? layout = null) => TryTrigger(new TriggerOptions { Layout = layout });
+
+    /// <summary>
+    /// Startet einen Durchgang mit <see cref="TriggerOptions"/> (gleiche Sperren wie <see cref="TryTrigger(GuestLayout?)"/>).
+    /// <see cref="TriggerOptions.SingleShotOnly"/> ersetzt ein Streifen-Layout durch das Einzelfoto (Overlay und Einzelfoto bleiben),
+    /// <see cref="TriggerOptions.CountdownSeconds"/> überschreibt den Countdown (0 = sofort, auf 0–30 begrenzt). Auch dann arbeitet
+    /// der Durchgang nur auf einer Kopie der Einstellungen.
+    /// </summary>
+    public bool TryTrigger(TriggerOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
         if (_state != BoothState.Idle || camera.Status != CameraStatus.Running)
             return false;
         if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
@@ -235,12 +254,22 @@ public sealed class BoothController(
         {
             _sessionCts = cts;
             var cfg = settings.Current;
-            if (layout is { } chosen && chosen != GuestLayouts.From(cfg.Layout))
+            var defaultLayout = GuestLayouts.From(cfg.Layout);
+            var effective = options.Layout ?? defaultLayout;
+            if (options.SingleShotOnly && effective is GuestLayout.StripDouble or GuestLayout.StripSingle)
+                effective = GuestLayout.Single;
+            var layoutChanged = effective != defaultLayout;
+            var countdown = options.CountdownSeconds is { } c ? Math.Clamp(c, SettingsLimits.PeacePhotoCountdownMin, SettingsLimits.PeacePhotoCountdownMax) : (int?)null;
+            if (layoutChanged || (countdown is { } cd && cd != cfg.Flow.CountdownSeconds))
             {
                 cfg = cfg.Clone();
-                GuestLayouts.ApplyTo(cfg.Layout, chosen);
+                if (layoutChanged)
+                    GuestLayouts.ApplyTo(cfg.Layout, effective);
+                if (countdown is { } value)
+                    cfg.Flow.CountdownSeconds = value;
             }
 
+            CountdownStyle = options.Style;
             ErrorMessage = null;
             PrintCancelTitle = null;
             PrintCancelText = null;
@@ -262,6 +291,7 @@ public sealed class BoothController(
         {
             // Der Durchgang läuft noch nicht (RunSessionAsync wirft nicht synchron): Sperre freigeben, sonst bliebe die Box dauerhaft belegt.
             AppLog.Error("Durchgang konnte nicht gestartet werden.", ex);
+            CountdownStyle = CountdownStyle.Normal;
             _sessionCts = null;
             cts.Dispose();
             if (_state == BoothState.Countdown)
@@ -894,6 +924,7 @@ public sealed class BoothController(
             {
                 PreviewImage = null;
                 CountdownValue = 0;
+                CountdownStyle = CountdownStyle.Normal;
                 StatusMessage = null;
                 ResetPrintProgress(_expectedPrintSeconds);
                 State = BoothState.Idle;
@@ -941,6 +972,7 @@ public sealed class BoothController(
             try
             {
                 var photo = await camera.CapturePhotoAsync(ct);
+                photo = await DecorateAsync(photo, i + 1, ct);
                 photos.Add(cfg.Camera.MirrorPhoto ? MirrorPhoto(photo) : photo);
             }
             catch (OperationCanceledException)
@@ -1295,6 +1327,42 @@ public sealed class BoothController(
 
     private Task DelayAsync(int seconds, CancellationToken ct) =>
         seconds > 0 ? Task.Delay(TimeSpan.FromSeconds(seconds), time, ct) : Task.CompletedTask;
+
+    /// <summary>
+    /// Verziert das rohe (ungespiegelte) Foto, falls ein aktiver <see cref="IPhotoDecorator"/> vorhanden ist. Frist
+    /// <see cref="PhotoDecorateTimeout"/>; Abbruch wird weitergereicht, jeder andere Fehler und die Zeitüberschreitung ergeben
+    /// (mit Warnung im Log) das unverzierte Foto, nie einen Fehlerzustand.
+    /// </summary>
+    private async Task<BitmapSource> DecorateAsync(BitmapSource photo, int shot, CancellationToken ct)
+    {
+        var decorator = photoDecorator;
+        if (decorator is null)
+            return photo;
+
+        Task<BitmapSource>? task = null;
+        try
+        {
+            if (!decorator.IsActive)
+                return photo;
+            task = decorator.DecorateAsync(photo, shot, ct);
+            ObserveFault(task);
+            return await task.WaitAsync(PhotoDecorateTimeout, time, ct) ?? photo;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (TimeoutException)
+        {
+            AppLog.Warn($"Foto {shot} konnte nicht rechtzeitig verziert werden; es wird unverziert verwendet.");
+            return photo;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Foto {shot} konnte nicht verziert werden; es wird unverziert verwendet ({ex.GetType().Name}: {ex.Message}).");
+            return photo;
+        }
+    }
 
     private static BitmapSource MirrorPhoto(BitmapSource source)
     {

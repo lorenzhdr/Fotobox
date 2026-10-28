@@ -1231,7 +1231,7 @@ public partial class BoothControllerTests
         /// Vorabruf der Seitengröße im Hintergrund. Aus, damit der Task.Run-Sprung genau einmal pro Durchgang
         /// stattfindet (siehe <c>_hopPending</c>); die Tests zum Vorabruf schalten ihn ein.
         /// </param>
-        public Harness(bool markReady = true, bool prefetch = false)
+        public Harness(bool markReady = true, bool prefetch = false, IPhotoDecorator? decorator = null)
         {
             // Eigener Kontext statt dem von xunit: Der Test-Thread ist der "UI-Thread" des Controllers und
             // führt dessen Fortsetzungen deterministisch aus (siehe PumpContext).
@@ -1241,13 +1241,13 @@ public partial class BoothControllerTests
             Settings.Current.Flow.PauseBetweenShotsSeconds = 1;
             Settings.Current.Flow.ErrorDisplaySeconds = 4;
             Settings.Current.Video.CountdownSeconds = 3;
-            Controller = new BoothController(Camera, Composer, Printer, Storage, Settings, Time, VideoStorage)
+            Controller = new BoothController(Camera, Composer, Printer, Storage, Settings, Time, VideoStorage, decorator)
             {
                 PrefetchPageSpec = prefetch,
                 ShutdownVideoWait = TimeSpan.FromMilliseconds(500),
             };
             // Hängt bereits eine Abfrage (wird wiederverwendet), gibt es keinen Task.Run-Sprung des Durchgangs mehr.
-            Camera.Captured = () => _hopPending = Camera.CaptureCount % Composer.RequiredPhotoCount == 0 && !Printer.IsParked;
+            Camera.Captured = () => _hopPending = Camera.CaptureCount % Math.Max(1, Composer.LastRequestedCount) == 0 && !Printer.IsParked;
             Composer.Composing = () => _hopPending = false; // Der Sprung ist beendet, sobald der Controller zusammensetzt.
             Printer.Parked = () => _hopPending = false; // hängende Abfrage: es folgt keine Fortsetzung
             Controller.StateChanged += (_, _) =>
@@ -1402,7 +1402,9 @@ public partial class BoothControllerTests
         public Action? Composing { get; set; }
         public BitmapSource Result { get; } = CreateResult();
 
-        public int GetRequiredPhotoCount(LayoutSettings layout) => CountFor?.Invoke(layout) ?? RequiredPhotoCount;
+        public int LastRequestedCount { get; private set; } = 1;
+
+        public int GetRequiredPhotoCount(LayoutSettings layout) => LastRequestedCount = CountFor?.Invoke(layout) ?? RequiredPhotoCount;
 
         public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page,
             string overlayDirectory, DateTime timestamp)
