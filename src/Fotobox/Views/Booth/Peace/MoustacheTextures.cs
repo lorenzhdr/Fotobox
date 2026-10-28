@@ -106,6 +106,37 @@ public static class MoustacheTextures
         return thread;
     }
 
+    /// <summary>
+    /// Erzeugt eine einzelne Textur im Hintergrund, falls sie noch fehlt (z. B. die höher aufgelöste Stufe für das Foto, sobald ein
+    /// Bart im Livebild erscheint, damit die Frist für den Bart im Foto nicht an der Erzeugung scheitert).
+    /// </summary>
+    public static void PrewarmInBackground(MoustacheStyle style, MoustacheColor color, double widthPx)
+    {
+        if (!(widthPx > 0) || !double.IsFinite(widthPx))
+            return;
+        var tier = TierFor(widthPx);
+        if (IsCached(style, color, tier))
+            return;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                GetTier(style, color, tier);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Bart-Textur konnte nicht vorberechnet werden.", ex);
+            }
+        })
+        {
+            IsBackground = true,
+            Priority = ThreadPriority.BelowNormal,
+            Name = "Bart-Textur",
+        };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+    }
+
     private static MoustacheStyle Normalize(MoustacheStyle style) => MoustacheStyles.IsConcrete(style) ? style : MoustacheStyle.Twirl;
 
     // ---- Erzeugen ----

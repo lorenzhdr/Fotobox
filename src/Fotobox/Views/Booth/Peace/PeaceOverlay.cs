@@ -208,7 +208,11 @@ public sealed class PeaceOverlay : FrameworkElement
         foreach (var view in views)
         {
             if (_popped.Add(view.FaceId))
+            {
                 _popStart[view.FaceId] = now;
+                // Foto-Auflösung (Breite in Kamerapixeln) schon jetzt im Hintergrund erzeugen.
+                MoustacheTextures.PrewarmInBackground(view.Style, view.Color, view.Pose.WidthPx);
+            }
             if (!view.Wobble.IsRest)
                 _wobble[view.FaceId] = (view.Wobble, now);
         }
