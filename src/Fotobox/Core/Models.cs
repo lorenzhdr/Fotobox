@@ -61,6 +61,38 @@ public sealed class InsufficientDiskSpaceException(string message) : System.IO.I
 public static class AppInfo
 {
     public const string DisplayName = "Fotobox+";
+
+    /// <summary>
+    /// Version der laufenden App (Informationsversion der Assembly ohne den Quellcode-Zusatz „+sha“, z. B. „2.3.0-beta“);
+    /// fehlt sie, die Assembly-Version, sonst „0.0.0“.
+    /// </summary>
+    public static string Version { get; } = ReadVersion();
+
+    private static string ReadVersion()
+    {
+        try
+        {
+            var assembly = typeof(AppInfo).Assembly;
+            var informational = System.Reflection.CustomAttributeExtensions
+                .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(assembly)?.InformationalVersion;
+            if (!string.IsNullOrWhiteSpace(informational))
+            {
+                var plus = informational.IndexOf('+');
+                var text = (plus >= 0 ? informational[..plus] : informational).Trim();
+                if (text.Length > 0)
+                    return text;
+            }
+
+            var assemblyVersion = assembly.GetName().Version;
+            if (assemblyVersion is not null)
+                return assemblyVersion.ToString(3);
+        }
+        catch
+        {
+            // Die Versionsangabe ist nur Information und darf nie etwas blockieren.
+        }
+        return "0.0.0";
+    }
     public static string DefaultPhotoFolder =>
         BuildDefaultFolder(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
