@@ -3132,6 +3132,24 @@ public sealed class AdminViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task ResetToDefaults_ResetsMiddleFingerSection()
+    {
+        var vm = await CreateChangedViewModelAsync();
+        vm.Draft.MiddleFinger.Enabled = false;
+        vm.Draft.MiddleFinger.HoldMilliseconds = 2000;
+        vm.Draft.MiddleFinger.SensitivityPercent = 90;
+        _ui.ConfirmResult = true;
+
+        await vm.ResetToDefaultsAsync();
+
+        var defaults = new MiddleFingerSettings();
+        Assert.Equal(defaults.Enabled, vm.Draft.MiddleFinger.Enabled);
+        Assert.Equal(defaults.HoldMilliseconds, vm.Draft.MiddleFinger.HoldMilliseconds);
+        Assert.Equal(defaults.SensitivityPercent, vm.Draft.MiddleFinger.SensitivityPercent);
+        Assert.Equal(defaults.ActionCancelPeace, vm.Draft.MiddleFinger.ActionCancelPeace);
+    }
+
+    [Fact]
     public async Task ResetToDefaults_WhenDeclined_ChangesNothing()
     {
         var vm = await CreateChangedViewModelAsync();

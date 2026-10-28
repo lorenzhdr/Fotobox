@@ -133,6 +133,10 @@ public static class SettingsLimits
     public const int PeaceMoustacheDurationMin = 3, PeaceMoustacheDurationMax = 120;
     /// <summary>Peace: Countdown des Auto-Fotos nach dem Schnurrbart in Sekunden (0 = sofort).</summary>
     public const int PeaceMoustacheAutoPhotoCountdownMin = 0, PeaceMoustacheAutoPhotoCountdownMax = 30;
+    /// <summary>Mittelfinger: Haltedauer des Zeichens in Millisekunden (100er-Schritte).</summary>
+    public const int MiddleFingerHoldMillisecondsMin = 200, MiddleFingerHoldMillisecondsMax = 3000, MiddleFingerHoldMillisecondsStep = 100;
+    /// <summary>Mittelfinger: Empfindlichkeit in Prozent.</summary>
+    public const int MiddleFingerSensitivityMin = 10, MiddleFingerSensitivityMax = 95;
 }
 
 /// <summary>
@@ -221,6 +225,7 @@ public sealed class AppSettings
     public VideoSettings Video { get; set; } = new();
     public FunSettings Fun { get; set; } = new();
     public PeaceSettings Peace { get; set; } = new();
+    public MiddleFingerSettings MiddleFinger { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -493,6 +498,50 @@ public sealed class PeaceSettings
         copy.RandomStyles = RandomStyles is null ? null! : [.. RandomStyles];
         return copy;
     }
+}
+
+/// <summary>
+/// Was der Mittelfinger gerade aufheben könnte (Bitmaske, aktuell sichtbare Peace-Effekte). Künftige Aktionen hängen weitere Flags an.
+/// </summary>
+[Flags]
+public enum MiddleFingerTargets { None = 0, Moustache = 1, SelfDestruct = 2 }
+
+/// <summary>
+/// Fun „Mittelfingererkennung“ (verstecktes Extra): Zeigt ein Gast den Mittelfinger und hält ihn, läuft eine der gewählten Aktionen
+/// (aktuell: Peace-Effekte aufheben). Nur Werttypen.
+/// </summary>
+public sealed class MiddleFingerSettings
+{
+    public bool Enabled { get; set; } = true;
+    /// <summary>Aktion „Peace-Effekte aufheben“ (Bart entfernen, Selbstzerstörung abbrechen). Künftige Aktionen als weitere Bools hinten anfügen.</summary>
+    public bool ActionCancelPeace { get; set; } = true;
+    /// <summary>So lange muss das Zeichen gehalten werden (Millisekunden).</summary>
+    public int HoldMilliseconds { get; set; } = 500;
+    public int SensitivityPercent { get; set; } = 50;
+
+    /// <summary>Mindestens eine Aktion gewählt?</summary>
+    [JsonIgnore]
+    public bool HasAnyAction => ActionCancelPeace;
+
+    /// <summary>Mindestscore einer Handerkennung (0,55 … 0,9) linear aus der Empfindlichkeit (10 → 0,9, 95 → 0,55).</summary>
+    [JsonIgnore]
+    public double MinHandScore
+    {
+        get
+        {
+            var t = (SensitivityPercent - SettingsLimits.MiddleFingerSensitivityMin)
+                    / (double)(SettingsLimits.MiddleFingerSensitivityMax - SettingsLimits.MiddleFingerSensitivityMin);
+            return Math.Clamp(0.9 - t * (0.9 - 0.55), 0.55, 0.9);
+        }
+    }
+
+    /// <summary>Gibt es etwas, das der Mittelfinger bei den aktuellen Einstellungen aufheben würde?</summary>
+    public bool Wants(MiddleFingerTargets present) =>
+        Enabled && ActionCancelPeace
+        && (present & (MiddleFingerTargets.Moustache | MiddleFingerTargets.SelfDestruct)) != 0;
+
+    /// <summary>Tiefe Kopie.</summary>
+    public MiddleFingerSettings Clone() => (MiddleFingerSettings)MemberwiseClone();
 }
 
 public sealed class SecuritySettings

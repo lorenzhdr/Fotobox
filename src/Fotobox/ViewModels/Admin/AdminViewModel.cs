@@ -2955,19 +2955,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             return;
 
         var cameraBefore = _draft.Camera;
-        var defaults = new AppSettings();
-        _draft.Camera = defaults.Camera;
-        _draft.Flow = defaults.Flow;
-        _draft.Layout = defaults.Layout;
-        _draft.Printer = defaults.Printer;
-        _draft.Storage = defaults.Storage;
-        _draft.Input = defaults.Input;
-        _draft.GuestScreen = defaults.GuestScreen;
-        _draft.Appearance = defaults.Appearance;
-        _draft.Video = defaults.Video;
-        _draft.Fun = defaults.Fun;
-        _draft.Peace = defaults.Peace;
-        // Security (PIN) und Version bleiben bewusst unverändert.
+        // Alle übertragbaren Abschnitte (siehe SettingsSections); Security (PIN) und Version bleiben bewusst unverändert.
+        SettingsSections.CopyPortableSections(new AppSettings(), _draft);
         RebuildMonitorOptions(_monitorList);
         RebuildMicrophoneOptions(_microphoneList);
         _selectedVideoQuality = VideoQualities.First(q => q.Quality == _draft.Video.Quality);

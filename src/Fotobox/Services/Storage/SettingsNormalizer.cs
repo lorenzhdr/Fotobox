@@ -36,6 +36,7 @@ internal static class SettingsNormalizer
         s.Video ??= new VideoSettings();
         s.Fun ??= new FunSettings();
         s.Peace ??= new PeaceSettings();
+        s.MiddleFinger ??= new MiddleFingerSettings();
 
         s.Flow.CountdownSeconds = Math.Clamp(s.Flow.CountdownSeconds, SettingsLimits.CountdownMin, SettingsLimits.CountdownMax);
         s.Flow.PreviewSeconds = Math.Clamp(s.Flow.PreviewSeconds, SettingsLimits.PreviewMin, SettingsLimits.PreviewMax);
@@ -71,6 +72,7 @@ internal static class SettingsNormalizer
         NormalizeVideo(s.Video);
         NormalizeFun(s.Fun);
         NormalizePeace(s.Peace);
+        NormalizeMiddleFinger(s.MiddleFinger);
 
         // PinIterations wird bewusst nicht geklemmt: Ein anderer Wert passte nicht mehr zum gespeicherten Hash (siehe PinService).
 
@@ -209,6 +211,21 @@ internal static class SettingsNormalizer
 
         if (!p.HasAnyAction)
             p.ActionSelfDestruct = true;
+    }
+
+    /// <summary>
+    /// Mittelfinger-Einstellungen: Zahlen auf <see cref="SettingsLimits"/> klemmen, Haltedauer auf 100er-Schritte runden;
+    /// ohne gewählte Aktion gilt „Peace-Effekte aufheben“.
+    /// </summary>
+    private static void NormalizeMiddleFinger(MiddleFingerSettings m)
+    {
+        var step = SettingsLimits.MiddleFingerHoldMillisecondsStep;
+        var hold = (int)(Math.Round(m.HoldMilliseconds / (double)step, MidpointRounding.AwayFromZero) * step);
+        m.HoldMilliseconds = Math.Clamp(hold, SettingsLimits.MiddleFingerHoldMillisecondsMin, SettingsLimits.MiddleFingerHoldMillisecondsMax);
+        m.SensitivityPercent = Math.Clamp(m.SensitivityPercent, SettingsLimits.MiddleFingerSensitivityMin, SettingsLimits.MiddleFingerSensitivityMax);
+
+        if (!m.HasAnyAction)
+            m.ActionCancelPeace = true;
     }
 
     /// <summary>
