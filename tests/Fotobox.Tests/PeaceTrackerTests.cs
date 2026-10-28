@@ -142,6 +142,88 @@ public sealed class FaceTrackerTests
         Assert.Equal(first.Id, tracker.Update([nearlySame]).Single().Id);
     }
 
+    private static FaceLandmarks FaceAt(double centerX, double width = 0.1, double centerY = 0.4) =>
+        Face(new NormRect(centerX - width / 2, centerY - width * 16 / 9 / 2, width, width * 16 / 9));
+
+    [Fact]
+    public void LostFace_ReappearingWithinOneFaceWidth_KeepsItsId()
+    {
+        var tracker = new FaceTracker(_time);
+        var first = tracker.Update([FaceAt(0.5)]).Single();
+
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        tracker.Update([]); // Aussetzer: die Spur ist jetzt „verloren“
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        // 0,8 Gesichtsbreiten daneben: mehr als die 0,5 der aktiven Zuordnung, weniger als 1,0.
+        var again = tracker.Update([FaceAt(0.58)]).Single();
+
+        Assert.Equal(first.Id, again.Id);
+    }
+
+    [Fact]
+    public void LostFace_ReappearingBeyondOneFaceWidth_GetsANewId()
+    {
+        var tracker = new FaceTracker(_time);
+        var first = tracker.Update([FaceAt(0.5)]).Single();
+
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        tracker.Update([]);
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        var other = tracker.Update([FaceAt(0.62)]).Single();
+
+        Assert.NotEqual(first.Id, other.Id);
+    }
+
+    [Fact]
+    public void LostFace_IsPredictedByItsLastVelocity()
+    {
+        var tracker = new FaceTracker(_time);
+        var first = tracker.Update([FaceAt(0.30)]).Single();
+        foreach (var x in new[] { 0.34, 0.38 })
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(100));
+            Assert.Equal(first.Id, tracker.Update([FaceAt(x)]).Single().Id);
+        }
+
+        // 400 ms verloren: ohne Vorhersage läge das Gesicht 1,4 Gesichtsbreiten von der letzten Lage entfernt.
+        for (var i = 0; i < 3; i++)
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(100));
+            tracker.Update([]);
+        }
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        var again = tracker.Update([FaceAt(0.52)]).Single();
+
+        Assert.Equal(first.Id, again.Id);
+    }
+
+    [Fact]
+    public void ActiveTracks_AreMatchedBeforeLostOnes()
+    {
+        var tracker = new FaceTracker(_time);
+        var both = tracker.Update([FaceAt(0.50), FaceAt(0.58)]);
+        Assert.NotEqual(both[0].Id, both[1].Id);
+
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.Equal(both[0].Id, tracker.Update([FaceAt(0.50)]).Single().Id); // die zweite Spur ist nun verloren
+
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        // Das Gesicht überdeckt die verlorene Spur stärker als die aktive; die aktive Spur hat trotzdem Vorrang.
+        Assert.Equal(both[0].Id, tracker.Update([FaceAt(0.55)]).Single().Id);
+    }
+
+    [Fact]
+    public void LostFace_IsStillForgottenAfterTheTimeout_EvenWhenNearby()
+    {
+        var tracker = new FaceTracker(_time);
+        var first = tracker.Update([FaceAt(0.5)]).Single();
+
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        tracker.Update([]);
+        _time.Advance(FaceTracker.LostTimeout);
+        Assert.NotEqual(first.Id, tracker.Update([FaceAt(0.5)]).Single().Id);
+    }
+
     private static FaceLandmarks Face(NormRect box) => new(box, 0.9,
         new NormPoint(box.X + box.Width * 0.3, box.Y + box.Height * 0.4), new NormPoint(box.X + box.Width * 0.7, box.Y + box.Height * 0.4),
         new NormPoint(box.CenterX, box.Y + box.Height * 0.6),
