@@ -283,7 +283,7 @@ public sealed class MoustacheTracker
         var faceWidthPx = Math.Max(1, box.Width * w);
         var x = entry.X.Filter(raw.Center.X * w, dt, faceWidthPx);
         var y = entry.Y.Filter(raw.Center.Y * h, dt, faceWidthPx);
-        var width = entry.Width.Filter(raw.WidthPx, dt, Math.Max(1, entry.Width.Value));
+        var width = entry.Width.Filter(raw.WidthPx, dt, Math.Max(1, raw.WidthPx));
 
         // Winkel entrollen: Das Ziel liegt immer auf dem kürzesten Weg zum gefilterten Wert (kein Sprung bei ±π).
         var delta = WrapAngle(raw.AngleRad - entry.Angle.Value);

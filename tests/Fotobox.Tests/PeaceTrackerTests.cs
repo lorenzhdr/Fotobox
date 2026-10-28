@@ -224,6 +224,72 @@ public sealed class FaceTrackerTests
         Assert.NotEqual(first.Id, tracker.Update([FaceAt(0.5)]).Single().Id);
     }
 
+    [Fact]
+    public void FarFaceLost_ReturningThreeTimesLarger_KeepsItsId()
+    {
+        var tracker = new FaceTracker(_time);
+        var first = tracker.Update([FaceAt(0.50, 0.04)]).Single();
+
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        tracker.Update([]);
+        _time.Advance(TimeSpan.FromMilliseconds(200)); // 300 ms verloren
+        // Mitte 0,05 daneben (1,25 alte, 0,4 neue Gesichtsbreiten), IoU ≈ 0,08: nur die Überdeckung bezogen auf die kleinere Box trifft.
+        var again = tracker.Update([FaceAt(0.55, 0.12)]).Single();
+
+        Assert.True(first.Face.Box.IoU(again.Face.Box) < FaceTracker.MinIoU);
+        Assert.Equal(first.Id, again.Id);
+    }
+
+    [Fact]
+    public void LargeFaceLost_ReturningThreeTimesSmaller_KeepsItsId()
+    {
+        var tracker = new FaceTracker(_time);
+        var first = tracker.Update([FaceAt(0.50, 0.12)]).Single();
+
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        tracker.Update([]);
+        _time.Advance(TimeSpan.FromMilliseconds(200));
+        var again = tracker.Update([FaceAt(0.45, 0.04)]).Single();
+
+        Assert.Equal(first.Id, again.Id);
+    }
+
+    [Fact]
+    public void FarFaceLost_ReturningLargerButElsewhere_GetsANewId()
+    {
+        var tracker = new FaceTracker(_time);
+        var first = tracker.Update([FaceAt(0.20, 0.04)]).Single();
+
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        tracker.Update([]);
+        _time.Advance(TimeSpan.FromMilliseconds(200));
+        // Größer, aber weder überdeckt noch näher als eine (große) Gesichtsbreite.
+        Assert.NotEqual(first.Id, tracker.Update([FaceAt(0.70, 0.12)]).Single().Id);
+    }
+
+    [Fact]
+    public void LostFaceReturningLarger_NextToActiveNeighbour_NoIdsAreSwapped()
+    {
+        var tracker = new FaceTracker(_time);
+        // Zwei dicht stehende, ferne Gesichter; das rechte überdeckt später die Box des linken, wenn es groß zurückkehrt.
+        var both = tracker.Update([FaceAt(0.35, 0.04), FaceAt(0.42, 0.04)]);
+        var leftId = both[0].Id;
+        var rightId = both[1].Id;
+        Assert.NotEqual(leftId, rightId);
+
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.Equal(rightId, tracker.Update([FaceAt(0.42, 0.04)]).Single().Id); // das linke ist verloren, das rechte bleibt aktiv
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        tracker.Update([FaceAt(0.42, 0.04)]);
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+
+        // Das linke kehrt dreimal so groß zurück und reicht bis in die Box des rechten; das rechte steht unverändert.
+        var result = tracker.Update([FaceAt(0.37, 0.12), FaceAt(0.42, 0.04)]);
+
+        Assert.Equal(leftId, result[0].Id);
+        Assert.Equal(rightId, result[1].Id);
+    }
+
     private static FaceLandmarks Face(NormRect box) => new(box, 0.9,
         new NormPoint(box.X + box.Width * 0.3, box.Y + box.Height * 0.4), new NormPoint(box.X + box.Width * 0.7, box.Y + box.Height * 0.4),
         new NormPoint(box.CenterX, box.Y + box.Height * 0.6),
