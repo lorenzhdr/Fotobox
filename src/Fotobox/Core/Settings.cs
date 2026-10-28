@@ -525,14 +525,17 @@ public sealed class MiddleFingerSettings
 
     /// <summary>Mindestscore einer Handerkennung (0,55 … 0,9) linear aus der Empfindlichkeit (10 → 0,9, 95 → 0,55).</summary>
     [JsonIgnore]
-    public double MinHandScore
+    public double MinHandScore => MinHandScoreFor(SensitivityPercent);
+
+    /// <summary>
+    /// Einzige Quelle der Abbildung Empfindlichkeit → Mindestscore einer Handerkennung (10 → 0,9, 95 → 0,55, linear, außerhalb der
+    /// Grenzen geklemmt); auch vom <c>MiddleFingerGestureClassifier</c> genutzt.
+    /// </summary>
+    public static double MinHandScoreFor(int sensitivityPercent)
     {
-        get
-        {
-            var t = (SensitivityPercent - SettingsLimits.MiddleFingerSensitivityMin)
-                    / (double)(SettingsLimits.MiddleFingerSensitivityMax - SettingsLimits.MiddleFingerSensitivityMin);
-            return Math.Clamp(0.9 - t * (0.9 - 0.55), 0.55, 0.9);
-        }
+        var t = Math.Clamp((sensitivityPercent - SettingsLimits.MiddleFingerSensitivityMin)
+                / (double)(SettingsLimits.MiddleFingerSensitivityMax - SettingsLimits.MiddleFingerSensitivityMin), 0, 1);
+        return 0.9 - t * (0.9 - 0.55);
     }
 
     /// <summary>Gibt es etwas, das der Mittelfinger bei den aktuellen Einstellungen aufheben würde?</summary>

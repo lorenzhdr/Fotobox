@@ -145,17 +145,43 @@ public sealed class MoustacheDismissTests
     }
 
     [Fact]
-    public void Dismiss_WithoutSessionOrWithoutVisibleMoustache_ReturnsFalse()
+    public void Dismiss_WithoutSession_ReturnsFalse()
     {
         var tracker = new MoustacheTracker(_time);
         Assert.False(tracker.Dismiss());
         Assert.False(tracker.IsVanishing);
+    }
 
+    [Fact]
+    public void Dismiss_WithSessionButNoVisibleMoustache_EndsTheSession_ReturnsTrue_WithoutVanishing()
+    {
+        var tracker = new MoustacheTracker(_time);
         tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.UntilPhotoOrGone, 15);
-        Assert.False(tracker.Dismiss()); // Sitzung ohne sichtbaren Bart
+        Assert.Empty(tracker.Views); // Gesicht gerade nicht gesehen
+
+        Assert.True(tracker.Dismiss()); // die Sitzung wurde beendet
         Assert.False(tracker.IsActive);
+        Assert.Null(tracker.ExportPlanInput());
         Assert.False(tracker.IsVanishing);
         Assert.Empty(tracker.Views);
+        Assert.False(tracker.Dismiss()); // ein zweites Mal ist nichts mehr zu tun
+    }
+
+    [Fact]
+    public void ClearVanishing_DiscardsTheSnapshot_ButKeepsASession()
+    {
+        var tracker = Started();
+        tracker.Dismiss();
+        Assert.True(tracker.IsVanishing);
+        tracker.ClearVanishing();
+        Assert.False(tracker.IsVanishing);
+        Assert.Empty(tracker.Views);
+
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.UntilPhotoOrGone, 15);
+        tracker.OnFaces([Face(1)], W, H);
+        tracker.ClearVanishing();
+        Assert.True(tracker.IsActive);
+        Assert.NotEmpty(tracker.Views);
     }
 
     [Fact]

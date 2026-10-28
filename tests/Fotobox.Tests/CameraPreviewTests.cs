@@ -21,9 +21,18 @@ public sealed class CameraPreviewTests
         public string? StatusMessage => null;
         public CameraResolution? ActiveResolution => new(160, 90);
         public event EventHandler? StatusChanged;
-        public event EventHandler<CameraFrame>? FrameArrived;
+        private EventHandler<CameraFrame>? _frameArrived;
 
-        public void RaiseFrame(CameraFrame frame) => FrameArrived?.Invoke(this, frame);
+        /// <summary>Anzahl der aktuellen <see cref="FrameArrived"/>-Abonnenten.</summary>
+        public int FrameSubscribers => _frameArrived?.GetInvocationList().Length ?? 0;
+
+        public event EventHandler<CameraFrame>? FrameArrived
+        {
+            add => _frameArrived += value;
+            remove => _frameArrived -= value;
+        }
+
+        public void RaiseFrame(CameraFrame frame) => _frameArrived?.Invoke(this, frame);
         public void RaiseStatus() => StatusChanged?.Invoke(this, EventArgs.Empty);
 
         public Task<IReadOnlyList<CameraDevice>> GetDevicesAsync() => Task.FromResult<IReadOnlyList<CameraDevice>>([]);
@@ -190,6 +199,74 @@ public sealed class CameraPreviewTests
             var pixels = RenderPixels(preview);
             var center = (Size / 2 * Size + Size / 2) * 4;
             Assert.InRange(pixels[center + 2], 120, 135);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [WpfFact]
+    public async Task CollapsedPreview_DoesNotSubscribe_AndAttachesWhenVisible()
+    {
+        var camera = new FakeCameraService();
+        var preview = new CameraPreview { Camera = camera, Visibility = Visibility.Collapsed };
+        var window = ShowHost(preview);
+        try
+        {
+            // Eingeklappt: geladen (oder nicht), aber kein Abonnement, also kein Frame-Kopieren.
+            Assert.Equal(0, camera.FrameSubscribers);
+            camera.RaiseFrame(GradientFrame(160, 90));
+            await FlushDispatcherAsync();
+            Assert.Null(((Image)preview.FindName("PreviewImage")).Source);
+
+            preview.Visibility = Visibility.Visible;
+            preview.UpdateLayout();
+            Assert.Equal(1, camera.FrameSubscribers);
+            camera.RaiseFrame(GradientFrame(160, 90));
+            await FlushDispatcherAsync();
+            Assert.NotNull(((Image)preview.FindName("PreviewImage")).Source);
+
+            preview.Visibility = Visibility.Collapsed;
+            preview.UpdateLayout();
+            Assert.Equal(0, camera.FrameSubscribers);
+            Assert.Null(((Image)preview.FindName("PreviewImage")).Source);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [WpfFact]
+    public void VisiblePreview_SubscribesOnce_AndDetachesOnUnload()
+    {
+        var camera = new FakeCameraService();
+        var preview = new CameraPreview { Camera = camera };
+        var window = ShowHost(preview);
+        Assert.Equal(1, camera.FrameSubscribers);
+        window.Close();
+        Assert.Equal(0, camera.FrameSubscribers);
+    }
+
+    [WpfFact]
+    public void CameraChangedWhileCollapsed_DoesNotSubscribe()
+    {
+        var first = new FakeCameraService();
+        var second = new FakeCameraService();
+        var preview = new CameraPreview { Camera = first };
+        var window = ShowHost(preview);
+        try
+        {
+            preview.Visibility = Visibility.Collapsed;
+            preview.UpdateLayout();
+            preview.Camera = second;
+            Assert.Equal(0, first.FrameSubscribers);
+            Assert.Equal(0, second.FrameSubscribers);
+
+            preview.Visibility = Visibility.Visible;
+            preview.UpdateLayout();
+            Assert.Equal(1, second.FrameSubscribers);
         }
         finally
         {

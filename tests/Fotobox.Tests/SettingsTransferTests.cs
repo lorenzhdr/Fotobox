@@ -673,6 +673,8 @@ public sealed class SettingsTransferTests : IDisposable
     [InlineData("VALIDHASH", "\"%%%\"", "100000")] // Salt kein Base64
     [InlineData("VALIDHASH", "\"\"", "100000")] // Salt leer
     [InlineData("VALIDHASH", "\"AQID\"", "0")] // Iterationen zu klein
+    [InlineData("VALIDHASH", "\"AQID\"", "1")] // schwach: unter SettingsNormalizer.MinPinIterations
+    [InlineData("VALIDHASH", "\"AQID\"", "9999")]
     [InlineData("VALIDHASH", "\"AQID\"", "-5")]
     [InlineData("VALIDHASH", "\"AQID\"", "10000001")] // über der Obergrenze
     [InlineData("VALIDHASH", "\"AQID\"", "\"viele\"")] // keine Zahl
@@ -718,6 +720,36 @@ public sealed class SettingsTransferTests : IDisposable
 
         Assert.NotNull(result.Pin);
         Assert.Equal(SettingsNormalizer.MaxPlausiblePinIterations, result.Pin!.PinIterations);
+    }
+
+    [Fact]
+    public void Parse_PinWithExactlyMinIterations_IsAccepted()
+    {
+        var pin = ValidPin();
+        pin.PinIterations = SettingsNormalizer.MinPinIterations;
+        var json = Wrapper("{ \"Flow\": { \"CountdownSeconds\": 9 }, " + SecurityJson($"\"{pin.PinHash}\"", $"\"{pin.PinSalt}\"", pin.PinIterations.ToString()) + " }");
+
+        var result = SettingsTransfer.Parse(json);
+
+        Assert.NotNull(result.Pin);
+        Assert.Empty(result.Notes);
+    }
+
+    [Fact]
+    public void Serialize_WritesTheCurrentSettingsVersion_NotTheDraftsVersion()
+    {
+        var draft = new AppSettings { Version = 5 };
+        draft.Flow.CountdownSeconds = 9;
+
+        var json = SettingsTransfer.Serialize(draft, null, "2.3.0", ExportedAt);
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(AppSettings.CurrentVersion, doc.RootElement.GetProperty("SettingsVersion").GetInt32());
+        var result = SettingsTransfer.Parse(json);
+        Assert.False(result.FromNewerVersion);
+        Assert.Equal(AppSettings.CurrentVersion, result.FileSettingsVersion);
+        Assert.Equal(9, result.Sections.Flow.CountdownSeconds);
+        Assert.Equal(5, draft.Version); // der Entwurf bleibt unverändert
     }
 
     // ---------- Overlay-Ersatz ----------

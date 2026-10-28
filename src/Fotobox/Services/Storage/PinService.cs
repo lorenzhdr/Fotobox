@@ -45,10 +45,11 @@ public sealed class PinService(ISettingsStore settings) : IPinService
         var sec = settings.Current.Security;
         if (string.IsNullOrEmpty(sec.PinHash) || string.IsNullOrEmpty(sec.PinSalt) || sec.PinIterations < 1)
             return false;
-        // Eine manipulierte oder kaputte settings.json darf die Box nicht per riesiger Iterationszahl minutenlang rechnen lassen.
-        if (sec.PinIterations > SettingsNormalizer.MaxPlausiblePinIterations)
+        // Eine manipulierte oder kaputte settings.json darf die Box nicht per riesiger Iterationszahl minutenlang rechnen lassen
+        // (und auch kein unerwarteter Hash/Salt): Beim Prüfen gilt jede Iterationszahl ab 1, die Regeln stehen in IsPlausibleStoredPin.
+        if (!IsPlausibleStoredPin(sec, minIterations: 1))
         {
-            AppLog.Warn($"PIN-Prüfung abgelehnt: unplausible Iterationszahl ({sec.PinIterations}).");
+            AppLog.Warn($"PIN-Prüfung abgelehnt: unplausible gespeicherte PIN-Daten (Iterationen {sec.PinIterations}).");
             return false;
         }
 
@@ -56,13 +57,6 @@ public sealed class PinService(ISettingsStore settings) : IPinService
         {
             var salt = Convert.FromBase64String(sec.PinSalt);
             var expected = Convert.FromBase64String(sec.PinHash);
-            if (salt.Length == 0)
-                return false;
-            if (expected.Length != HashSize)
-            {
-                AppLog.Warn($"PIN-Prüfung abgelehnt: unerwartete Hashlänge ({expected.Length} Byte).");
-                return false;
-            }
             var actual = Derive(pin, salt, sec.PinIterations, HashSize);
             return CryptographicOperations.FixedTimeEquals(actual, expected);
         }
@@ -70,6 +64,27 @@ public sealed class PinService(ISettingsStore settings) : IPinService
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Gemeinsame Plausibilitätsprüfung gespeicherter PIN-Daten (<see cref="Verify"/> und Import in <c>SettingsTransfer</c>):
+    /// Hash als Base64 mit genau 32 Byte, Salt als Base64 mit mindestens einem Byte, Iterationen von
+    /// <paramref name="minIterations"/> bis <see cref="SettingsNormalizer.MaxPlausiblePinIterations"/>. Die Prüfung rechnet nichts.
+    /// </summary>
+    /// <param name="minIterations">Untergrenze der Iterationen: beim Prüfen 1 (bestehende Werte bleiben gültig), beim Import
+    /// <see cref="SettingsNormalizer.MinPinIterations"/> (eine schwache PIN aus fremder Datei wird nicht übernommen).</param>
+    public static bool IsPlausibleStoredPin(SecuritySettings? s, int minIterations)
+    {
+        if (s is null || string.IsNullOrEmpty(s.PinHash) || string.IsNullOrEmpty(s.PinSalt))
+            return false;
+        if (s.PinIterations < Math.Max(1, minIterations) || s.PinIterations > SettingsNormalizer.MaxPlausiblePinIterations)
+            return false;
+
+        var hash = new byte[s.PinHash.Length];
+        if (!Convert.TryFromBase64String(s.PinHash, hash, out var hashLength) || hashLength != HashSize)
+            return false;
+        var salt = new byte[s.PinSalt.Length];
+        return Convert.TryFromBase64String(s.PinSalt, salt, out var saltLength) && saltLength > 0;
     }
 
     private static byte[] Derive(string pin, byte[] salt, int iterations, int length) =>

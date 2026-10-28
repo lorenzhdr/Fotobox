@@ -113,7 +113,8 @@ public static class SettingsTransfer
             ["Format"] = FormatName,
             ["FormatVersion"] = FormatVersion,
             ["AppVersion"] = appVersion,
-            ["SettingsVersion"] = copy.Version,
+            // Die Abschnitte stammen aus dieser App-Version (normalisiert), unabhängig von der Version des Entwurfs.
+            ["SettingsVersion"] = AppSettings.CurrentVersion,
             ["ExportedAt"] = exportedAt.ToString("o", CultureInfo.InvariantCulture),
             ["Settings"] = node,
         };
@@ -274,20 +275,13 @@ public static class SettingsTransfer
         return false;
     }
 
-    /// <summary>Wie <see cref="PinService.Verify"/>: Hash 32 Byte (Base64), Salt nicht leer (Base64), Iterationen 1 … <see cref="SettingsNormalizer.MaxPlausiblePinIterations"/>.</summary>
-    private static bool IsPlausible(SecuritySettings s)
-    {
-        if (string.IsNullOrEmpty(s.PinHash) || string.IsNullOrEmpty(s.PinSalt))
-            return false;
-        if (s.PinIterations < 1 || s.PinIterations > SettingsNormalizer.MaxPlausiblePinIterations)
-            return false;
-
-        var hash = new byte[s.PinHash.Length];
-        if (!Convert.TryFromBase64String(s.PinHash, hash, out var hashLength) || hashLength != 32)
-            return false;
-        var salt = new byte[s.PinSalt.Length];
-        return Convert.TryFromBase64String(s.PinSalt, salt, out var saltLength) && saltLength > 0;
-    }
+    /// <summary>
+    /// Plausibilität einer importierten PIN: die Regeln von <see cref="PinService.IsPlausibleStoredPin"/>, aber mit mindestens
+    /// <see cref="SettingsNormalizer.MinPinIterations"/> Iterationen (jede von dieser App erzeugte PIN erfüllt das; eine
+    /// schwache Datei-PIN mit 1 Iteration wäre sonst per Raten sofort zu knacken).
+    /// </summary>
+    private static bool IsPlausible(SecuritySettings s) =>
+        PinService.IsPlausibleStoredPin(s, SettingsNormalizer.MinPinIterations);
 
     private static int? ReadInt(JsonElement obj, string name) =>
         SettingsJson.TryGetProperty(obj, name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number)

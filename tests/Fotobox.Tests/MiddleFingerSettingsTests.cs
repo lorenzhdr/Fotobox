@@ -186,4 +186,18 @@ public sealed class MiddleFingerSettingsTests
         m.SensitivityPercent = SettingsLimits.MiddleFingerSensitivityMax;
         Assert.Equal(0.55, m.MinHandScore, 6);
     }
+
+    [Fact]
+    public void MinHandScoreFor_IsTheSingleMapping_AndClampsOutsideTheLimits()
+    {
+        for (var s = SettingsLimits.MiddleFingerSensitivityMin; s <= SettingsLimits.MiddleFingerSensitivityMax; s += 5)
+        {
+            var score = MiddleFingerSettings.MinHandScoreFor(s);
+            Assert.Equal(score, new MiddleFingerSettings { SensitivityPercent = s }.MinHandScore);
+            Assert.Equal(score, Fotobox.Core.Peace.MiddleFingerGestureClassifier.Thresholds.For(s).MinScore);
+        }
+
+        Assert.Equal(0.9, MiddleFingerSettings.MinHandScoreFor(-100), 9);
+        Assert.Equal(0.55, MiddleFingerSettings.MinHandScoreFor(1000), 9);
+    }
 }

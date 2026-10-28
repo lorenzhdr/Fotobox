@@ -216,4 +216,52 @@ public sealed class PinServiceTests : IDisposable
 
         Assert.True(pin.Verify("2468"));
     }
+
+    private static SecuritySettings Stored(int iterations) => new()
+    {
+        PinHash = Convert.ToBase64String(new byte[32]),
+        PinSalt = Convert.ToBase64String(new byte[16]),
+        PinIterations = iterations,
+    };
+
+    [Fact]
+    public void IsPlausibleStoredPin_HonoursTheMinimumIterations()
+    {
+        Assert.True(PinService.IsPlausibleStoredPin(Stored(1), minIterations: 1));
+        Assert.False(PinService.IsPlausibleStoredPin(Stored(1), SettingsNormalizer.MinPinIterations));
+        Assert.True(PinService.IsPlausibleStoredPin(Stored(SettingsNormalizer.MinPinIterations), SettingsNormalizer.MinPinIterations));
+        Assert.True(PinService.IsPlausibleStoredPin(Stored(SettingsNormalizer.MaxPlausiblePinIterations), 1));
+        Assert.False(PinService.IsPlausibleStoredPin(Stored(SettingsNormalizer.MaxPlausiblePinIterations + 1), 1));
+        Assert.False(PinService.IsPlausibleStoredPin(Stored(0), 1));
+    }
+
+    [Fact]
+    public void IsPlausibleStoredPin_RejectsBadHashOrSalt()
+    {
+        var shortHash = Stored(100_000);
+        shortHash.PinHash = Convert.ToBase64String(new byte[16]);
+        var noSalt = Stored(100_000);
+        noSalt.PinSalt = "";
+        var notBase64 = Stored(100_000);
+        notBase64.PinSalt = "%%%";
+
+        Assert.False(PinService.IsPlausibleStoredPin(shortHash, 1));
+        Assert.False(PinService.IsPlausibleStoredPin(noSalt, 1));
+        Assert.False(PinService.IsPlausibleStoredPin(notBase64, 1));
+        Assert.False(PinService.IsPlausibleStoredPin(null, 1));
+    }
+
+    [Fact]
+    public void SetPin_AlwaysProducesAPinThatPassesTheImportCheck()
+    {
+        var (store, pin) = Create();
+        var s = store.Current.Clone();
+        s.Security.PinIterations = 1; // eine schwache Altlast wird beim Setzen angehoben
+        store.Save(s);
+
+        pin.SetPin("1357");
+
+        Assert.True(PinService.IsPlausibleStoredPin(store.Current.Security, SettingsNormalizer.MinPinIterations));
+        Assert.True(pin.Verify("1357"));
+    }
 }

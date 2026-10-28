@@ -790,9 +790,10 @@ public sealed class BoothViewModel : ObservableObject
     /// (<see cref="PeaceMode.Watching"/>); während eines Fotodurchgangs folgt sie nur einem aktiven Schnurrbart
     /// (<see cref="PeaceMode.FollowMoustache"/>), sonst ist sie aus. Aus ist sie auch bei Shutdown, offener Admin-Ansicht,
     /// ausgeschaltetem Schalter, Video und Fehler. Billig und wiederholbar; beim Eintritt in die Vorschau endet ein Bart „bis zum
-    /// nächsten Foto“. Mittelfinger: Im Selbstzerstörungs-Countdown (nichts sonst) und solange ein Bart (auch dessen Verschwinden-Animation)
-    /// zu sehen ist, bleibt die Erkennung im Fotodurchgang an (<see cref="PeaceMode.FollowMoustache"/>, mit Händen nur wenn es etwas
-    /// aufzuheben gibt); ohne das Feature (<see cref="MiddleFingerSettings.Enabled"/> aus) bleibt alles wie zuvor.
+    /// nächsten Foto“. Mittelfinger: Er wird nur im Leerlauf und im Countdown beobachtet. Im Selbstzerstörungs-Countdown (nichts sonst)
+    /// und solange ein Bart (auch dessen Verschwinden-Animation) zu sehen ist, bleibt die Erkennung im Countdown an
+    /// (<see cref="PeaceMode.FollowMoustache"/>, mit Händen nur wenn es etwas aufzuheben gibt); in Aufnahme, Vorschau und Druck folgt sie
+    /// nur dem Bart (nur Gesichter, nie Hände); ohne das Feature (<see cref="MiddleFingerSettings.Enabled"/> aus) bleibt alles wie zuvor.
     /// </summary>
     private void UpdatePeace()
     {
@@ -804,7 +805,11 @@ public sealed class BoothViewModel : ObservableObject
                 Peace.OnPhotoCompleted();
             _peaceWasPreview = state == BoothState.Preview;
 
-            var middleFinger = Settings.Current.MiddleFinger ?? new MiddleFingerSettings();
+            // Der Mittelfinger wird nur im Leerlauf und im Countdown beobachtet; in allen späteren Fotozuständen
+            // (Aufnahme, Vorschau, Druck …) folgt die Erkennung nur dem Bart und fordert wie vor dem Feature nur Gesichter an.
+            MiddleFingerSettings? middleFinger = state is BoothState.Idle or BoothState.Countdown
+                ? Settings.Current.MiddleFinger ?? new MiddleFingerSettings()
+                : null;
             var external = state == BoothState.Countdown && Controller.CountdownStyle == CountdownStyle.SelfDestruct
                 ? MiddleFingerTargets.SelfDestruct
                 : MiddleFingerTargets.None;
@@ -815,9 +820,11 @@ public sealed class BoothViewModel : ObservableObject
                 mode = state switch
                 {
                     BoothState.Idle => PeaceMode.Watching,
-                    BoothState.Countdown or BoothState.Capturing or BoothState.Preview or BoothState.Printing
+                    BoothState.Countdown =>
+                        Peace.HasMoustacheVisuals || middleFinger!.Wants(external) ? PeaceMode.FollowMoustache : PeaceMode.Off,
+                    BoothState.Capturing or BoothState.Preview or BoothState.Printing
                         or BoothState.Printed or BoothState.PrintCancelled =>
-                        Peace.HasMoustacheVisuals || middleFinger.Wants(external) ? PeaceMode.FollowMoustache : PeaceMode.Off,
+                        Peace.HasMoustacheVisuals ? PeaceMode.FollowMoustache : PeaceMode.Off,
                     _ => PeaceMode.Off,
                 };
             }

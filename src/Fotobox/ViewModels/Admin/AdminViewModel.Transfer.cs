@@ -34,8 +34,11 @@ public sealed partial class AdminViewModel
         get => _isTransferring;
         private set
         {
-            if (SetProperty(ref _isTransferring, value))
-                NotifyTransferCommands();
+            if (!SetProperty(ref _isTransferring, value))
+                return;
+            NotifyTransferCommands();
+            // Während Export/Import darf nicht gespeichert werden (der Import ändert den Entwurf und die vorgemerkte PIN).
+            NotifySaveCommands();
         }
     }
 
@@ -155,7 +158,7 @@ public sealed partial class AdminViewModel
         try
         {
             var json = await SettingsTransfer.ReadFileAsync(path);
-            if (_disposed || _closeRequested)
+            if (ImportMustAbort())
                 return;
             result = SettingsTransfer.Parse(json);
         }
@@ -193,6 +196,10 @@ public sealed partial class AdminViewModel
                 pinDeclined = true;
         }
 
+        // Die Rückfragen sind modal, währenddessen kann Zeit vergehen: nichts am Entwurf ändern, wenn inzwischen gespeichert wird.
+        if (ImportMustAbort())
+            return;
+
         // Die Geräte und Ordner des Zielrechners (hier: des Entwurfs) bleiben; ein fehlendes Overlay-Bild fällt auf ein Layout ohne Overlay zurück.
         var imported = result.Sections;
         DeviceSpecificSettings.CopyFrom(_draft, imported);
@@ -218,6 +225,22 @@ public sealed partial class AdminViewModel
     }
 
     // ---------------------------------------------------------------- Hilfen
+
+    /// <summary>
+    /// Der Import darf den Entwurf nicht mehr ändern: Die Ansicht ist geschlossen/verworfen oder ein Speichervorgang läuft
+    /// (er würde einen halb ersetzten Entwurf bzw. eine PIN-Vormerkung mitschreiben). Bei laufendem Speichern erscheint ein Hinweis.
+    /// </summary>
+    private bool ImportMustAbort()
+    {
+        if (_disposed || _closeRequested)
+            return true;
+        if (!_isSaving)
+            return false;
+
+        ShowTransferInfo("Import abgebrochen",
+            "Es wird gerade gespeichert. Die Datei wurde nicht übernommen, bitte versuchen Sie den Import danach erneut.");
+        return true;
+    }
 
     private static SecuritySettings CopySecurity(SecuritySettings s) => new()
     {

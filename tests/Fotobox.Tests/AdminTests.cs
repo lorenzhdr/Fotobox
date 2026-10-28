@@ -3741,10 +3741,15 @@ public sealed class AdminViewModelTests : IDisposable
         }
         /// <summary>Gesetzt: <see cref="Confirm"/> wirft diese Ausnahme.</summary>
         public Exception? ConfirmException { get; set; }
+        /// <summary>Gesetzt: wird in <see cref="Confirm"/> aufgerufen (zum Beobachten/Verändern des Zustands während der Rückfrage).</summary>
+        public Action? OnConfirm { get; set; }
+        /// <summary>Gesetzt: wird in <see cref="PickImportFile"/> aufgerufen.</summary>
+        public Action? OnPickImportFile { get; set; }
         public bool Confirm(string title, string message)
         {
             if (ConfirmException is not null)
                 throw ConfirmException;
+            OnConfirm?.Invoke();
             ConfirmCalls++;
             LastConfirmTitle = title;
             LastConfirmMessage = message;
@@ -3772,7 +3777,11 @@ public sealed class AdminViewModelTests : IDisposable
             return ExportFileToPick;
         }
 
-        public string? PickImportFile() => ImportFileToPick;
+        public string? PickImportFile()
+        {
+            OnPickImportFile?.Invoke();
+            return ImportFileToPick;
+        }
 
         public BitmapSource RenderTestPage(PageSpec page)
         {

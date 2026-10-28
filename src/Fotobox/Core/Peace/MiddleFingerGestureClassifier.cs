@@ -25,8 +25,8 @@ public static class MiddleFingerGestureClassifier
             return new Thresholds(
                 ExtensionFactor: Lerp(1.25, 1.05, t),
                 PipAngleDeg: Lerp(165, 140, t),
-                // Wie MiddleFingerSettings.MinHandScore (10 → 0,9, 95 → 0,55).
-                MinScore: Lerp(0.9, 0.55, t));
+                // Eine Quelle mit MiddleFingerSettings.MinHandScore (10 → 0,9, 95 → 0,55).
+                MinScore: MiddleFingerSettings.MinHandScoreFor(sensitivityPercent));
         }
     }
 

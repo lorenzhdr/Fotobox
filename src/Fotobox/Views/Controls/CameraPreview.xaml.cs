@@ -47,8 +47,11 @@ public partial class CameraPreview : UserControl
         InitializeComponent();
         _renderAction = Render;
         ApplyMirror(Mirror);
-        Loaded += (_, _) => Attach(Camera);
+        // Das Livebild wird nur bei geladenem UND sichtbarem Steuerelement verarbeitet: Ein eingeklapptes Steuerelement
+        // (z. B. eine nicht angezeigte Admin-Seite) bekommt zwar Loaded, soll aber keine Frames kopieren.
+        Loaded += (_, _) => SyncAttachment();
         Unloaded += (_, _) => Detach();
+        IsVisibleChanged += (_, _) => SyncAttachment();
     }
 
     public ICameraService? Camera
@@ -77,8 +80,17 @@ public partial class CameraPreview : UserControl
 
     private void OnCameraChanged(ICameraService? camera)
     {
-        if (IsLoaded)
+        if (IsLoaded && IsVisible)
             Attach(camera);
+    }
+
+    /// <summary>Hängt sich an die Kamera, wenn das Steuerelement geladen und sichtbar ist, sonst ab.</summary>
+    private void SyncAttachment()
+    {
+        if (IsLoaded && IsVisible)
+            Attach(Camera);
+        else
+            Detach();
     }
 
     private void ApplyMirror(bool mirror) =>

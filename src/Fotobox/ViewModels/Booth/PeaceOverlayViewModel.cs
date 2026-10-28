@@ -490,6 +490,8 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(MiddleFingerWatching));
         _faceTracker.Reset();
         _tracker.EndSession();
+        // Ausgeschaltet: Ein laufendes Verschwinden (Mittelfinger) endet mit, sonst erschiene bei erneuter Aktivierung binnen 0,3 s ein Geisterbart.
+        _tracker.ClearVanishing();
         _testSession = false;
         _testPlaceholder = false;
         _realFaces = [];

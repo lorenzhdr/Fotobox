@@ -377,6 +377,36 @@ public partial class BoothViewModelTests
     }
 
     [Fact]
+    public void Moustache_InPreview_FollowsOnlyTheFaces_NoMiddleFingerHands()
+    {
+        // Feste Dauer: Der Bart überlebt das Foto, damit die Vorschau mit aktivem Bart geprüft werden kann.
+        var rig = new PeaceRig(configure: s =>
+        {
+            s.MoustacheAutoPhoto = true;
+            s.MoustacheVisibility = MoustacheVisibility.FixedDuration;
+            s.MoustacheDurationSeconds = 120;
+        });
+        rig.H.Settings.Current.Flow.PreviewSeconds = 30;
+        rig.H.Settings.Current.Flow.PrintingEnabled = false;
+        var request = rig.Gestures.Last;
+        Assert.True(rig.Do(PeaceAction.Moustache));
+        // Im Countdown (Bart sichtbar) sind Hände für den Mittelfinger erlaubt.
+        Assert.True(rig.Peace.MiddleFingerWatching);
+        Assert.Equal(GestureNeeds.Faces | GestureNeeds.Hands, request.Options.Needs);
+
+        rig.H.Time.Advance(TimeSpan.FromSeconds(1));
+        rig.H.Time.Advance(TimeSpan.FromSeconds(1));
+        Assert.True(SpinUntil(rig.H, () => rig.H.Controller.State == BoothState.Preview, advanceInPreview: false));
+        PeaceRig.Pump();
+
+        Assert.True(rig.Peace.MoustacheActive);
+        Assert.Equal(PeaceMode.FollowMoustache, rig.Peace.Mode);
+        Assert.Same(request, rig.Gestures.Last);
+        Assert.False(rig.Peace.MiddleFingerWatching);
+        Assert.Equal(GestureNeeds.Faces, request.Options.Needs);
+    }
+
+    [Fact]
     public void Moustache_EndsWhenPeaceIsSwitchedOff()
     {
         var rig = new PeaceRig();

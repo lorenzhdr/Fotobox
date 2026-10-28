@@ -321,6 +321,107 @@ public sealed class AdminSettingsTransferTests : IDisposable
         Assert.False(vm.HasUnsavedChanges);
     }
 
+    private static void SetIsSaving(AdminViewModel vm, bool value) =>
+        typeof(AdminViewModel).GetProperty(nameof(AdminViewModel.IsSaving))!.SetValue(vm, value);
+
+    [Fact]
+    public async Task Import_Running_DisablesSaveAndApply_AndSaveCoreRefuses()
+    {
+        var vm = await CreateInitializedAsync();
+        _ui.ImportFileToPick = WriteImportFile(DifferentSettings());
+        bool? applyDuringPick = null, saveDuringPick = null, transferringDuringPick = null;
+        _ui.OnPickImportFile = () =>
+        {
+            transferringDuringPick = vm.IsTransferring;
+            applyDuringPick = vm.ApplyCommand.CanExecute(null);
+            saveDuringPick = vm.SaveCommand.CanExecute(null);
+        };
+        bool? applyDuringConfirm = null;
+        var storeWritesDuringConfirm = -1;
+        _ui.OnConfirm = () =>
+        {
+            applyDuringConfirm = vm.ApplyCommand.CanExecute(null);
+            // Ein erzwungener Aufruf (an CanExecute vorbei) darf nicht speichern.
+            vm.ApplyCommand.Execute(null);
+            storeWritesDuringConfirm = _store.SaveCount;
+        };
+        var changedNotifications = 0;
+        vm.ApplyCommand.CanExecuteChanged += (_, _) => changedNotifications++;
+
+        Assert.True(vm.ApplyCommand.CanExecute(null));
+        await vm.ImportSettingsCommand.ExecuteAsync(null);
+
+        Assert.True(transferringDuringPick);
+        Assert.False(applyDuringPick);
+        Assert.False(saveDuringPick);
+        Assert.False(applyDuringConfirm);
+        Assert.Equal(0, storeWritesDuringConfirm);
+        Assert.True(changedNotifications >= 2);   // gesperrt und wieder frei
+        Assert.True(vm.ApplyCommand.CanExecute(null));
+        Assert.True(vm.SaveCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Export_Running_DisablesSaveAndApply()
+    {
+        var vm = await CreateInitializedAsync();
+        _ui.ExportFileToPick = TempFile("export-busy.json");
+        bool? apply = null;
+        // PickExportFile hat keinen Hook: Der Zustand wird beim Setzen von IsTransferring geprüft.
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(AdminViewModel.IsTransferring) && vm.IsTransferring)
+                apply = vm.ApplyCommand.CanExecute(null);
+        };
+
+        await vm.ExportSettingsCommand.ExecuteAsync(null);
+
+        Assert.False(apply);
+        Assert.True(vm.ApplyCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Import_AbortsWhenASaveStartedMeanwhile_AfterTheConfirmation()
+    {
+        SetStorePin();
+        var vm = await CreateInitializedAsync();
+        var before = JsonSerializer.Serialize(vm.Draft, AppSettings.JsonOptions);
+        _ui.ImportFileToPick = WriteImportFile(DifferentSettings(), FilePin());
+        _ui.ConfirmResults.Enqueue(true);   // Import
+        _ui.ConfirmResults.Enqueue(true);   // PIN ersetzen
+        var confirms = 0;
+        _ui.OnConfirm = () =>
+        {
+            if (++confirms == 2)
+                SetIsSaving(vm, true);   // während der PIN-Rückfrage beginnt ein Speichern
+        };
+
+        await vm.ImportSettingsCommand.ExecuteAsync(null);
+        SetIsSaving(vm, false);
+
+        Assert.Equal(before, JsonSerializer.Serialize(vm.Draft, AppSettings.JsonOptions));
+        Assert.Equal("Import abgebrochen", _ui.LastInfo?.Title);
+        // Keine PIN vorgemerkt: Ein Speichern schreibt die alte PIN.
+        await vm.ApplyCommand.ExecuteAsync(null);
+        Assert.Equal("hash:4711", _store.Current.Security.PinHash);
+    }
+
+    [Fact]
+    public async Task Import_AbortsWhenASaveStartedMeanwhile_AfterTheRead()
+    {
+        var vm = await CreateInitializedAsync();
+        var before = JsonSerializer.Serialize(vm.Draft, AppSettings.JsonOptions);
+        _ui.ImportFileToPick = WriteImportFile(DifferentSettings());
+        _ui.OnPickImportFile = () => SetIsSaving(vm, true);
+
+        await vm.ImportSettingsCommand.ExecuteAsync(null);
+        SetIsSaving(vm, false);
+
+        Assert.Equal(before, JsonSerializer.Serialize(vm.Draft, AppSettings.JsonOptions));
+        Assert.Equal(0, _ui.ConfirmCalls);
+        Assert.Equal("Import abgebrochen", _ui.LastInfo?.Title);
+    }
+
     [Fact]
     public async Task Import_InvalidFile_ShowsError_DraftUnchanged_NoConfirmation()
     {

@@ -255,8 +255,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         LoadKeysFromDraft();
         RebuildGuestOrder();
 
-        SaveCommand = new AsyncRelayCommand(() => SaveCoreAsync(close: true), () => !IsSaving);
-        ApplyCommand = new AsyncRelayCommand(() => SaveCoreAsync(close: false), () => !IsSaving);
+        SaveCommand = new AsyncRelayCommand(() => SaveCoreAsync(close: true), CanSave);
+        ApplyCommand = new AsyncRelayCommand(() => SaveCoreAsync(close: false), CanSave);
         CloseCommand = new RelayCommand(Close);
         ExitCommand = new RelayCommand(RequestExit);
         ChooseOverlayCommand = new RelayCommand(ChooseOverlay);
@@ -334,10 +334,18 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         {
             if (!SetProperty(ref _isSaving, value))
                 return;
-            SaveCommand.NotifyCanExecuteChanged();
-            ApplyCommand.NotifyCanExecuteChanged();
+            NotifySaveCommands();
             NotifyTransferCommands();
         }
+    }
+
+    /// <summary>Speichern ist nur möglich, wenn weder gespeichert noch exportiert/importiert wird.</summary>
+    private bool CanSave() => !_isSaving && !_isTransferring;
+
+    private void NotifySaveCommands()
+    {
+        SaveCommand.NotifyCanExecuteChanged();
+        ApplyCommand.NotifyCanExecuteChanged();
     }
 
     public string ValidationMessage
@@ -3224,7 +3232,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     /// </summary>
     private async Task SaveCoreAsync(bool close)
     {
-        if (_disposed || _isSaving || _closeRequested)
+        // Läuft ein Export/Import, ändert dieser den Entwurf: nicht gleichzeitig speichern (auch nicht über den Befehl-Umweg).
+        if (_disposed || _isSaving || _isTransferring || _closeRequested)
             return;
 
         IsSaving = true;

@@ -766,6 +766,27 @@ public sealed class PeaceOverlayViewModelTests
     }
 
     [Fact]
+    public void Off_DiscardsARunningVanish_SoReactivationShowsNoGhostBeard()
+    {
+        using var vm = Create(_guest);
+        vm.SetMode(PeaceMode.Watching, Settings(), false, Mf());
+        _service.Last.RaiseUpdated([Face], []);
+        vm.StartMoustache(MoustacheTrigger);
+        Assert.True(vm.VanishMoustaches());
+        Assert.True(vm.HasMoustacheVisuals);
+
+        vm.SetMode(PeaceMode.Off, Settings(), false, Mf());
+        vm.SetMode(PeaceMode.Watching, Settings(), false, Mf()); // binnen der 0,3 s
+
+        Assert.False(vm.HasMoustacheVisuals);
+        Assert.Empty(vm.Moustaches);
+        Run(0.05);
+        Assert.False(vm.HasMoustacheVisuals);
+        Assert.Empty(vm.Moustaches);
+        Assert.False(vm.IsShown);
+    }
+
+    [Fact]
     public void VanishMoustaches_WithoutABeard_ReturnsFalse()
     {
         using var vm = Create(_guest);

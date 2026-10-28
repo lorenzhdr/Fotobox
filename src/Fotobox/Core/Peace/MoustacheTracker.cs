@@ -172,7 +172,10 @@ public sealed class MoustacheTracker
     /// bekommt keinen Bart mehr (<see cref="ExportPlanInput"/> = null). <see cref="Views"/> liefert den eingefrorenen Stand
     /// <see cref="MoustacheVanish.DurationSeconds"/> lang (<see cref="IsVanishing"/>), danach nichts mehr.
     /// </summary>
-    /// <returns>true, wenn ein Bart sichtbar war (sonst ist nichts zu tun; ohne Sitzung ebenfalls false).</returns>
+    /// <returns>
+    /// true, wenn eine Sitzung beendet wurde (auch wenn gerade kein Gesicht zu sehen war: dann gibt es nichts zu animieren,
+    /// <see cref="IsVanishing"/> bleibt false, aber das Foto bekommt trotzdem keinen Bart mehr); ohne Sitzung false.
+    /// </returns>
     public bool Dismiss()
     {
         if (!_active)
@@ -180,12 +183,19 @@ public sealed class MoustacheTracker
         var now = _time.GetUtcNow();
         var frozen = Views.Select(v => v with { Wobble = WobbleState.Rest, Vanishing = true }).ToList();
         EndSession();
-        if (frozen.Count == 0)
-            return false;
-        _vanishing = frozen;
-        _vanishUntil = now + TimeSpan.FromSeconds(MoustacheVanish.DurationSeconds);
+        if (frozen.Count > 0)
+        {
+            _vanishing = frozen;
+            _vanishUntil = now + TimeSpan.FromSeconds(MoustacheVanish.DurationSeconds);
+        }
         return true;
     }
+
+    /// <summary>
+    /// Verwirft ein laufendes Verschwinden (<see cref="Dismiss"/>) sofort, damit es bei einer erneuten Aktivierung nicht als
+    /// Geisterbart wiederkehrt. Eine laufende Sitzung bleibt unberührt.
+    /// </summary>
+    public void ClearVanishing() => _vanishing = [];
 
     /// <summary>Das Foto ist fertig: „Bis zum nächsten Foto“ endet, eine feste Dauer läuft weiter.</summary>
     public void OnPhotoCompleted()
