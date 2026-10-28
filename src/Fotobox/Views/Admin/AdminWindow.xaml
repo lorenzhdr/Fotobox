@@ -1079,6 +1079,22 @@
                                             AutomationProperties.Name="Standardwerte wiederherstellen" />
                                 </StackPanel>
                             </Border>
+
+                            <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,28,0,0" Padding="0,22,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Einstellungen teilen" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Exportiert die aktuellen Einstellungen in eine Datei, die Sie auf einer anderen Fotobox+ importieren können. Kamera, Drucker, Speicherorte, Mikrofon, Bildschirm und das Overlay-Bild sind nicht enthalten. Ein Import ersetzt alle anderen Einstellungen im Entwurf und gilt erst nach „Übernehmen“ oder „Speichern &amp; schließen“." />
+                                    <CheckBox Content="PIN mit exportieren" IsChecked="{Binding ExportIncludePin}" Margin="0,14,0,0"
+                                              AutomationProperties.Name="PIN mit exportieren" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                        <Button Content="Exportieren …" Command="{Binding ExportSettingsCommand}"
+                                                AutomationProperties.Name="Einstellungen exportieren" />
+                                        <Button Content="Importieren …" Command="{Binding ImportSettingsCommand}" Margin="12,0,0,0"
+                                                AutomationProperties.Name="Einstellungen importieren" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Border>
                 </ScrollViewer>

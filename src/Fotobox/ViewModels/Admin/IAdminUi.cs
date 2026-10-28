@@ -14,6 +14,15 @@ public interface IAdminUi
 
     bool Confirm(string title, string message);
 
+    /// <summary>Hinweis mit OK-Taste (Ergebnis oder Fehler von Export/Import).</summary>
+    void ShowInfo(string title, string message);
+
+    /// <summary>„Speichern unter“-Dialog für die Einstellungsdatei mit vorgeschlagenem Dateinamen. null = abgebrochen.</summary>
+    string? PickExportFile(string suggestedFileName);
+
+    /// <summary>Dateiauswahl für den Import einer Einstellungsdatei. null = abgebrochen.</summary>
+    string? PickImportFile();
+
     /// <summary>Öffnet den Ordner im Explorer (legt ihn nicht an; der Aufrufer prüft vorher, ob er existiert).</summary>
     void OpenFolder(string path);
 

@@ -3748,9 +3748,31 @@ public sealed class AdminViewModelTests : IDisposable
             ConfirmCalls++;
             LastConfirmTitle = title;
             LastConfirmMessage = message;
-            return ConfirmResult;
+            ConfirmLog.Add((title, message));
+            return ConfirmResults.Count > 0 ? ConfirmResults.Dequeue() : ConfirmResult;
         }
         public void OpenFolder(string path) => OpenedFolder = path;
+
+        /// <summary>Rückgabe von <see cref="PickExportFile"/> (null = abgebrochen).</summary>
+        public string? ExportFileToPick { get; set; }
+        /// <summary>Rückgabe von <see cref="PickImportFile"/> (null = abgebrochen).</summary>
+        public string? ImportFileToPick { get; set; }
+        public string? LastSuggestedExportName { get; private set; }
+        public List<(string Title, string Message)> InfoCalls { get; } = [];
+        public (string Title, string Message)? LastInfo => InfoCalls.Count > 0 ? InfoCalls[^1] : null;
+        /// <summary>Gesetzt: Antworten von <see cref="Confirm"/> in Reihenfolge der Aufrufe (danach <see cref="ConfirmResult"/>).</summary>
+        public Queue<bool> ConfirmResults { get; } = new();
+        public List<(string Title, string Message)> ConfirmLog { get; } = [];
+
+        public void ShowInfo(string title, string message) => InfoCalls.Add((title, message));
+
+        public string? PickExportFile(string suggestedFileName)
+        {
+            LastSuggestedExportName = suggestedFileName;
+            return ExportFileToPick;
+        }
+
+        public string? PickImportFile() => ImportFileToPick;
 
         public BitmapSource RenderTestPage(PageSpec page)
         {

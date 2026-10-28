@@ -43,6 +43,40 @@ public sealed class WpfAdminUi : IAdminUi
             : MessageBox.Show(Owner, message, title, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No))
         == MessageBoxResult.Yes;
 
+    public void ShowInfo(string title, string message)
+    {
+        if (Owner is null)
+            MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Information);
+        else
+            MessageBox.Show(Owner, message, title, MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    public string? PickExportFile(string suggestedFileName)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Einstellungen exportieren",
+            Filter = SettingsTransfer.FileFilter,
+            DefaultExt = ".json",
+            AddExtension = true,
+            FileName = suggestedFileName,
+            OverwritePrompt = true,
+        };
+        return (Owner is null ? dialog.ShowDialog() : dialog.ShowDialog(Owner)) == true ? dialog.FileName : null;
+    }
+
+    public string? PickImportFile()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Einstellungen importieren",
+            Filter = SettingsTransfer.FileFilter,
+            CheckFileExists = true,
+            Multiselect = false,
+        };
+        return (Owner is null ? dialog.ShowDialog() : dialog.ShowDialog(Owner)) == true ? dialog.FileName : null;
+    }
+
     public void OpenFolder(string path)
     {
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });

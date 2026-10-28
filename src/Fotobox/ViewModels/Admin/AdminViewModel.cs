@@ -334,6 +334,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
                 return;
             SaveCommand.NotifyCanExecuteChanged();
             ApplyCommand.NotifyCanExecuteChanged();
+            NotifyTransferCommands();
         }
     }
 
@@ -375,7 +376,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     {
         get
         {
-            if (_newPin.Length > 0 || _repeatPin.Length > 0)
+            if (_newPin.Length > 0 || _repeatPin.Length > 0 || _pendingImportedSecurity is not null)
                 return true;
             var current = SnapshotJson();
             // Nicht serialisierbar: lieber einmal zu viel fragen.
@@ -2957,29 +2958,9 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         var cameraBefore = _draft.Camera;
         // Alle übertragbaren Abschnitte (siehe SettingsSections); Security (PIN) und Version bleiben bewusst unverändert.
         SettingsSections.CopyPortableSections(new AppSettings(), _draft);
-        RebuildMonitorOptions(_monitorList);
-        RebuildMicrophoneOptions(_microphoneList);
-        _selectedVideoQuality = VideoQualities.First(q => q.Quality == _draft.Video.Quality);
-
-        // UI-Zustand wie bei einer frisch geöffneten Admin-Ansicht mit Standard-Einstellungen.
-        CapturingEditor = null;
-        KeyMessage = string.Empty;
-        ValidationMessage = string.Empty;
-        LoadKeysFromDraft();
-        SyncKeysToDraft();
-        RaiseGuestChoices();
-        _selectedOrientation = Orientations.First(o => o.Orientation == _draft.Printer.Orientation);
-        SelectCaptionFontFromDraft();
-        _selectedDevice = Devices.FirstOrDefault();
-        _selectedResolution = Resolutions.FirstOrDefault();
-        _selectedPrinter = Printers.FirstOrDefault(p => p.Name is null) ?? Printers.FirstOrDefault();
-        _selectedPaper = PaperSizes.FirstOrDefault();
-        UpdateOverlay();
-        RaiseFolder();
-        RaiseVideoFolder();
-        RaisePrintTimeoutHint();
-        // Alle gebundenen Eigenschaften neu lesen (Werte kommen direkt aus dem Entwurf).
-        OnPropertyChanged(string.Empty);
+        // „Standardwerte“ heißt „außer PIN“: Eine noch nicht gespeicherte, importierte PIN fällt ebenfalls weg.
+        _pendingImportedSecurity = null;
+        RebuildAfterDraftReplaced(keepDeviceSelections: false);
 
         // Listen, die vom gewählten Gerät bzw. Drucker abhängen, neu laden; die Kamera nur bei geänderten Kameraeinstellungen neu starten.
         if (_selectedDevice is { } device)
@@ -2989,6 +2970,41 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
         if (cameraBefore.RequiresRestartComparedTo(_draft.Camera))
             await RestartCameraAsync();
+    }
+
+    /// <summary>
+    /// Gemeinsamer Teil von „Standardwerte wiederherstellen“ und „Einstellungen importieren“: Die übertragbaren Abschnitte des
+    /// Entwurfs wurden ersetzt, jetzt wird der UI-Zustand daraus neu aufgebaut (Listen, Tasten, Auswahlen, Overlay, Bindungen).
+    /// <paramref name="keepDeviceSelections"/> = die gewählten Kamera/Auflösung/Drucker/Papier bleiben stehen (Import: die
+    /// Gerätefelder im Entwurf sind unverändert); sonst wird wie bei einer frisch geöffneten Ansicht der erste Eintrag gewählt.
+    /// </summary>
+    private void RebuildAfterDraftReplaced(bool keepDeviceSelections)
+    {
+        RebuildMonitorOptions(_monitorList);
+        RebuildMicrophoneOptions(_microphoneList);
+        _selectedVideoQuality = VideoQualities.First(q => q.Quality == _draft.Video.Quality);
+
+        CapturingEditor = null;
+        KeyMessage = string.Empty;
+        ValidationMessage = string.Empty;
+        LoadKeysFromDraft();
+        SyncKeysToDraft();
+        RaiseGuestChoices();
+        _selectedOrientation = Orientations.First(o => o.Orientation == _draft.Printer.Orientation);
+        SelectCaptionFontFromDraft();
+        if (!keepDeviceSelections)
+        {
+            _selectedDevice = Devices.FirstOrDefault();
+            _selectedResolution = Resolutions.FirstOrDefault();
+            _selectedPrinter = Printers.FirstOrDefault(p => p.Name is null) ?? Printers.FirstOrDefault();
+            _selectedPaper = PaperSizes.FirstOrDefault();
+        }
+        UpdateOverlay();
+        RaiseFolder();
+        RaiseVideoFolder();
+        RaisePrintTimeoutHint();
+        // Alle gebundenen Eigenschaften neu lesen (Werte kommen direkt aus dem Entwurf).
+        OnPropertyChanged(string.Empty);
     }
 
     // ---------------------------------------------------------------- Validierung / Speichern
@@ -3258,7 +3274,9 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
             // Die PIN wird nicht im Entwurf bearbeitet → aktuellen Stand aus dem Store übernehmen,
             // sonst würde ein zwischenzeitlich geänderter PIN-Hash überschrieben.
-            var security = _store.Current.Security;
+            // Eine importierte PIN (noch nicht gespeichert) gilt nur, wenn nicht gleichzeitig eine neue PIN eingetragen wurde
+            // (die eingetragene hat Vorrang und steht dann schon im Store).
+            var security = !pinApplied && _pendingImportedSecurity is { } imported ? imported : _store.Current.Security;
             _draft.Security = new SecuritySettings
             {
                 PinHash = security.PinHash,
@@ -3267,6 +3285,12 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             };
 
             _store.Save(_draft);
+            if (_pendingImportedSecurity is not null)
+            {
+                _pendingImportedSecurity = null;
+                if (!pinApplied)
+                    PinStatus = "Die PIN aus der importierten Datei wurde übernommen.";
+            }
         }
         catch (Exception ex)
         {
