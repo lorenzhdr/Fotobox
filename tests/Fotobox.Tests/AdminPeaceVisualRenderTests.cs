@@ -12,7 +12,7 @@ namespace Fotobox.Tests;
 
 /// <summary>
 /// Sichtprüfung per Bilddatei, kein Test im engeren Sinn: Läuft nur, wenn die Umgebungsvariable <c>FOTOBOX_RENDER_DIR</c> auf einen
-/// Ordner zeigt (sonst sofort beendet, auch in der CI). Rendert die Startseite des Admin-Tabs „Fun“ und die Seite „Peaceerkennung“
+/// Ordner zeigt (sonst sofort beendet, auch in der CI). Rendert die Startseite des Admin-Tabs „Fun“, die Seiten „Peaceerkennung“ und „Mittelfinger“
 /// im hellen und dunklen Schema als PNG.
 /// Aufruf: <c>FOTOBOX_RENDER_DIR=C:\pfad\render dotnet test --filter "FullyQualifiedName~AdminPeaceVisualRenderTests"</c>.
 /// </summary>
@@ -91,7 +91,7 @@ public sealed class AdminPeaceVisualRenderTests : IDisposable
     }
 
     [StaFact]
-    public void Render_StartPageAndPeacePage()
+    public void Render_StartPagePeacePageAndMiddleFingerPage()
     {
         var dir = RenderDir();
         if (dir is null)
@@ -103,6 +103,7 @@ public sealed class AdminPeaceVisualRenderTests : IDisposable
             var suffix = theme == AdminThemeMode.Light ? "hell" : "dunkel";
             Render(dir, $"admin-fun-start-{suffix}.png", theme, FunPage.Start, 1100, 750);
             Render(dir, $"admin-fun-peace-{suffix}.png", theme, FunPage.Peace, 1100, 3300);
+            Render(dir, $"admin-fun-mittelfinger-{suffix}.png", theme, FunPage.MiddleFinger, 1100, 1750);
         }
     }
 }

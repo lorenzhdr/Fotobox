@@ -1,0 +1,147 @@
+<UserControl x:Class="Fotobox.Views.Admin.MiddleFingerSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Fotobox.Views.Admin"
+             xmlns:core="clr-namespace:Fotobox.Core"
+             xmlns:vm="clr-namespace:Fotobox.ViewModels.Admin"
+             xmlns:controls="clr-namespace:Fotobox.Views.Controls"
+             xmlns:peace="clr-namespace:Fotobox.Views.Booth.Peace">
+
+    <!-- Seite „Mittelfinger“ im Tab „Fun“. Der DataContext (AdminViewModel) wird vom Fenster geerbt. Stile und Farben des Admins
+         kommen per DynamicResource aus dem Fenster (dieses Steuerelement wird beim Laden noch nicht im Fenster geparst). -->
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <!-- Bereich, der bei IsEnabled=False ausgegraut wird -->
+        <Style x:Key="Dim" TargetType="StackPanel">
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.55" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,14">
+            <Button x:Name="MiddleFingerBackButton" Content="←  Zurück" Command="{Binding ShowFunPageCommand}"
+                    CommandParameter="{x:Static vm:FunPage.Start}" VerticalAlignment="Center"
+                    AutomationProperties.Name="Zurück zur Fun-Übersicht" />
+            <TextBlock Text="Mittelfinger" Style="{DynamicResource SectionTitle}" Margin="18,0,0,0" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel MaxWidth="780" HorizontalAlignment="Left">
+
+                <!-- Schalter -->
+                <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Mittelfingererkennung" Style="{DynamicResource SectionTitle}" />
+                        <CheckBox x:Name="MiddleFingerEnabledCheck" Content="Mittelfingererkennung aktiv" IsChecked="{Binding MiddleFingerEnabled}"
+                                  Margin="0,12,0,0" FontWeight="SemiBold" AutomationProperties.Name="Mittelfingererkennung aktiv" />
+                        <TextBlock Style="{DynamicResource Hint}"
+                                   Text="Verstecktes Extra: Hält jemand den Mittelfinger in die Kamera, verschwinden alle Schnurrbärte, und eine laufende Selbstzerstörung wird abgebrochen. Die Funktion wirkt nur zusammen mit der Peaceerkennung. In der Gastansicht wird darauf nicht hingewiesen." />
+                        <TextBlock x:Name="MiddleFingerPeaceDisabledWarning" Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
+                                   Text="{Binding MiddleFingerPeaceDisabledWarning}"
+                                   Visibility="{Binding HasMiddleFingerPeaceDisabledWarning, Converter={StaticResource BoolToVis}}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Vorschau: außerhalb des ausgegrauten Bereichs, damit man sie auch bei ausgeschalteter Erkennung ansehen kann -->
+                <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Vorschau" Style="{DynamicResource SectionTitle}" />
+                        <TextBlock Style="{DynamicResource Hint}" Margin="0,2,0,0"
+                                   Text="Zeigen Sie den Mittelfinger in die Kamera: Die erkannten Handpunkte erscheinen im Bild. Mit „Aufheben testen“ erscheint für 20 Sekunden ein Test-Bart, den Sie so entfernen können. Die Vorschau nutzt die aktuellen (noch nicht gespeicherten) Einstellungen und löst nie ein echtes Foto oder einen Druck aus." />
+                        <!-- Gastansicht im Maßstab 1:3 (1920 × 1080). Fest eingefärbt wie die Gastansicht (bewusst nicht themenabhängig). -->
+                        <Border x:Name="MiddleFingerPreviewHost" Width="640" Height="360" HorizontalAlignment="Left" Margin="0,12,0,0"
+                                Background="#14171D" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="10" ClipToBounds="True" AutomationProperties.Name="Vorschau der Mittelfingererkennung">
+                            <Viewbox Stretch="Uniform">
+                                <Grid Width="1920" Height="1080" ClipToBounds="True" Background="#14171D">
+                                    <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}"
+                                                            Stretch="Uniform" ShowStatusOverlay="False" />
+                                    <TextBlock x:Name="MiddleFingerPreviewNoCameraText" Foreground="#A3ADBC" FontSize="48" TextAlignment="Center"
+                                               TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="160,0"
+                                               Text="Keine Kamera – „Aufheben testen“ zeigt trotzdem einen Test-Bart."
+                                               Visibility="{Binding FunPreviewNoCamera, Converter={StaticResource BoolToVis}}" />
+                                    <peace:PeaceOverlay x:Name="MiddleFingerPreviewOverlay" Fit="Uniform" ShowLandmarks="True" ShowHoldProgress="True"
+                                                        Faces="{Binding PeacePreview.Faces}" ShowFaceLandmarks="{Binding PeacePreviewShowFacePoints}"
+                                                        Moustaches="{Binding PeacePreview.Moustaches}" Hands="{Binding PeacePreview.Hands}"
+                                                        ImageWidth="{Binding PeacePreview.ImageWidth}" ImageHeight="{Binding PeacePreview.ImageHeight}"
+                                                        Mirror="{Binding MirrorPreview}" />
+                                    <!-- Abzeichen „Mittelfinger erkannt“ -->
+                                    <Border x:Name="MiddleFingerDetectedBadge" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="48" Padding="36,16"
+                                            Background="#CC1E7B3A" CornerRadius="48"
+                                            Visibility="{Binding PeacePreview.MiddleFingerDetectedNow, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="Mittelfinger erkannt" Foreground="White" FontSize="54" FontWeight="SemiBold" />
+                                    </Border>
+                                </Grid>
+                            </Viewbox>
+                        </Border>
+                        <StackPanel Margin="0,12,0,0">
+                            <Button x:Name="MiddleFingerTestButton" Content="Aufheben testen" Command="{Binding TestMiddleFingerCancelCommand}"
+                                    Style="{DynamicResource PrimaryButton}" HorizontalAlignment="Left" />
+                            <TextBlock x:Name="MiddleFingerPreviewHint" Style="{DynamicResource Hint}" Margin="0,8,0,0"
+                                       Text="{Binding MiddleFingerPreviewHint}"
+                                       Visibility="{Binding HasMiddleFingerPreviewHint, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock x:Name="MiddleFingerPreviewStatus" Text="{Binding MiddleFingerPreviewStatusText}" FontSize="14"
+                                       Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
+                            <TextBlock x:Name="MiddleFingerPreviewWarning" Text="{Binding MiddleFingerPreviewWarningText}" FontSize="13"
+                                       Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Visibility="{Binding HasMiddleFingerPreviewWarning, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock x:Name="MiddleFingerFaceUnavailableWarning" Text="{Binding MiddleFingerPreviewFaceWarning}" FontSize="13"
+                                       Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Visibility="{Binding HasMiddleFingerPreviewFaceWarning, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Alles Weitere ist bei ausgeschalteter Mittelfingererkennung ausgegraut. -->
+                <StackPanel x:Name="MiddleFingerSettingsPanel" IsEnabled="{Binding MiddleFingerEnabled}" Style="{StaticResource Dim}">
+
+                    <!-- Erkennung -->
+                    <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                        <StackPanel>
+                            <TextBlock Text="Erkennung" Style="{DynamicResource SectionTitle}" />
+
+                            <TextBlock Text="Haltedauer" Style="{DynamicResource FieldLabel}" />
+                            <local:NumberStepper x:Name="MiddleFingerHoldStepper" Value="{Binding MiddleFingerHoldMilliseconds}" Minimum="{x:Static core:SettingsLimits.MiddleFingerHoldMillisecondsMin}" Maximum="{x:Static core:SettingsLimits.MiddleFingerHoldMillisecondsMax}" Step="{x:Static core:SettingsLimits.MiddleFingerHoldMillisecondsStep}" Suffix=" ms" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="So lange muss der Mittelfinger gehalten werden. Länger verhindert Fehlauslösungen." />
+
+                            <TextBlock Text="Empfindlichkeit" Style="{DynamicResource FieldLabel}" />
+                            <local:NumberStepper x:Name="MiddleFingerSensitivityStepper" Value="{Binding MiddleFingerSensitivityPercent}" Minimum="{x:Static core:SettingsLimits.MiddleFingerSensitivityMin}" Maximum="{x:Static core:SettingsLimits.MiddleFingerSensitivityMax}" Step="5" Suffix=" %" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Höher erkennt auch undeutliche Zeichen, löst aber öfter fälschlich aus." />
+
+                            <TextBlock Style="{DynamicResource Hint}" Margin="0,14,0,0"
+                                       Text="Die Analysen pro Sekunde gelten gemeinsam mit der Peaceerkennung und werden dort eingestellt." />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Aktionen (Liste für künftige Aktionen) -->
+                    <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                        <StackPanel>
+                            <TextBlock Text="Aktionen" Style="{DynamicResource SectionTitle}" />
+                            <CheckBox x:Name="MiddleFingerActionCancelPeaceCheck" Margin="0,12,0,0"
+                                      Content="Peace-Effekte aufheben (Bart entfernen, Selbstzerstörung abbrechen)"
+                                      IsChecked="{Binding MiddleFingerActionCancelPeace}"
+                                      IsEnabled="{Binding MiddleFingerActionCancelPeaceEnabled}"
+                                      AutomationProperties.Name="Aktion: Peace-Effekte aufheben" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Die letzte gewählte Aktion lässt sich nicht abwählen." />
+                            <TextBlock x:Name="MiddleFingerNoActionWarning" Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
+                                       Text="Wählen Sie mindestens eine Aktion aus."
+                                       Visibility="{Binding MiddleFingerHasNoAction, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

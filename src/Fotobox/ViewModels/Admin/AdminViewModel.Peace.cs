@@ -26,6 +26,8 @@ public sealed partial class AdminViewModel
             if (SetProperty(_draft.Peace.Enabled, value, v => _draft.Peace.Enabled = v))
             {
                 OnPropertyChanged(nameof(PeaceStatusText));
+                OnPropertyChanged(nameof(MiddleFingerPeaceDisabledWarning));
+                OnPropertyChanged(nameof(HasMiddleFingerPeaceDisabledWarning));
                 OnPropertyChanged(nameof(PeaceHasNoAction));
             }
         }
@@ -261,7 +263,12 @@ public sealed partial class AdminViewModel
     public bool PeaceTestSelfDestructVisible
     {
         get => _peaceTestSelfDestructVisible;
-        private set => SetProperty(ref _peaceTestSelfDestructVisible, value);
+        private set
+        {
+            // Der sichtbare Selbstzerstörungs-Test ist für die Mittelfingererkennung ein aufhebbares Ziel (external im SetMode).
+            if (SetProperty(ref _peaceTestSelfDestructVisible, value) && PeacePreview.Mode != PeaceMode.Off)
+                PushPeacePreviewMode();
+        }
     }
 
     /// <summary>Verbleibende Sekunden des Test-Countdowns.</summary>
@@ -303,15 +310,26 @@ public sealed partial class AdminViewModel
             : PeacePreviewStatusFormatter.Format(PeacePreview.Status, PeacePreview.Hands.Count, PeacePreview.FaceCount,
                 PeacePreview.PeaceDetectedNow, FunPreviewCameraRunning);
 
-    // Läuft die Peace-Seite, gelten die Entwurfswerte sofort. Nur auf der Seite „Peaceerkennung“ ist die Vorschau aktiv.
+    // Läuft die Peace- oder Mittelfinger-Seite, gelten die Entwurfswerte sofort. Die Vorschau (eine Instanz) ist nur auf diesen beiden Seiten aktiv.
     private void UpdatePeacePreview()
     {
         if (_disposed)
             return;
-        var active = _isFunTabSelected && _funPage == FunPage.Peace;
-        if (!active)
+        // Selbstzerstörungs-Test und Foto-Abzeichen gehören nur zur Peace-Seite (Seitenwechsel beendet sie).
+        if (!(_isFunTabSelected && _funPage == FunPage.Peace))
             StopPeaceTests();
-        PeacePreview.SetMode(active ? PeaceMode.Watching : PeaceMode.Off, _draft.Peace.Clone(), MirrorPreview);
+        PushPeacePreviewMode();
+    }
+
+    private void PushPeacePreviewMode()
+    {
+        if (_disposed)
+            return;
+        var active = _isFunTabSelected && _funPage is FunPage.Peace or FunPage.MiddleFinger;
+        // Die Mittelfinger-Einstellungen gelten immer; ein sichtbarer Selbstzerstörungs-Test zählt als aufhebbares Ziel.
+        var external = PeaceTestSelfDestructVisible ? MiddleFingerTargets.SelfDestruct : MiddleFingerTargets.None;
+        PeacePreview.SetMode(active ? PeaceMode.Watching : PeaceMode.Off, _draft.Peace.Clone(), MirrorPreview,
+            _draft.MiddleFinger.Clone(), external);
         RaisePeacePreviewStatus();
     }
 
@@ -322,7 +340,14 @@ public sealed partial class AdminViewModel
             && !propertyName.StartsWith("PeacePreview", StringComparison.Ordinal)
             && !propertyName.StartsWith("PeaceTest", StringComparison.Ordinal)
             && !propertyName.StartsWith("PeacePhotoBadge", StringComparison.Ordinal)
-            && propertyName is not (nameof(PeaceStatusText) or nameof(PeaceHasNoAction) or nameof(PeaceMoustacheDurationEnabled)));
+            && propertyName is not (nameof(PeaceStatusText) or nameof(PeaceHasNoAction) or nameof(PeaceMoustacheDurationEnabled)))
+        || (propertyName.StartsWith("MiddleFinger", StringComparison.Ordinal)
+            && !propertyName.StartsWith("MiddleFingerPreview", StringComparison.Ordinal)
+            && !propertyName.StartsWith("MiddleFingerDetected", StringComparison.Ordinal)
+            && !propertyName.StartsWith("MiddleFingerTest", StringComparison.Ordinal)
+            && !propertyName.StartsWith("HasMiddleFinger", StringComparison.Ordinal)
+            && propertyName is not (nameof(MiddleFingerStatusText) or nameof(MiddleFingerHasNoAction)
+                or nameof(MiddleFingerPeaceDisabledWarning) or nameof(MiddleFingerActionCancelPeaceEnabled)));
 
     private void RaisePeacePreviewStatus()
     {
@@ -331,13 +356,15 @@ public sealed partial class AdminViewModel
         OnPropertyChanged(nameof(HasPeacePreviewWarning));
         OnPropertyChanged(nameof(PeacePreviewMoustacheWarning));
         OnPropertyChanged(nameof(HasPeacePreviewMoustacheWarning));
+        RaiseMiddleFingerPreviewStatus();
     }
 
     private void OnPeacePreviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(PeaceOverlayViewModel.Status) or nameof(PeaceOverlayViewModel.Hands) or nameof(PeaceOverlayViewModel.FaceCount)
             or nameof(PeaceOverlayViewModel.MoustacheAvailable)
-            or nameof(PeaceOverlayViewModel.PeaceDetectedNow) or nameof(PeaceOverlayViewModel.Mode) or nameof(PeaceOverlayViewModel.IsShown)
+            or nameof(PeaceOverlayViewModel.PeaceDetectedNow) or nameof(PeaceOverlayViewModel.MiddleFingerDetectedNow)
+            or nameof(PeaceOverlayViewModel.MiddleFingerWatching) or nameof(PeaceOverlayViewModel.Mode) or nameof(PeaceOverlayViewModel.IsShown)
             or null or "")
             RaisePeacePreviewStatus();
     }
@@ -345,7 +372,8 @@ public sealed partial class AdminViewModel
     // Aktion in der Vorschau: nie ein echtes Foto oder Druck.
     private void OnPeacePreviewAction(object? sender, PeaceTrigger trigger)
     {
-        if (_disposed)
+        // Auf der Mittelfinger-Seite löst ein zufälliges Peace in der Vorschau nichts aus (kein überraschender Selbstzerstörungs-Test).
+        if (_disposed || _funPage == FunPage.MiddleFinger)
             return;
         switch (trigger.Action)
         {
@@ -467,6 +495,7 @@ public sealed partial class AdminViewModel
         StopPeaceTests();
         PeacePreview.PropertyChanged -= OnPeacePreviewPropertyChanged;
         PeacePreview.ActionRequested -= OnPeacePreviewAction;
+        PeacePreview.MiddleFingerTriggered -= OnPeacePreviewMiddleFinger;
         PeacePreview.Dispose();
     }
 }

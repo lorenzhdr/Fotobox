@@ -17,13 +17,16 @@ public static class PeacePreviewStatusFormatter
     public const string NotAvailable = "Die Erkennung ist nicht verfügbar.";
     public const string NoCamera = "Keine Kamera – Vorschau nicht verfügbar.";
     public const string PeaceDetected = "Peace erkannt ✌";
+    public const string MiddleFingerDetected = "Mittelfinger erkannt";
 
     /// <param name="status">Zustand der offenen Anforderung; null = es gibt keine (die Anforderung ist gescheitert).</param>
     /// <param name="hands">Aktuell verfolgte Hände.</param>
     /// <param name="faces">Aktuell erkannte Gesichter; negativ = unbekannt (dann entfällt die Angabe).</param>
     /// <param name="peaceNow">Zeigt gerade mindestens eine Hand das Peace-Zeichen?</param>
     /// <param name="cameraRunning">Die Kamera liefert ein Livebild.</param>
-    public static PeacePreviewStatusLines Format(GestureStatus? status, int hands, int faces, bool peaceNow, bool cameraRunning)
+    /// <param name="middleFingerNow">Zeigt gerade eine Hand den Mittelfinger (Seite „Mittelfinger“)?</param>
+    public static PeacePreviewStatusLines Format(GestureStatus? status, int hands, int faces, bool peaceNow, bool cameraRunning,
+        bool middleFingerNow = false)
     {
         var warnings = new List<string>();
         if (!cameraRunning)
@@ -57,6 +60,8 @@ public static class PeacePreviewStatusFormatter
             parts.Add(string.Create(German, $"Analyse ⌀ {Math.Round(status.MeanCycleMs):0} ms"));
         if (peaceNow)
             parts.Add(PeaceDetected);
+        if (middleFingerNow)
+            parts.Add(MiddleFingerDetected);
         return new PeacePreviewStatusLines(string.Join(" · ", parts), Join(warnings));
     }
 

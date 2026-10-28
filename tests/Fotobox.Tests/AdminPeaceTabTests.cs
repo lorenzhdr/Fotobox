@@ -609,7 +609,7 @@ public sealed class AdminPeaceTabTests : IDisposable
         view.FindName(name) as T ?? throw new InvalidOperationException(name + " nicht gefunden.");
 
     [StaFact]
-    public void StartPage_ShowsTwoTiles_AndOnlyTheStartPageIsVisible()
+    public void StartPage_ShowsThreeTiles_AndOnlyTheStartPageIsVisible()
     {
         NoContext();
         WithWindow((window, vm) =>
@@ -624,15 +624,16 @@ public sealed class AdminPeaceTabTests : IDisposable
             Assert.Equal(Visibility.Collapsed, peace.Visibility);
 
             var tiles = FindDescendants<Button>(start).Where(b => b.Style == window.TryFindResource("FunTile")).ToList();
-            Assert.Equal(2, tiles.Count);
-            Assert.Equal(["Personenerkennung", "Peaceerkennung"], tiles.Select(AutomationProperties.GetName));
+            Assert.Equal(3, tiles.Count);
+            Assert.Equal(["Personenerkennung", "Peaceerkennung", "Mittelfinger"], tiles.Select(AutomationProperties.GetName));
             Assert.Contains(FindDescendants<TextBlock>(start), t => t.Text == "Zielmarkierungen über erkannten Personen im Livebild.");
             Assert.Contains(FindDescendants<TextBlock>(start), t => t.Text == "Verstecktes Extra: Ein Peace-Zeichen löst eine Überraschung aus.");
-            Assert.Equal(["An", "An"], FindDescendants<TextBlock>(start).Where(t => t.Text is "An" or "Aus").Select(t => t.Text));
+            Assert.Equal(["An", "An", "An"], FindDescendants<TextBlock>(start).Where(t => t.Text is "An" or "Aus").Select(t => t.Text));
 
             vm.FunEnabled = false;
             vm.PeaceEnabled = false;
-            Assert.Equal(["Aus", "Aus"], FindDescendants<TextBlock>(start).Where(t => t.Text is "An" or "Aus").Select(t => t.Text));
+            vm.MiddleFingerEnabled = false;
+            Assert.Equal(["Aus", "Aus", "Aus"], FindDescendants<TextBlock>(start).Where(t => t.Text is "An" or "Aus").Select(t => t.Text));
         });
     }
 

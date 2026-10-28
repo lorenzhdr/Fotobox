@@ -21,6 +21,14 @@ public sealed class PeacePreviewStatusFormatterTests
     }
 
     [Fact]
+    public void MiddleFingerNow_AppendsItsText()
+    {
+        var lines = PeacePreviewStatusFormatter.Format(Ready(), 1, 2, peaceNow: false, cameraRunning: true, middleFingerNow: true);
+
+        Assert.Equal("Hände: 1 · Gesichter: 2 · 4,8 Analysen/s · Mittelfinger erkannt", lines.Text);
+    }
+
+    [Fact]
     public void PeaceNow_AppendsTheBadgeText()
     {
         var lines = PeacePreviewStatusFormatter.Format(Ready(), 1, 2, peaceNow: true, cameraRunning: true);

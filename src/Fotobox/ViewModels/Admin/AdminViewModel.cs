@@ -204,6 +204,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             : PeaceOverlayViewModel.CreateInert();
         PeacePreview.PropertyChanged += OnPeacePreviewPropertyChanged;
         PeacePreview.ActionRequested += OnPeacePreviewAction;
+        PeacePreview.MiddleFingerTriggered += OnPeacePreviewMiddleFinger;
         _store = store;
         _pin = pin;
         Camera = camera;
@@ -275,6 +276,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         ShowFunPageCommand = new RelayCommand<FunPage>(page => FunPage = page);
         TestSelfDestructCommand = new RelayCommand(StartPeaceTestSelfDestruct);
         TestMoustacheCommand = new RelayCommand(StartPeaceTestMoustache);
+        TestMiddleFingerCancelCommand = new RelayCommand(StartMiddleFingerCancelTest);
 
         Camera.StatusChanged += OnCameraStatusChanged;
         UpdateOverlay();
@@ -448,8 +450,12 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             && e.PropertyName is not (nameof(SaveStatusMessage) or nameof(HasSaveStatus) or nameof(IsSaving)
                 or nameof(FunPreviewStatusText) or nameof(FunPreviewWarningText) or nameof(HasFunPreviewWarning)
                 or nameof(FunPreviewCameraRunning) or nameof(FunPreviewNoCamera) or nameof(IsFunTabSelected)
-                or nameof(FunPage))
+                or nameof(FunPage) or nameof(MiddleFingerStatusText) or nameof(MiddleFingerPeaceDisabledWarning)
+                or nameof(HasMiddleFingerPeaceDisabledWarning))
             && e.PropertyName?.StartsWith("PeacePreview", StringComparison.Ordinal) != true
+            && e.PropertyName?.StartsWith("MiddleFingerPreview", StringComparison.Ordinal) != true
+            && e.PropertyName?.StartsWith("MiddleFingerDetected", StringComparison.Ordinal) != true
+            && e.PropertyName?.StartsWith("HasMiddleFingerPreview", StringComparison.Ordinal) != true
             && e.PropertyName?.StartsWith("HasPeacePreview", StringComparison.Ordinal) != true)
             HideSaveStatusIfDirty();
     }
@@ -2856,7 +2862,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
     private FunPage _funPage = FunPage.Start;
 
-    /// <summary>Welche Seite des Tabs „Fun“ zeigt (Startseite mit Kacheln, Personenerkennung, Peaceerkennung). Reine Ansicht, keine Einstellung.</summary>
+    /// <summary>Welche Seite des Tabs „Fun“ zeigt (Startseite mit Kacheln, Personenerkennung, Peaceerkennung, Mittelfingererkennung). Reine Ansicht, keine Einstellung.</summary>
     public FunPage FunPage
     {
         get => _funPage;
@@ -3116,6 +3122,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             ValidateVideo(errors, foldersToProbe);
 
         ValidatePeace(errors);
+        ValidateMiddleFinger(errors);
 
         if (_newPin.Length > 0 || _repeatPin.Length > 0)
         {
