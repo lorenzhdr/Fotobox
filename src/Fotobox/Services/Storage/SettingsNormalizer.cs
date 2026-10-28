@@ -234,7 +234,7 @@ internal static class SettingsNormalizer
     /// enthält sie immer auch den Standard (fehlt er, wird er hinten angehängt; unabhängig von der Overlay-Regel – ein
     /// Standard-Overlay ohne Datei fängt die Admin-Validierung ab). Eine Liste mit nur einem Eintrag bedeutet: kein Wechsel.
     /// </summary>
-    private static List<GuestLayout> NormalizeGuestChoices(LayoutSettings layout)
+    internal static List<GuestLayout> NormalizeGuestChoices(LayoutSettings layout)
     {
         var hasOverlayFile = !string.IsNullOrWhiteSpace(layout.OverlayFileName);
         var result = new List<GuestLayout>();
