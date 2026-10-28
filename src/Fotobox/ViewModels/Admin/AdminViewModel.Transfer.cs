@@ -200,8 +200,8 @@ public sealed partial class AdminViewModel
             name => File.Exists(Path.Combine(_store.OverlayDirectory, name)));
 
         SettingsSections.CopyPortableSections(imported, _draft);
-        if (acceptedPin is not null)
-            _pendingImportedSecurity = acceptedPin;
+        // Jeder Import entscheidet über die PIN neu: Eine vorgemerkte PIN eines früheren Imports gilt nicht weiter.
+        _pendingImportedSecurity = acceptedPin;
         // Geräte bleiben gewählt, die Kamera wird nie neu gestartet; nur die Seitengröße hängt vom Layout ab.
         RebuildAfterDraftReplaced(keepDeviceSelections: true);
         RequestPageSpec();

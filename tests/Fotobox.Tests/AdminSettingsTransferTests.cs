@@ -444,6 +444,24 @@ public sealed class AdminSettingsTransferTests : IDisposable
     }
 
     [Fact]
+    public async Task SecondImport_WithDeclinedPin_DropsPinPendingFromFirstImport()
+    {
+        SetStorePin();
+        var vm = await CreateInitializedAsync();
+        _ui.ImportFileToPick = WriteImportFile(new AppSettings(), FilePin());
+        _ui.ConfirmResults.Enqueue(true);   // Import 1
+        _ui.ConfirmResults.Enqueue(true);   // PIN 1 ersetzen
+        await vm.ImportSettingsCommand.ExecuteAsync(null);
+
+        _ui.ConfirmResults.Enqueue(true);   // Import 2
+        _ui.ConfirmResults.Enqueue(false);  // PIN 2 ablehnen
+        await vm.ImportSettingsCommand.ExecuteAsync(null);
+
+        await vm.ApplyCommand.ExecuteAsync(null);
+        Assert.Equal("hash:4711", _store.Current.Security.PinHash);
+    }
+
+    [Fact]
     public async Task Import_SamePinAsCurrent_DoesNotAsk()
     {
         var pin = FilePin();
