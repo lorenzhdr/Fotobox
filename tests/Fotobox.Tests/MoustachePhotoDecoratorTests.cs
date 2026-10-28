@@ -1,9 +1,11 @@
+using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Fotobox.Core;
 using Fotobox.Core.Fun;
 using Fotobox.Core.Peace;
 using Fotobox.Services.Peace;
+using Fotobox.Views.Booth.Peace;
 using Xunit;
 
 namespace Fotobox.Tests;
@@ -42,6 +44,9 @@ public sealed class MoustachePhotoDecoratorTests
 
     private static (MoustachePhotoDecorator Decorator, FakeGestureService Gestures, GuestMoustacheState State) Create(MoustachePlanInput? input)
     {
+        // Der Decorator wartet höchstens ein Budget auf Texturen: Die der Tests sind vorab fertig (deterministisch, nicht von der Last abhängig).
+        MoustacheTextures.Get(MoustacheStyle.Walrus, MoustacheColor.DarkBrown, 200);
+        MoustacheTextures.Get(MoustacheStyle.Walrus, MoustacheColor.DarkBrown, 400);
         var gestures = new FakeGestureService();
         var state = new GuestMoustacheState { Current = input };
         return (new MoustachePhotoDecorator(gestures, state, TimeProvider.System), gestures, state);
@@ -208,5 +213,79 @@ public sealed class MoustachePhotoDecoratorTests
 
         Assert.Same(pixels, image.Pixels);
         Assert.Equal(10, image.Width);
+    }
+
+    // ---- Budget für Texturen: Der Decorator blockiert nie länger als sein Budget und fällt auf die beste fertige Stufe bzw. das unverzierte Foto zurück.
+
+    private static MoustacheTexture TinyTexture(int tier)
+    {
+        var bitmap = BitmapSource.Create(2, 2, 96, 96, PixelFormats.Pbgra32, null, new byte[16], 8);
+        bitmap.Freeze();
+        return new MoustacheTexture(bitmap, new Rect(-0.5, -0.1, 1, 0.2), tier);
+    }
+
+    [StaFact]
+    public async Task SlowTexture_NeverExceedsTheBudget_AndTheUndecoratedPhotoIsReturned()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        var face = FaceAt(new NormPoint(0.5, 0.5));
+        var track = Track(new NormPoint(0.5, 0.5), MoustacheStyle.Handlebar) with { FaceBox = face.Box, Color = MoustacheColor.Ginger };
+        var (decorator, gestures, _) = Create(new MoustachePlanInput(MoustacheTargets.Everyone, null, [track]));
+        using var isolation = MoustacheTextures.Isolate(); // leerer Cache: Dalí/Rotblond ist kalt, die Erzeugung hängt
+        MoustacheTextures.Factory = (_, _, tier) =>
+        {
+            gate.Wait(TimeSpan.FromSeconds(30));
+            return TinyTexture(tier);
+        };
+        try
+        {
+            gestures.PhotoFaces = [face];
+            var photo = WhitePhoto();
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var result = await decorator.DecorateAsync(photo, 1, CancellationToken.None);
+
+            Assert.Same(photo, result);
+            Assert.True(sw.Elapsed < MoustachePhotoDecorator.OverallBudget + TimeSpan.FromSeconds(0.5),
+                $"Decorator überschreitet sein Budget ({sw.ElapsedMilliseconds} ms)");
+            Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(500), "Er hat wirklich auf die Textur gewartet");
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
+    [StaFact]
+    public async Task MissingBigTier_UsesTheBestReadySmallerTier_InsteadOfLosingTheMoustache()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        using var isolation = MoustacheTextures.Isolate();
+        MoustacheTextures.Factory = (_, _, tier) =>
+        {
+            if (tier > 256)
+                gate.Wait(TimeSpan.FromSeconds(30)); // die passende Stufe (512) hängt
+            return TinyTexture(tier);
+        };
+        try
+        {
+            MoustacheTextures.GetTier(MoustacheStyle.Walrus, MoustacheColor.DarkBrown, 256); // die kleinere ist fertig
+            var face = FaceAt(new NormPoint(0.5, 0.5));
+            var track = Track(new NormPoint(0.5, 0.5)) with { FaceBox = face.Box };
+            var gestures = new FakeGestureService { PhotoFaces = [face] };
+            var decorator = new MoustachePhotoDecorator(gestures, new GuestMoustacheState { Current = new MoustachePlanInput(MoustacheTargets.Everyone, null, [track]) }, TimeProvider.System);
+            var photo = WhitePhoto(1600, 900); // Bartbreite im Foto ≈ 260 px: Stufe 512 wäre passend
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var result = await decorator.DecorateAsync(photo, 1, CancellationToken.None);
+
+            Assert.NotSame(photo, result); // Bart vorhanden (mit der kleineren Stufe)
+            Assert.Equal(1600, result.PixelWidth);
+            Assert.True(sw.Elapsed < MoustachePhotoDecorator.OverallBudget + TimeSpan.FromSeconds(0.5), $"{sw.ElapsedMilliseconds} ms");
+        }
+        finally
+        {
+            gate.Set();
+        }
     }
 }

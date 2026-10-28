@@ -90,6 +90,25 @@ public sealed class PeaceOverlay : FrameworkElement
     private readonly Dictionary<int, long> _popStart = [];
     private readonly HashSet<int> _popped = [];
     private readonly Dictionary<int, (WobbleState State, long At)> _wobble = [];
+    // Neue Bärte, deren Textur noch nicht fertig ist: Das Plopp beginnt erst mit dem ersten sichtbaren Bild.
+    private readonly HashSet<int> _popPending = [];
+
+    // Eine Textur wurde fertig (Erzeugerthread): auf dem UI-Thread neu zeichnen.
+    private void OnTextureReady()
+    {
+        try
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (IsLoaded && (Moustaches?.Count ?? 0) > 0)
+                    InvalidateVisual();
+            });
+        }
+        catch (InvalidOperationException)
+        {
+            // Dispatcher wird gerade beendet: nichts zu tun.
+        }
+    }
 
     /// <summary>Zeitquelle für Plopp und Wippen (Zähler wie <see cref="Stopwatch.GetTimestamp"/>); Tests setzen eine eigene.</summary>
     internal Func<long> Clock { get; set; } = Stopwatch.GetTimestamp;
@@ -100,8 +119,19 @@ public sealed class PeaceOverlay : FrameworkElement
         Focusable = false;
         ClipToBounds = true;
         RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.HighQuality);
-        Loaded += (_, _) => UpdateSubscription();
-        Unloaded += (_, _) => Unsubscribe();
+        Loaded += (_, _) =>
+        {
+            MoustacheTextures.TextureReady -= OnTextureReady;
+            MoustacheTextures.TextureReady += OnTextureReady;
+            UpdateSubscription();
+            if (_popPending.Count > 0)
+                InvalidateVisual();
+        };
+        Unloaded += (_, _) =>
+        {
+            MoustacheTextures.TextureReady -= OnTextureReady;
+            Unsubscribe();
+        };
         IsVisibleChanged += (_, _) => UpdateSubscription();
     }
 
@@ -199,6 +229,7 @@ public sealed class PeaceOverlay : FrameworkElement
         {
             _popped.Clear();
             _popStart.Clear();
+            _popPending.Clear();
             _wobble.Clear();
             return;
         }
@@ -209,19 +240,25 @@ public sealed class PeaceOverlay : FrameworkElement
         {
             if (_popped.Add(view.FaceId))
             {
-                _popStart[view.FaceId] = now;
+                // Ist schon irgendeine Textur dieses Bartes fertig, beginnt das Plopp sofort, sonst erst mit dem ersten sichtbaren Bild.
+                if (MoustacheTextures.HasAnyReady(view.Style, view.Color))
+                    _popStart[view.FaceId] = now;
+                else
+                    _popPending.Add(view.FaceId);
                 // Foto-Auflösung (Breite in Kamerapixeln) schon jetzt im Hintergrund erzeugen.
-                MoustacheTextures.PrewarmInBackground(view.Style, view.Color, view.Pose.WidthPx);
+                MoustacheTextures.StartInBackground(view.Style, view.Color, view.Pose.WidthPx);
             }
             if (!view.Wobble.IsRest)
                 _wobble[view.FaceId] = (view.Wobble, now);
         }
         foreach (var id in _popStart.Keys.Where(id => views.All(v => v.FaceId != id)).ToList())
             _popStart.Remove(id);
+        _popPending.RemoveWhere(id => views.All(v => v.FaceId != id));
     }
 
     internal double PopScaleOf(int faceId) =>
-        _popStart.TryGetValue(faceId, out var start) ? MoustachePop.Scale(Seconds(start)) : 1;
+        _popPending.Contains(faceId) ? 0
+        : _popStart.TryGetValue(faceId, out var start) ? MoustachePop.Scale(Seconds(start)) : 1;
 
     internal WobbleState CurrentWobbleOf(int faceId) =>
         _wobble.TryGetValue(faceId, out var w) ? w.State.Advance(Seconds(w.At)) : WobbleState.Rest;
@@ -358,14 +395,24 @@ public sealed class PeaceOverlay : FrameworkElement
         var sy = viewH / imageH;
         var scale = Fit == OverlayFit.Uniform ? Math.Min(sx, sy) : Math.Max(sx, sy);
 
+        var popStarted = false;
         foreach (var view in Moustaches ?? [])
         {
+            // Das Plopp startet mit dem ersten Bild, in dem die Textur da ist (bis dahin wird nichts gezeichnet, nie gewartet).
+            if (_popPending.Contains(view.FaceId) && MoustacheTextures.HasAnyReady(view.Style, view.Color))
+            {
+                _popPending.Remove(view.FaceId);
+                _popStart[view.FaceId] = Clock();
+                popStarted = true;
+            }
             var pose = _moustacheGlides.TryGetValue(view.FaceId, out var glide) ? Lerp(glide.From, glide.To, tMoustache) : view.Pose;
             var center = OverlayMapper.MapPoint(pose.Center, ImageWidth, ImageHeight, viewW, viewH, Fit, Mirror);
             var wobble = CurrentWobbleOf(view.FaceId);
             MoustacheRenderer.Draw(drawingContext, view.Style, view.Color, new Point(center.X, center.Y), pose.WidthPx * scale, pose.AngleRad, Mirror,
                 PopScaleOf(view.FaceId), wobble.Offset, wobble.Angle);
         }
+        if (popStarted)
+            UpdateSubscription();
 
         if (ShowFaceLandmarks)
         {

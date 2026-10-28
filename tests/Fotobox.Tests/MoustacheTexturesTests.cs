@@ -184,6 +184,7 @@ public class MoustacheTexturesTests
     [StaFact]
     public void Draw_PlacesTheTextureOriginAtTheCenter_AndScalesByTheShapeWidth()
     {
+        MoustacheTextures.Get(MoustacheStyle.Chevron, MoustacheColor.Black, 400); // Draw wartet nie auf Texturen
         // Weißer Grund, Chevron-Breite 400 px bei (500, 300): Haar um die Oberlippe, nichts weit ab, Breite ≈ 400 (nicht Textur mit Rand).
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
@@ -236,6 +237,7 @@ public class MoustacheTexturesTests
     [StaFact]
     public void RenderOnto_UsesAHigherResolutionTexture_ForAWideMoustache_AndTheTrackColor()
     {
+        MoustacheTextures.Get(MoustacheStyle.Brush, MoustacheColor.Ginger, 700); // RenderOnto erzeugt nie selbst
         var photo = BitmapSource.Create(1600, 900, 96, 96, PixelFormats.Pbgra32, null, Enumerable.Repeat((byte)255, 1600 * 900 * 4).ToArray(), 1600 * 4);
         var pose = new MoustachePose(new NormPoint(0.5, 0.5), 700, 0);
 
@@ -247,9 +249,18 @@ public class MoustacheTexturesTests
         Assert.True(pixel[2] > pixel[0] + 40, "rötliches Haar (R deutlich über B)");
     }
 
+
     [StaFact]
     public void Sketch_ShowsTheSameTextureAndFitsTallShapes()
     {
+        foreach (var style in new[] { MoustacheStyle.FuManchu, MoustacheStyle.Horseshoe, MoustacheStyle.Handlebar })
+            MoustacheTextures.Get(style, MoustacheColor.DarkBrown, 100); // Die Skizze wartet nie auf Texturen: erst fertig machen
+        foreach (var style in MoustacheStyles.All)
+        {
+            foreach (var color in new[] { MoustacheColor.DarkBrown, MoustacheColor.Ginger, MoustacheColor.Gray, MoustacheColor.Black, MoustacheColor.Blond, MoustacheColor.Brown })
+                MoustacheTextures.Get(style, color, 30);
+        }
+
         foreach (var style in new[] { MoustacheStyle.Random, MoustacheStyle.FuManchu, MoustacheStyle.Horseshoe, MoustacheStyle.Handlebar })
         {
             var sketch = new Fotobox.Views.Admin.MoustacheSketch { StyleKind = style };
@@ -269,5 +280,226 @@ public class MoustacheTexturesTests
                 Assert.True(top > -6 && top + image.Height < 74, $"{style}: y {top}..{top + image.Height}");
             }
         }
+    }
+
+    // ---- Nie blockieren, Retry, LRU (mit ersetztem Erzeuger; die Texturen sind winzig)
+
+    private static MoustacheTexture Tiny(int tier)
+    {
+        var bitmap = BitmapSource.Create(2, 2, 96, 96, PixelFormats.Pbgra32, null, new byte[16], 8);
+        bitmap.Freeze();
+        return new MoustacheTexture(bitmap, new Rect(-0.5, -0.1, 1, 0.2), tier);
+    }
+
+    private static void WithFactory(Func<MoustacheStyle, MoustacheColor, int, MoustacheTexture> factory, Action body)
+    {
+        using var isolation = MoustacheTextures.Isolate();
+        MoustacheTextures.Factory = factory;
+        body();
+    }
+
+    [StaFact]
+    public void TryGetReady_ColdTexture_ReturnsImmediately_FallsBackToAnotherTier_AndRaisesTheEventWhenDone()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        var raised = 0;
+        void OnReady() => Interlocked.Increment(ref raised);
+
+        WithFactory((_, _, tier) =>
+        {
+            if (tier != 512)
+                gate.Wait(TimeSpan.FromSeconds(20));
+            return Tiny(tier);
+        }, () =>
+        {
+            // eine größere Stufe (512) ist schon da
+            MoustacheTextures.GetTier(MoustacheStyle.Walrus, MoustacheColor.Gray, 512);
+
+            MoustacheTextures.TextureReady += OnReady;
+            try
+            {
+                var sw = Stopwatch.StartNew();
+                var found = MoustacheTextures.TryGetReady(MoustacheStyle.Walrus, MoustacheColor.Gray, 200, out var fallback);
+                Assert.True(sw.ElapsedMilliseconds < 50, $"TryGetReady blockiert ({sw.ElapsedMilliseconds} ms)");
+                Assert.True(found);
+                Assert.Equal(512, fallback!.PixelsPerUnit); // die nächstgrößere fertige Stufe
+
+                // ganz ohne fertige Stufe: sofort nichts
+                sw.Restart();
+                Assert.False(MoustacheTextures.TryGetReady(MoustacheStyle.Brush, MoustacheColor.Black, 200, out var none));
+                Assert.Null(none);
+                Assert.True(sw.ElapsedMilliseconds < 50);
+
+                gate.Set();
+                Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref raised) > 0, 10000), "Das Ereignis feuert nach der Fertigstellung");
+                Assert.True(SpinWait.SpinUntil(() => MoustacheTextures.IsCached(MoustacheStyle.Walrus, MoustacheColor.Gray, 256), 5000));
+                Assert.True(MoustacheTextures.TryGetReady(MoustacheStyle.Walrus, MoustacheColor.Gray, 200, out var exact));
+                Assert.Equal(256, exact!.PixelsPerUnit);
+            }
+            finally
+            {
+                MoustacheTextures.TextureReady -= OnReady;
+                gate.Set();
+            }
+        });
+    }
+
+    [StaFact]
+    public async Task EnsureAsync_WaitsAtMostTheBudget_ThenSucceedsOnceTheTextureIsDone()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        using var isolation = MoustacheTextures.Isolate();
+        MoustacheTextures.Factory = (_, _, tier) =>
+        {
+            gate.Wait(TimeSpan.FromSeconds(20));
+            return Tiny(tier);
+        };
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            var ok = await MoustacheTextures.EnsureAsync(MoustacheStyle.Chevron, MoustacheColor.Blond, 900, TimeSpan.FromMilliseconds(150));
+            Assert.False(ok);
+            Assert.True(sw.ElapsedMilliseconds < 1500, $"EnsureAsync überschreitet das Budget ({sw.ElapsedMilliseconds} ms)");
+
+            gate.Set();
+            Assert.True(await MoustacheTextures.EnsureAsync(MoustacheStyle.Chevron, MoustacheColor.Blond, 900, TimeSpan.FromSeconds(10)));
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
+    [StaFact]
+    public void FailedCreation_IsLoggedAndRetried_ButOnlyUpToMaxAttempts()
+    {
+        var calls = 0;
+        WithFactory((_, _, tier) =>
+        {
+            Interlocked.Increment(ref calls);
+            throw new InvalidOperationException("Test-Fehler");
+        }, () =>
+        {
+            for (var i = 0; i < MoustacheTextures.MaxAttempts; i++)
+                Assert.Throws<InvalidOperationException>(() => MoustacheTextures.GetTier(MoustacheStyle.Brush, MoustacheColor.Brown, 256));
+            Assert.Equal(MoustacheTextures.MaxAttempts, calls);
+
+            // aufgegeben: kein weiterer Versuch, keine Endlosschleife, nichts blockiert
+            Assert.Throws<InvalidOperationException>(() => MoustacheTextures.GetTier(MoustacheStyle.Brush, MoustacheColor.Brown, 256));
+            Assert.False(MoustacheTextures.TryGetReady(MoustacheStyle.Brush, MoustacheColor.Brown, 100, out _));
+            Assert.Equal(MoustacheTextures.MaxAttempts, calls);
+        });
+    }
+
+    [StaFact]
+    public void FailedCreation_DoesNotPoisonTheEntryForever()
+    {
+        var calls = 0;
+        WithFactory((_, _, tier) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+                throw new InvalidOperationException("einmaliger Fehler");
+            return Tiny(tier);
+        }, () =>
+        {
+            Assert.Throws<InvalidOperationException>(() => MoustacheTextures.GetTier(MoustacheStyle.Twirl, MoustacheColor.Black, 256));
+            var texture = MoustacheTextures.GetTier(MoustacheStyle.Twirl, MoustacheColor.Black, 256); // zweiter Versuch gelingt
+            Assert.Equal(256, texture.PixelsPerUnit);
+            Assert.Equal(2, calls);
+        });
+    }
+
+    [StaFact]
+    public void Cache_KeepsAtMostEightLargeTextures_EvictingTheLeastRecentlyUsed_AndKeepsSmallTiers()
+    {
+        WithFactory((_, _, tier) => Tiny(tier), () =>
+        {
+            foreach (var color in MoustacheStyles.AllColors.Take(3))
+                MoustacheTextures.GetTier(MoustacheStyle.Twirl, color, 256);
+
+            var keys = MoustacheStyles.All.SelectMany(s => MoustacheStyles.AllColors.Take(2).Select(c => (s, c))).Take(10).ToList();
+            var first = keys[0];
+            foreach (var (style, color) in keys)
+            {
+                MoustacheTextures.GetTier(style, color, 1024);
+                MoustacheTextures.GetTier(first.s, first.c, 1024); // die erste bleibt „kürzlich benutzt“
+            }
+
+            Assert.Equal(MoustacheTextures.MaxLargeEntries, MoustacheTextures.CachedCount(largeOnly: true));
+            Assert.True(MoustacheTextures.IsCached(first.s, first.c, 1024), "kürzlich benutzte bleibt");
+            Assert.True(MoustacheTextures.IsCached(keys[^1].s, keys[^1].c, 1024));
+            Assert.False(MoustacheTextures.IsCached(keys[1].s, keys[1].c, 1024), "die am längsten unbenutzte fliegt raus");
+            Assert.Equal(3, MoustacheTextures.CachedCount() - MoustacheTextures.CachedCount(largeOnly: true)); // 256er bleiben
+        });
+    }
+
+    [StaFact]
+    public void Draw_WithAColdTexture_DoesNotBlock_AndDrawsNothing()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        WithFactory((_, _, tier) =>
+        {
+            gate.Wait(TimeSpan.FromSeconds(20));
+            return Tiny(tier);
+        }, () =>
+        {
+            try
+            {
+                var visual = new DrawingVisual();
+                using var dc = visual.RenderOpen();
+                var sw = Stopwatch.StartNew();
+                var drawn = MoustacheRenderer.Draw(dc, MoustacheStyle.Handlebar, MoustacheColor.Ginger, new Point(50, 50), 300, 0, false);
+                Assert.False(drawn);
+                Assert.True(sw.ElapsedMilliseconds < 50, $"Draw blockiert ({sw.ElapsedMilliseconds} ms)");
+            }
+            finally
+            {
+                gate.Set();
+            }
+        });
+    }
+
+    [StaFact]
+    public void Overlay_PopWaitsForTheFirstVisibleFrame_AndSketchShowsAPlaceholderUntilTheTextureIsReady()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        WithFactory((_, _, tier) =>
+        {
+            gate.Wait(TimeSpan.FromSeconds(20));
+            return Tiny(tier);
+        }, () =>
+        {
+            try
+            {
+                long now = 0;
+                var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Clock = () => now };
+                overlay.Moustaches = [new MoustacheView(1, MoustacheStyle.Twirl, new MoustachePose(new NormPoint(0.5, 0.5), 200, 0), MoustacheColor.Black)];
+                overlay.Measure(new Size(1920, 1080));
+                overlay.Arrange(new Rect(0, 0, 1920, 1080));
+                overlay.UpdateLayout();
+                now = Stopwatch.Frequency;
+                Assert.Equal(0, overlay.PopScaleOf(1)); // keine Textur: das Plopp wartet, der Bart ist unsichtbar
+
+                var sketch = new Fotobox.Views.Admin.MoustacheSketch { StyleKind = MoustacheStyle.Brush, HairColor = MoustacheColor.Blond };
+                var host = (System.Windows.Controls.Canvas)sketch.FindName("Host");
+                Assert.Single(host.Children.OfType<System.Windows.Shapes.Path>()); // Platzhalter statt Bild
+                Assert.Empty(host.Children.OfType<System.Windows.Controls.Image>());
+
+                gate.Set();
+                Assert.True(SpinWait.SpinUntil(() => MoustacheTextures.HasAnyReady(MoustacheStyle.Twirl, MoustacheColor.Black), 5000));
+                // erstes Bild mit Textur: Das Plopp beginnt jetzt (bei „jetzt“, nicht rückwirkend)
+                overlay.InvalidateVisual(); // so wie es OnTextureReady im Livebetrieb auslöst
+                overlay.UpdateLayout();
+                var bitmap = new RenderTargetBitmap(1920, 1080, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(overlay);
+                Assert.Equal(0, overlay.PopScaleOf(1), 3);
+                now += (long)(0.12 * Stopwatch.Frequency);
+                Assert.True(overlay.PopScaleOf(1) > 0.3);
+            }
+            finally
+            {
+                gate.Set();
+            }
+        });
     }
 }

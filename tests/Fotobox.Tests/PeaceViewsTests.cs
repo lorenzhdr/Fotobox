@@ -168,6 +168,7 @@ public class PeaceViewsTests
     [StaFact]
     public void RenderOnto_KeepsSizeAndDpi_AndDarkensTheMoustacheCenter()
     {
+        MoustacheTextures.Get(MoustacheStyle.Chevron, MoustacheColor.DarkBrown, 100); // Das Foto nutzt nur fertige Texturen
         var white = BitmapSource.Create(200, 100, 96, 96, PixelFormats.Pbgra32, null, Enumerable.Repeat((byte)255, 200 * 100 * 4).ToArray(), 200 * 4);
         var pose = new MoustachePose(new NormPoint(0.5, 0.5), 100, 0);
 
@@ -242,6 +243,7 @@ public class PeaceViewsTests
     [StaFact]
     public void PeaceOverlay_DrawsTheMoustacheAtTheMappedPosition()
     {
+        MoustacheTextures.Get(MoustacheStyle.Chevron, MoustacheColor.DarkBrown, 200); // Texturen sind fertig (Zeichnen wartet nie darauf)
         // Der Bart ist nach dem Plopp (Uhr 1 s weiter) in Endgröße da.
         long now = 0;
         var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Clock = () => now };
@@ -270,6 +272,9 @@ public class PeaceViewsTests
     public void PeaceOverlay_GrowsInWithAPop_ThenStaysAtFullSize_AndDoesNotPopAgainInTheSameSession()
     {
         long now = 0;
+        // fertige Texturen: sonst wartet das Plopp auf das erste sichtbare Bild
+        MoustacheTextures.Get(MoustacheStyle.Chevron, MoustacheColor.DarkBrown, 200);
+        MoustacheTextures.Get(MoustacheStyle.Brush, MoustacheColor.DarkBrown, 200);
         var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Clock = () => now };
         overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.25, 0.5)];
         Layout(overlay);
@@ -297,6 +302,7 @@ public class PeaceViewsTests
     [StaFact]
     public void PeaceOverlay_AtTheStartOfThePop_DrawsNothing_AndWobbleDecaysToRest()
     {
+        MoustacheTextures.Get(MoustacheStyle.Chevron, MoustacheColor.DarkBrown, 200);
         long now = 0;
         var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Clock = () => now };
         overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.5, 0.5)];

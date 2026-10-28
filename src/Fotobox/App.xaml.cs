@@ -29,7 +29,8 @@ public partial class App : Application
     private ServiceProvider? _services;
 
     // Haartexturen der Bärte im Hintergrund vorberechnen (nur mit aktiver Aktion Schnurrbart), damit das erste Erscheinen
-    // eines Bartes nicht ruckelt. Später im Admin zugeschaltete Formen entstehen beim ersten Zeichnen.
+    // eines Bartes nicht ruckelt. Läuft beim Start und nach jedem Speichern der Einstellungen; Fertiges kostet nichts, ein laufender
+    // Arbeiter übernimmt neue Wünsche (siehe MoustacheTextures.PrewarmInBackground).
     private void PrewarmMoustacheTextures()
     {
         try
@@ -115,6 +116,8 @@ public partial class App : Application
             ShutdownMode = ShutdownMode.OnMainWindowClose;
             boothWindow.Show();
             PrewarmMoustacheTextures();
+            // Auch nach Änderungen im Admin (Peace/Bart eingeschaltet, andere Zufallsformen): fehlende Texturen nachziehen.
+            _services.GetRequiredService<ISettingsStore>().SettingsChanged += (_, _) => PrewarmMoustacheTextures();
         }
         catch (Exception ex)
         {

@@ -28,6 +28,42 @@ public sealed partial class MoustacheSketch : UserControl
     {
         InitializeComponent();
         Rebuild();
+        // Fertige Texturen ersetzen den Platzhalter; abgemeldet wird beim Entladen (nichts bleibt am statischen Ereignis hängen).
+        Loaded += (_, _) =>
+        {
+            MoustacheTextures.TextureReady -= OnTextureReady;
+            MoustacheTextures.TextureReady += OnTextureReady;
+            if (_waitingForTexture)
+                Rebuild();
+        };
+        Unloaded += (_, _) => MoustacheTextures.TextureReady -= OnTextureReady;
+    }
+
+    private bool _waitingForTexture;
+
+    private static readonly Brush PlaceholderBrush = CreatePlaceholderBrush();
+
+    private static Brush CreatePlaceholderBrush()
+    {
+        var brush = new SolidColorBrush(Color.FromArgb(0x70, 0x6A, 0x4A, 0x32));
+        brush.Freeze();
+        return brush;
+    }
+
+    private void OnTextureReady()
+    {
+        try
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (_waitingForTexture && IsLoaded)
+                    Rebuild();
+            });
+        }
+        catch (InvalidOperationException)
+        {
+            // Dispatcher wird beendet.
+        }
     }
 
     /// <summary>Dargestellte Bartform (nicht <c>Style</c>, das ist die WPF-Eigenschaft für Stile).</summary>
@@ -47,6 +83,7 @@ public sealed partial class MoustacheSketch : UserControl
     private void Rebuild()
     {
         Host.Children.Clear();
+        _waitingForTexture = false;
         if (StyleKind == MoustacheStyle.Random)
         {
             // 4 + 3 kleine Bärte in zwei Reihen
@@ -78,10 +115,24 @@ public sealed partial class MoustacheSketch : UserControl
         var shape = MoustacheShapes.Get(style).Bounds;
         var fit = Math.Min((cellWidth - 6) / shape.Width, (cellHeight - 6) / shape.Height);
         var width = Math.Min(maxWidth, fit);
-        var texture = MoustacheTextures.Get(style, color, width);
-
         var originX = cellX + cellWidth / 2;
         var originY = cellY + cellHeight / 2 - (shape.Y + shape.Height / 2) * width;
+
+        // Nie blockieren: Ist die Textur noch nicht fertig (Erzeugung im Hintergrund), zeigt die Skizze den blassen Umriss der Form,
+        // bis TextureReady sie ersetzt.
+        if (!MoustacheTextures.TryGetReady(style, color, width, out var texture))
+        {
+            _waitingForTexture = true;
+            var placeholder = new System.Windows.Shapes.Path
+            {
+                Data = MoustacheShapes.Get(style),
+                Fill = PlaceholderBrush,
+                RenderTransform = new TransformGroup { Children = [new ScaleTransform(width, width), new TranslateTransform(originX, originY)] },
+            };
+            Host.Children.Add(placeholder);
+            return;
+        }
+
         var image = new Image
         {
             Source = texture.Bitmap,
