@@ -188,7 +188,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
     public AdminViewModel(ISettingsStore store, IPinService pin, ICameraService camera, IPrintService print, IAdminUi ui,
         TimeProvider? time = null, IDisplayService? displays = null,
-        IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null)
+        IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null, IGestureDetectionService? gestures = null)
     {
         _time = time ?? TimeProvider.System;
         // Live-Vorschau im Tab „Fun“: eigene Zielerfassung (nicht aus dem Container, sonst hielte dieser jede Instanz). Ohne Dienste
@@ -197,6 +197,13 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             ? new FunOverlayViewModel(detection, sound, _time)
             : FunOverlayViewModel.CreateInert();
         FunPreview.PropertyChanged += OnFunPreviewPropertyChanged;
+        // Live-Vorschau der Peaceerkennung (Fun → Peaceerkennung): eigene Instanz ohne Bart-Zustand der Gastansicht, damit ein Test
+        // nie in ein echtes Foto gelangt. Ohne Dienste (Tests) inert.
+        PeacePreview = gestures is not null && sound is not null
+            ? new PeaceOverlayViewModel(gestures, _time, sound)
+            : PeaceOverlayViewModel.CreateInert();
+        PeacePreview.PropertyChanged += OnPeacePreviewPropertyChanged;
+        PeacePreview.ActionRequested += OnPeacePreviewAction;
         _store = store;
         _pin = pin;
         Camera = camera;
@@ -266,6 +273,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
         TestFunPreviewCommand = new RelayCommand(TestFunPreview);
         ShowFunPageCommand = new RelayCommand<FunPage>(page => FunPage = page);
+        TestSelfDestructCommand = new RelayCommand(StartPeaceTestSelfDestruct);
+        TestMoustacheCommand = new RelayCommand(StartPeaceTestMoustache);
 
         Camera.StatusChanged += OnCameraStatusChanged;
         UpdateOverlay();
@@ -432,11 +441,15 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         // Läuft die Vorschau im Tab „Fun“, gelten geänderte Entwurfswerte sofort.
         if (_isFunTabSelected && !_disposed && AffectsFunPreview(e.PropertyName))
             UpdateFunPreview();
+        if (_isFunTabSelected && !_disposed && AffectsPeacePreview(e.PropertyName))
+            UpdatePeacePreview();
         if (_saveStatusMessage.Length > 0
             && e.PropertyName is not (nameof(SaveStatusMessage) or nameof(HasSaveStatus) or nameof(IsSaving)
                 or nameof(FunPreviewStatusText) or nameof(FunPreviewWarningText) or nameof(HasFunPreviewWarning)
                 or nameof(FunPreviewCameraRunning) or nameof(FunPreviewNoCamera) or nameof(IsFunTabSelected)
-                or nameof(FunPage)))
+                or nameof(FunPage))
+            && e.PropertyName?.StartsWith("PeacePreview", StringComparison.Ordinal) != true
+            && e.PropertyName?.StartsWith("HasPeacePreview", StringComparison.Ordinal) != true)
             HideSaveStatusIfDirty();
     }
 
@@ -743,6 +756,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CameraStatusText));
         OnPropertyChanged(nameof(FunPreviewCameraRunning));
         OnPropertyChanged(nameof(FunPreviewNoCamera));
+        RaisePeacePreviewStatus();
     }
 
     // ---------------------------------------------------------------- Ablauf
@@ -2626,7 +2640,11 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     public bool FunEnabled
     {
         get => _draft.Fun.Enabled;
-        set => SetProperty(_draft.Fun.Enabled, value, v => _draft.Fun.Enabled = v);
+        set
+        {
+            if (SetProperty(_draft.Fun.Enabled, value, v => _draft.Fun.Enabled = v))
+                OnPropertyChanged(nameof(FunPersonsStatusText));
+        }
     }
 
     /// <summary>Erkennungsverfahren (Wahlkarten, gebunden über <c>EnumMatchConverter</c>).</summary>
@@ -2794,7 +2812,10 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         set
         {
             if (SetProperty(ref _isFunTabSelected, value))
+            {
                 UpdateFunPreview();
+                UpdatePeacePreview();
+            }
         }
     }
 
@@ -2804,7 +2825,15 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     public FunPage FunPage
     {
         get => _funPage;
-        set => SetProperty(ref _funPage, value);
+        set
+        {
+            if (SetProperty(ref _funPage, value))
+            {
+                // Personenerkennung und Peaceerkennung teilen sich die Kamera nur über getrennte Anforderungen: Je Seite läuft höchstens eine Vorschau.
+                UpdateFunPreview();
+                UpdatePeacePreview();
+            }
+        }
     }
 
     /// <summary>Wechselt die Seite des Tabs „Fun“ (Parameter: die Zielseite).</summary>
@@ -2840,13 +2869,14 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     private void UpdateFunPreview()
     {
         if (!_disposed)
-            FunPreview.SetActive(_isFunTabSelected, _draft.Fun, MirrorPreview);
+            FunPreview.SetActive(_isFunTabSelected && _funPage == FunPage.Persons, _draft.Fun, MirrorPreview);
     }
 
     private static bool AffectsFunPreview(string? propertyName) =>
         string.IsNullOrEmpty(propertyName) // alle Eigenschaften (Standardwerte wiederhergestellt)
         || propertyName == nameof(MirrorPreview)
-        || (propertyName.StartsWith("Fun", StringComparison.Ordinal) && !propertyName.StartsWith("FunPreview", StringComparison.Ordinal))
+        || (propertyName.StartsWith("Fun", StringComparison.Ordinal) && !propertyName.StartsWith("FunPreview", StringComparison.Ordinal)
+            && propertyName != nameof(FunPersonsStatusText))
         || propertyName.StartsWith("SelectedFun", StringComparison.Ordinal);
 
     private void OnFunPreviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -3275,6 +3305,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         _disposed = true;
         FunPreview.PropertyChanged -= OnFunPreviewPropertyChanged;
         FunPreview.Dispose();
+        DisposePeacePreview();
         Camera.StatusChanged -= OnCameraStatusChanged;
         _lifetime.Cancel();
         _lifetime.Dispose();

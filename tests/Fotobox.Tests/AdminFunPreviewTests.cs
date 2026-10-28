@@ -56,6 +56,8 @@ public sealed class AdminFunPreviewTests : IDisposable
         var vm = new AdminViewModel(_store, _pin, camera ?? new AdminViewModelTests.FakeCamera(), _print, _ui, _time,
             new AdminViewModelTests.FakeDisplays(AdminViewModelTests.AdminMonitors.Primary),
             withServices ? _detection : null, withServices ? _sound : null);
+        // Die Vorschau der Zielerfassung läuft nur auf der Unterseite „Personenerkennung“.
+        vm.FunPage = FunPage.Persons;
         _created.Add(vm);
         return vm;
     }
