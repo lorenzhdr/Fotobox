@@ -204,7 +204,7 @@
                                 <TextBlock Text="{Binding MicrophoneHint}" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}"
                                            Visibility="{Binding HasMicrophoneHint, Converter={StaticResource BoolToVis}}" />
                                 <TextBlock Style="{StaticResource Hint}"
-                                           Text="Fehlt das Mikrofon oder ist der Zugriff in Windows gesperrt, wird ohne Ton aufgenommen. Eine Änderung beim Ton wirkt nach „Speichern“ (die Kamera startet dabei kurz neu)." />
+                                           Text="Fehlt das Mikrofon oder ist der Zugriff in Windows gesperrt, wird ohne Ton aufgenommen. Eine Änderung beim Ton oder Mikrofon wirkt erst nach dem Schließen der Einstellungen (die Kamera startet dabei kurz neu)." />
 
                                 <!-- Speicherort -->
                                 <TextBlock Text="Speicherordner der Videos" Style="{StaticResource FieldLabel}" Margin="0,24,0,6" />
@@ -735,7 +735,7 @@
                                 </RadioButton>
                             </UniformGrid>
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Das Farbschema gilt für die Einstellungen und die PIN-Abfrage, nicht für die Gastansicht. Die Änderung ist sofort sichtbar und wird mit „Speichern“ übernommen." />
+                                       Text="Das Farbschema gilt für die Einstellungen und die PIN-Abfrage, nicht für die Gastansicht. Die Änderung ist sofort sichtbar und wird mit „Übernehmen“ oder „Speichern &amp; schließen“ gespeichert." />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>
@@ -875,7 +875,7 @@
                             <Button Content="Standard wiederherstellen" Command="{Binding ResetKeysCommand}"
                                     HorizontalAlignment="Left" Margin="0,18,0,0" />
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="„Foto auslösen“ und „Admin-Ansicht öffnen“ behalten immer mindestens eine Taste. Die Änderungen gelten nach „Speichern“." />
+                                       Text="„Foto auslösen“ und „Admin-Ansicht öffnen“ behalten immer mindestens eine Taste. Die Änderungen gelten nach „Übernehmen“ oder „Speichern &amp; schließen“." />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>
@@ -942,13 +942,13 @@
                                     HorizontalAlignment="Left" Style="{StaticResource PrimaryButton}" />
                             <TextBlock Text="{Binding PinStatus}" FontSize="14" TextWrapping="Wrap" Margin="0,12,0,0" />
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Die PIN wird sofort geändert. Haben Sie die Felder ausgefüllt und klicken auf „Speichern“, wird die neue PIN ebenfalls übernommen." />
+                                       Text="Die PIN wird sofort geändert. Haben Sie die Felder ausgefüllt und klicken auf „Übernehmen“ oder „Speichern &amp; schließen“, wird die neue PIN ebenfalls übernommen." />
 
                             <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,28,0,0" Padding="0,22,0,0">
                                 <StackPanel>
                                     <TextBlock Text="Standardwerte" Style="{StaticResource SectionTitle}" />
                                     <TextBlock Style="{StaticResource Hint}"
-                                               Text="Setzt alle Einstellungen außer der PIN zurück. Fotos und Overlay-Dateien bleiben erhalten. Die Änderung gilt erst nach „Speichern“." />
+                                               Text="Setzt alle Einstellungen außer der PIN zurück. Fotos und Overlay-Dateien bleiben erhalten. Die Änderung gilt erst nach „Übernehmen“ oder „Speichern &amp; schließen“." />
                                     <Button Content="Standardwerte wiederherstellen …" Command="{Binding ResetToDefaultsCommand}"
                                             HorizontalAlignment="Left" Margin="0,14,0,0"
                                             AutomationProperties.Name="Standardwerte wiederherstellen" />
@@ -980,9 +980,18 @@
                 </ScrollViewer>
             </Border>
 
+            <!-- Erfolgsmeldung nach „Übernehmen“ (verschwindet bei der nächsten Änderung; nie gleichzeitig mit einem Fehler) -->
+            <Border Grid.Column="1" Margin="16,0" Background="{DynamicResource AccentSoftBrush}" CornerRadius="10"
+                    Padding="14,8" VerticalAlignment="Bottom" HorizontalAlignment="Left"
+                    Visibility="{Binding HasSaveStatus, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding SaveStatusMessage}" Foreground="{DynamicResource AccentBrush}"
+                           FontSize="13.5" TextWrapping="Wrap" AutomationProperties.Name="Speicherstatus" />
+            </Border>
+
             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Bottom">
-                <Button Content="Abbrechen" Command="{Binding CancelCommand}" />
-                <Button Content="Speichern" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButton}"
+                <Button Content="Schließen" Command="{Binding CloseCommand}" />
+                <Button Content="Übernehmen" Command="{Binding ApplyCommand}" Margin="10,0,0,0" />
+                <Button Content="Speichern &amp; schließen" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButton}"
                         Margin="10,0,0,0" MinWidth="140" />
             </StackPanel>
         </Grid>

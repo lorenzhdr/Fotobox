@@ -250,9 +250,10 @@ public sealed class AdminViewModelTests : IDisposable
         var vm = CreateViewModel();
         bool? closed = null;
         vm.CloseRequested += save => closed = save;
+        _ui.ConfirmResult = true;   // „Änderungen verwerfen?“ bestätigen
 
         vm.CountdownSeconds = 9;
-        vm.CancelCommand.Execute(null);
+        vm.CloseCommand.Execute(null);
 
         Assert.False(closed);
         Assert.False(vm.SettingsSaved);
@@ -1349,7 +1350,7 @@ public sealed class AdminViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Save_Twice_WritesOnlyOnce()
+    public void Save_Twice_AfterClosing_WritesOnlyOnce()
     {
         var vm = CreateViewModel();
 
@@ -1357,6 +1358,494 @@ public sealed class AdminViewModelTests : IDisposable
         vm.SaveCommand.Execute(null);
 
         Assert.Equal(1, _store.SaveCount);
+    }
+
+    [Fact]
+    public async Task Save_WhileAnotherSaveRuns_WritesOnlyOnce_AndApplyIsAllowedAgainAfterwards()
+    {
+        var vm = CreateViewModel();
+        using var release = new ManualResetEventSlim();
+        // Geänderter Ordner → Schreibtest im Hintergrund; er hält das erste Speichern auf.
+        vm.FolderWriteCheck = _ => { release.Wait(TimeSpan.FromSeconds(20)); return null; };
+        vm.Draft.Storage.PhotoFolder = Path.Combine(_dir, "neuer-ordner");
+
+        var first = vm.ApplyCommand.ExecuteAsync(null);
+        var second = vm.SaveCommand.ExecuteAsync(null);
+        var third = vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.True(vm.IsSaving);
+        Assert.False(vm.ApplyCommand.CanExecute(null));
+        Assert.False(vm.SaveCommand.CanExecute(null));
+
+        release.Set();
+        await Task.WhenAll(first, second, third);
+
+        Assert.Equal(1, _store.SaveCount);
+        Assert.False(vm.IsSaving);
+        Assert.True(vm.ApplyCommand.CanExecute(null));
+
+        vm.CountdownSeconds = 9;
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, _store.SaveCount);
+        Assert.Equal(9, _store.Current.Flow.CountdownSeconds);
+    }
+
+    // ------------------------------------------------------------------ Übernehmen
+
+    [Fact]
+    public void Apply_Saves_StaysOpen_AndMarksSettingsSaved()
+    {
+        var vm = CreateViewModel();
+        bool? closed = null;
+        vm.CloseRequested += save => closed = save;
+
+        vm.CountdownSeconds = 8;
+        vm.ApplyCommand.Execute(null);
+
+        Assert.Null(closed);
+        Assert.True(vm.SettingsSaved);
+        Assert.Equal(1, _store.SaveCount);
+        Assert.Equal(8, _store.Current.Flow.CountdownSeconds);
+        Assert.Equal(string.Empty, vm.ValidationMessage);
+    }
+
+    [Fact]
+    public void Apply_AfterFurtherChange_WritesAgain()
+    {
+        var vm = CreateViewModel();
+
+        vm.CountdownSeconds = 8;
+        vm.ApplyCommand.Execute(null);
+        vm.CountdownSeconds = 7;
+        vm.ApplyCommand.Execute(null);
+
+        Assert.Equal(2, _store.SaveCount);
+        Assert.Equal(7, _store.Current.Flow.CountdownSeconds);
+    }
+
+    [Fact]
+    public void Apply_ThenSave_WritesTwice_AndCloses()
+    {
+        var vm = CreateViewModel();
+        bool? closed = null;
+        vm.CloseRequested += save => closed = save;
+
+        vm.CountdownSeconds = 8;
+        vm.ApplyCommand.Execute(null);
+        Assert.Null(closed);
+        vm.CountdownSeconds = 6;
+        vm.SaveCommand.Execute(null);
+
+        Assert.True(closed);
+        Assert.Equal(2, _store.SaveCount);
+        Assert.Equal(6, _store.Current.Flow.CountdownSeconds);
+        Assert.True(vm.SettingsSaved);
+    }
+
+    [Fact]
+    public void Apply_WithInvalidInput_ShowsMessage_AndKeepsSavedFlagFalse()
+    {
+        var vm = CreateViewModel();
+
+        vm.FilePrefix = "   ";
+        vm.ApplyCommand.Execute(null);
+
+        Assert.False(vm.SettingsSaved);
+        Assert.Equal(0, _store.SaveCount);
+        Assert.NotEqual(string.Empty, vm.ValidationMessage);
+        Assert.False(vm.HasSaveStatus);
+    }
+
+    [Fact]
+    public void Apply_StoreThrows_ShowsMessage_AndNoStatus()
+    {
+        var vm = CreateViewModel();
+        _store.ThrowOnSave = new IOException("gesperrt");
+
+        vm.CountdownSeconds = 8;
+        vm.ApplyCommand.Execute(null);
+
+        Assert.False(vm.SettingsSaved);
+        Assert.Contains("gesperrt", vm.ValidationMessage);
+        Assert.False(vm.HasSaveStatus);
+        Assert.True(vm.HasUnsavedChanges);
+        Assert.False(vm.IsSaving);
+    }
+
+    [Fact]
+    public async Task Apply_DoesNotProbeAlreadySavedFolderAgain()
+    {
+        var vm = CreateViewModel();
+        var probes = new List<string>();
+        vm.FolderWriteCheck = folder => { lock (probes) probes.Add(folder); return null; };
+
+        vm.Draft.Storage.PhotoFolder = Path.Combine(_dir, "neu");
+        await vm.ApplyCommand.ExecuteAsync(null);
+        Assert.Single(probes);
+
+        vm.CountdownSeconds = 9;
+        await vm.ApplyCommand.ExecuteAsync(null);
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        Assert.Single(probes);
+        Assert.Equal(3, _store.SaveCount);
+    }
+
+    [Fact]
+    public async Task Apply_DoesNotProbeAlreadySavedVideoFolderAgain()
+    {
+        var vm = CreateViewModel();
+        var probes = new List<string>();
+        vm.FolderWriteCheck = folder => { lock (probes) probes.Add(folder); return null; };
+
+        vm.Draft.Video.Folder = Path.Combine(_dir, "videos-neu");
+        await vm.ApplyCommand.ExecuteAsync(null);
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.Single(probes);
+    }
+
+    [Fact]
+    public void Apply_ClearsPinFields_AndAppliesPinOnce()
+    {
+        var vm = CreateViewModel();
+        vm.NewPin = "123456";
+        vm.RepeatPin = "123456";
+
+        vm.ApplyCommand.Execute(null);
+
+        Assert.Equal("123456", _pin.LastPin);
+        Assert.Equal(string.Empty, vm.NewPin);
+        Assert.Equal(string.Empty, vm.RepeatPin);
+        Assert.Equal("hash:123456", _store.Current.Security.PinHash);
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task Apply_DoesNotCancelPendingDraftCameraRestarts()
+    {
+        // Übernehmen lässt die Kamera dem Entwurf weiter folgen: ein laufender Neustart wird nicht verworfen.
+        var startGate = new TaskCompletionSource();
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        _camera.StartGate = _ => startGate.Task;
+
+        var toB = vm.SelectDeviceAsync(vm.Devices[1]);
+        var toA = vm.SelectDeviceAsync(vm.Devices[0]);   // wartet auf den laufenden Neustart
+        vm.ApplyCommand.Execute(null);
+        startGate.SetResult();
+        await toB;
+        await toA;
+
+        Assert.Equal(2, _camera.StartCalls.Count);
+        Assert.Equal("cam1", _camera.StartCalls.Last().DeviceId);
+    }
+
+    // ------------------------------------------------------------------ Ungespeicherte Änderungen / Schließen
+
+    [Fact]
+    public void HasUnsavedChanges_FreshViewModel_IsFalse()
+    {
+        var vm = CreateViewModel();
+
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task HasUnsavedChanges_AfterLoadingLists_IsStillFalse_EvenIfStaleResolutionIsReset()
+    {
+        UseSavedCamera("cam1", 123, 456);   // diese Auflösung bietet die Kamera nicht an → „Automatisch“ im Entwurf
+        var vm = CreateViewModel();
+
+        await vm.InitializeAsync();
+
+        Assert.Null(vm.Draft.Camera.ResolutionWidth);
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public void HasUnsavedChanges_ChangeAndRevert()
+    {
+        var vm = CreateViewModel();
+
+        vm.CountdownSeconds = 9;
+        Assert.True(vm.HasUnsavedChanges);
+
+        vm.CountdownSeconds = 5;
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public void HasUnsavedChanges_AfterApply_IsFalse_AndTrueAgainAfterNextChange()
+    {
+        var vm = CreateViewModel();
+        vm.CountdownSeconds = 9;
+        Assert.True(vm.HasUnsavedChanges);
+
+        vm.ApplyCommand.Execute(null);
+        Assert.False(vm.HasUnsavedChanges);
+
+        vm.PrintingEnabled = !vm.PrintingEnabled;
+        Assert.True(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public void HasUnsavedChanges_FilledPinField_Counts()
+    {
+        var vm = CreateViewModel();
+
+        vm.NewPin = "1";
+        Assert.True(vm.HasUnsavedChanges);
+
+        vm.NewPin = string.Empty;
+        vm.RepeatPin = "1";
+        Assert.True(vm.HasUnsavedChanges);
+
+        vm.RepeatPin = string.Empty;
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public void HasUnsavedChanges_IgnoresPinHashChangesInStore()
+    {
+        var vm = CreateViewModel();
+        var copy = _store.Current.Clone();
+        copy.Security.PinHash = "hash:fremd";
+        _store.Save(copy);
+
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public void Close_WithChanges_Asks_AndStaysOpenOnNo()
+    {
+        var vm = CreateViewModel();
+        bool? closed = null;
+        vm.CloseRequested += save => closed = save;
+        _ui.ConfirmResult = false;
+
+        vm.CountdownSeconds = 9;
+        vm.CloseCommand.Execute(null);
+
+        Assert.Equal(1, _ui.ConfirmCalls);
+        Assert.Equal("Ungespeicherte Änderungen", _ui.LastConfirmTitle);
+        Assert.Null(closed);
+    }
+
+    [Fact]
+    public void Close_WithChanges_YesClosesWithoutSaving()
+    {
+        var vm = CreateViewModel();
+        bool? closed = null;
+        vm.CloseRequested += save => closed = save;
+        _ui.ConfirmResult = true;
+
+        vm.CountdownSeconds = 9;
+        vm.CloseCommand.Execute(null);
+
+        Assert.Equal(1, _ui.ConfirmCalls);
+        Assert.False(closed);
+        Assert.Equal(0, _store.SaveCount);
+    }
+
+    [Fact]
+    public void Close_WithoutChanges_ClosesWithoutAsking()
+    {
+        var vm = CreateViewModel();
+        bool? closed = null;
+        vm.CloseRequested += save => closed = save;
+
+        vm.CloseCommand.Execute(null);
+
+        Assert.Equal(0, _ui.ConfirmCalls);
+        Assert.False(closed);
+    }
+
+    [Fact]
+    public void Close_AfterApply_WithoutFurtherChanges_ClosesWithoutAsking_AndKeepsSavedFlag()
+    {
+        var vm = CreateViewModel();
+        bool? closed = null;
+        vm.CloseRequested += save => closed = save;
+
+        vm.CountdownSeconds = 9;
+        vm.ApplyCommand.Execute(null);
+        vm.CloseCommand.Execute(null);
+
+        Assert.Equal(0, _ui.ConfirmCalls);
+        Assert.False(closed);
+        Assert.True(vm.SettingsSaved);
+        Assert.Equal(9, _store.Current.Flow.CountdownSeconds);
+    }
+
+    [Fact]
+    public void ConfirmDiscardChanges_NoChanges_ReturnsTrueWithoutAsking_ConfirmFailureDoesNotBlock()
+    {
+        var vm = CreateViewModel();
+        Assert.True(vm.ConfirmDiscardChanges());
+        Assert.Equal(0, _ui.ConfirmCalls);
+
+        vm.CountdownSeconds = 9;
+        _ui.ConfirmException = new InvalidOperationException("Dialog nicht verfügbar");
+        Assert.True(vm.ConfirmDiscardChanges());
+    }
+
+    [Fact]
+    public void Exit_AfterConfirm_DoesNotAskAgainAboutChanges()
+    {
+        var vm = CreateViewModel();
+        bool? closed = null;
+        vm.CloseRequested += save => closed = save;
+        _ui.ConfirmResult = true;
+
+        vm.CountdownSeconds = 9;
+        vm.ExitCommand.Execute(null);
+
+        Assert.Equal(1, _ui.ConfirmCalls);
+        Assert.True(vm.ExitRequested);
+        Assert.False(closed);
+        Assert.True(vm.ConfirmDiscardChanges());
+        Assert.Equal(1, _ui.ConfirmCalls);
+    }
+
+    // ------------------------------------------------------------------ Statusanzeige
+
+    [Fact]
+    public void SaveStatus_IsSetAfterApply_AndClearedByNextChange()
+    {
+        var vm = CreateViewModel();
+        Assert.False(vm.HasSaveStatus);
+
+        vm.CountdownSeconds = 9;
+        vm.ApplyCommand.Execute(null);
+
+        Assert.True(vm.HasSaveStatus);
+        Assert.Equal("Einstellungen gespeichert.", vm.SaveStatusMessage);
+
+        vm.CountdownSeconds = 4;
+
+        Assert.False(vm.HasSaveStatus);
+        Assert.Equal(string.Empty, vm.SaveStatusMessage);
+    }
+
+    [Fact]
+    public async Task SaveStatus_StaysOnBackgroundNotifications()
+    {
+        var vm = CreateViewModel();
+        await vm.InitializeAsync();
+        vm.CountdownSeconds = 9;
+        vm.ApplyCommand.Execute(null);
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        await vm.RefreshPageSpecAsync();   // meldet OverlayHint (zweimal), ändert aber nichts am Entwurf
+
+        Assert.Contains(nameof(AdminViewModel.OverlayHint), raised);
+        Assert.True(vm.HasSaveStatus);
+    }
+
+    [Fact]
+    public void SaveStatus_ClearedByNewError()
+    {
+        var vm = CreateViewModel();
+        vm.ApplyCommand.Execute(null);
+        Assert.True(vm.HasSaveStatus);
+
+        vm.Draft.Flow.CountdownSeconds = 0;   // ungültig, ohne eigene Benachrichtigung
+        vm.ApplyCommand.Execute(null);
+
+        Assert.False(vm.HasSaveStatus);
+        Assert.NotEqual(string.Empty, vm.ValidationMessage);
+    }
+
+    [Fact]
+    public void SaveStatus_ClearedByPinInput()
+    {
+        var vm = CreateViewModel();
+        vm.ApplyCommand.Execute(null);
+        Assert.True(vm.HasSaveStatus);
+
+        vm.NewPin = "1";
+
+        Assert.False(vm.HasSaveStatus);
+    }
+
+    [Fact]
+    public void SaveStatus_NotShownForSaveAndClose()
+    {
+        var vm = CreateViewModel();
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.False(vm.HasSaveStatus);
+    }
+
+    // ------------------------------------------------------------------ Kamera nach dem Schließen (AdminLauncher)
+
+    [Fact]
+    public void DecideCameraHandling_NeverSaved_RestoresOnlyIfCameraWasTouched()
+    {
+        static CameraSettings Cam(string id) => new() { DeviceId = id };
+        var video = new VideoSettings();
+        var saved = new AppSettings { Camera = Cam("a") };
+
+        var touched = Fotobox.Views.Admin.AdminLauncher.DecideCameraHandling(false, false, true, Cam("a"), video, Cam("b"), saved);
+        Assert.True(touched.RestoreCamera);
+        Assert.False(touched.CameraChanged);
+
+        var untouched = Fotobox.Views.Admin.AdminLauncher.DecideCameraHandling(false, false, false, Cam("a"), video, null, saved);
+        Assert.False(untouched.RestoreCamera);
+        Assert.False(untouched.CameraChanged);
+    }
+
+    [Fact]
+    public void DecideCameraHandling_Exit_DoesNothing()
+    {
+        static CameraSettings Cam(string id) => new() { DeviceId = id };
+        var saved = new AppSettings { Camera = Cam("a") };
+
+        var result = Fotobox.Views.Admin.AdminLauncher.DecideCameraHandling(false, true, true, Cam("a"), new VideoSettings(), Cam("b"), saved);
+
+        Assert.False(result.RestoreCamera);
+        Assert.False(result.CameraChanged);
+    }
+
+    [Fact]
+    public void DecideCameraHandling_SavedThenCameraChangedAndDiscarded_RestartsViaMainWindowOnly()
+    {
+        static CameraSettings Cam(string id) => new() { DeviceId = id };
+        // Beim Öffnen „a“, übernommen „b“, danach auf „c“ verstellt und beim Schließen verworfen: Die Kamera läuft mit „c“.
+        var saved = new AppSettings { Camera = Cam("b") };
+
+        var result = Fotobox.Views.Admin.AdminLauncher.DecideCameraHandling(true, false, true, Cam("a"), new VideoSettings(), Cam("c"), saved);
+
+        Assert.False(result.RestoreCamera);   // sonst startete die Kamera doppelt
+        Assert.True(result.CameraChanged);    // das Hauptfenster startet sie mit dem gespeicherten Stand neu
+    }
+
+    [Fact]
+    public void DecideCameraHandling_SavedWithoutCameraChange_NeedsNoRestart()
+    {
+        static CameraSettings Cam(string id) => new() { DeviceId = id };
+        var saved = new AppSettings { Camera = Cam("a") };
+
+        var result = Fotobox.Views.Admin.AdminLauncher.DecideCameraHandling(true, false, true, Cam("a"), new VideoSettings(), Cam("a"), saved);
+
+        Assert.False(result.RestoreCamera);
+        Assert.False(result.CameraChanged);
+    }
+
+    [Fact]
+    public void DecideCameraHandling_AppliedMicrophoneChange_RestartsCamera()
+    {
+        var before = new VideoSettings { MicrophoneId = "mic-a" };
+        var saved = new AppSettings { Video = new VideoSettings { MicrophoneId = "mic-b" } };
+
+        var result = Fotobox.Views.Admin.AdminLauncher.DecideCameraHandling(true, false, false, new CameraSettings(), before, null, saved);
+
+        Assert.False(result.RestoreCamera);
+        Assert.True(result.CameraChanged);
     }
 
     // ------------------------------------------------------------------ CameraChanged
@@ -2575,7 +3064,7 @@ public sealed class AdminViewModelTests : IDisposable
         vm.CloseRequested += save => closed = save;
 
         await vm.ResetToDefaultsCommand.ExecuteAsync(null);
-        vm.CancelCommand.Execute(null);
+        vm.CloseCommand.Execute(null);
 
         Assert.False(closed);
         Assert.False(vm.SettingsSaved);
