@@ -35,6 +35,10 @@ public sealed class WinRtCameraService : ICameraService
     private int _disposed;
     private readonly TimeProvider _time;
 
+    // Anzahl der nach einer Frist noch im Treiber hängenden Kamera-Operationen (Interlocked). Solange > 0, versucht die
+    // Wiederverbindung nur selten neu (CameraReconnectBackoff.ShouldAttempt), sonst bliebe je Versuch ein weiteres hängendes MediaCapture liegen.
+    private int _hangingOperations;
+
     // Bild-Watchdog der laufenden Session (siehe FrameWatchdog); Abbruch über _watchdogCts beim Abbau.
     private volatile FrameWatchdog? _watchdog;
     private CancellationTokenSource? _watchdogCts;
@@ -88,7 +92,7 @@ public sealed class WinRtCameraService : ICameraService
     }
 
     // Mit Frist: Hängt die Geräteaufzählung, würde sonst alles unter _gate (Start/Stopp/Dispose) mit hängen.
-    private static async Task<IReadOnlyList<CameraDevice>> EnumerateDevicesAsync()
+    private async Task<IReadOnlyList<CameraDevice>> EnumerateDevicesAsync()
     {
         var infos = await AwaitStepAsync(DeviceInformation.FindAllAsync(DeviceClass.VideoCapture).AsTask(), "Geräteliste")
             .ConfigureAwait(false);
@@ -278,7 +282,7 @@ public sealed class WinRtCameraService : ICameraService
     // Wie die Kameraaufzählung mit Frist; auf dem Threadpool (MTA).
     public Task<IReadOnlyList<MicrophoneDevice>> GetMicrophonesAsync() => Task.Run(GetMicrophonesCoreAsync);
 
-    private static async Task<IReadOnlyList<MicrophoneDevice>> GetMicrophonesCoreAsync()
+    private async Task<IReadOnlyList<MicrophoneDevice>> GetMicrophonesCoreAsync()
     {
         try
         {
@@ -646,7 +650,7 @@ public sealed class WinRtCameraService : ICameraService
 
     // Initialisiert ein MediaCapture mit Frist. Bei Zeitüberschreitung läuft die Initialisierung noch: Das Objekt
     // wird erst nach deren Abschluss freigegeben (nie währenddessen), im Hintergrund auf dem Threadpool.
-    private static async Task<MediaCapture> InitializeOnceAsync(string deviceId, MediaCaptureSharingMode mode, CameraAudio? audio = null)
+    private async Task<MediaCapture> InitializeOnceAsync(string deviceId, MediaCaptureSharingMode mode, CameraAudio? audio = null)
     {
         var capture = new MediaCapture();
         Task init;
@@ -677,28 +681,37 @@ public sealed class WinRtCameraService : ICameraService
         }
     }
 
-    private static void DisposeAfterCompletion(MediaCapture capture, Task init)
+    private void DisposeAfterCompletion(MediaCapture capture, Task init)
     {
         AppLog.Warn("Kamera-Initialisierung hängt, das MediaCapture wird nach deren Abschluss im Hintergrund freigegeben.");
+        // Vor dem Anhängen der Fortsetzung zählen: Das Decrement in deren finally gehört so immer zu genau diesem Increment.
+        Interlocked.Increment(ref _hangingOperations);
         _ = init.ContinueWith(t =>
         {
-            if (t.IsFaulted)
-                AppLog.Warn("Hängende Kamera-Initialisierung ist fehlgeschlagen.", t.Exception?.GetBaseException());
             try
             {
-                capture.Dispose();
-                AppLog.Info("Verwaistes MediaCapture wurde freigegeben.");
+                if (t.IsFaulted)
+                    AppLog.Warn("Hängende Kamera-Initialisierung ist fehlgeschlagen.", t.Exception?.GetBaseException());
+                try
+                {
+                    capture.Dispose();
+                    AppLog.Info("Verwaistes MediaCapture wurde freigegeben.");
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Warn("Verwaistes MediaCapture konnte nicht freigegeben werden.", ex);
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                AppLog.Warn("Verwaistes MediaCapture konnte nicht freigegeben werden.", ex);
+                Interlocked.Decrement(ref _hangingOperations);
             }
         }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
     }
 
     // Wartet mit Frist auf einen Aufbauschritt. Bei Zeitüberschreitung läuft der Schritt weiter: Ausnahmen werden
     // beobachtet, ein später gelieferter Wert wird freigegeben.
-    private static async Task<T> AwaitStepAsync<T>(Task<T> task, string step)
+    private async Task<T> AwaitStepAsync<T>(Task<T> task, string step)
     {
         try
         {
@@ -706,21 +719,30 @@ public sealed class WinRtCameraService : ICameraService
         }
         catch (TimeoutException) when (!task.IsCompleted)
         {
+            // Vor dem Anhängen der Fortsetzung zählen (Decrement in deren finally, genau einmal je Increment).
+            Interlocked.Increment(ref _hangingOperations);
             _ = task.ContinueWith(t =>
             {
-                if (t.IsFaulted)
-                    AppLog.Warn($"Kameraschritt „{step}“ ist nach der Frist fehlgeschlagen.", t.Exception?.GetBaseException());
-                else if (t.IsCompletedSuccessfully && t.Result is IDisposable late)
+                try
                 {
-                    try { late.Dispose(); }
-                    catch (Exception ex) { AppLog.Warn($"Später gelieferter Wert von „{step}“ konnte nicht freigegeben werden.", ex); }
+                    if (t.IsFaulted)
+                        AppLog.Warn($"Kameraschritt „{step}“ ist nach der Frist fehlgeschlagen.", t.Exception?.GetBaseException());
+                    else if (t.IsCompletedSuccessfully && t.Result is IDisposable late)
+                    {
+                        try { late.Dispose(); }
+                        catch (Exception ex) { AppLog.Warn($"Später gelieferter Wert von „{step}“ konnte nicht freigegeben werden.", ex); }
+                    }
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _hangingOperations);
                 }
             }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             throw new CameraTimeoutException(step, task);
         }
     }
 
-    private static async Task AwaitStepAsync(Task task, string step)
+    private async Task AwaitStepAsync(Task task, string step)
     {
         try
         {
@@ -728,10 +750,18 @@ public sealed class WinRtCameraService : ICameraService
         }
         catch (TimeoutException) when (!task.IsCompleted)
         {
+            Interlocked.Increment(ref _hangingOperations);
             _ = task.ContinueWith(t =>
             {
-                if (t.IsFaulted)
-                    AppLog.Warn($"Kameraschritt „{step}“ ist nach der Frist fehlgeschlagen.", t.Exception?.GetBaseException());
+                try
+                {
+                    if (t.IsFaulted)
+                        AppLog.Warn($"Kameraschritt „{step}“ ist nach der Frist fehlgeschlagen.", t.Exception?.GetBaseException());
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _hangingOperations);
+                }
             }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             throw new CameraTimeoutException(step, task);
         }
@@ -772,7 +802,7 @@ public sealed class WinRtCameraService : ICameraService
             return new CameraFormatCandidate((int)(v?.Width ?? 0), (int)(v?.Height ?? 0), fps, f.Subtype);
         }).ToList();
 
-    private static async Task ApplyFormatAsync(MediaFrameSource source, CameraSettings settings)
+    private async Task ApplyFormatAsync(MediaFrameSource source, CameraSettings settings)
     {
         try
         {
@@ -792,7 +822,7 @@ public sealed class WinRtCameraService : ICameraService
         }
     }
 
-    private static async Task<MediaFrameReader> CreateReaderAsync(MediaCapture capture, MediaFrameSource source)
+    private async Task<MediaFrameReader> CreateReaderAsync(MediaCapture capture, MediaFrameSource source)
     {
         try
         {
@@ -1128,6 +1158,10 @@ public sealed class WinRtCameraService : ICameraService
         try
         {
             var noImageAttempts = 0;
+            // Zeitpunkt des letzten Versuchs (monoton); Start der Schleife zählt als Versuch: Hängt beim Eintritt schon
+            // eine Operation, wird erst nach CameraReconnectBackoff.HangingRetryInterval erneut versucht.
+            var lastAttempt = _time.GetTimestamp();
+            var skipLogged = false;
             while (!ct.IsCancellationRequested)
             {
                 await Task.Delay(CameraReconnectBackoff.GetInterval(noImageAttempts), _time, ct).ConfigureAwait(false);
@@ -1143,6 +1177,19 @@ public sealed class WinRtCameraService : ICameraService
                     if (Status == CameraStatus.Running)
                         return;
 
+                    // Hängt noch eine frühere Operation im Treiber, würde ein neuer Versuch nur ein weiteres hängendes MediaCapture hinterlassen.
+                    if (!CameraReconnectBackoff.ShouldAttempt(Volatile.Read(ref _hangingOperations), _time.GetElapsedTime(lastAttempt)))
+                    {
+                        if (!skipLogged)
+                        {
+                            skipLogged = true;
+                            AppLog.Info("Kamera: Wiederverbindung wartet, bis die hängende Kamera-Operation endet (spätestens 5 min).");
+                        }
+                        continue;
+                    }
+
+                    skipLogged = false;
+                    lastAttempt = _time.GetTimestamp();
                     AppLog.Info("Kamera: Wiederverbindungsversuch.");
                     var outcome = await StartCoreAsync(settings, background: true, quietTransient: false, ct)
                         .ConfigureAwait(false);

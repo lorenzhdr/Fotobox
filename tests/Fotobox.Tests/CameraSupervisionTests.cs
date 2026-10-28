@@ -229,6 +229,32 @@ public sealed class CameraReconnectBackoffTests
     [InlineData(10, 15)]
     public void Interval_GrowsAfterRepeatedNoImageAttempts(int attempts, int expectedSeconds) =>
         Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), CameraReconnectBackoff.GetInterval(attempts));
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(0, 10)]
+    [InlineData(-1, 0)]
+    [InlineData(-3, 10)]
+    public void ShouldAttempt_WithoutHangingOperation_IsAlwaysTrue(int hanging, int sinceSeconds) =>
+        Assert.True(CameraReconnectBackoff.ShouldAttempt(hanging, TimeSpan.FromSeconds(sinceSeconds)));
+
+    [Theory]
+    [InlineData(1, 10)]
+    [InlineData(1, 0)]
+    [InlineData(3, 299)]
+    public void ShouldAttempt_WithHangingOperation_WaitsForRetryInterval(int hanging, int sinceSeconds) =>
+        Assert.False(CameraReconnectBackoff.ShouldAttempt(hanging, TimeSpan.FromSeconds(sinceSeconds)));
+
+    [Theory]
+    [InlineData(1, 300)]
+    [InlineData(3, 301)]
+    [InlineData(2, 3600)]
+    public void ShouldAttempt_WithHangingOperation_TrueAfterRetryInterval(int hanging, int sinceSeconds) =>
+        Assert.True(CameraReconnectBackoff.ShouldAttempt(hanging, TimeSpan.FromSeconds(sinceSeconds)));
+
+    [Fact]
+    public void ShouldAttempt_NegativeElapsedWithHangingOperation_IsFalse() =>
+        Assert.False(CameraReconnectBackoff.ShouldAttempt(1, TimeSpan.FromSeconds(-5)));
 }
 
 public sealed class FrameErrorThrottleTests

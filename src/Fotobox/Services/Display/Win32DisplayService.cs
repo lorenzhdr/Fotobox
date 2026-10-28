@@ -287,7 +287,7 @@ public sealed class Win32DisplayService : IDisplayService
     }
 
     /// <summary>Win32-Strukturen und -Aufrufe, die nur dieser Dienst braucht (Layouts nach wingdi.h; alle Zeigerfelder sind <see cref="IntPtr"/> bzw. fehlen).</summary>
-    private static class Native
+    internal static class Native
     {
         public const uint QdcOnlyActivePaths = 0x00000002;
         public const int ErrorInsufficientBuffer = 122;

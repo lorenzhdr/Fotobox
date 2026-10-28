@@ -66,7 +66,11 @@ jobs:
 
       - name: Publish, ZIPs und Installer erstellen
         shell: pwsh
-        run: ./build/publish.ps1 -Version '${{ steps.ver.outputs.version }}' -RequireInstaller
+        run: ./build/publish.ps1 -Version '${{ steps.ver.outputs.version }}' -RequireInstaller -RequireVcRuntime
+
+      - name: Smoke-Test x64
+        shell: pwsh
+        run: ./build/smoke-test.ps1 -PublishDir artifacts/publish/x64
 
       - name: Artefakte hochladen
         uses: actions/upload-artifact@v6
