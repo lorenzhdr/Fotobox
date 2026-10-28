@@ -70,7 +70,7 @@ public sealed class MoustacheTrackerTests
             tracker.OnFaces([Face(1, 0.3), Face(2, 0.7)], W, H);
         }
         Assert.Equal(first, tracker.Views.ToDictionary(v => v.FaceId, v => v.Style));
-        Assert.Equal(2, calls);
+        Assert.Equal(4, calls); // je Gesicht ein Wurf für die Form und einer für die Farbe
 
         tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Random, null, MoustacheVisibility.UntilPhotoOrGone, 15);
         tracker.OnFaces([Face(1, 0.3), Face(2, 0.7)], W, H);
@@ -456,5 +456,99 @@ public sealed class MoustacheTrackerTests
 
         tracker.EndSession();
         Assert.Null(tracker.ExportPlanInput());
+    }
+
+    // ---- Haarfarbe, Zufallsliste, Wippen
+
+    [Fact]
+    public void Color_IsRolledPerFace_StableOverTime_AndSharedWithThePlan()
+    {
+        var calls = new List<int>();
+        var tracker = Create(n => { calls.Add(n); return n - 1; });
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.UntilPhotoOrGone, 15);
+        tracker.OnFaces([Face(1, 0.3), Face(2, 0.7)], W, H);
+
+        Assert.All(tracker.Views, v => Assert.Equal(MoustacheColor.Gray, v.Color)); // n − 1 = letzte Farbe
+        Assert.Equal([6, 6], calls); // feste Form: nur die Farbe wird gewürfelt, je Gesicht einmal
+
+        for (var i = 0; i < 5; i++)
+        {
+            Advance(100);
+            tracker.OnFaces([Face(1, 0.3), Face(2, 0.7)], W, H);
+        }
+        Assert.Equal(2, calls.Count);
+        Assert.Equal(tracker.Views.Select(v => v.Color), tracker.ExportPlanInput()!.Tracks.Select(t => t.Color));
+    }
+
+    [Fact]
+    public void Color_DiffersBetweenFaces_WhenTheDiceDo()
+    {
+        var calls = 0;
+        var tracker = Create(n => calls++ % n);
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.UntilPhotoOrGone, 15);
+        tracker.OnFaces([Face(1, 0.3), Face(2, 0.7)], W, H);
+
+        var colors = tracker.Views.Select(v => v.Color).ToList();
+        Assert.Equal([MoustacheColor.Black, MoustacheColor.DarkBrown], colors);
+    }
+
+    [Fact]
+    public void RandomStyle_OnlyDrawsFromTheSessionsList_AndThePlanCarriesIt()
+    {
+        MoustacheStyle[] pool = [MoustacheStyle.Handlebar, MoustacheStyle.Horseshoe];
+        var seen = new List<int>();
+        var tracker = Create(n => { seen.Add(n); return 1; });
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Random, null, MoustacheVisibility.UntilPhotoOrGone, 15, pool);
+        tracker.OnFaces([Face(1, 0.3), Face(2, 0.7)], W, H);
+
+        Assert.All(tracker.Views, v => Assert.Equal(MoustacheStyle.Horseshoe, v.Style));
+        Assert.Equal([2, 6, 2, 6], seen);
+        var plan = tracker.ExportPlanInput()!;
+        Assert.Equal(MoustacheStyle.Random, plan.Style);
+        Assert.Equal(pool, plan.RandomStyles);
+    }
+
+    [Fact]
+    public void RandomStyle_EmptyOrUnknownList_FallsBackToAllShapes()
+    {
+        var tracker = Create(n => n - 1);
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Random, null, MoustacheVisibility.UntilPhotoOrGone, 15, []);
+        tracker.OnFaces([Face(1)], W, H);
+
+        Assert.Equal(MoustacheStyle.Horseshoe, tracker.Views.Single().Style);
+    }
+
+    [Fact]
+    public void Wobble_StaysAtRest_WhileTheMouthDoesNotMove_AndStirsWhenItOpens_ThenSettles()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.UntilPhotoOrGone, 15);
+        for (var i = 0; i < 10; i++)
+        {
+            tracker.OnFaces([Face(1)], W, H);
+            Advance(100);
+        }
+        Assert.True(tracker.Views.Single().Wobble.IsRest);
+
+        // Mund geht auf: Mundwinkel wandern deutlich nach unten (Abstand Nase–Mund wächst).
+        var face = PeaceHandFixtures.Face(0.3, 0.4, 0.12);
+        var open = face with
+        {
+            MouthRight = face.MouthRight with { Y = face.MouthRight.Y + 0.05 },
+            MouthLeft = face.MouthLeft with { Y = face.MouthLeft.Y + 0.05 },
+        };
+        tracker.OnFaces([new TrackedFace(1, open)], W, H);
+        var wobble = tracker.Views.Single().Wobble;
+        Assert.False(wobble.IsRest);
+        Assert.InRange(wobble.Offset, -MoustacheWobble.MaxOffset, MoustacheWobble.MaxOffset);
+
+        // Mund bleibt offen: Die Feder klingt aus.
+        for (var i = 0; i < 40; i++)
+        {
+            Advance(100);
+            tracker.OnFaces([new TrackedFace(1, open)], W, H);
+            tracker.Tick();
+        }
+        Assert.True(tracker.Views.Single().Wobble.IsRest);
     }
 }

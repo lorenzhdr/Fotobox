@@ -99,6 +99,7 @@ public sealed class PeaceOverlay : FrameworkElement
         IsHitTestVisible = false;
         Focusable = false;
         ClipToBounds = true;
+        RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.HighQuality);
         Loaded += (_, _) => UpdateSubscription();
         Unloaded += (_, _) => Unsubscribe();
         IsVisibleChanged += (_, _) => UpdateSubscription();
@@ -215,10 +216,10 @@ public sealed class PeaceOverlay : FrameworkElement
             _popStart.Remove(id);
     }
 
-    private double PopScale(int faceId) =>
+    internal double PopScaleOf(int faceId) =>
         _popStart.TryGetValue(faceId, out var start) ? MoustachePop.Scale(Seconds(start)) : 1;
 
-    private WobbleState CurrentWobble(int faceId) =>
+    internal WobbleState CurrentWobbleOf(int faceId) =>
         _wobble.TryGetValue(faceId, out var w) ? w.State.Advance(Seconds(w.At)) : WobbleState.Rest;
 
     // Läuft noch ein Plopp, oder schwingt ein Bart noch?
@@ -231,7 +232,7 @@ public sealed class PeaceOverlay : FrameworkElement
         }
         foreach (var (id, _) in _wobble)
         {
-            if (!CurrentWobble(id).IsRest)
+            if (!CurrentWobbleOf(id).IsRest)
                 return true;
         }
         return false;
@@ -357,9 +358,9 @@ public sealed class PeaceOverlay : FrameworkElement
         {
             var pose = _moustacheGlides.TryGetValue(view.FaceId, out var glide) ? Lerp(glide.From, glide.To, tMoustache) : view.Pose;
             var center = OverlayMapper.MapPoint(pose.Center, ImageWidth, ImageHeight, viewW, viewH, Fit, Mirror);
-            var wobble = CurrentWobble(view.FaceId);
+            var wobble = CurrentWobbleOf(view.FaceId);
             MoustacheRenderer.Draw(drawingContext, view.Style, view.Color, new Point(center.X, center.Y), pose.WidthPx * scale, pose.AngleRad, Mirror,
-                PopScale(view.FaceId), wobble.Offset, wobble.Angle);
+                PopScaleOf(view.FaceId), wobble.Offset, wobble.Angle);
         }
 
         if (ShowFaceLandmarks)

@@ -142,7 +142,9 @@ public static class MoustacheTextures
             // Einheitsmaß → Pixel
             dc.PushTransform(new MatrixTransform(ppu, 0, 0, ppu, -rect.X * ppu, -rect.Y * ppu));
             dc.DrawGeometry(UndercoatBrush(stops), null, data.Undercoat);
-            new HairPainter(data, stops, MoustachePalette.Speckle(color), SeedFor(style)).Paint(dc);
+            // Bei kleinen Stufen sind einzelne Haare kleiner als ein Pixel: weniger Haare ergeben dasselbe Bild in kürzerer Zeit.
+            var densityScale = Math.Clamp(ppu / 1024.0, 0.5, 1.0);
+            new HairPainter(data, stops, MoustachePalette.Speckle(color), SeedFor(style), densityScale).Paint(dc);
             dc.Pop();
         }
 
@@ -264,6 +266,7 @@ public static class MoustacheTextures
         private readonly IReadOnlyList<StripSample> _samples;
         private readonly IReadOnlyList<Color> _stops;
         private readonly double _speckle;
+        private readonly double _densityScale;
         private readonly Random _random;
         private readonly double[] _cumulative;
         private readonly int[] _indices;
@@ -276,11 +279,12 @@ public static class MoustacheTextures
         private StreamGeometry? _highlight;
         private StreamGeometryContext? _highlightContext;
 
-        public HairPainter(ShapeData data, IReadOnlyList<Color> stops, double speckle, int seed)
+        public HairPainter(ShapeData data, IReadOnlyList<Color> stops, double speckle, int seed, double densityScale)
         {
             _samples = data.Samples;
             _stops = stops;
             _speckle = speckle;
+            _densityScale = densityScale;
             _random = new Random(seed);
 
             // Nur die rechte Hälfte (x ≥ 0) wird gewürfelt; die Wuchsrichtung zeigt von der Mitte nach außen.
@@ -346,7 +350,7 @@ public static class MoustacheTextures
 
         private void Layer(LayerSpec spec)
         {
-            var count = (int)Math.Round(_area * spec.Density);
+            var count = (int)Math.Round(_area * spec.Density * _densityScale);
             for (var n = 0; n < count; n++)
             {
                 // Ausgangspunkt: Stelle auf der Mittellinie (nach Fläche gewichtet), quer dazu versetzt.

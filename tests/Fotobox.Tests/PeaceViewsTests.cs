@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -15,7 +16,7 @@ namespace Fotobox.Tests;
 [Collection(WpfCollection.Name)]
 public class PeaceViewsTests
 {
-    private static readonly MoustacheStyle[] Styles = [MoustacheStyle.Twirl, MoustacheStyle.Walrus, MoustacheStyle.Chevron, MoustacheStyle.Brush];
+    private static readonly IReadOnlyList<MoustacheStyle> Styles = MoustacheStyles.All;
 
     private static void Layout(FrameworkElement element, double width = 1920, double height = 1080)
     {
@@ -41,11 +42,14 @@ public class PeaceViewsTests
 
     // ---- MoustacheShapes
 
+    public static TheoryData<MoustacheStyle> AllShapes => new(MoustacheStyles.All);
+
+    // Treffertest in Einheitsmaß: Die Standardtoleranz von FillContains (0,25) wäre größer als der ganze Bart.
+    private static bool Contains(Geometry geometry, double x, double y) =>
+        geometry.FillContains(new Point(x, y), 1e-4, ToleranceType.Absolute);
+
     [Theory]
-    [InlineData(MoustacheStyle.Twirl)]
-    [InlineData(MoustacheStyle.Walrus)]
-    [InlineData(MoustacheStyle.Chevron)]
-    [InlineData(MoustacheStyle.Brush)]
+    [MemberData(nameof(AllShapes))]
     public void Shapes_AreFrozen_NonEmpty_WidthOne_AndSymmetric(MoustacheStyle style)
     {
         var geometry = MoustacheShapes.Get(style);
@@ -54,36 +58,74 @@ public class PeaceViewsTests
         var bounds = geometry.Bounds;
         Assert.False(bounds.IsEmpty);
         Assert.InRange(bounds.Width, 0.99, 1.01);
-        Assert.InRange(bounds.Height, 0.02, 0.5);
+        Assert.InRange(bounds.Height, 0.1, 1.1);
         Assert.InRange(bounds.X + bounds.Width / 2, -0.01, 0.01); // um die y-Achse zentriert
     }
 
     [Theory]
-    [InlineData(MoustacheStyle.Twirl)]
-    [InlineData(MoustacheStyle.Walrus)]
-    [InlineData(MoustacheStyle.Chevron)]
-    [InlineData(MoustacheStyle.Brush)]
+    [MemberData(nameof(AllShapes))]
     public void Shapes_AreMirrorSymmetric(MoustacheStyle style)
     {
         var geometry = MoustacheShapes.Get(style);
         var bounds = geometry.Bounds;
 
-        // Stichprobe: Ein Punkt in der Form hat sein Spiegelbild ebenfalls in der Form.
-        var step = 0.02;
+        // Stichprobe: Ein Punkt in der Form hat sein Spiegelbild ebenfalls in der Form (Randzellen dürfen um eine Zelle abweichen).
+        var step = 0.01;
+        var checkedInside = 0;
         for (var x = bounds.X + step; x < bounds.Right; x += step)
         {
             for (var y = bounds.Y + step; y < bounds.Bottom; y += step)
             {
-                var inside = geometry.FillContains(new Point(x, y));
-                var mirrored = geometry.FillContains(new Point(-x, y));
+                var inside = Contains(geometry, x, y);
+                var mirrored = Contains(geometry, -x, y);
+                if (inside)
+                    checkedInside++;
                 if (inside != mirrored)
                 {
-                    // An Rändern darf eine Rasterzelle abweichen: Nachbarpunkt muss dann übereinstimmen.
-                    Assert.True(geometry.FillContains(new Point(-x + 0.004, y)) || geometry.FillContains(new Point(-x - 0.004, y)) || !inside,
+                    Assert.True(Contains(geometry, -x + 0.004, y) || Contains(geometry, -x - 0.004, y) || !inside,
                         $"{style}: ({x:F2}, {y:F2}) nicht symmetrisch");
                 }
             }
         }
+        Assert.True(checkedInside > 100, $"{style}: kaum Fläche gefunden");
+    }
+
+    [Theory]
+    [MemberData(nameof(AllShapes))]
+    public void Shapes_KeepTheOriginOnTheUpperLip_NoVerticalCentering(MoustacheStyle style)
+    {
+        var geometry = MoustacheShapes.Get(style);
+
+        // In der Mitte beginnt der Bart knapp über der Oberlippe (y < 0) und reicht ein Stück darunter (y > 0).
+        double top = double.NaN, bottom = double.NaN;
+        for (var y = -0.7; y < 1.2; y += 0.002)
+        {
+            if (Contains(geometry, 0, y))
+            {
+                if (double.IsNaN(top))
+                    top = y;
+                bottom = y;
+            }
+        }
+        Assert.InRange(top, -0.13, -0.02);
+        Assert.InRange(bottom, 0.03, 0.14);
+    }
+
+    [Fact]
+    public void Shapes_LongEndsHangOrRise_AsDescribed()
+    {
+        // Hängeenden (Fu Manchu bis weit unter den Mund, Hufeisen bis etwa Kinnhöhe), Dalí-Spitzen steil nach oben.
+        Assert.True(MoustacheShapes.Get(MoustacheStyle.FuManchu).Bounds.Bottom > 0.85);
+        Assert.InRange(MoustacheShapes.Get(MoustacheStyle.Horseshoe).Bounds.Bottom, 0.55, 0.85);
+        Assert.True(MoustacheShapes.Get(MoustacheStyle.Handlebar).Bounds.Top < -0.4);
+        Assert.True(MoustacheShapes.Get(MoustacheStyle.Walrus).Bounds.Bottom > 0.3);
+        // Hufeisen: Die Seiten sind dick (senkrechter Schenkel am Mundwinkel), der Bart bleibt in der Mitte darunter frei.
+        var horseshoe = MoustacheShapes.Get(MoustacheStyle.Horseshoe);
+        Assert.True(Contains(horseshoe, 0.44, 0.5));
+        Assert.False(Contains(horseshoe, 0, 0.4));
+        var fu = MoustacheShapes.Get(MoustacheStyle.FuManchu);
+        Assert.True(Contains(fu, 0.475, 0.7));
+        Assert.False(Contains(fu, 0.3, 0.5));
     }
 
     [Fact]
@@ -96,7 +138,29 @@ public class PeaceViewsTests
     public void Shapes_AreDistinct()
     {
         var geometries = Styles.Select(MoustacheShapes.Get).Distinct().ToList();
-        Assert.Equal(4, geometries.Count);
+        Assert.Equal(7, geometries.Count);
+        // Auch der Inhalt unterscheidet sich (nicht nur die Instanz): Die Umrissflächen sind paarweise verschieden.
+        // Auch der Inhalt unterscheidet sich (nicht nur die Instanz): Mindestens 1 % der Breite² trennt jedes Paar (Rasterabgleich).
+        bool[] Grid(MoustacheStyle style)
+        {
+            var geometry = MoustacheShapes.Get(style);
+            var cells = new List<bool>();
+            for (var y = -0.6; y < 1.05; y += 0.02)
+            {
+                for (var x = -0.5; x < 0.5; x += 0.02)
+                    cells.Add(Contains(geometry, x, y));
+            }
+            return [.. cells];
+        }
+        var grids = Styles.Select(Grid).ToList();
+        for (var i = 0; i < grids.Count; i++)
+        {
+            for (var j = i + 1; j < grids.Count; j++)
+            {
+                var different = grids[i].Zip(grids[j]).Count(p => p.First != p.Second) * 0.02 * 0.02;
+                Assert.True(different > 0.01, $"{Styles[i]} und {Styles[j]} sind zu ähnlich ({different:F4})");
+            }
+        }
     }
 
     // ---- MoustacheRenderer
@@ -116,10 +180,10 @@ public class PeaceViewsTests
         Assert.Equal(96, result.DpiY, 3);
         Assert.Equal(PixelFormats.Pbgra32, result.Format);
 
-        // Chevron: Die Oberlippe liegt in (0,0), der Block hängt nach oben (y < 0): ein Stück darüber sitzt Bartfarbe.
+        // Chevron: Die Oberlippe liegt in (0,0), der Block reicht von knapp darüber (y ≈ −0,09) bis darunter: Haarfarbe (dunkelbraun), deckend.
         var pixel = new byte[4];
-        result.CopyPixels(new Int32Rect(100, 50 - 4, 1, 1), pixel, 4, 0);
-        Assert.True(pixel[0] < 90 && pixel[1] < 90 && pixel[2] < 90, $"Pixel nicht dunkel: {pixel[2]},{pixel[1]},{pixel[0]}");
+        result.CopyPixels(new Int32Rect(110, 50 - 4, 1, 1), pixel, 4, 0);
+        Assert.True(pixel[0] < 150 && pixel[1] < 150 && pixel[2] < 150, $"Pixel nicht dunkel: {pixel[2]},{pixel[1]},{pixel[0]}");
 
         // Weit außerhalb bleibt das Foto weiß.
         result.CopyPixels(new Int32Rect(5, 5, 1, 1), pixel, 4, 0);
@@ -168,7 +232,7 @@ public class PeaceViewsTests
         var overlay = new PeaceOverlay
         {
             Fit = fit, Mirror = mirror, ImageWidth = 1280, ImageHeight = 720, ShowHoldProgress = true, ShowLandmarks = true,
-            Moustaches = Styles.Select((s, i) => View(i + 1, s, 0.2 + i * 0.2, 0.5, i * 0.2 - 0.3)).ToList(),
+            Moustaches = Styles.Select((s, i) => View(i + 1, s, 0.1 + i * 0.12, 0.5, i * 0.1 - 0.3)).ToList(),
             Hands = [Hand(1, 0.0), Hand(2, 0.5, isPeace: false), Hand(3, 1.0)],
         };
         Layout(overlay, 1000, 1000);
@@ -178,15 +242,19 @@ public class PeaceViewsTests
     [StaFact]
     public void PeaceOverlay_DrawsTheMoustacheAtTheMappedPosition()
     {
-        var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Moustaches = [View(1, MoustacheStyle.Chevron, 0.25, 0.5)] };
+        // Der Bart ist nach dem Plopp (Uhr 1 s weiter) in Endgröße da.
+        long now = 0;
+        var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Clock = () => now };
+        overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.25, 0.5)];
+        now = Stopwatch.Frequency;
         Layout(overlay);
         var bitmap = new RenderTargetBitmap(1920, 1080, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(overlay);
 
         var pixel = new byte[4];
-        bitmap.CopyPixels(new Int32Rect(480, 540 - 14, 1, 1), pixel, 4, 0);
+        bitmap.CopyPixels(new Int32Rect(480 + 20, 540 - 5, 1, 1), pixel, 4, 0);
         Assert.True(pixel[3] > 200); // deckend an der Bartstelle
-        bitmap.CopyPixels(new Int32Rect(1440, 540 - 14, 1, 1), pixel, 4, 0);
+        bitmap.CopyPixels(new Int32Rect(1440 + 20, 540 - 5, 1, 1), pixel, 4, 0);
         Assert.Equal(0, pixel[3]);
 
         // Gespiegelt wandert er auf die andere Seite.
@@ -194,8 +262,57 @@ public class PeaceViewsTests
         Layout(overlay);
         bitmap = new RenderTargetBitmap(1920, 1080, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(overlay);
-        bitmap.CopyPixels(new Int32Rect(1440, 540 - 14, 1, 1), pixel, 4, 0);
+        bitmap.CopyPixels(new Int32Rect(1440 + 20, 540 - 5, 1, 1), pixel, 4, 0);
         Assert.True(pixel[3] > 200);
+    }
+
+    [StaFact]
+    public void PeaceOverlay_GrowsInWithAPop_ThenStaysAtFullSize_AndDoesNotPopAgainInTheSameSession()
+    {
+        long now = 0;
+        var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Clock = () => now };
+        overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.25, 0.5)];
+        Layout(overlay);
+
+        Assert.Equal(0, overlay.PopScaleOf(1)); // gerade erschienen: noch unsichtbar klein
+        now = (long)(0.12 * Stopwatch.Frequency);
+        Assert.InRange(overlay.PopScaleOf(1), 0.3, MoustachePop.Peak);
+        now = Stopwatch.Frequency;
+        Assert.Equal(1, overlay.PopScaleOf(1));
+
+        // Zweite Spur: wächst für sich; die erste bleibt in Endgröße. Sie fällt kurz aus und kommt zurück: kein neues Plopp.
+        overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.25, 0.5), View(2, MoustacheStyle.Brush, 0.7, 0.5)];
+        Assert.Equal(0, overlay.PopScaleOf(2));
+        Assert.Equal(1, overlay.PopScaleOf(1));
+        overlay.Moustaches = [View(2, MoustacheStyle.Brush, 0.7, 0.5)];
+        overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.25, 0.5), View(2, MoustacheStyle.Brush, 0.7, 0.5)];
+        Assert.Equal(1, overlay.PopScaleOf(1));
+
+        // Eine neue Sitzung (Liste war leer) lässt wieder wachsen.
+        overlay.Moustaches = [];
+        overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.25, 0.5)];
+        Assert.Equal(0, overlay.PopScaleOf(1));
+    }
+
+    [StaFact]
+    public void PeaceOverlay_AtTheStartOfThePop_DrawsNothing_AndWobbleDecaysToRest()
+    {
+        long now = 0;
+        var overlay = new PeaceOverlay { ImageWidth = 1920, ImageHeight = 1080, Clock = () => now };
+        overlay.Moustaches = [View(1, MoustacheStyle.Chevron, 0.5, 0.5)];
+        Layout(overlay);
+        var bitmap = new RenderTargetBitmap(1920, 1080, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(overlay);
+        var pixel = new byte[4];
+        bitmap.CopyPixels(new Int32Rect(960 + 20, 540 - 5, 1, 1), pixel, 4, 0);
+        Assert.Equal(0, pixel[3]);
+
+        now = Stopwatch.Frequency;
+        var wobbling = View(1, MoustacheStyle.Chevron, 0.5, 0.5) with { Wobble = new WobbleState(MoustacheWobble.MaxOffset, 0, 0, 0) };
+        overlay.Moustaches = [wobbling];
+        Assert.True(overlay.CurrentWobbleOf(1).Offset > 0.02); // gerade verankert: kaum abgeklungen
+        now += 2 * Stopwatch.Frequency;
+        Assert.True(overlay.CurrentWobbleOf(1).IsRest); // läuft aus
     }
 
     [StaFact]
