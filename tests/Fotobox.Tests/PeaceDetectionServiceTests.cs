@@ -150,12 +150,25 @@ public class PeaceDetectionServiceTests
         return updates;
     }
 
-    /// <summary>Löst einen Frame aus und lässt danach die Rate verstreichen; wartet, bis die Analyse beendet ist (Update eingegangen).</summary>
+    /// <summary>
+    /// Lässt die Rate verstreichen, löst einen Frame aus und wartet, bis die Analyse beendet ist (Update eingegangen). Kommt
+    /// keins, war der vorige Lauf beim Frame evtl. noch als belegt markiert (der Frame wurde verworfen): dann erneut auslösen.
+    /// </summary>
     private async Task Cycle(ConcurrentQueue<GestureUpdate> updates, int expectedUpdates, TimeSpan? step = null)
     {
-        _time.Advance(step ?? Interval5);
-        _camera.Raise(Frame);
-        await WaitFor(() => updates.Count >= expectedUpdates, $"Update {expectedUpdates}");
+        var deadline = DateTime.UtcNow + Real;
+        while (true)
+        {
+            _time.Advance(step ?? Interval5);
+            _camera.Raise(Frame);
+            var retryAt = DateTime.UtcNow + TimeSpan.FromMilliseconds(500);
+            while (updates.Count < expectedUpdates && DateTime.UtcNow < retryAt)
+                await Task.Delay(10);
+            if (updates.Count >= expectedUpdates)
+                return;
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException($"Nicht eingetreten: Update {expectedUpdates}");
+        }
     }
 
     /// <summary>Löst Frames aus, bis der Detektor <paramref name="calls"/> Aufrufe hatte (ein vorheriger Lauf kann noch Busy sein).</summary>
