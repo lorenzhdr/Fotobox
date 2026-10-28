@@ -250,6 +250,32 @@ public sealed class MoustacheGeometryTests
         Assert.Equal(normal.WidthPx, flipped.WidthPx, 6);
     }
 
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void SwappedLabels_GiveTheSamePose_BelowTheNose(bool swapEyes, bool swapMouth)
+    {
+        // Gleiche Punkte, nur die Bezeichnungen rechts/links vertauscht (ohne das Bild zu spiegeln).
+        var face = Rotated(Neutral(), 15 * Math.PI / 180, W, H);
+        var swapped = face with
+        {
+            RightEye = swapEyes ? face.LeftEye : face.RightEye,
+            LeftEye = swapEyes ? face.RightEye : face.LeftEye,
+            MouthRight = swapMouth ? face.MouthLeft : face.MouthRight,
+            MouthLeft = swapMouth ? face.MouthRight : face.MouthLeft,
+        };
+
+        var normal = MoustacheGeometry.FromFace(face, W, H);
+        var pose = MoustacheGeometry.FromFace(swapped, W, H);
+
+        Assert.True(pose.Center.Y > face.Nose.Y, "Der Bart sitzt unter der Nase.");
+        Assert.Equal(normal.Center.X, pose.Center.X, 6);
+        Assert.Equal(normal.Center.Y, pose.Center.Y, 6);
+        Assert.Equal(normal.WidthPx, pose.WidthPx, 6);
+        Assert.Equal(normal.AngleRad, pose.AngleRad, 6);
+    }
+
     [Fact]
     public void AsymmetricMouthCorners_TiltTheAngleOnlyAFractionOfTheMouthTilt()
     {

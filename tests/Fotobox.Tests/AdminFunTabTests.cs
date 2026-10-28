@@ -270,9 +270,13 @@ public sealed class AdminFunTabTests : IDisposable
         vm.FunSoundEnabled = true;
         _ui.ConfirmResult = true;
         var raised = new List<string?>();
-        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        // Nach dem Zurücksetzen fragt das ViewModel die Seitengröße im Hintergrund ab und meldet danach Änderungen vom Threadpool:
+        // Die Liste daher nur unter Sperre füllen und den Handler vor den Prüfungen abmelden.
+        PropertyChangedEventHandler handler = (_, e) => { lock (raised) raised.Add(e.PropertyName); };
+        ((INotifyPropertyChanged)vm).PropertyChanged += handler;
 
         await vm.ResetToDefaultsCommand.ExecuteAsync(null);
+        ((INotifyPropertyChanged)vm).PropertyChanged -= handler;
 
         var defaults = new FunSettings();
         var fun = vm.Draft.Fun;
@@ -293,7 +297,10 @@ public sealed class AdminFunTabTests : IDisposable
         Assert.Equal("hash:4711", vm.Draft.Security.PinHash);
 
         // Die Eigenschaften melden den neuen Stand (UI-Bindungen lesen neu).
-        Assert.Contains(string.Empty, raised);
+        string?[] seen;
+        lock (raised)
+            seen = [.. raised];
+        Assert.Contains(string.Empty, seen);
         Assert.True(vm.FunEnabled);
         Assert.Equal(TargetColor.Red, vm.FunColor);
         Assert.Equal(string.Empty, vm.FunSingularText);

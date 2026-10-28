@@ -50,6 +50,18 @@ public static class MoustacheGeometry
         var eyeDy = H(f.LeftEye.Y) - H(f.RightEye.Y);
         var mouthDx = W(f.MouthLeft.X) - W(f.MouthRight.X);
         var mouthDy = H(f.MouthLeft.Y) - H(f.MouthRight.Y);
+        // Vertauschte Bezeichnungen (Augen bzw. Mundwinkel in umgekehrter Reihenfolge): Die Gesichtssenkrechte (−eyeDy, eyeDx) muss
+        // von der Nase zum Mund zeigen, sonst landete der Bart über der Nase und stünde auf dem Kopf; die Mundlinie folgt der Augenlinie.
+        if ((mouthX - noseX) * -eyeDy + (mouthY - noseY) * eyeDx < 0)
+        {
+            eyeDx = -eyeDx;
+            eyeDy = -eyeDy;
+        }
+        if (mouthDx * eyeDx + mouthDy * eyeDy < 0)
+        {
+            mouthDx = -mouthDx;
+            mouthDy = -mouthDy;
+        }
         var eyeDist = Math.Sqrt(eyeDx * eyeDx + eyeDy * eyeDy);
         var mouthWidth = Math.Sqrt(mouthDx * mouthDx + mouthDy * mouthDy);
 

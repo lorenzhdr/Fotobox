@@ -503,14 +503,17 @@ public sealed class MoustacheTrackerTests
         tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 60);
         TrackedFace Tilted(double degrees)
         {
+            // Das ganze Gesicht ist gedreht (Kopf fast auf dem Kopf): Augen, Nase und Mund um die Gesichtsmitte.
             var f = PeaceHandFixtures.Face(0.5, 0.4, 0.12);
             var rad = degrees * Math.PI / 180;
-            var dx = Math.Cos(rad) * 0.05;
-            var dy = Math.Sin(rad) * 0.05 * W / H;
+            NormPoint P(double x, double y) => new(
+                0.5 + x * Math.Cos(rad) - y * Math.Sin(rad),
+                0.4 + (x * Math.Sin(rad) + y * Math.Cos(rad)) * W / H);
             return new TrackedFace(1, f with
             {
-                RightEye = new NormPoint(0.5 - dx, 0.4 - dy), LeftEye = new NormPoint(0.5 + dx, 0.4 + dy),
-                MouthRight = new NormPoint(0.5 - dx / 2, 0.45 - dy / 2), MouthLeft = new NormPoint(0.5 + dx / 2, 0.45 + dy / 2),
+                RightEye = P(-0.05, -0.02), LeftEye = P(0.05, -0.02),
+                Nose = P(0, 0.01),
+                MouthRight = P(-0.025, 0.04), MouthLeft = P(0.025, 0.04),
             });
         }
 
