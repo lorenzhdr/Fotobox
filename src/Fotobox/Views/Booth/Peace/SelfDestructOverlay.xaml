@@ -63,7 +63,7 @@
                     </Border>
 
                     <!-- Alarm-Ziffern auf dunklem Band -->
-                    <Border VerticalAlignment="Center" Margin="0,40,0,0" Height="400" Background="#C4000000"
+                    <Border VerticalAlignment="Center" Margin="0,40,0,0" Height="400" Background="#80000000"
                             BorderBrush="#FFE01818" BorderThickness="0,4">
                         <TextBlock x:Name="DigitsText" Text="00:10" Foreground="#FFFF2A2A"
                                    FontFamily="Consolas, Courier New" FontSize="360" FontWeight="Bold"
