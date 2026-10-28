@@ -62,7 +62,32 @@ public static class AppInfo
 {
     public const string DisplayName = "Fotobox+";
     public static string DefaultPhotoFolder =>
-        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), DisplayName);
+        BuildDefaultFolder(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Pictures", "Fotos");
     public static string DefaultVideoFolder =>
-        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), DisplayName);
+        BuildDefaultFolder(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Videos", "Videos");
+
+    /// <summary>
+    /// Standardordner immer absolut: Liefert Windows keinen Known Folder (leer, z. B. bei umgebogenem Profil), folgt
+    /// <c>Benutzerprofil\<paramref name="profileSubfolder"/></c>, sonst <c>LocalAppData\Fotobox\<paramref name="appSubfolder"/></c>.
+    /// Ein relativer Pfad würde später in der Videoaufnahme mit „Falscher Parameter“ scheitern.
+    /// </summary>
+    internal static string BuildDefaultFolder(string? knownFolder, string? userProfile, string? localAppData,
+        string profileSubfolder, string appSubfolder)
+    {
+        if (IsAbsolute(knownFolder))
+            return System.IO.Path.Combine(knownFolder!, DisplayName);
+        if (IsAbsolute(userProfile))
+            return System.IO.Path.Combine(userProfile!, profileSubfolder, DisplayName);
+        if (IsAbsolute(localAppData))
+            return System.IO.Path.Combine(localAppData!, "Fotobox", appSubfolder);
+        // Letzter Ausweg (kein Profil auffindbar): Ordner neben den Programmdateien.
+        return System.IO.Path.Combine(AppContext.BaseDirectory, appSubfolder);
+    }
+
+    private static bool IsAbsolute(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && System.IO.Path.IsPathFullyQualified(path);
 }

@@ -288,6 +288,32 @@ public sealed class VideoStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task PrepareAsync_RelativeFolder_FallsBackToDefaultFolder_AndCreatesNothingRelative()
+    {
+        var relative = "FotoboxRelativeVideos_" + Guid.NewGuid().ToString("N");
+
+        var target = await Storage().PrepareAsync(new VideoSettings { Folder = relative, DateSubfolder = false }, null, FiveMinutes, Stamp);
+
+        Assert.Equal(_fallback, target.Folder);
+        Assert.True(Path.IsPathFullyQualified(target.TempPath));
+        Assert.False(Directory.Exists(Path.GetFullPath(relative)));
+    }
+
+    [Fact]
+    public async Task PrepareAsync_RelativeFolderAndRelativeDefault_ThrowsIOException_WithGermanMessage()
+    {
+        var relative = "FotoboxRelativeVideos_" + Guid.NewGuid().ToString("N");
+        var storage = new VideoStorage(relative, _ => null);
+
+        var ex = await Assert.ThrowsAsync<IOException>(() =>
+            storage.PrepareAsync(new VideoSettings { Folder = relative + "_x" }, null, FiveMinutes, Stamp));
+
+        Assert.Contains("vollständiger Pfad", ex.Message);
+        Assert.False(Directory.Exists(Path.GetFullPath(relative)));
+        Assert.False(Directory.Exists(Path.GetFullPath(relative + "_x")));
+    }
+
+    [Fact]
     public async Task PrepareAsync_Cancelled_Throws()
     {
         using var cts = new CancellationTokenSource();

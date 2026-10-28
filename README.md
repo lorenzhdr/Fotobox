@@ -35,6 +35,19 @@ Bei der Deinstallation bleiben Einstellungen, Logs und Fotos erhalten.
 
 Beim ersten Start legst du eine Admin-PIN fest (4 bis 12 Ziffern, mit Wiederholung). Bricht man den Dialog ab, beendet sich die App. Danach erscheint das Live-Bild.
 
+## Videomodus
+
+Neben Fotos nimmt Fotobox+ kurze Videos mit Ton auf (im Admin unter *Video* abschaltbar).
+
+- **Start und Stopp:** Die Eingabetaste (`Enter`) startet ein Video, ein zweiter Druck beendet es und speichert es. Start und Stopp lassen sich im Tab *Tasten* auch auf verschiedene Tasten legen.
+- **Ablauf:** Zuerst läuft ein Countdown (Standard 3 s), dann beginnt die Aufnahme. Ein früheres Beenden wird erst nach der Mindestlänge (Standard 2 s) angenommen. Die Höchstdauer ist einstellbar (10 s bis 30 min, Standard 5 min), danach endet das Video automatisch. Die Abbruchtaste (`Esc`) bricht den Countdown ab bzw. beendet und speichert die laufende Aufnahme.
+- **Anzeige:** Oben in der Gastansicht steht eine Hinweiszeile mit der Videotaste. Während der Aufnahme zeigt die Gastansicht einen roten Aufnahmepunkt, die Laufzeit, die Restzeit und kurz vor dem Ende eine Warnung. Ein durchgestrichenes Mikrofon weist auf eine Aufnahme ohne Ton hin. Danach erscheint kurz „Video gespeichert!“. Videos werden nur gespeichert, nicht angezeigt oder gedruckt.
+- **Wo liegen die Videos?** Standardmäßig in `Videos\Fotobox+` (mit Unterordner pro Tag). Ist der gewählte Ordner nicht beschreibbar, weicht Fotobox+ auf den Standardordner aus. Reicht der freie Speicherplatz nicht, zeigt die Gastansicht einen Hinweis.
+- **Ton und Mikrofon:** Im Tab *Video* lässt sich der Ton abschalten oder ein Mikrofon wählen (Standard: Windows-Standardmikrofon). Fehlt das Mikrofon oder ist der Zugriff in Windows gesperrt (*Datenschutz und Sicherheit → Mikrofon*), wird ohne Ton aufgenommen. Eine Änderung beim Ton startet die Kamera nach „Speichern“ kurz neu.
+- **Einstellungen im Tab Video:** Videomodus ein/aus, Höchstdauer, Countdown, Mindestlänge, Videoqualität, Anzeige (Aufnahmepunkt, Laufzeit, Restzeit, Warnung), Text nach dem Speichern, Ton und Mikrofon, Speicherordner, Unterordner pro Tag und Dateipräfix. Den Hinweistext oben stellst du im Tab *Gastansicht* ein.
+
+Fotos früherer Versionen bleiben in `Bilder\Fotobox`; Fotobox+ legt neue Fotos in `Bilder\Fotobox+` ab und verschiebt nichts.
+
 ## Bedienung
 
 **Gast:** Auslösetaste drücken (Standard: Leertaste). Es läuft ein Countdown, dann wird fotografiert. Mit der Abbruchtaste (Standard: `Esc`) lässt sich der Countdown oder ein laufender Druck abbrechen (der Druckauftrag wird gestoppt, das Foto bleibt gespeichert). Beim Fotostreifen folgen mehrere Aufnahmen. Danach erscheint kurz die Vorschau, das Foto wird gespeichert und gedruckt. Während des Drucks zeigt die Gastansicht einen Fortschrittsbalken. Ist der Drucker langsam, steht dort „Der Drucker ist etwas langsam – dein Foto kommt in ca. X Minuten“. Nach dem Druck erscheint 5 Sekunden lang „Fertig! Bitte nimm dein Foto aus dem Drucker“, danach ist die Fotobox wieder bereit (ebenso nach einer Fehlermeldung). Alt+F4 ist in der Gastansicht wirkungslos.
@@ -48,16 +61,18 @@ Die Admin-Ansicht hat diese Bereiche. Änderungen gelten erst nach „Speichern�
 - **Layout:** Einzelfoto randlos, Fotostreifen (2–4 Fotos, Standard 3) oder Foto mit Overlay (eigene PNG-Grafik darüber). Beim Fotostreifen gibt es zwei Varianten: „2 Streifen nebeneinander (zum Teilen)“ oder „1 Streifen – Fotos untereinander“ (ganze Fotos im Kameraformat, mittig). Optional Bildunterschrift (max. 80 Zeichen, bis zu 2 Zeilen) und Datum auf dem Ausdruck. Die Schriftart der Bildunterschrift ist aus allen installierten Schriften wählbar (Standard Segoe UI). Unten bleibt 5 mm Sicherheitsabstand, damit nichts abgeschnitten wird. Unter „Auswahl für Gäste (Mausrad)“ lassen sich weitere Layouts anhaken, zwischen denen Gäste per Mausrad wechseln. Die Reihenfolge ist per ▲/▼ einstellbar, ★ markiert das Standard-Layout, und mit ☆ wird ein anderer Eintrag zum Standard.
 - **Gastansicht:** Eigener Hinweistext für die Gastansicht (bis 100 Zeichen; leer = automatischer Text) mit den Platzhaltern `{Fototaste_1}`, `{Fototaste_2}` … (die jeweilige Taste), `{Fototasten}` (alle Auslösetasten) und `{Klick}` (Mausklick). Drei Darstellungsstile: Pille, Schlicht (weißer Text mit Schatten) und Banner (Band über die volle Breite). Eine Live-Vorschau zeigt das Ergebnis.
 - **Drucker:** Drucker (Standard: Windows-Standarddrucker), Papiergröße (für randlosen Druck die randlose Größe des Fotodruckers wählen, z. B. „10 x 15 cm randlos“), Ausrichtung, Kopien (1–20), Zeitlimit für den Druck (10–900 s, Standard 300; automatisch mindestens erwartete Druckdauer + 60 s), Testseite drucken (mit den aktuellen, noch nicht gespeicherten Einstellungen).
-- **Tasten:** Belegung der Tasten für „Foto auslösen“ (Standard Leertaste), „Admin-Ansicht öffnen“ (Standard `Strg` + `Alt` + `A`) und „Abbrechen“ (Countdown oder Druck, Standard `Esc`). Pro Aktion sind mehrere Tasten möglich (bis zu 8). Systemkombinationen wie Alt+F4, Alt+Tab oder die Windows-Taste sind nicht erlaubt. Merke dir die Admin-Taste, sonst kommst du nicht mehr in die Einstellungen.
+- **Tasten:** Belegung der Tasten für „Foto auslösen“ (Standard Leertaste), „Admin-Ansicht öffnen“ (Standard `Strg` + `Alt` + `A`) und „Abbrechen“ (Countdown oder Druck, Standard `Esc`) sowie „Video starten“ und „Video beenden“ (Standard je `Enter`). Pro Aktion sind mehrere Tasten möglich (bis zu 8). Systemkombinationen wie Alt+F4, Alt+Tab oder die Windows-Taste sind nicht erlaubt. Merke dir die Admin-Taste, sonst kommst du nicht mehr in die Einstellungen.
 - **Speicher:** Speicherordner (ändern, öffnen, Standardordner), Unterordner pro Tag, Originalfotos zusätzlich speichern, JPEG-Qualität (50–100, Standard 92), Dateipräfix (Standard „Fotobox+“).
 - **Sicherheit:** PIN ändern (4–12 Ziffern, gilt sofort). „Standardwerte wiederherstellen …“ setzt alle Einstellungen außer der PIN zurück (nach Bestätigung, gilt erst nach „Speichern“; Fotos und Overlay-Dateien bleiben erhalten).
 - **Darstellung:** Farbschema der Admin-Ansicht und der PIN-Abfrage: „Wie Windows“ (Standard, folgt dem hellen bzw. dunklen App-Modus von Windows), „Hell“ oder „Dunkel“. Die Wahl wirkt sofort als Vorschau. Die Gastansicht bleibt davon unverändert. Außerdem „Monitor der Gastansicht“: Bei mehreren Monitoren lässt sich wählen, auf welchem die Gastansicht läuft (Standard: Hauptbildschirm); die Admin-Ansicht öffnet auf demselben Monitor. Der Wechsel erfolgt nach „Speichern“. Ist der gewählte Monitor nicht angeschlossen, erscheint ein Hinweis und die Gastansicht läuft vorübergehend auf dem Hauptbildschirm; sobald der Monitor wieder angeschlossen ist, wechselt sie automatisch zurück. Bei nur einem Monitor ist die Auswahl ausgegraut.
+- **Video:** siehe Abschnitt *Videomodus*.
 - **Fotobox+ beenden:** Button unten links in der Admin-Ansicht.
 
 ## Wo liegt was?
 
 - **Fotos:** standardmäßig `Bilder\Fotobox+` (bis 1.4.1: `Bilder\Fotobox`), mit Unterordner pro Tag (`JJJJ-MM-TT`, abschaltbar). Dateinamen: `<Präfix>_<JJJJMMTT_HHMMSS>.jpg`, Originale zusätzlich als `…_orig1.jpg` usw. Ist der gewählte Ordner nicht beschreibbar, weicht Fotobox+ auf `Bilder\Fotobox+` aus.
 - **Einstellungen:** `%LOCALAPPDATA%\Fotobox\settings.json` (Overlay-Grafiken in `%LOCALAPPDATA%\Fotobox\overlays`).
+- **Videos:** standardmäßig `Videos\Fotobox+`, Dateinamen `<Präfix>_<JJJJMMTT_HHMMSS>.mp4` (Standardpräfix `Fotobox+_Video`).
 - **Logs:** `%LOCALAPPDATA%\Fotobox\logs\fotobox-JJJJMMTT.log`
 
 ## Problemlösung

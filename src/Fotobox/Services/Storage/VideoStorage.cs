@@ -90,6 +90,10 @@ public sealed class VideoStorage : IVideoStorage
     // Legt den Ordner an und schreibt eine kleine Testdatei, auf dem Threadpool mit Frist. null = in Ordnung, sonst die Ursache.
     private static async Task<string?> ProbeAsync(string folder, CancellationToken ct)
     {
+        // Ein relativer Ordner würde erst in der Kamera-Aufnahme scheitern („Falscher Parameter“) → gilt als nicht beschreibbar.
+        if (!Path.IsPathFullyQualified(folder))
+            return "Der Ordner ist kein vollständiger Pfad (z. B. C:\\Videos).";
+
         try
         {
             return await Task.Run(() => FolderProbe.TryEnsureWritable(folder, out var error) ? null : error, ct)

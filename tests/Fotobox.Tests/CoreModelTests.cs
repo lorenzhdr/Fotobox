@@ -241,6 +241,53 @@ public class AppSettingsTests
     }
 }
 
+public class AppInfoFolderTests
+{
+    private const string Profile = @"C:\Users\Tester";
+    private const string LocalApp = @"C:\Users\Tester\AppData\Local";
+
+    [Fact]
+    public void BuildDefaultFolder_UsesKnownFolder_WhenAbsolute() =>
+        Assert.Equal(@"D:\Medien\Videos\Fotobox+",
+            AppInfo.BuildDefaultFolder(@"D:\Medien\Videos", Profile, LocalApp, "Videos", "Videos"));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    [InlineData(@"Videos")]
+    [InlineData(@"..\Videos")]
+    public void BuildDefaultFolder_EmptyOrRelativeKnownFolder_FallsBackToUserProfile(string? known) =>
+        Assert.Equal(@"C:\Users\Tester\Videos\Fotobox+",
+            AppInfo.BuildDefaultFolder(known, Profile, LocalApp, "Videos", "Videos"));
+
+    [Fact]
+    public void BuildDefaultFolder_PhotoUsesPicturesSubfolderOfProfile() =>
+        Assert.Equal(@"C:\Users\Tester\Pictures\Fotobox+",
+            AppInfo.BuildDefaultFolder("", Profile, LocalApp, "Pictures", "Fotos"));
+
+    [Theory]
+    [InlineData("", "Videos", @"C:\Users\Tester\AppData\Local\Fotobox\Videos")]
+    [InlineData(null, "Fotos", @"C:\Users\Tester\AppData\Local\Fotobox\Fotos")]
+    public void BuildDefaultFolder_WithoutProfile_UsesLocalAppData(string? profile, string leaf, string expected) =>
+        Assert.Equal(expected, AppInfo.BuildDefaultFolder("", profile, LocalApp, "X", leaf));
+
+    [Fact]
+    public void BuildDefaultFolder_NothingAvailable_IsStillAbsolute()
+    {
+        var folder = AppInfo.BuildDefaultFolder("", "", "", "Videos", "Videos");
+
+        Assert.True(System.IO.Path.IsPathFullyQualified(folder));
+    }
+
+    [Fact]
+    public void DefaultFolders_AreAbsolute()
+    {
+        Assert.True(System.IO.Path.IsPathFullyQualified(AppInfo.DefaultPhotoFolder));
+        Assert.True(System.IO.Path.IsPathFullyQualified(AppInfo.DefaultVideoFolder));
+    }
+}
+
 public class AppLogFormatTests
 {
     [Fact]

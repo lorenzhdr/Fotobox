@@ -69,11 +69,22 @@
         </Style>
 
         <!--
-            Endlos-Animationen nur, solange das Element wirklich sichtbar ist (IsVisible, berücksichtigt auch
-            eingeklappte Eltern). Sonst liefen sie unsichtbar weiter und kosten Render-Zeit über dem Livebild.
+            Lage im Bild: Standard unten (Foto-Zeile), mit Position="Top" oben (Video-Zeile). Die Abstände sind auf
+            1920 × 1080 ausgelegt; oben bleibt der Rand etwas kleiner, damit die Zeile über dem Bild nicht zu tief hängt.
+
+            Dazu das Pulsieren: Endlos-Animationen nur, solange das Element wirklich sichtbar ist (IsVisible, berücksichtigt
+            auch eingeklappte Eltern). Sonst liefen sie unsichtbar weiter und kosten Render-Zeit über dem Livebild.
+            Start und Stopp stehen bewusst im selben Style (ohne BasedOn): StopStoryboard findet den Namen des
+            BeginStoryboard nur im Namensbereich des Styles, der die Trigger besitzt, nicht in einem abgeleiteten.
         -->
-        <Style x:Key="HintPillPulse" TargetType="Border">
+        <Style x:Key="HintPillPlacement" TargetType="Border">
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="Margin" Value="0,0,0,80" />
             <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="VerticalAlignment" Value="Top" />
+                    <Setter Property="Margin" Value="0,60,0,0" />
+                </DataTrigger>
                 <Trigger Property="IsVisible" Value="True">
                     <Trigger.EnterActions>
                         <BeginStoryboard x:Name="HintPillPulseStoryboard">
@@ -102,20 +113,6 @@
             </Style.Triggers>
         </Style>
 
-        <!--
-            Lage im Bild: Standard unten (Foto-Zeile), mit Position="Top" oben (Video-Zeile). Die Abstände sind auf
-            1920 × 1080 ausgelegt; oben bleibt der Rand etwas kleiner, damit die Zeile über dem Bild nicht zu tief hängt.
-        -->
-        <Style x:Key="HintPillPlacement" TargetType="Border" BasedOn="{StaticResource HintPillPulse}">
-            <Setter Property="VerticalAlignment" Value="Bottom" />
-            <Setter Property="Margin" Value="0,0,0,80" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
-                    <Setter Property="VerticalAlignment" Value="Top" />
-                    <Setter Property="Margin" Value="0,60,0,0" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
         <Style x:Key="PlainHintPlacement" TargetType="TextBlock" BasedOn="{StaticResource HintTextBlock}">
             <Setter Property="VerticalAlignment" Value="Bottom" />
             <Setter Property="Margin" Value="40,0,40,80" />
