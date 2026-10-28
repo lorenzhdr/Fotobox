@@ -1,5 +1,13 @@
 ## Fotobox+ {{VERSION}}
 
+### Neu in 2.3.0-beta
+
+- **Easter Egg „Peaceerkennung“:** Zeigt ein Gast im Livebild ein Peace-Zeichen ✌ und hält es kurz, passiert eine Überraschung: ein roter Selbstzerstörungs-Countdown, bei dem das Foto genau im Moment der Explosion entsteht, ein Foto mit eigenem Countdown oder ein Schnurrbart für alle Gesichter bzw. nur für die zeigende Person, live im Bild und im Foto. Die Gastansicht verrät vorher nichts. Ab Werk ist die Selbstzerstörung aktiv; Foto und Schnurrbart lassen sich im Admin-Tab „Fun“ → „Peace“ dazuschalten, dort gibt es auch eine Live-Vorschau mit Testknöpfen. Jede ausgelöste Aktion macht ein Foto und druckt es wie gewohnt: Wer Papier sparen will, verlängert die Haltedauer, setzt eine Sperrzeit oder schaltet die Erkennung ab.
+- **Realistische Schnurrbärte:** sieben Formen (Zwirbel, Walross, Chevron, Pinsel, Dalí, Fu Manchu, Hufeisen) mit echt wirkendem Haar und Schatten, in sechs zufälligen Haarfarben. Im Admin lässt sich festlegen, welche Formen beim Zufall vorkommen. Der Bart erscheint mit einem kleinen „Plopp“, wippt beim Sprechen mit, folgt dem Gesicht flüssig und passt seine Größe auch beim Näherkommen richtig an. Im Foto trägt jede Person denselben Bart wie im Livebild.
+- **Zielerfassung verbessert:** Dauer (0,5–5 s) und Intensität der Einrast-Animation sind einstellbar, die Intensität regelt Bewegung, Leuchten, Blinken und Lautstärke. Kommt jemand dazu, während der Text läuft, folgt direkt danach eine eigene Meldung. Ein Personentausch löst ebenfalls aus (abschaltbar), und auf Wunsch wiederholt sich die Meldung bei gleicher Gruppe nach einstellbarer Zeit. Kurze Aussetzer der Erkennung lassen den Text stehen, statt ihn abzubrechen.
+- **Livebild mittig:** Haben Kamera und Bildschirm unterschiedliche Seitenverhältnisse, wird das Livebild jetzt gleichmäßig an allen Seiten beschnitten statt nur rechts bzw. unten. Zielmarken und Bärte sitzen dadurch genau.
+- **Beta:** Die neuen Funktionen sind auf dem Entwicklungsrechner und im Praxistest geprüft, aber noch nicht bei echten Veranstaltungen. Der Download ist durch die zusätzlichen KI-Modelle für Gesichter und Hände etwa 16 MB größer (Lizenzhinweise in `THIRD-PARTY-NOTICES.txt`).
+
 ### Neu in 2.2.1
 
 - **Zielerfassung auf jedem PC:** Die Pakete enthalten jetzt die Microsoft Visual C++ Runtime, die die KI-Erkennung benötigt. In 2.2.0 fehlte sie; auf PCs, auf denen sie nicht schon installiert war, lief die Zielerfassung dann nur mit der einfacheren Gesichtserkennung. Update empfohlen.
