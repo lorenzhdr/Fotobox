@@ -1,7 +1,10 @@
 using System.Windows;
 using System.Windows.Threading;
 using Fotobox.Core;
+using Fotobox.Core.Fun;
+using Fotobox.Services.Audio;
 using Fotobox.Services.Camera;
+using Fotobox.Services.Detection;
 using Fotobox.Services.Display;
 using Fotobox.Services.Layout;
 using Fotobox.Services.Printing;
@@ -132,6 +135,13 @@ public partial class App : Application
         services.AddSingleton<IPhotoStorage, PhotoStorage>();
         services.AddSingleton<IVideoStorage>(_ => new VideoStorage());
         services.AddSingleton<IDisplayService, Win32DisplayService>();
+        services.AddSingleton<IPersonDetectionService>(sp => new PersonDetectionService(
+            sp.GetRequiredService<ICameraService>(),
+            kind => kind == DetectionKind.Body ? new YoloxPersonDetector() : new WindowsFaceDetector(),
+            sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<IFunSoundPlayer, FunSoundPlayer>();
+        // Transient: Gastansicht und Admin-Vorschau brauchen je eine eigene Zielerfassung.
+        services.AddTransient<FunOverlayViewModel>();
         services.AddSingleton<IAdminLauncher, AdminLauncher>();
 
         services.AddSingleton<BoothController>();

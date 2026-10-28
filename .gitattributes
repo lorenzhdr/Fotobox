@@ -7,3 +7,4 @@
 *.iss text eol=crlf
 *.ico binary
 *.png binary
+*.onnx binary

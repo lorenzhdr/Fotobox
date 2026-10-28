@@ -119,6 +119,57 @@ public interface IPhotoStorage
     // Dateinamen: {Prefix}_{yyyyMMdd_HHmmss}.jpg, Originale {Prefix}_{yyyyMMdd_HHmmss}_orig{n}.jpg; bei Kollision _2, _3 …
 }
 
+/// <summary>
+/// Ein Erkennungsverfahren für das Fun-Feature (Ganzkörper per ONNX oder Gesicht per Windows). Nicht threadsicher für parallele
+/// Aufrufe: Der Dienst ruft <see cref="DetectAsync"/> nie gleichzeitig auf. <see cref="IAsyncDisposable.DisposeAsync"/> darf
+/// jederzeit kommen, auch während einer laufenden Analyse; die Implementierung gibt native Ressourcen erst nach deren Ende frei.
+/// </summary>
+public interface IPersonDetector : IAsyncDisposable
+{
+    Fun.DetectionKind Kind { get; }
+    /// <summary>Lädt Modell bzw. Detektor (idempotent, hat ein Timeout). Wirft, wenn das Verfahren nicht verfügbar ist.</summary>
+    Task InitializeAsync(CancellationToken ct = default);
+    /// <summary>Analysiert ein Bild. Ergebnis nach <paramref name="minConfidence"/> gefiltert. Wirft bei Fehlern.</summary>
+    Task<IReadOnlyList<Fun.Detection>> DetectAsync(Fun.DetectionFrame frame, double minConfidence, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Personenerkennung im Livebild für das Fun-Feature. Analysiert nur, solange mindestens eine Anforderung offen ist; dann hört der
+/// Dienst auf <see cref="ICameraService.FrameArrived"/>, sonst nicht. Es gilt immer die zuletzt gestellte offene Anforderung
+/// (die Admin-Vorschau überholt so die Gastansicht); nur sie bekommt Ergebnisse.
+/// </summary>
+public interface IPersonDetectionService : IAsyncDisposable
+{
+    /// <summary>
+    /// Bedarf anmelden. Ereignisse der Anforderung kommen auf dem <see cref="SynchronizationContext"/> des Aufrufers (falls vorhanden).
+    /// Dispose meldet ab; danach kommen keine Ereignisse mehr.
+    /// </summary>
+    IPersonDetectionRequest Request(FunSettings settings);
+}
+
+/// <summary>Eine offene Anforderung an <see cref="IPersonDetectionService"/>.</summary>
+public interface IPersonDetectionRequest : IDisposable
+{
+    /// <summary>Einstellungen ändern (z. B. Entwurf im Admin); eine andere Methode wechselt den Detektor.</summary>
+    void UpdateSettings(FunSettings settings);
+    /// <summary>Neue Analyse (nur für die aktuell geltende Anforderung).</summary>
+    event EventHandler<Fun.DetectionUpdate>? Updated;
+    /// <summary>Statusänderung (Laden, Ausweichen auf Gesicht, nicht verfügbar).</summary>
+    event EventHandler<Fun.DetectionStatus>? StatusChanged;
+    Fun.DetectionStatus Status { get; }
+}
+
+/// <summary>
+/// Spielt die kurzen Signaltöne des Fun-Features (<see cref="Fun.FunSoundCue"/>). Wirft nie: Fehlt ein Audiogerät, bleibt es still
+/// (nur Log). <see cref="Play"/> kehrt sofort zurück (asynchrone Wiedergabe), ein neuer Ton ersetzt den laufenden.
+/// </summary>
+public interface IFunSoundPlayer
+{
+    void Play(Fun.FunSoundCue cue);
+    /// <summary>Beendet einen laufenden Ton sofort.</summary>
+    void Stop();
+}
+
 public interface IAdminLauncher
 {
     /// <summary>Wenn noch keine PIN existiert: Erststart-Dialog (PIN + Bestätigung). false = abgebrochen → App beendet sich.</summary>

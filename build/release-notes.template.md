@@ -1,10 +1,15 @@
 ## Fotobox+ {{VERSION}}
 
+### Neu in 2.2.0
+
+- **Fun-Modus „Zielerfassung“:** Die Fotobox erkennt Personen im Livebild und markiert jede wie im Film mit einer Zielbox „TARGET 1“, „TARGET 2“ … Neue Ziele rasten animiert ein, danach erscheint „Hey du, nimm doch ein Foto oder Video mit mir auf!“ bzw. bei mehreren Personen „Hey ihr, nehmt doch …“. Das passiert nur in der Gastansicht, solange niemand fotografiert oder filmt, und landet nie im Foto oder Video. Standardmäßig eingeschaltet.
+- **Neuer Admin-Tab „Fun“** (ganz unten): ein- und ausschalten, Erkennung per KI-Modell (ganzer Körper, auch seitlich oder von hinten) oder sparsamer per Windows-Gesichtserkennung, Box-Umfang (Kopf, Oberkörper, ganze Person), drei Box-Stile, fünf Farben, drei Einrast-Animationen, eigene Texte mit Platzhalter `{Anzahl}`, Position und Stil des Texts (Terminal-Look mit Tipp-Effekt oder einer der Hinweis-Stile), Anzeigedauer, Pause, Empfindlichkeit und optionale Soundeffekte. Eine Live-Vorschau mit Kamerabild und der Knopf „Animation testen“ zeigen die Wirkung sofort.
+- **Alles lokal:** Die Erkennung läuft komplett auf dem PC, es werden keine Bilder gespeichert oder verschickt. Der Download ist dadurch etwa 21 MB größer (KI-Modell YOLOX-Nano und ONNX Runtime, Lizenzhinweise in `THIRD-PARTY-NOTICES.txt`).
+
 ### Neu in 2.1.0
 
-- **Admin: „Übernehmen“.** Die Fußleiste hat jetzt „Schließen“, „Übernehmen“ und „Speichern & schließen“. Mit „Übernehmen“ werden Einstellungen gespeichert, ohne die Admin-Ansicht zu verlassen. Beim Schließen mit ungespeicherten Änderungen fragt die App nach.
-- **Mausradzeile einstellbar:** im Admin-Tab *Gastansicht* ein- und ausschaltbar, mit eigenem Text und fünf Darstellungen (passend zum Foto-Hinweis, kleine Pille, schlichter Text, Chip, Pfeile).
-- **Sechs neue Hinweis-Stile** für Foto- und Video-Hinweis (jetzt neun): Neon, Sprechblase, Laufschrift, Glas, Zettel und Kino. Die Auswahl im Admin zeigt kleine Skizzen.
+- **Admin: „Übernehmen“** speichert, ohne die Admin-Ansicht zu verlassen; beim Schließen mit ungespeicherten Änderungen fragt die App nach.
+- **Mausradzeile einstellbar** (ein/aus, eigener Text, fünf Darstellungen) und **sechs neue Hinweis-Stile** (Neon, Sprechblase, Laufschrift, Glas, Zettel, Kino).
 
 ### Neu seit 1.4.1 (Fotobox+ 2.0)
 

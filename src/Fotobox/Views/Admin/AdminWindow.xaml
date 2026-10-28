@@ -1083,6 +1083,401 @@
                     </Border>
                 </ScrollViewer>
             </TabItem>
+
+            <!-- ============================== Fun ============================== -->
+            <TabItem x:Name="FunTab" Header="Fun" Tag="&#xE81D;">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" xmlns:conv="clr-namespace:Fotobox.Views.Converters">
+                    <ScrollViewer.Resources>
+                        <conv:EnumMatchConverter x:Key="EnumMatch" />
+                        <!-- Rundes Farbfeld (Farbe aus Background, bewusst fest eingefärbt wie die Gastansicht); gewählt = Ring in der Akzentfarbe -->
+                        <Style x:Key="FunSwatch" TargetType="RadioButton">
+                            <Setter Property="Cursor" Value="Hand" />
+                            <Setter Property="Margin" Value="0,0,12,0" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="RadioButton">
+                                        <Grid Width="44" Height="44" Background="Transparent">
+                                            <Ellipse x:Name="Ring" Stroke="{DynamicResource AccentHoverBrush}" StrokeThickness="3" Opacity="0" />
+                                            <Ellipse Margin="6" Fill="{TemplateBinding Background}" Stroke="{DynamicResource TrackBrush}" StrokeThickness="1" />
+                                        </Grid>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                            </Trigger>
+                                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                                <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="Ring" Property="Stroke" Value="{DynamicResource AccentBrush}" />
+                                                <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ScrollViewer.Resources>
+                    <StackPanel MaxWidth="780" HorizontalAlignment="Left">
+
+                        <!-- Zielerfassung ein/aus -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Zielerfassung" Style="{StaticResource SectionTitle}" />
+                                <CheckBox Content="Zielerfassung einschalten" IsChecked="{Binding FunEnabled}" Margin="0,12,0,0"
+                                          FontWeight="SemiBold" AutomationProperties.Name="Zielerfassung einschalten" />
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Im Leerlauf markiert die Gastansicht Personen im Livebild mit Zielboxen („TARGET 1“, „TARGET 2“ …) und blendet danach einen Text ein. Das erscheint nie im Foto oder Video. Die Erkennung kostet Rechenleistung." />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Vorschau: außerhalb des ausgegrauten Bereichs, damit man sie auch bei ausgeschalteter Zielerfassung ausprobieren kann -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Vorschau" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Style="{StaticResource Hint}" Margin="0,2,0,0"
+                                           Text="Vorschau mit den aktuellen (noch nicht gespeicherten) Einstellungen." />
+                                <!-- Gastansicht im Maßstab 1:3 (1920 × 1080): Text- und Hinweisgrößen stimmen so mit dem Gerät überein.
+                                     Fest eingefärbt wie die Gastansicht-Vorschau (bewusst nicht themenabhängig). -->
+                                <Border x:Name="FunPreviewHost" Width="640" Height="360" HorizontalAlignment="Left" Margin="0,12,0,0"
+                                        Background="#14171D" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                        CornerRadius="10" ClipToBounds="True" AutomationProperties.Name="Vorschau der Zielerfassung">
+                                    <Viewbox Stretch="Uniform">
+                                        <Grid Width="1920" Height="1080" ClipToBounds="True" Background="#14171D">
+                                            <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}"
+                                                                    Stretch="Uniform" ShowStatusOverlay="False" />
+                                            <TextBlock x:Name="FunPreviewNoCameraText" Foreground="#A3ADBC" FontSize="48" TextAlignment="Center"
+                                                       TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="160,0"
+                                                       Text="Keine Kamera – „Animation testen“ funktioniert trotzdem."
+                                                       Visibility="{Binding FunPreviewNoCamera, Converter={StaticResource BoolToVis}}" />
+                                            <booth:TargetOverlay x:Name="FunPreviewOverlay" Fit="Uniform"
+                                                                 Snapshot="{Binding FunPreview.Snapshot}" ImageWidth="{Binding FunPreview.ImageWidth}"
+                                                                 ImageHeight="{Binding FunPreview.ImageHeight}" Mirror="{Binding FunPreview.Mirror}"
+                                                                 BoxStyle="{Binding FunPreview.BoxStyle}" BoxColor="{Binding FunPreview.Color}"
+                                                                 Animation="{Binding FunPreview.Animation}"
+                                                                 VisibleRegion="{Binding FunPreview.VisibleRegion, Mode=OneWayToSource}"
+                                                                 Visibility="{Binding FunPreview.IsShown, Converter={StaticResource BoolToVis}}" />
+                                            <booth:FunText x:Name="FunPreviewText" IsShown="{Binding FunPreview.TextVisible}"
+                                                           Text="{Binding FunPreview.Text}" Position="{Binding FunPreview.TextPosition}"
+                                                           TextStyle="{Binding FunPreview.TextStyle}" HintStyle="{Binding FunPreview.TextHintStyle}"
+                                                           Color="{Binding FunPreview.Color}" />
+                                        </Grid>
+                                    </Viewbox>
+                                </Border>
+                                <StackPanel x:Name="FunPreviewFooterHost" Margin="0,12,0,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button x:Name="FunTestButton" Content="Animation testen" Command="{Binding TestFunPreviewCommand}"
+                                                Style="{StaticResource PrimaryButton}" VerticalAlignment="Top" />
+                                        <StackPanel Margin="16,0,0,0" VerticalAlignment="Center" MaxWidth="480">
+                                            <TextBlock x:Name="FunPreviewStatus" Text="{Binding FunPreviewStatusText}" FontSize="14"
+                                                       Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="FunPreviewWarning" Text="{Binding FunPreviewWarningText}" FontSize="13"
+                                                       Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                                       Visibility="{Binding HasFunPreviewWarning, Converter={StaticResource BoolToVis}}" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Alles Weitere ist bei ausgeschalteter Zielerfassung ausgegraut. -->
+                        <StackPanel x:Name="FunSettingsPanel" IsEnabled="{Binding FunEnabled}">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Style.Triggers>
+                                        <Trigger Property="IsEnabled" Value="False">
+                                            <Setter Property="Opacity" Value="0.55" />
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+
+                            <!-- Erkennung -->
+                            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <TextBlock Text="Erkennung" Style="{StaticResource SectionTitle}" />
+
+                                    <TextBlock Text="Methode" Style="{StaticResource FieldLabel}" />
+                                    <UniformGrid Columns="2" Margin="0,0,-14,0">
+                                        <RadioButton GroupName="FunMethod" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunMethod, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:DetectionMethod.Body}}"
+                                                     AutomationProperties.Name="Ganzkörper (KI-Modell)">
+                                            <StackPanel>
+                                                <TextBlock Text="Ganzkörper (KI-Modell)" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Erkennt Personen auch von der Seite oder von hinten. Braucht mehr Rechenleistung."
+                                                           Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="FunMethod" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunMethod, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:DetectionMethod.Face}}"
+                                                     AutomationProperties.Name="Gesicht (Windows)">
+                                            <StackPanel>
+                                                <TextBlock Text="Gesicht (Windows)" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Sparsam, erkennt aber nur Gesichter, die zur Kamera schauen."
+                                                           Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                    </UniformGrid>
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Läuft die Ganzkörper-Erkennung nicht (z. B. fehlt das Modell oder es gibt ein Problem), weicht die Fotobox automatisch auf die Gesichtserkennung aus." />
+
+                                    <TextBlock Text="Umfang der Box" Style="{StaticResource FieldLabel}" />
+                                    <UniformGrid Columns="3" Margin="0,0,-14,0">
+                                        <RadioButton GroupName="FunScope" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunScope, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:TargetScope.Head}}"
+                                                     AutomationProperties.Name="Kopf">
+                                            <TextBlock Text="Kopf" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
+                                        </RadioButton>
+                                        <RadioButton GroupName="FunScope" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunScope, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:TargetScope.UpperBody}}"
+                                                     AutomationProperties.Name="Oberkörper">
+                                            <TextBlock Text="Oberkörper" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
+                                        </RadioButton>
+                                        <RadioButton GroupName="FunScope" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunScope, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:TargetScope.FullBody}}"
+                                                     AutomationProperties.Name="Ganze Person">
+                                            <TextBlock Text="Ganze Person" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
+                                        </RadioButton>
+                                    </UniformGrid>
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Bei der Gesichtserkennung wird der Umfang aus dem Gesicht geschätzt." />
+
+                                    <TextBlock Text="Analysen pro Sekunde" Style="{StaticResource FieldLabel}" />
+                                    <local:NumberStepper Value="{Binding FunAnalysesPerSecond}" Minimum="{x:Static core:SettingsLimits.FunAnalysesPerSecondMin}" Maximum="{x:Static core:SettingsLimits.FunAnalysesPerSecondMax}" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Mehr Analysen reagieren schneller, belasten den Rechner aber stärker. Das Livebild hat immer Vorrang." />
+
+                                    <TextBlock Text="Empfindlichkeit" Style="{StaticResource FieldLabel}" />
+                                    <local:NumberStepper Value="{Binding FunSensitivityPercent}" Minimum="{x:Static core:SettingsLimits.FunSensitivityMin}" Maximum="{x:Static core:SettingsLimits.FunSensitivityMax}" Step="5" Suffix=" %" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Höher erkennt mehr Personen, aber auch öfter fälschlich Dinge, die gar keine Person sind." />
+
+                                    <TextBlock Text="Mindestgröße" Style="{StaticResource FieldLabel}" />
+                                    <local:NumberStepper Value="{Binding FunMinSizePercent}" Minimum="{x:Static core:SettingsLimits.FunMinSizePercentMin}" Maximum="{x:Static core:SettingsLimits.FunMinSizePercentMax}" Step="5" Suffix=" %" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Anteil der Bildhöhe. Kleinere Personen im Hintergrund werden ignoriert." />
+
+                                    <TextBlock Text="Höchstzahl gleichzeitiger Ziele" Style="{StaticResource FieldLabel}" />
+                                    <local:NumberStepper Value="{Binding FunMaxTargets}" Minimum="{x:Static core:SettingsLimits.FunMaxTargetsMin}" Maximum="{x:Static core:SettingsLimits.FunMaxTargetsMax}" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="Bei mehr Personen werden die größten markiert." />
+
+                                    <TextBlock Text="Mindest-Verweildauer" Style="{StaticResource FieldLabel}" />
+                                    <local:NumberStepper Value="{Binding FunDwellMilliseconds}" Minimum="{x:Static core:SettingsLimits.FunDwellMillisecondsMin}" Maximum="{x:Static core:SettingsLimits.FunDwellMillisecondsMax}" Step="100" Suffix=" ms" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="So lange muss eine Person im Bild erkannt sein, bevor sie anvisiert wird. Das verhindert Flackern bei kurzen Fehlerkennungen." />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Aussehen -->
+                            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <TextBlock Text="Aussehen" Style="{StaticResource SectionTitle}" />
+
+                                    <TextBlock Text="Box-Stil" Style="{StaticResource FieldLabel}" />
+                                    <!-- Die Skizzen zeigen den Stil in der gewählten Farbe und sind sonst fest eingefärbt. -->
+                                    <UniformGrid Columns="3" Margin="0,0,-14,0">
+                                        <RadioButton GroupName="FunBoxStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunBoxStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:TargetBoxStyle.Corners}}"
+                                                     AutomationProperties.Name="Ecken">
+                                            <StackPanel>
+                                                <local:TargetStyleSketch Kind="Corners" Color="{Binding FunColor}" />
+                                                <TextBlock Text="Ecken" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Vier Zielecken." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="FunBoxStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunBoxStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:TargetBoxStyle.Rectangle}}"
+                                                     AutomationProperties.Name="Rechteck">
+                                            <StackPanel>
+                                                <local:TargetStyleSketch Kind="Rectangle" Color="{Binding FunColor}" />
+                                                <TextBlock Text="Rechteck" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Geschlossener Rahmen." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="FunBoxStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunBoxStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:TargetBoxStyle.CornersCrosshair}}"
+                                                     AutomationProperties.Name="Ecken mit Fadenkreuz">
+                                            <StackPanel>
+                                                <local:TargetStyleSketch Kind="CornersCrosshair" Color="{Binding FunColor}" />
+                                                <TextBlock Text="Fadenkreuz" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Ecken mit Fadenkreuz in der Mitte." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                    </UniformGrid>
+
+                                    <TextBlock Text="Farbe" Style="{StaticResource FieldLabel}" />
+                                    <StackPanel Orientation="Horizontal">
+                                        <RadioButton GroupName="FunColor" Style="{StaticResource FunSwatch}" Background="#FF3B30"
+                                                     IsChecked="{Binding FunColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:TargetColor.Red}}"
+                                                     ToolTip="Rot" AutomationProperties.Name="Farbe: Rot" />
+                                        <RadioButton GroupName="FunColor" Style="{StaticResource FunSwatch}" Background="#39FF14"
+                                                     IsChecked="{Binding FunColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:TargetColor.Green}}"
+                                                     ToolTip="Grün" AutomationProperties.Name="Farbe: Grün" />
+                                        <RadioButton GroupName="FunColor" Style="{StaticResource FunSwatch}" Background="#00E5FF"
+                                                     IsChecked="{Binding FunColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:TargetColor.Cyan}}"
+                                                     ToolTip="Türkis" AutomationProperties.Name="Farbe: Türkis" />
+                                        <RadioButton GroupName="FunColor" Style="{StaticResource FunSwatch}" Background="#FFD60A"
+                                                     IsChecked="{Binding FunColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:TargetColor.Yellow}}"
+                                                     ToolTip="Gelb" AutomationProperties.Name="Farbe: Gelb" />
+                                        <RadioButton GroupName="FunColor" Style="{StaticResource FunSwatch}" Background="#FFFFFF"
+                                                     IsChecked="{Binding FunColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:TargetColor.White}}"
+                                                     ToolTip="Weiß" AutomationProperties.Name="Farbe: Weiß" />
+                                    </StackPanel>
+                                    <TextBlock Style="{StaticResource Hint}" Text="Die Farbe gilt für Zielbox, Beschriftung und den Text im HUD-Stil." />
+
+                                    <TextBlock Text="Einrast-Animation" Style="{StaticResource FieldLabel}" />
+                                    <UniformGrid Columns="3" Margin="0,0,-14,0">
+                                        <RadioButton GroupName="FunAnimation" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunAnimation, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:LockOnAnimation.ShrinkPulse}}"
+                                                     AutomationProperties.Name="Zusammenziehen und Pulsieren">
+                                            <StackPanel>
+                                                <local:LockOnSketch Kind="ShrinkPulse" Color="{Binding FunColor}" />
+                                                <TextBlock Text="Zusammenziehen + Pulsieren" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                                                <TextBlock Text="Die Box zieht sich auf die Person zusammen." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="FunAnimation" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunAnimation, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:LockOnAnimation.Pulse}}"
+                                                     AutomationProperties.Name="Pulsieren">
+                                            <StackPanel>
+                                                <local:LockOnSketch Kind="Pulse" Color="{Binding FunColor}" />
+                                                <TextBlock Text="Pulsieren" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                                                <TextBlock Text="Die Box erscheint und pulsiert." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="FunAnimation" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunAnimation, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:LockOnAnimation.ScanPulse}}"
+                                                     AutomationProperties.Name="Scan-Linie und Pulsieren">
+                                            <StackPanel>
+                                                <local:LockOnSketch Kind="ScanPulse" Color="{Binding FunColor}" />
+                                                <TextBlock Text="Scan-Linie + Pulsieren" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                                                <TextBlock Text="Eine Linie scannt über die Person." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Text -->
+                            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <TextBlock Text="Text" Style="{StaticResource SectionTitle}" />
+
+                                    <TextBlock Text="Text bei einer Person" Style="{StaticResource FieldLabel}" />
+                                    <Grid Width="620" HorizontalAlignment="Left">
+                                        <TextBox Text="{Binding FunSingularText, UpdateSourceTrigger=PropertyChanged}"
+                                                 MaxLength="{x:Static core:SettingsLimits.HintTextMaxLength}"
+                                                 AutomationProperties.Name="Text bei einer Person" />
+                                        <!-- Platzhalter: der Standardtext, solange das Feld leer ist -->
+                                        <TextBlock Text="{Binding FunSingularTextPlaceholder}" IsHitTestVisible="False"
+                                                   Foreground="{DynamicResource MutedBrush}" FontSize="15" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Margin="12,0,12,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding FunSingularText}" Value="">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
+
+                                    <TextBlock Text="Text bei mehreren Personen" Style="{StaticResource FieldLabel}" />
+                                    <Grid Width="620" HorizontalAlignment="Left">
+                                        <TextBox Text="{Binding FunPluralText, UpdateSourceTrigger=PropertyChanged}"
+                                                 MaxLength="{x:Static core:SettingsLimits.HintTextMaxLength}"
+                                                 AutomationProperties.Name="Text bei mehreren Personen" />
+                                        <TextBlock Text="{Binding FunPluralTextPlaceholder}" IsHitTestVisible="False"
+                                                   Foreground="{DynamicResource MutedBrush}" FontSize="15" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Margin="12,0,12,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding FunPluralText}" Value="">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Leer lassen für den Standardtext (grau im Feld). Platzhalter: {Anzahl} steht für die Zahl der erkannten Personen." />
+
+                                    <TextBlock Text="Position" Style="{StaticResource FieldLabel}" />
+                                    <UniformGrid Columns="3" Margin="0,0,-14,0">
+                                        <RadioButton GroupName="FunTextPosition" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunTextPosition, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:FunTextPosition.Center}}"
+                                                     AutomationProperties.Name="Position: Mitte">
+                                            <TextBlock Text="Mitte" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
+                                        </RadioButton>
+                                        <RadioButton GroupName="FunTextPosition" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunTextPosition, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:FunTextPosition.Bottom}}"
+                                                     AutomationProperties.Name="Position: Unten">
+                                            <TextBlock Text="Unten" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
+                                        </RadioButton>
+                                        <RadioButton GroupName="FunTextPosition" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunTextPosition, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:FunTextPosition.Top}}"
+                                                     AutomationProperties.Name="Position: Oben">
+                                            <TextBlock Text="Oben" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
+                                        </RadioButton>
+                                    </UniformGrid>
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="„Unten“ ersetzt kurz den Foto-Hinweis, „Oben“ die Video-Hinweiszeile." />
+
+                                    <TextBlock Text="Stil" Style="{StaticResource FieldLabel}" />
+                                    <UniformGrid Columns="2" Margin="0,0,-14,0">
+                                        <RadioButton GroupName="FunTextStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunTextStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:FunTextStyle.Hud}}"
+                                                     AutomationProperties.Name="Stil: HUD (Tipp-Effekt)">
+                                            <StackPanel>
+                                                <TextBlock Text="HUD (Tipp-Effekt)" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Der Text wird Buchstabe für Buchstabe getippt, in der Farbe der Zielbox." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                        <RadioButton GroupName="FunTextStyle" Style="{StaticResource CardRadio}"
+                                                     IsChecked="{Binding FunTextStyle, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:FunTextStyle.Hint}}"
+                                                     AutomationProperties.Name="Stil: Hinweis-Stil">
+                                            <StackPanel>
+                                                <TextBlock Text="Hinweis-Stil" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
+                                                <TextBlock Text="Der Text erscheint in einem der Hinweis-Stile wie im Tab „Gastansicht“." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                    </UniformGrid>
+
+                                    <StackPanel Visibility="{Binding FunHintStyleVisible, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="Hinweis-Stil des Texts" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox ItemsSource="{Binding FunHintStyles}" SelectedItem="{Binding SelectedFunHintStyle}"
+                                                  DisplayMemberPath="Display" HorizontalAlignment="Left" Width="320"
+                                                  AutomationProperties.Name="Hinweis-Stil des Texts" />
+                                    </StackPanel>
+
+                                    <TextBlock Text="Anzeigedauer des Texts" Style="{StaticResource FieldLabel}" />
+                                    <local:NumberStepper Value="{Binding FunTextSeconds}" Minimum="{x:Static core:SettingsLimits.FunTextSecondsMin}" Maximum="{x:Static core:SettingsLimits.FunTextSecondsMax}" Suffix=" s" />
+
+                                    <TextBlock Text="Pause bis zur nächsten Erfassung" Style="{StaticResource FieldLabel}" />
+                                    <local:NumberStepper Value="{Binding FunCooldownSeconds}" Minimum="{x:Static core:SettingsLimits.FunCooldownSecondsMin}" Maximum="{x:Static core:SettingsLimits.FunCooldownSecondsMax}" Step="5" Suffix=" s" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Nach dem Text löst dieselbe Gruppe so lange nicht erneut aus. Kommen weitere Personen hinzu, löst die Erfassung trotzdem sofort wieder aus." />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Ton -->
+                            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <TextBlock Text="Ton" Style="{StaticResource SectionTitle}" />
+                                    <CheckBox Content="Soundeffekte (Erfassen, Einrasten, Text)" IsChecked="{Binding FunSoundEnabled}" Margin="0,12,0,0"
+                                              AutomationProperties.Name="Soundeffekte" />
+                                    <TextBlock Style="{StaticResource Hint}" Text="Kurze Effekte über die Lautsprecher des Rechners." />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
         </TabControl>
 
         <!-- ============================== Fußleiste ============================== -->
