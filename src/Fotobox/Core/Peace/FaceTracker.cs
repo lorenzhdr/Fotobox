@@ -9,7 +9,9 @@ public sealed record TrackedFace(int Id, FaceLandmarks Face);
 /// Vergibt Gesichtern stabile Ids: Zuordnung gierig nach Überdeckung (IoU ≥ 0,3) oder, falls die Boxen sich nicht genug überdecken,
 /// nach Mittenabstand (&lt; 0,5 Gesichtsbreiten). Zuerst werden die aktiven Spuren (im letzten Update gesehen) zugeordnet; Gesichter,
 /// die danach übrig sind, greifen kürzlich verlorene Spuren wieder auf (bis <see cref="LostAfter"/>), wenn sie nahe der zuletzt
-/// gesehenen bzw. per Geschwindigkeit vorhergesagten Lage erscheinen (&lt; 1 Gesichtsbreite). Eine Spur ohne Treffer behält ihre Id
+/// gesehenen bzw. per Geschwindigkeit vorhergesagten Lage erscheinen (&lt; 1 Gesichtsbreite, gemessen an der größeren von alter und
+/// neuer Box) oder die kleinere der beiden Boxen zu mindestens <see cref="MinLostContainment"/> überdecken (ein deutlich näher
+/// kommendes Gesicht behält so seine Id). Eine Spur ohne Treffer behält ihre Id
 /// <see cref="LostTimeout"/> lang (überbrückt einzelne Aussetzer des Detektors). Nicht threadsicher.
 /// </summary>
 public sealed class FaceTracker
@@ -18,6 +20,11 @@ public sealed class FaceTracker
     public const double MaxCenterDistanceFactor = 0.5;
     /// <summary>Wiederaufgreifen einer verlorenen Spur: größter Abstand zur vorhergesagten Mitte in Gesichtsbreiten.</summary>
     public const double MaxLostCenterDistanceFactor = 1.0;
+    /// <summary>
+    /// Wiederaufgreifen einer verlorenen Spur: Anteil der kleineren Box, der von der anderen überdeckt sein muss (Schnittfläche ÷ kleinere
+    /// Fläche). Greift, wenn ein Gesicht beim Näherkommen (oder Entfernen) stark wächst und die IoU klein wird.
+    /// </summary>
+    public const double MinLostContainment = 0.5;
     /// <summary>So weit (Sekunden) wird die Lage einer verlorenen Spur höchstens fortgeschrieben.</summary>
     public const double MaxPredictionSeconds = 0.5;
     /// <summary>Obergrenze der geschätzten Geschwindigkeit in Gesichtsbreiten pro Sekunde (fängt Ausreißer ab).</summary>
@@ -125,13 +132,21 @@ public sealed class FaceTracker
         return ratio < MaxCenterDistanceFactor ? 1 - ratio / MaxCenterDistanceFactor + 1e-6 : 0;
     }
 
-    // Verlorene Spur: Überdeckung mit der letzten Box oder Nähe zur per Geschwindigkeit fortgeschriebenen Mitte (< 1 Gesichtsbreite).
+    // Verlorene Spur: Überdeckung mit der letzten Box (IoU oder Anteil der kleineren Box, damit ein stark gewachsenes bzw. geschrumpftes
+    // Gesicht seine Id behält) oder Nähe zur per Geschwindigkeit fortgeschriebenen Mitte (< 1 Gesichtsbreite der größeren Box).
     private static double ScoreLost(Track track, NormRect other, double aspect, DateTimeOffset now)
     {
         var iou = track.Box.IoU(other);
         if (iou >= MinIoU)
             return 2 + iou;
-        var fw = track.Box.Width * aspect;
+        var smaller = Math.Min(track.Box.Area, other.Area);
+        if (smaller > 0)
+        {
+            var containment = track.Box.Intersect(other).Area / smaller;
+            if (containment >= MinLostContainment)
+                return 1 + containment; // unter jedem IoU-Treffer (≥ 2,3), über jedem reinen Abstandstreffer (< 1)
+        }
+        var fw = Math.Max(track.Box.Width, other.Width) * aspect;
         if (fw <= 0)
             return 0;
         var seconds = Math.Clamp((now - track.LastSeen).TotalSeconds, 0, MaxPredictionSeconds);

@@ -370,6 +370,106 @@ public sealed class MoustacheTrackerTests
         Assert.Equal(exported.WidthPx, shown.WidthPx, 12);
     }
 
+    // Gesicht in Bildmitte mit der Breite „width“ (Augenabstand = 0,44 · width · 1920 px).
+    private static FaceLandmarks CenteredFace(double width) => PeaceHandFixtures.Face(0.5, 0.4, width);
+
+    private static double EyeDistancePx(FaceLandmarks f) =>
+        Math.Sqrt(Math.Pow((f.LeftEye.X - f.RightEye.X) * W, 2) + Math.Pow((f.LeftEye.Y - f.RightEye.Y) * H, 2));
+
+    // Breite wächst bzw. schrumpft linear von „from“ nach „to“ in 1 s bei 10 Beobachtungen/s, danach bleibt sie stehen; 300 ms nach dem
+    // Ende der Größenänderung muss der gefilterte Bart auf 2 % genau der Rohbreite entsprechen.
+    [Theory]
+    [InlineData(0.05, 0.15)]
+    [InlineData(0.15, 0.05)]
+    public void Width_ScalingByThreeWithinOneSecond_IsWithinTwoPercentThreeHundredMillisecondsAfterTheStop(double from, double to)
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 600);
+
+        for (var i = 0; i <= 10; i++)
+        {
+            tracker.OnFaces([new TrackedFace(1, CenteredFace(from + (to - from) * i / 10))], W, H);
+            if (i < 10)
+                Advance(100);
+        }
+        // i = 10 war die erste Beobachtung in voller Größe; es folgen drei weitere im 100-ms-Takt.
+        var rawFace = CenteredFace(to);
+        var raw = MoustacheGeometry.FromFace(rawFace, W, H);
+        for (var i = 0; i < 3; i++)
+        {
+            Advance(100);
+            tracker.OnFaces([new TrackedFace(1, rawFace)], W, H);
+        }
+
+        var exported = tracker.ExportPlanInput()!.Tracks.Single().Pose;
+        Assert.InRange(exported.WidthPx / raw.WidthPx, 0.98, 1.02);
+        Assert.InRange(tracker.Views.Single().Pose.WidthPx / raw.WidthPx, 0.98, 1.02);
+    }
+
+    // Eine Person kommt von weit (Augenabstand 40 px) nah heran (120 px) und bleibt dann 2 s stehen: Die angezeigte Lage – mit
+    // Vorhersage um das Alter der Beobachtung – muss danach dauerhaft (auf 2 %) der Geometrie der Rohwerte entsprechen. Ids vergibt
+    // der echte FaceTracker.
+    [Fact]
+    public void FarToNear_ThenStandingStill_ShownPoseConvergesToTheGeometryOfTheRawValues()
+    {
+        var faceTracker = new FaceTracker(_time);
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 600);
+        var farWidth = 40 / (0.44 * W);
+        var nearWidth = 120 / (0.44 * W);
+        var ids = new HashSet<int>();
+
+        void Observe(double width)
+        {
+            var face = CenteredFace(width);
+            var tracked = faceTracker.Update([face], W / H);
+            ids.Add(tracked.Single().Id);
+            // Das analysierte Bild ist beim Eintreffen der Auswertung 80 ms alt (Vorhersage um dieses Alter).
+            tracker.OnFaces(tracked, W, H, _time.GetUtcNow() - TimeSpan.FromMilliseconds(80));
+        }
+
+        // Beobachtungen nur alle 100 ms; die Anzeige wird dazwischen (nach 0, 50 und 99 ms) geprüft.
+        double maxCenterError = 0, maxWidthError = 0;
+        void CheckShown(FaceLandmarks rawFace)
+        {
+            var raw = MoustacheGeometry.FromFace(rawFace, W, H);
+            var shown = tracker.Views.Single().Pose;
+            maxWidthError = Math.Max(maxWidthError, Math.Abs(shown.WidthPx - raw.WidthPx) / raw.WidthPx);
+            maxCenterError = Math.Max(maxCenterError,
+                Math.Sqrt(Math.Pow((shown.Center.X - raw.Center.X) * W, 2) + Math.Pow((shown.Center.Y - raw.Center.Y) * H, 2)) / raw.WidthPx);
+        }
+
+        for (var i = 0; i <= 10; i++)
+        {
+            Observe(farWidth + (nearWidth - farWidth) * i / 10);
+            if (i < 10)
+                Advance(100);
+        }
+
+        // 2 s Stillstand: ab 0,5 s nach dem Stopp zählt jeder Zeitpunkt.
+        for (var i = 1; i <= 20; i++)
+        {
+            Advance(i <= 5 ? 100 : 1); // ab i = 5 verbrauchen die Prüfungen unten schon 99 der 100 ms
+            Observe(nearWidth);
+            if (i < 5)
+                continue;
+            var raw = CenteredFace(nearWidth);
+            CheckShown(raw);
+            Advance(50);
+            CheckShown(raw);
+            Advance(49);
+            CheckShown(raw);
+        }
+
+        Assert.Single(ids);
+        Assert.True(maxWidthError < 0.02, $"Breitenabweichung {maxWidthError:P1}");
+        Assert.True(maxCenterError < 0.02, $"Mittenabweichung {maxCenterError:P1} der Bartbreite");
+        // Zum Schluss (Beobachtung gerade eingetroffen) ist die Lage praktisch genau die Rohlage.
+        var finalRaw = MoustacheGeometry.FromFace(CenteredFace(nearWidth), W, H);
+        Assert.Equal(finalRaw.WidthPx, tracker.Views.Single().Pose.WidthPx, 1);
+        Assert.InRange(finalRaw.WidthPx / (EyeDistancePx(CenteredFace(nearWidth)) * MoustacheGeometry.EyeWidthFactor), 0.9, 1.1);
+    }
+
     [Fact]
     public void NewFaceId_GetsTheRawPoseImmediately()
     {
@@ -403,14 +503,17 @@ public sealed class MoustacheTrackerTests
         tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 60);
         TrackedFace Tilted(double degrees)
         {
+            // Das ganze Gesicht ist gedreht (Kopf fast auf dem Kopf): Augen, Nase und Mund um die Gesichtsmitte.
             var f = PeaceHandFixtures.Face(0.5, 0.4, 0.12);
             var rad = degrees * Math.PI / 180;
-            var dx = Math.Cos(rad) * 0.05;
-            var dy = Math.Sin(rad) * 0.05 * W / H;
+            NormPoint P(double x, double y) => new(
+                0.5 + x * Math.Cos(rad) - y * Math.Sin(rad),
+                0.4 + (x * Math.Sin(rad) + y * Math.Cos(rad)) * W / H);
             return new TrackedFace(1, f with
             {
-                RightEye = new NormPoint(0.5 - dx, 0.4 - dy), LeftEye = new NormPoint(0.5 + dx, 0.4 + dy),
-                MouthRight = new NormPoint(0.5 - dx / 2, 0.45 - dy / 2), MouthLeft = new NormPoint(0.5 + dx / 2, 0.45 + dy / 2),
+                RightEye = P(-0.05, -0.02), LeftEye = P(0.05, -0.02),
+                Nose = P(0, 0.01),
+                MouthRight = P(-0.025, 0.04), MouthLeft = P(0.025, 0.04),
             });
         }
 
