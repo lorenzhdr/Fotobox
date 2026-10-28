@@ -95,7 +95,7 @@ jobs:
         run: |
           $ghArgs = @(
             'release', 'create', $env:TAG_NAME,
-            '--title', "Fotobox $env:VERSION",
+            '--title', "Fotobox+ $env:VERSION",
             '--notes-file', "$env:RUNNER_TEMP/release-notes.md",
             '--verify-tag'
           )

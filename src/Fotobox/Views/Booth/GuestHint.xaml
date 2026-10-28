@@ -69,11 +69,22 @@
         </Style>
 
         <!--
-            Endlos-Animationen nur, solange das Element wirklich sichtbar ist (IsVisible, berücksichtigt auch
-            eingeklappte Eltern). Sonst liefen sie unsichtbar weiter und kosten Render-Zeit über dem Livebild.
+            Lage im Bild: Standard unten (Foto-Zeile), mit Position="Top" oben (Video-Zeile). Die Abstände sind auf
+            1920 × 1080 ausgelegt; oben bleibt der Rand etwas kleiner, damit die Zeile über dem Bild nicht zu tief hängt.
+
+            Dazu das Pulsieren: Endlos-Animationen nur, solange das Element wirklich sichtbar ist (IsVisible, berücksichtigt
+            auch eingeklappte Eltern). Sonst liefen sie unsichtbar weiter und kosten Render-Zeit über dem Livebild.
+            Start und Stopp stehen bewusst im selben Style (ohne BasedOn): StopStoryboard findet den Namen des
+            BeginStoryboard nur im Namensbereich des Styles, der die Trigger besitzt, nicht in einem abgeleiteten.
         -->
-        <Style x:Key="HintPillPulse" TargetType="Border">
+        <Style x:Key="HintPillPlacement" TargetType="Border">
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="Margin" Value="0,0,0,80" />
             <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="VerticalAlignment" Value="Top" />
+                    <Setter Property="Margin" Value="0,60,0,0" />
+                </DataTrigger>
                 <Trigger Property="IsVisible" Value="True">
                     <Trigger.EnterActions>
                         <BeginStoryboard x:Name="HintPillPulseStoryboard">
@@ -101,13 +112,36 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <Style x:Key="PlainHintPlacement" TargetType="TextBlock" BasedOn="{StaticResource HintTextBlock}">
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="Margin" Value="40,0,40,80" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="VerticalAlignment" Value="Top" />
+                    <Setter Property="Margin" Value="40,60,40,0" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="BannerPlacement" TargetType="Border">
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="Padding" Value="60,30,60,36" />
+            <Setter Property="BorderThickness" Value="0,3,0,0" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Position, RelativeSource={RelativeSource AncestorType=local:GuestHint}}" Value="Top">
+                    <Setter Property="VerticalAlignment" Value="Top" />
+                    <Setter Property="Padding" Value="60,30,60,30" />
+                    <Setter Property="BorderThickness" Value="0,0,0,3" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
         <!-- Pille: Rahmen, Farbverlauf, goldener Schimmer und sanftes Pulsieren -->
         <Grid Style="{StaticResource ShowWhenPill}">
-            <Border Style="{StaticResource HintPillPulse}" HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                    Margin="0,0,0,80" Padding="56,22" CornerRadius="60" BorderThickness="2.5"
+            <Border Style="{StaticResource HintPillPlacement}" HorizontalAlignment="Center"
+                    Padding="56,22" CornerRadius="60" BorderThickness="2.5"
                     Background="{StaticResource PillBackground}" BorderBrush="{StaticResource GoldBorder}"
                     RenderTransformOrigin="0.5,0.5">
                 <Border.RenderTransform>
@@ -123,8 +157,8 @@
 
         <!-- Schlicht: weißer Text mit kräftigem dunklem Schatten, ohne Rahmen und Hintergrund -->
         <Grid Style="{StaticResource ShowWhenPlain}">
-            <TextBlock Style="{StaticResource HintTextBlock}" FontSize="42" LineHeight="56" MaxHeight="112"
-                       HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="40,0,40,80">
+            <TextBlock Style="{StaticResource PlainHintPlacement}" FontSize="42" LineHeight="56" MaxHeight="112"
+                       HorizontalAlignment="Center">
                 <TextBlock.Effect>
                     <DropShadowEffect Color="Black" BlurRadius="18" ShadowDepth="3" Direction="270" Opacity="0.95" />
                 </TextBlock.Effect>
@@ -138,8 +172,8 @@
 
         <!-- Banner: dunkles Band über die volle Breite am unteren Rand mit dünner goldener Oberkante -->
         <Grid Style="{StaticResource ShowWhenBanner}">
-            <Border VerticalAlignment="Bottom" Padding="60,30,60,36" Background="#CC101828"
-                    BorderBrush="{StaticResource Gold}" BorderThickness="0,3,0,0">
+            <Border Style="{StaticResource BannerPlacement}" Background="#CC101828"
+                    BorderBrush="{StaticResource Gold}">
                 <StackPanel>
                     <TextBlock Style="{StaticResource HintTextBlock}" FontSize="48" LineHeight="64" MaxHeight="128"
                                HorizontalAlignment="Center" />

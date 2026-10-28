@@ -45,3 +45,49 @@ public sealed record PrintResult(PrintOutcome Outcome, string? Message = null)
 public sealed record SavedPhotoSet(string LayoutPath, IReadOnlyList<string> OriginalPaths);
 /// <summary>CameraChanged: Die gespeicherten Kameraeinstellungen weichen vom Stand vor dem Öffnen ab.</summary>
 public sealed record AdminResult(bool SettingsChanged, bool ExitRequested, bool CameraChanged = false);
+
+public sealed record MicrophoneDevice(string Id, string Name);
+/// <summary>Ton der Kamera-Session; <paramref name="MicrophoneId"/> null = Windows-Standardmikrofon.</summary>
+public sealed record CameraAudio(string? MicrophoneId);
+/// <summary><paramref name="FilePath"/>: temporäre Zieldatei (<see cref="VideoTarget.TempPath"/>), wird überschrieben.</summary>
+public sealed record VideoRecordingRequest(string FilePath, VideoQuality Quality);
+/// <summary>Vorbereitetes Ziel einer Aufnahme: <paramref name="Folder"/> (ggf. Ausweichordner), temporäre Datei darin, Präfix und Zeitstempel für den endgültigen Namen.</summary>
+public sealed record VideoTarget(string Folder, string TempPath, string FilePrefix, DateTime Timestamp);
+
+/// <summary>Zu wenig freier Speicherplatz für eine Videoaufnahme in voller Länge.</summary>
+public sealed class InsufficientDiskSpaceException(string message) : System.IO.IOException(message);
+
+/// <summary>Sichtbarer Name und Standardordner der App (Programmdatei, Namespace und %LOCALAPPDATA%\Fotobox bleiben „Fotobox“).</summary>
+public static class AppInfo
+{
+    public const string DisplayName = "Fotobox+";
+    public static string DefaultPhotoFolder =>
+        BuildDefaultFolder(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Pictures", "Fotos");
+    public static string DefaultVideoFolder =>
+        BuildDefaultFolder(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Videos", "Videos");
+
+    /// <summary>
+    /// Standardordner immer absolut: Liefert Windows keinen Known Folder (leer, z. B. bei umgebogenem Profil), folgt
+    /// <c>Benutzerprofil\<paramref name="profileSubfolder"/></c>, sonst <c>LocalAppData\Fotobox\<paramref name="appSubfolder"/></c>.
+    /// Ein relativer Pfad würde später in der Videoaufnahme mit „Falscher Parameter“ scheitern.
+    /// </summary>
+    internal static string BuildDefaultFolder(string? knownFolder, string? userProfile, string? localAppData,
+        string profileSubfolder, string appSubfolder)
+    {
+        if (IsAbsolute(knownFolder))
+            return System.IO.Path.Combine(knownFolder!, DisplayName);
+        if (IsAbsolute(userProfile))
+            return System.IO.Path.Combine(userProfile!, profileSubfolder, DisplayName);
+        if (IsAbsolute(localAppData))
+            return System.IO.Path.Combine(localAppData!, "Fotobox", appSubfolder);
+        // Letzter Ausweg (kein Profil auffindbar): Ordner neben den Programmdateien.
+        return System.IO.Path.Combine(AppContext.BaseDirectory, appSubfolder);
+    }
+
+    private static bool IsAbsolute(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && System.IO.Path.IsPathFullyQualified(path);
+}

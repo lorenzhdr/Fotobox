@@ -6,7 +6,6 @@ namespace Fotobox.Services.Storage;
 /// <summary>Klemmt Einstellungswerte auf gültige Bereiche und ersetzt fehlende Unterobjekte.</summary>
 internal static class SettingsNormalizer
 {
-    public const string DefaultFilePrefix = "Fotobox";
     public const int MinPinIterations = 10_000;
     /// <summary>
     /// Obergrenze, bis zu der gespeicherte PBKDF2-Iterationen als plausibel gelten (<see cref="PinService.Verify"/>).
@@ -14,8 +13,17 @@ internal static class SettingsNormalizer
     /// </summary>
     public const int MaxPlausiblePinIterations = 10_000_000;
 
+    /// <summary>
+    /// Normalisiert und migriert. Migration (Version &lt; <see cref="AppSettings.CurrentVersion"/>): Der alte Standardpräfix
+    /// „Fotobox“ (exakt) wird zu „Fotobox+“, eigene Präfixe bleiben. Danach steht <see cref="AppSettings.Version"/> auf dem
+    /// aktuellen Stand; eine neuere Version (Datei einer späteren App) wird nie herabgesetzt. Fehlt <c>Version</c> in der Datei,
+    /// gilt der Standard der aktuellen App (keine Migration) – die App schreibt das Feld aber immer. Die Migration läuft beim
+    /// Laden im Speicher und wird mit dem nächsten Speichern festgeschrieben; sie ist idempotent.
+    /// </summary>
     public static AppSettings Normalize(AppSettings s)
     {
+        var loadedVersion = s.Version;
+
         s.Camera ??= new CameraSettings();
         s.Flow ??= new FlowSettings();
         s.Layout ??= new LayoutSettings();
@@ -25,6 +33,7 @@ internal static class SettingsNormalizer
         s.Input ??= new InputSettings();
         s.GuestScreen ??= new GuestScreenSettings();
         s.Appearance ??= new AppearanceSettings();
+        s.Video ??= new VideoSettings();
 
         s.Flow.CountdownSeconds = Math.Clamp(s.Flow.CountdownSeconds, SettingsLimits.CountdownMin, SettingsLimits.CountdownMax);
         s.Flow.PreviewSeconds = Math.Clamp(s.Flow.PreviewSeconds, SettingsLimits.PreviewMin, SettingsLimits.PreviewMax);
@@ -51,6 +60,13 @@ internal static class SettingsNormalizer
 
         s.Storage.JpegQuality = Math.Clamp(s.Storage.JpegQuality, SettingsLimits.JpegQualityMin, SettingsLimits.JpegQualityMax);
         s.Storage.FilePrefix = SanitizePrefix(s.Storage.FilePrefix);
+        // Migration: bis Version 1 hieß der Standardpräfix „Fotobox“; ein selbst gewählter Präfix bleibt unverändert.
+        if (loadedVersion < AppSettings.CurrentVersion && s.Storage.FilePrefix == StorageSettings.LegacyFilePrefix)
+            s.Storage.FilePrefix = StorageSettings.DefaultFilePrefix;
+        if (s.Version < AppSettings.CurrentVersion)
+            s.Version = AppSettings.CurrentVersion;
+
+        NormalizeVideo(s.Video);
 
         // PinIterations wird bewusst nicht geklemmt: Ein anderer Wert passte nicht mehr zum gespeicherten Hash (siehe PinService).
 
@@ -59,6 +75,9 @@ internal static class SettingsNormalizer
         if (!Enum.IsDefined(s.GuestScreen.HintStyle))
             s.GuestScreen.HintStyle = HintStyle.Pill;
         s.GuestScreen.HintText = SanitizeHintText(s.GuestScreen.HintText);
+        if (!Enum.IsDefined(s.GuestScreen.VideoHintStyle))
+            s.GuestScreen.VideoHintStyle = HintStyle.Pill;
+        s.GuestScreen.VideoHintText = SanitizeHintText(s.GuestScreen.VideoHintText);
 
         if (!Enum.IsDefined(s.Appearance.AdminTheme))
             s.Appearance.AdminTheme = AdminThemeMode.System;
@@ -73,6 +92,42 @@ internal static class SettingsNormalizer
             : TrimToLength(s.Appearance.GuestMonitorName, SettingsLimits.MonitorNameMaxLength);
 
         return s;
+    }
+
+    /// <summary>
+    /// Videoeinstellungen: Zahlen auf <see cref="SettingsLimits"/> klemmen. Die Mindestlänge liegt immer unter der Höchstdauer:
+    /// Ist sie nach dem Klemmen nicht kleiner, wird sie auf <c>Höchstdauer − 1</c> gesetzt (der nächstgültige Wert; die
+    /// Höchstdauer ist mindestens <see cref="SettingsLimits.VideoMaxDurationMin"/>, die Mindestlänge also nie negativ).
+    /// Unbekannte Qualität → <see cref="VideoQuality.High"/>. Leere Texte/Ordner → null, Präfix leer → Standard.
+    /// </summary>
+    private static void NormalizeVideo(VideoSettings v)
+    {
+        v.MaxDurationSeconds = Math.Clamp(v.MaxDurationSeconds, SettingsLimits.VideoMaxDurationMin, SettingsLimits.VideoMaxDurationMax);
+        v.CountdownSeconds = Math.Clamp(v.CountdownSeconds, SettingsLimits.VideoCountdownMin, SettingsLimits.VideoCountdownMax);
+        v.MinDurationSeconds = Math.Clamp(v.MinDurationSeconds, SettingsLimits.VideoMinDurationMin, SettingsLimits.VideoMinDurationMax);
+        if (v.MinDurationSeconds >= v.MaxDurationSeconds)
+            v.MinDurationSeconds = v.MaxDurationSeconds - 1;
+        v.WarningSeconds = Math.Clamp(v.WarningSeconds, SettingsLimits.VideoWarningMin, SettingsLimits.VideoWarningMax);
+        v.SuccessDisplaySeconds = Math.Clamp(v.SuccessDisplaySeconds, SettingsLimits.VideoSuccessDisplayMin, SettingsLimits.VideoSuccessDisplayMax);
+
+        if (!Enum.IsDefined(v.Quality))
+            v.Quality = VideoQuality.High;
+
+        var successText = CleanLine(v.SuccessText, SettingsLimits.VideoSuccessTextMaxLength);
+        v.SuccessText = string.IsNullOrEmpty(successText) ? null : successText;
+
+        // Id exakt lassen (Geräte-Id); zu lang → verwerfen, denn gekürzt passte sie nie. Name nur zur Anzeige, gehört zur Id.
+        var microphoneId = v.MicrophoneId;
+        if (string.IsNullOrWhiteSpace(microphoneId) || microphoneId.Length > SettingsLimits.MicrophoneIdMaxLength)
+            microphoneId = null;
+        v.MicrophoneId = microphoneId;
+        v.MicrophoneName = microphoneId is null || string.IsNullOrWhiteSpace(v.MicrophoneName)
+            ? null
+            : TrimToLength(v.MicrophoneName.Trim(), SettingsLimits.MicrophoneNameMaxLength);
+
+        if (string.IsNullOrWhiteSpace(v.Folder))
+            v.Folder = null;
+        v.FilePrefix = SanitizePrefix(v.FilePrefix, VideoSettings.DefaultFilePrefix);
     }
 
     /// <summary>
@@ -146,8 +201,10 @@ internal static class SettingsNormalizer
 
     /// <summary>
     /// Ungültige, gesperrte und doppelte Einträge werden einzeln verworfen (nie die ganze Datei).
-    /// Eine Taste gehört höchstens zu einer Aktion (Vorrang: Admin, Auslösen, Abbrechen).
-    /// Admin und Auslösen behalten immer mindestens eine Taste.
+    /// Eine Taste gehört höchstens zu einer der Aktionen Admin, Auslösen, Abbrechen und Video (Vorrang in dieser Reihenfolge;
+    /// VideoStart/VideoStop haben gegenüber den ersten dreien immer das Nachsehen). Ausnahme: Dieselbe Taste darf in
+    /// <see cref="InputSettings.VideoStartKeys"/> und <see cref="InputSettings.VideoStopKeys"/> stehen (Umschalten).
+    /// Admin und Auslösen behalten immer mindestens eine Taste; die Video-Listen dürfen leer sein.
     /// </summary>
     public static void NormalizeKeys(InputSettings input)
     {
@@ -179,9 +236,17 @@ internal static class SettingsNormalizer
             admin.Add(adminDefault);
         }
 
+        // Video erst nach den Ersatzregeln: Sie können Strg+Alt+A bzw. die Leertaste in Admin/Auslösen hineinnehmen,
+        // und diese Tasten müssen dann aus den Video-Listen verschwinden. Start und Stopp prüfen getrennt (je eigene Kopie).
+        var taken = new HashSet<KeyChord>(admin.Concat(trigger).Concat(cancel));
+        var videoStart = Clean(input.VideoStartKeys, new HashSet<KeyChord>(taken));
+        var videoStop = Clean(input.VideoStopKeys, new HashSet<KeyChord>(taken));
+
         input.AdminKeys = admin.Select(k => k.ToString()).ToList();
         input.TriggerKeys = trigger.Select(k => k.ToString()).ToList();
         input.CancelCountdownKeys = cancel.Select(k => k.ToString()).ToList();
+        input.VideoStartKeys = videoStart.Select(k => k.ToString()).ToList();
+        input.VideoStopKeys = videoStop.Select(k => k.ToString()).ToList();
 
         static List<KeyChord> Clean(List<string>? entries, HashSet<KeyChord> used)
         {
@@ -199,16 +264,16 @@ internal static class SettingsNormalizer
         static KeyChord Parse(string text) => KeyChord.TryParse(text, out var c) ? c : throw new InvalidOperationException(text);
     }
 
-    /// <summary>Entfernt ungültige Dateinamenzeichen; leer → "Fotobox".</summary>
-    public static string SanitizePrefix(string? prefix)
+    /// <summary>Entfernt ungültige Dateinamenzeichen; leer → <paramref name="fallback"/> (Standard: Fotopräfix „Fotobox+“).</summary>
+    public static string SanitizePrefix(string? prefix, string fallback = StorageSettings.DefaultFilePrefix)
     {
         if (string.IsNullOrEmpty(prefix))
-            return DefaultFilePrefix;
+            return fallback;
 
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(prefix.Where(c => !char.IsControl(c) && Array.IndexOf(invalid, c) < 0).ToArray())
             .Trim().TrimEnd('.');
         cleaned = TrimToLength(cleaned, SettingsLimits.FilePrefixMaxLength)!.TrimEnd();
-        return cleaned.Length == 0 ? DefaultFilePrefix : cleaned;
+        return cleaned.Length == 0 ? fallback : cleaned;
     }
 }

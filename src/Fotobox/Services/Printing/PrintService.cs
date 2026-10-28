@@ -196,7 +196,7 @@ public sealed class PrintService : IPrintService
         }
 
         // Kulturunabhängig (kein anderer Kalender/andere Ziffern im Jobnamen), da der Name im Spooler gesucht wird.
-        var jobName = string.Create(CultureInfo.InvariantCulture, $"Fotobox {DateTime.Now:yyyyMMdd-HHmmss-fff}");
+        var jobName = string.Create(CultureInfo.InvariantCulture, $"{AppInfo.DisplayName} {DateTime.Now:yyyyMMdd-HHmmss-fff}");
         var ticket = BuildTicket(queue, settings, out var media);
         var (mediaW, mediaH) = media;
         WarnOnAspectMismatch(page, mediaW, mediaH);

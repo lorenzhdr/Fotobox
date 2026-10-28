@@ -6,7 +6,7 @@ using Fotobox.Core;
 namespace Fotobox.ViewModels.Admin;
 
 /// <summary>Aktionen, denen Tasten zugeordnet werden können.</summary>
-public enum KeyAction { Trigger, Admin, Cancel }
+public enum KeyAction { Trigger, Admin, Cancel, VideoStart, VideoStop }
 
 /// <summary>Eine zugeordnete Taste (Chip) mit Entfernen-Befehl.</summary>
 public sealed class KeyChordItem

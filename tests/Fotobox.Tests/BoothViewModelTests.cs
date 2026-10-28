@@ -10,7 +10,7 @@ using Xunit;
 namespace Fotobox.Tests;
 
 [Collection(WpfCollection.Name)]
-public class BoothViewModelTests
+public partial class BoothViewModelTests
 {
     [Fact]
     public void CanOpenAdmin_InIdleStartingAndError_ButNotMidSession()
@@ -932,6 +932,7 @@ public class BoothViewModelTests
         public FakeComposer Composer { get; } = new();
         public FakePrinter Printer { get; } = new();
         public FakeStorage Storage { get; } = new();
+        public FakeVideoStorage VideoStorage { get; } = new();
         public BoothController Controller { get; }
         public BoothViewModel ViewModel { get; }
 
@@ -940,7 +941,7 @@ public class BoothViewModelTests
             // Wie in den Controller-Tests: Fortsetzungen laufen synchron im aufrufenden Thread.
             SynchronizationContext.SetSynchronizationContext(null);
             Settings.Current.Flow.ErrorDisplaySeconds = 6;
-            Controller = new BoothController(Camera, Composer, Printer, Storage, Settings, Time);
+            Controller = new BoothController(Camera, Composer, Printer, Storage, Settings, Time, VideoStorage);
             ViewModel = new BoothViewModel(Controller, Camera, Settings);
             if (markReady)
                 Controller.MarkReady();
@@ -966,7 +967,30 @@ public class BoothViewModelTests
         public Task<IReadOnlyList<CameraResolution>> GetResolutionsAsync(string deviceId) =>
             Task.FromResult<IReadOnlyList<CameraResolution>>([]);
 
-        public Task StartAsync(CameraSettings settings, CancellationToken ct = default) => StartTask;
+        /// <summary>Reihenfolge der Aufrufe: "audio:none", "audio:default|&lt;Id&gt;", "start".</summary>
+        public List<string> Calls { get; } = [];
+        public FakeRecording? LastRecording { get; private set; }
+
+        public void ConfigureAudio(CameraAudio? audio) =>
+            Calls.Add(audio is null ? "audio:none" : "audio:" + (audio.MicrophoneId ?? "default"));
+
+        public Task StartAsync(CameraSettings settings, CancellationToken ct = default)
+        {
+            Calls.Add("start");
+            return StartTask;
+        }
+
+        public int StartRecordingCalls { get; private set; }
+        /// <summary>Ton der nächsten Aufnahme (<see cref="IVideoRecording.HasAudio"/>).</summary>
+        public bool RecordingHasAudio { get; set; } = true;
+
+        public Task<IVideoRecording> StartRecordingAsync(VideoRecordingRequest request, CancellationToken ct = default)
+        {
+            StartRecordingCalls++;
+            LastRecording = new FakeRecording(RecordingHasAudio);
+            return Task.FromResult<IVideoRecording>(LastRecording);
+        }
+
         public Task StopAsync() => Task.CompletedTask;
 
         public Task<BitmapSource> CapturePhotoAsync(CancellationToken ct = default) =>

@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Fotobox.Views.Admin"
         xmlns:core="clr-namespace:Fotobox.Core"
-        Title="Fotobox – Willkommen"
+        Title="Fotobox+ – Willkommen"
         WindowStyle="None" ResizeMode="NoResize" SizeToContent="WidthAndHeight"
         ShowInTaskbar="True" Background="{DynamicResource BgBrush}"
         FontFamily="Segoe UI" TextOptions.TextFormattingMode="Display">
@@ -18,7 +18,7 @@
     <Border BorderBrush="{DynamicResource FrameBrush}" BorderThickness="1" Padding="40,34,40,32">
         <StackPanel Orientation="Horizontal">
             <StackPanel Width="360" Margin="0,0,44,0">
-                <TextBlock Text="Willkommen bei der Fotobox" FontSize="28" FontWeight="SemiBold"
+                <TextBlock Text="Willkommen bei Fotobox+" FontSize="28" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap" />
                 <TextBlock Style="{StaticResource Hint}" FontSize="15" Margin="0,12,0,0"
                            Text="{Binding Source={x:Static core:PinRules.LengthText}, StringFormat='Legen Sie jetzt eine PIN fest, die die Einstellungen schützt. Sie besteht aus {0} und wird beim Öffnen der Einstellungen abgefragt.'}" />

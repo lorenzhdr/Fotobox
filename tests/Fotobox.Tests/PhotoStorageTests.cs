@@ -59,11 +59,11 @@ public sealed class PhotoStorageTests : IDisposable
     }
 
     [Fact]
-    public void ResolveTargetFolder_Defaults_ToPicturesFotobox()
+    public void ResolveTargetFolder_Defaults_ToPicturesFotoboxPlus()
     {
         var folder = new PhotoStorage().ResolveTargetFolder(new StorageSettings { DateSubfolder = false }, Stamp);
 
-        Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Fotobox"), folder);
+        Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Fotobox+"), folder);
     }
 
     [Fact]

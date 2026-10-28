@@ -13,6 +13,9 @@ public enum PageOrientation { Auto, Portrait, Landscape }
 /// <summary>Darstellung des Hinweistexts in der Gastansicht: Pille mit Rahmen, schlichter Text mit Schatten oder Band über die volle Breite.</summary>
 public enum HintStyle { Pill, Plain, Banner }
 
+/// <summary>Qualitätsstufe der Videoaufnahme (MP4/H.264); die Auflösung ist immer die der laufenden Kamera.</summary>
+public enum VideoQuality { High, Medium, Low }
+
 /// <summary>Farbschema der Admin-Ansicht und der PIN-Dialoge; <see cref="System"/> folgt dem Windows-App-Modus.</summary>
 public enum AdminThemeMode { System, Light, Dark }
 
@@ -43,6 +46,22 @@ public static class SettingsLimits
     public const int MonitorIdMaxLength = 512;
     /// <summary>Längster gespeicherter Monitorname (nur Anzeige); längere Werte aus der settings.json werden gekürzt.</summary>
     public const int MonitorNameMaxLength = 200;
+    /// <summary>Videoaufnahme: Höchstdauer eines Clips in Sekunden (Standard 300).</summary>
+    public const int VideoMaxDurationMin = 10, VideoMaxDurationMax = 1800;
+    /// <summary>Countdown vor dem Video; 0 = sofort.</summary>
+    public const int VideoCountdownMin = 0, VideoCountdownMax = 30;
+    /// <summary>Mindestlänge: vorher wird ein Stopp ignoriert. Liegt immer unter der Höchstdauer.</summary>
+    public const int VideoMinDurationMin = 0, VideoMinDurationMax = 30;
+    /// <summary>Warnung vor dem automatischen Ende ab so vielen Sekunden Restzeit; 0 = aus.</summary>
+    public const int VideoWarningMin = 0, VideoWarningMax = 120;
+    /// <summary>Anzeigedauer der Erfolgsmeldung nach dem Speichern.</summary>
+    public const int VideoSuccessDisplayMin = 1, VideoSuccessDisplayMax = 60;
+    /// <summary>Längster eigener Erfolgstext; längere Werte aus der settings.json werden beim Laden gekürzt.</summary>
+    public const int VideoSuccessTextMaxLength = 80;
+    /// <summary>Längste gespeicherte Mikrofon-Id; längere Werte werden verworfen (gekürzt passte die Id nie).</summary>
+    public const int MicrophoneIdMaxLength = 512;
+    /// <summary>Längster gespeicherter Mikrofonname (nur Anzeige); längere Werte werden gekürzt.</summary>
+    public const int MicrophoneNameMaxLength = 200;
     /// <summary>Länge der PIN (Ziffern).</summary>
     public const int PinMinLength = 4, PinMaxLength = 12;
 }
@@ -117,7 +136,10 @@ public sealed class AppSettings
         Converters = { new TolerantEnumConverterFactory() }
     };
 
-    public int Version { get; set; } = 1;
+    /// <summary>Aktuelles Format der settings.json. 2: Fotobox+ (Video, Präfix-Migration „Fotobox“ → „Fotobox+“).</summary>
+    public const int CurrentVersion = 2;
+
+    public int Version { get; set; } = CurrentVersion;
     public CameraSettings Camera { get; set; } = new();
     public FlowSettings Flow { get; set; } = new();
     public LayoutSettings Layout { get; set; } = new();
@@ -127,6 +149,7 @@ public sealed class AppSettings
     public InputSettings Input { get; set; } = new();
     public GuestScreenSettings GuestScreen { get; set; } = new();
     public AppearanceSettings Appearance { get; set; } = new();
+    public VideoSettings Video { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -200,6 +223,12 @@ public sealed class GuestScreenSettings
     /// </summary>
     public string? HintText { get; set; }
     public HintStyle HintStyle { get; set; } = HintStyle.Pill;
+    /// <summary>
+    /// Eigener Text der Video-Hinweiszeile (oben im Bild) mit Platzhaltern; null = automatischer Text aus den Video-Starttasten.
+    /// Die Zeile erscheint nur bei aktivem Videomodus.
+    /// </summary>
+    public string? VideoHintText { get; set; }
+    public HintStyle VideoHintStyle { get; set; } = HintStyle.Pill;
 }
 
 /// <summary>Darstellung: Farbschema der Admin-Ansicht und Monitor der Gastansicht.</summary>
@@ -227,12 +256,56 @@ public sealed class PrinterSettings
 
 public sealed class StorageSettings
 {
-    /// <summary>null = Pictures\Fotobox.</summary>
+    /// <summary>null = <see cref="AppInfo.DefaultPhotoFolder"/> (Bilder\Fotobox+).</summary>
     public string? PhotoFolder { get; set; }
     public bool DateSubfolder { get; set; } = true;
     public bool SaveOriginals { get; set; } = true;
     public int JpegQuality { get; set; } = 92;
-    public string FilePrefix { get; set; } = "Fotobox";
+    public string FilePrefix { get; set; } = DefaultFilePrefix;
+
+    public const string DefaultFilePrefix = "Fotobox+";
+    /// <summary>Standardpräfix bis Version 1; wird beim Laden alter Dateien zu <see cref="DefaultFilePrefix"/>.</summary>
+    public const string LegacyFilePrefix = "Fotobox";
+}
+
+/// <summary>Videomodus: Clips per eigener Start-/Stopptaste, werden nur gespeichert (nicht angezeigt oder gedruckt).</summary>
+public sealed class VideoSettings
+{
+    public bool Enabled { get; set; } = true;
+    public int MaxDurationSeconds { get; set; } = 300;
+    public int CountdownSeconds { get; set; } = 3;
+    public int MinDurationSeconds { get; set; } = 2;
+    /// <summary>Warnung in der Gastansicht ab so vielen Sekunden Restzeit; 0 = keine Warnung.</summary>
+    public int WarningSeconds { get; set; } = 10;
+    public bool ShowRecDot { get; set; } = true;
+    public bool ShowElapsed { get; set; } = true;
+    public bool ShowRemaining { get; set; } = true;
+    public int SuccessDisplaySeconds { get; set; } = 3;
+    /// <summary>Text nach erfolgreichem Speichern; null/leer = <see cref="DefaultSuccessText"/>.</summary>
+    public string? SuccessText { get; set; }
+    public VideoQuality Quality { get; set; } = VideoQuality.High;
+    public bool RecordAudio { get; set; } = true;
+    /// <summary>Mikrofon (DeviceInformation.Id); null = Windows-Standardmikrofon.</summary>
+    public string? MicrophoneId { get; set; }
+    /// <summary>Letzter bekannter Name des gewählten Mikrofons, nur für den Hinweis „nicht angeschlossen“.</summary>
+    public string? MicrophoneName { get; set; }
+    /// <summary>null = <see cref="AppInfo.DefaultVideoFolder"/> (Videos\Fotobox+).</summary>
+    public string? Folder { get; set; }
+    public bool DateSubfolder { get; set; } = true;
+    public string FilePrefix { get; set; } = DefaultFilePrefix;
+
+    public const string DefaultFilePrefix = "Fotobox+_Video";
+    public const string DefaultSuccessText = "Video gespeichert! 🎬";
+
+    /// <summary>
+    /// Muss die Kamera neu gestartet werden, damit <paramref name="other"/> gilt? Nur wenn sich ändert, ob bzw. welches
+    /// Mikrofon die Kamera-Session öffnet (Ton wird beim Initialisieren der Session festgelegt).
+    /// </summary>
+    public bool RequiresCameraRestartComparedTo(VideoSettings other) =>
+        UsesAudio != other.UsesAudio || (UsesAudio && MicrophoneId != other.MicrophoneId);
+
+    /// <summary>Öffnet die Kamera-Session ein Mikrofon?</summary>
+    public bool UsesAudio => Enabled && RecordAudio;
 }
 
 public sealed class SecuritySettings
@@ -255,8 +328,13 @@ public sealed class InputSettings
     public bool TriggerOnRightClick { get; set; } = true;
     /// <summary>Mausrad-Richtung der Gast-Layoutwahl umkehren (Standard: nach oben = vorheriges Layout, mit Umkehrung = nächstes).</summary>
     public bool InvertMouseWheel { get; set; }
+    /// <summary>Tasten „Video starten“. Dieselbe Taste darf auch in <see cref="VideoStopKeys"/> stehen (Umschalten).</summary>
+    public List<string> VideoStartKeys { get; set; } = [DefaultVideoKey];
+    /// <summary>Tasten „Video beenden“.</summary>
+    public List<string> VideoStopKeys { get; set; } = [DefaultVideoKey];
 
     public const string DefaultTriggerKey = "Space";
     public const string DefaultAdminKey = "Ctrl+Alt+A";
     public const string DefaultCancelKey = "Escape";
+    public const string DefaultVideoKey = "Enter";
 }

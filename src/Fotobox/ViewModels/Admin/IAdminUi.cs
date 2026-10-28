@@ -9,8 +9,8 @@ public interface IAdminUi
     /// <summary>Dateiauswahl für das Overlay (PNG). null = abgebrochen.</summary>
     string? PickOverlayFile();
 
-    /// <summary>Ordnerauswahl. null = abgebrochen.</summary>
-    string? PickFolder(string? initialFolder);
+    /// <summary>Ordnerauswahl mit dem Dialogtitel <paramref name="title"/>. null = abgebrochen.</summary>
+    string? PickFolder(string? initialFolder, string title);
 
     bool Confirm(string title, string message);
 

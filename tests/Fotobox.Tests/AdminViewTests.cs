@@ -472,6 +472,151 @@ public class AdminViewTests
         });
     }
 
+    // ---- Video
+
+    private static System.Windows.FrameworkElement ShowTab(AdminWindow window, string header)
+    {
+        var tabs = FindTabControl(window)!;
+        tabs.SelectedItem = tabs.Items.OfType<System.Windows.Controls.TabItem>().Single(t => t.Header as string == header);
+        var root = (System.Windows.FrameworkElement)window.Content;
+        root.Measure(new System.Windows.Size(1100, 750));
+        root.Arrange(new System.Windows.Rect(0, 0, 1100, 750));
+        root.UpdateLayout();
+        return root;
+    }
+
+    [StaFact]
+    public void AdminWindow_HasVideoTab_AfterFlowTab_AndKeepsOtherTabNeighbours()
+    {
+        WithWindow((window, _) =>
+        {
+            var tabs = FindTabControl(window)!;
+            var headers = tabs.Items.OfType<System.Windows.Controls.TabItem>().Select(t => t.Header as string).ToList();
+
+            Assert.Equal(headers.IndexOf("Ablauf") + 1, headers.IndexOf("Video"));
+            Assert.Equal(headers.IndexOf("Layout") + 1, headers.IndexOf("Gastansicht"));
+        });
+    }
+
+    [StaTheory]
+    [InlineData(AdminThemeMode.Light)]
+    [InlineData(AdminThemeMode.Dark)]
+    public void AdminWindow_VideoTab_LaysOutInBothThemes_WithAllControls(AdminThemeMode theme)
+    {
+        WithWindow((window, vm) =>
+        {
+            vm.IsAdminThemeLight = theme == AdminThemeMode.Light;
+            vm.IsAdminThemeDark = theme == AdminThemeMode.Dark;
+            Assert.Equal(theme == AdminThemeMode.Dark, AdminThemeManager.IsDarkPalette(window.Resources));
+
+            var root = ShowTab(window, "Video");
+
+            var names = FindDescendants<System.Windows.Controls.Primitives.ToggleButton>(root)
+                .Select(c => System.Windows.Automation.AutomationProperties.GetName(c)).ToList();
+            Assert.Contains("Videomodus aktiv", names);
+            var combos = FindDescendants<System.Windows.Controls.ComboBox>(root)
+                .Select(c => System.Windows.Automation.AutomationProperties.GetName(c)).ToList();
+            Assert.Contains("Videoqualität", combos);
+            Assert.Contains("Mikrofon", combos);
+            Assert.NotEmpty(FindDescendants<NumberStepper>(root));
+            Assert.True(root.ActualHeight > 0);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_VideoTab_IsGreyedOutWhenVideoModeIsOff()
+    {
+        WithWindow((window, vm) =>
+        {
+            var root = ShowTab(window, "Video");
+            var panel = (System.Windows.Controls.StackPanel)window.FindName("VideoSettingsPanel");
+            var mic = FindDescendants<System.Windows.Controls.ComboBox>(root)
+                .Single(c => System.Windows.Automation.AutomationProperties.GetName(c) == "Mikrofon");
+            Assert.True(panel.IsEnabled);
+            Assert.True(mic.IsEnabled);
+            Assert.Equal(1.0, panel.Opacity);
+
+            vm.VideoEnabled = false;
+
+            Assert.False(panel.IsEnabled);
+            Assert.False(mic.IsEnabled);
+            Assert.True(panel.Opacity < 1.0);
+
+            vm.VideoEnabled = true;
+            vm.VideoRecordAudio = false;   // nur das Mikrofon ist dann aus
+            Assert.True(panel.IsEnabled);
+            Assert.False(mic.IsEnabled);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_VideoTab_SuccessTextPlaceholderShowsDefaultOnlyWhileEmpty()
+    {
+        WithWindow((window, vm) =>
+        {
+            var root = ShowTab(window, "Video");
+            var placeholder = FindDescendants<System.Windows.Controls.TextBlock>(root)
+                .Single(t => t.Text == VideoSettings.DefaultSuccessText);
+            Assert.Equal(System.Windows.Visibility.Visible, placeholder.Visibility);
+
+            vm.VideoSuccessText = "Danke!";
+
+            Assert.Equal(System.Windows.Visibility.Collapsed, placeholder.Visibility);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_GuestScreenTab_ShowsVideoLineOnTop_OnlyWithVideoMode()
+    {
+        WithWindow((window, vm) =>
+        {
+            vm.IsVideoHintBanner = true;
+            var root = ShowTab(window, "Gastansicht");
+
+            var hints = FindDescendants<GuestHint>(root).ToList();
+            Assert.Equal(2, hints.Count);
+            Assert.Equal(HintPosition.Bottom, hints[0].Position);   // Foto-Zeile wie bisher zuerst
+            Assert.Equal(HintPosition.Top, hints[1].Position);
+            Assert.Equal("Drücke die Eingabetaste für ein Video 🎬", hints[1].Text);
+            Assert.Equal(HintStyle.Banner, hints[1].HintStyle);
+            Assert.Equal(System.Windows.Visibility.Visible, hints[1].Visibility);
+
+            vm.VideoHintText = "Los: {Videotaste_1}";
+            Assert.Equal("Los: Eingabetaste", hints[1].Text);
+
+            vm.VideoEnabled = false;
+            Assert.Equal(System.Windows.Visibility.Collapsed, hints[1].Visibility);
+            var panel = (System.Windows.Controls.StackPanel)window.FindName("VideoHintPanel");
+            Assert.False(panel.IsEnabled);
+
+            vm.VideoEnabled = true;
+            vm.VideoHintText = "";   // automatischer Text: ohne Starttaste leer
+            Keys(vm, KeyAction.VideoStart).Keys.ToList().ForEach(k => k.RemoveCommand.Execute(null));
+            Assert.Equal(System.Windows.Visibility.Collapsed, hints[1].Visibility);   // ohne Starttaste keine Zeile
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_KeysTab_ListsVideoActions_AndShowsStartKeyHint()
+    {
+        WithWindow((window, vm) =>
+        {
+            var root = ShowTab(window, "Tasten");
+
+            var titles = FindDescendants<System.Windows.Controls.TextBlock>(root).Select(t => t.Text).ToList();
+            Assert.Contains("Video starten", titles);
+            Assert.Contains("Video beenden", titles);
+            Assert.DoesNotContain(titles, t => t.StartsWith("Ohne Taste für „Video starten“"));
+
+            Keys(vm, KeyAction.VideoStart).Keys.ToList().ForEach(k => k.RemoveCommand.Execute(null));
+            var shown = FindDescendants<System.Windows.Controls.TextBlock>(root)
+                .Single(t => t.Text.StartsWith("Ohne Taste für „Video starten“"));
+            Assert.Equal(System.Windows.Visibility.Visible, shown.Visibility);
+        });
+    }
+
+    private static KeyActionEditor Keys(AdminViewModel vm, KeyAction action) => vm.KeyEditors.Single(e => e.Action == action);
+
     private static System.Windows.Input.KeyEventArgs RaiseKeyDown(
         AdminWindow window, System.Windows.PresentationSource source, System.Windows.Input.Key key)
     {

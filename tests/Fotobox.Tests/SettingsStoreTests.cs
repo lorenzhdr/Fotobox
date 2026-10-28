@@ -29,7 +29,7 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.NotNull(store.Current);
         Assert.Equal(5, store.Current.Flow.CountdownSeconds);
         Assert.Equal(LayoutKind.SingleBorderless, store.Current.Layout.Kind);
-        Assert.Equal("Fotobox", store.Current.Storage.FilePrefix);
+        Assert.Equal("Fotobox+", store.Current.Storage.FilePrefix);
     }
 
     [Fact]
@@ -430,14 +430,14 @@ public sealed class SettingsStoreTests : IDisposable
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("???")]
-    public void EmptyOrInvalidPrefix_BecomesFotobox(string prefix)
+    public void EmptyOrInvalidPrefix_BecomesFotoboxPlus(string prefix)
     {
         var store = new JsonSettingsStore(_dir);
         var s = new AppSettings();
         s.Storage.FilePrefix = prefix;
         store.Save(s);
 
-        Assert.Equal("Fotobox", store.Current.Storage.FilePrefix);
+        Assert.Equal("Fotobox+", store.Current.Storage.FilePrefix);
     }
 
     [Fact]

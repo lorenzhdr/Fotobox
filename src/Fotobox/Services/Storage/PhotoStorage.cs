@@ -8,7 +8,7 @@ namespace Fotobox.Services.Storage;
 
 /// <summary>
 /// Speichert Layout und Originale als JPEG (zuerst temporäre Datei, dann Umbenennen). Ist der konfigurierte Ordner
-/// nicht beschreibbar oder nicht vorhanden, wird auf den Standardordner (Bilder\Fotobox) ausgewichen; die Pfade im
+/// nicht beschreibbar oder nicht vorhanden, wird auf den Standardordner (Bilder\Fotobox+) ausgewichen; die Pfade im
 /// Ergebnis nennen den tatsächlich verwendeten Ordner. Ordner- und Dateinamen sind kulturunabhängig.
 /// </summary>
 public sealed class PhotoStorage : IPhotoStorage
@@ -18,11 +18,11 @@ public sealed class PhotoStorage : IPhotoStorage
 
     private readonly string _defaultRoot;
 
-    /// <param name="defaultRoot">Standard- bzw. Ausweichordner (null = Bilder\Fotobox); nur für Tests gedacht.</param>
+    /// <param name="defaultRoot">Standard- bzw. Ausweichordner (null = Bilder\Fotobox+); nur für Tests gedacht.</param>
     public PhotoStorage(string? defaultRoot = null)
     {
         _defaultRoot = string.IsNullOrWhiteSpace(defaultRoot)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Fotobox")
+            ? AppInfo.DefaultPhotoFolder
             : defaultRoot;
     }
 
@@ -80,7 +80,8 @@ public sealed class PhotoStorage : IPhotoStorage
         string prefix, int quality, DateTime timestamp, CancellationToken ct) =>
         Task.Run(() => SaveCore(layout, sources, folder, prefix, quality, timestamp, ct), ct);
 
-    private static bool SamePath(string a, string b)
+    // internal: Auch VideoStorage nutzt dieselbe Pfad- und Fehlererkennung.
+    internal static bool SamePath(string a, string b)
     {
         try
         {
@@ -92,7 +93,7 @@ public sealed class PhotoStorage : IPhotoStorage
         }
     }
 
-    private static bool IsStorageError(Exception ex) =>
+    internal static bool IsStorageError(Exception ex) =>
         ex is UnauthorizedAccessException or IOException or NotSupportedException or ArgumentException or SecurityException;
 
     private static SavedPhotoSet SaveCore(BitmapSource layout, List<BitmapSource> originals, string folder,

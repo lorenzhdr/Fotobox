@@ -8,7 +8,8 @@
     <RootNamespace>Fotobox</RootNamespace>
     <ApplicationIcon>Assets\fotobox.ico</ApplicationIcon>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
-    <Description>Fotobox – Webcam-Livebild, Foto per Auslösetaste, Speichern und Drucken</Description>
+    <AssemblyTitle>Fotobox+</AssemblyTitle>
+    <Description>Fotobox+ – Webcam-Livebild, Foto per Auslösetaste, Videoclips, Speichern und Drucken</Description>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <PublishTrimmed>false</PublishTrimmed>
     <PublishSingleFile>false</PublishSingleFile>

@@ -27,9 +27,9 @@ public sealed class WpfAdminUi : IAdminUi
         return (Owner is null ? dialog.ShowDialog() : dialog.ShowDialog(Owner)) == true ? dialog.FileName : null;
     }
 
-    public string? PickFolder(string? initialFolder)
+    public string? PickFolder(string? initialFolder, string title)
     {
-        var dialog = new OpenFolderDialog { Title = "Speicherordner für die Fotos auswählen" };
+        var dialog = new OpenFolderDialog { Title = title };
         // Existiert der Ordner noch nicht, den nächsten vorhandenen übergeordneten verwenden (mit Timeout: Netzpfad).
         var start = FolderProbe.FindExistingFolderOrParent(initialFolder, TimeSpan.FromSeconds(3));
         if (start is not null)

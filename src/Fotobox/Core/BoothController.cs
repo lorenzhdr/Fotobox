@@ -7,14 +7,20 @@ namespace Fotobox.Core;
 /// <summary>
 /// Printed: Druck fertig, Gast wird kurz aufgefordert, das Foto aus dem Drucker zu nehmen.
 /// PrintCancelled: Gast hat den Druck abgebrochen (bzw. der Abbruch ging nicht mehr), kurze ruhige Meldung statt Fehler.
+/// VideoCountdown → Recording → VideoSaving → VideoSaved: Videodurchgang (Fehler wie beim Foto über Error zurück nach Idle).
 /// </summary>
-public enum BoothState { Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error, PrintCancelled }
+public enum BoothState { Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error, PrintCancelled, VideoCountdown, Recording, VideoSaving, VideoSaved }
 
 /// <summary>
 /// Ablaufsteuerung eines Foto-Durchgangs (Countdown → Aufnahme → Layout → Speichern → Vorschau/Druck → „Fertig“).
 /// Ohne UI testbar; Zeit läuft über <see cref="TimeProvider"/>. Zustandsänderungen werden auf dem
 /// SynchronizationContext des Aufrufers von <see cref="TryTrigger"/> ausgelöst (kein ConfigureAwait(false),
 /// damit auch Compose auf dem UI-Thread läuft).
+/// <para>
+/// Daneben gibt es den Videodurchgang (<see cref="TryStartVideo"/>): Countdown → Aufnahme → Speichern → „gespeichert“.
+/// Foto- und Videodurchgang teilen sich dasselbe Gate, es läuft nie beides zugleich. Ohne <c>videoStorage</c> ist Video nicht startbar.
+/// Für die Taste „Video“ (gleiche Taste für Start und Stopp) bietet <see cref="TryToggleVideo"/> die Umschaltung an.
+/// </para>
 /// </summary>
 public sealed class BoothController(
     ICameraService camera,
@@ -22,7 +28,8 @@ public sealed class BoothController(
     IPrintService print,
     IPhotoStorage storage,
     ISettingsStore settings,
-    TimeProvider time)
+    TimeProvider time,
+    IVideoStorage? videoStorage = null)
 {
     private static readonly TimeSpan Second = TimeSpan.FromSeconds(1);
     /// <summary>Obergrenze für die (blockierende) Seitengrößen-Abfrage des Druckers.</summary>
@@ -39,6 +46,26 @@ public sealed class BoothController(
     public static readonly TimeSpan PrintCancelTimeout = TimeSpan.FromSeconds(10);
     /// <summary>Takt, in dem <see cref="Changed"/> während des Drucks den Fortschritt meldet.</summary>
     private static readonly TimeSpan ProgressTick = TimeSpan.FromMilliseconds(250);
+    /// <summary>Obergrenze für <see cref="IVideoStorage.PrepareAsync"/> (Ordner anlegen, Speicherplatz prüfen).</summary>
+    public static readonly TimeSpan VideoPrepareTimeout = TimeSpan.FromSeconds(10);
+    /// <summary>Obergrenze für <see cref="ICameraService.StartRecordingAsync"/>.</summary>
+    public static readonly TimeSpan VideoStartTimeout = TimeSpan.FromSeconds(15);
+    /// <summary>Obergrenze für <see cref="IVideoRecording.StopAsync"/> (Datei abschließen).</summary>
+    public static readonly TimeSpan VideoStopTimeout = TimeSpan.FromSeconds(30);
+    /// <summary>Obergrenze für <see cref="IVideoStorage.CommitAsync"/> (Umbenennen).</summary>
+    public static readonly TimeSpan VideoCommitTimeout = TimeSpan.FromSeconds(30);
+    // Beim App-Ende sind die Fristen kürzer (Teilvideo retten, aber nie lange hängen).
+    private static readonly TimeSpan ShutdownStopTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ShutdownCommitTimeout = TimeSpan.FromSeconds(5);
+    /// <summary>
+    /// So lange blockiert <see cref="Cancel"/> bei laufender Aufnahme höchstens (echte Zeit), um das Video zu speichern.
+    /// Danach kehrt es zurück; das Speichern läuft ggf. im Hintergrund weiter.
+    /// </summary>
+    public TimeSpan ShutdownVideoWait { get; init; } = TimeSpan.FromSeconds(12);
+
+    private const string VideoStartError = "Das Video konnte nicht gestartet werden. Bitte versuche es noch einmal.";
+    private const string VideoSaveError = "Das Video konnte nicht gespeichert werden. Bitte versuche es noch einmal.";
+    private const string VideoDiskSpaceError = "Nicht genug Speicherplatz für ein Video. Bitte sag dem Gastgeber Bescheid.";
 
     private volatile BoothState _state = BoothState.Starting;
     private int _busy;
@@ -71,6 +98,19 @@ public sealed class BoothController(
     private string? _printCancelText;
     private SavedPhotoSet? _lastSaved;
 
+    // Video: laufende Aufnahme und ihre Anzeigewerte. Die Laufzeit wird bei jedem Lesen aus der Zeit berechnet,
+    // der Sekundentakt der Aufnahme löst nur Changed aus.
+    private volatile VideoRun? _video;
+    private long _recStart;
+    private long _recFrozenTicks;
+    private volatile bool _recActive;
+    private volatile int _recMaxSeconds;
+    private volatile int _recMinSeconds;
+    private volatile int _recWarnSeconds;
+    private bool _recHasAudio;
+    private string _videoSavedText = VideoSettings.DefaultSuccessText;
+    private string? _lastSavedVideo;
+
     public BoothState State
     {
         get => _state;
@@ -97,6 +137,43 @@ public sealed class BoothController(
     /// <summary>Der Gast hat den Druck abbrechen wollen; der Druckdienst führt den Abbruch gerade aus.</summary>
     public bool PrintCancelRequested => _printCancelCts is { IsCancellationRequested: true };
     public SavedPhotoSet? LastSaved { get => _lastSaved; private set => Set(ref _lastSaved, value); }
+
+    /// <summary>
+    /// Ein Videodurchgang läuft (Countdown, Aufnahme, Speichern oder „gespeichert“-Meldung).
+    /// </summary>
+    public bool IsVideoState => _state is BoothState.VideoCountdown or BoothState.Recording or BoothState.VideoSaving or BoothState.VideoSaved;
+    /// <summary>
+    /// Laufzeit der Aufnahme (ab dem Start, auf <c>MaxDurationSeconds</c> begrenzt); nach dem Ende der Aufnahme der Endwert,
+    /// bis der nächste Videodurchgang beginnt. Die UI aktualisiert sich über <see cref="Changed"/> (Sekundentakt).
+    /// </summary>
+    public TimeSpan RecordingElapsed
+    {
+        get
+        {
+            var max = TimeSpan.FromSeconds(_recMaxSeconds);
+            var elapsed = _recActive
+                ? time.GetElapsedTime(Volatile.Read(ref _recStart))
+                : TimeSpan.FromTicks(Volatile.Read(ref _recFrozenTicks));
+            return elapsed < TimeSpan.Zero ? TimeSpan.Zero : elapsed > max ? max : elapsed;
+        }
+    }
+    /// <summary>Restzeit bis zum automatischen Ende (Maximaldauer − <see cref="RecordingElapsed"/>).</summary>
+    public TimeSpan RecordingRemaining => TimeSpan.FromSeconds(_recMaxSeconds) - RecordingElapsed;
+    /// <summary>Während der Aufnahme: <c>WarningSeconds</c> &gt; 0 und die Restzeit ist kleiner oder gleich diesem Wert.</summary>
+    public bool IsRecordingWarning =>
+        _recActive && _recWarnSeconds > 0 && RecordingRemaining <= TimeSpan.FromSeconds(_recWarnSeconds);
+    /// <summary>Die laufende Aufnahme enthält Ton (<see cref="IVideoRecording.HasAudio"/>).</summary>
+    public bool RecordingHasAudio { get => _recHasAudio; private set => Set(ref _recHasAudio, value); }
+    /// <summary>
+    /// Im Zustand <see cref="BoothState.Recording"/> hat die Aufnahme die Mindestlänge erreicht; erst dann wirken
+    /// <see cref="TryStopVideo"/> und die Abbrechen-Taste.
+    /// </summary>
+    public bool CanStopVideo =>
+        _state == BoothState.Recording && _recActive && RecordingElapsed >= TimeSpan.FromSeconds(_recMinSeconds);
+    /// <summary>Meldung im Zustand <see cref="BoothState.VideoSaved"/> (<c>SuccessText</c> oder <see cref="VideoSettings.DefaultSuccessText"/>).</summary>
+    public string VideoSavedText { get => _videoSavedText; private set => Set(ref _videoSavedText, value); }
+    /// <summary>Pfad des zuletzt gespeicherten Videos.</summary>
+    public string? LastSavedVideo { get => _lastSavedVideo; private set => Set(ref _lastSavedVideo, value); }
 
     /// <summary>
     /// Vorabruf der Seitengröße im Hintergrund (bei Start, Auslösen und geänderten Einstellungen), damit die
@@ -239,14 +316,541 @@ public sealed class BoothController(
         return true;
     }
 
-    /// <summary>Taste „Abbrechen“: bricht den Countdown ab, sonst einen laufenden Druck; sonst wirkungslos.</summary>
-    public bool TryCancel() => TryCancelCountdown() || TryCancelPrint();
+    /// <summary>
+    /// Taste „Abbrechen“: bricht den Foto- oder Video-Countdown ab (still, nichts wird aufgenommen), beendet eine laufende
+    /// Videoaufnahme wie <see cref="TryStopVideo"/> (speichern, erst ab Mindestlänge), sonst einen laufenden Druck; sonst wirkungslos.
+    /// </summary>
+    public bool TryCancel() => TryCancelCountdown() || TryCancelVideo() || TryCancelPrint();
 
-    /// <summary>Bricht einen laufenden Durchgang ab (z. B. beim Beenden der App).</summary>
+    /// <summary>
+    /// Bricht einen laufenden Durchgang ab (z. B. beim Beenden der App). Läuft gerade eine Videoaufnahme (oder wird sie
+    /// gespeichert), wird sie beendet und gespeichert (Teilvideo); der Aufruf blockiert dafür höchstens
+    /// <see cref="ShutdownVideoWait"/> und braucht dazu nicht den UI-Thread.
+    /// </summary>
     public void Cancel()
     {
+        if (_video is { } run && _state is BoothState.Recording or BoothState.VideoSaving)
+            FinishVideoForShutdown(run);
+
         try { _sessionCts?.Cancel(); }
         catch (ObjectDisposedException) { }
+    }
+
+    /// <summary>
+    /// Startet einen Videodurchgang. Nur im Zustand Idle, bei laufender Kamera, aktivem Video
+    /// (<see cref="VideoSettings.Enabled"/>) und vorhandenem Video-Speicher; sonst (auch bei laufendem Foto- oder Videodurchgang)
+    /// <c>false</c>. Foto und Video teilen sich dasselbe Gate. Der Zustand wechselt sofort zu <see cref="BoothState.VideoCountdown"/>
+    /// (bei <c>CountdownSeconds</c> = 0 mit <see cref="CountdownValue"/> 0, bis die Aufnahme beginnt).
+    /// </summary>
+    public bool TryStartVideo()
+    {
+        if (videoStorage is null || _state != BoothState.Idle || camera.Status != CameraStatus.Running)
+            return false;
+        if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
+            return false;
+
+        var cts = new CancellationTokenSource();
+        try
+        {
+            var cfg = settings.Current;
+            if (!cfg.Video.Enabled)
+            {
+                cts.Dispose();
+                Volatile.Write(ref _busy, 0);
+                return false;
+            }
+
+            _sessionCts = cts;
+            var video = cfg.Video;
+            var max = Math.Max(1, video.MaxDurationSeconds);
+
+            ErrorMessage = null;
+            PrintCancelTitle = null;
+            PrintCancelText = null;
+            StatusMessage = null;
+            PreviewImage = null;
+            CountdownValue = 0;
+            ShotIndex = 0;
+            ShotCount = 0;
+            ResetPrintProgress(cfg.Flow.ExpectedPrintSeconds);
+            _recActive = false;
+            Volatile.Write(ref _recFrozenTicks, 0);
+            _recMaxSeconds = max;
+            _recMinSeconds = Math.Clamp(video.MinDurationSeconds, 0, max);
+            _recWarnSeconds = Math.Max(0, video.WarningSeconds);
+            RecordingHasAudio = false;
+            VideoSavedText = string.IsNullOrWhiteSpace(video.SuccessText) ? VideoSettings.DefaultSuccessText : video.SuccessText;
+            State = BoothState.VideoCountdown;
+
+            AppLog.Info($"Videodurchgang gestartet (Countdown {Math.Max(0, video.CountdownSeconds)} s, Höchstdauer {max} s).");
+            _ = RunVideoSessionAsync(cfg, cts);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // Der Durchgang läuft noch nicht: Sperre freigeben, sonst bliebe die Box dauerhaft belegt.
+            AppLog.Error("Videodurchgang konnte nicht gestartet werden.", ex);
+            _sessionCts = null;
+            cts.Dispose();
+            if (_state == BoothState.VideoCountdown)
+                State = BoothState.Idle;
+            Volatile.Write(ref _busy, 0);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Beendet die laufende Aufnahme und speichert sie. Wirkt nur im Zustand <see cref="BoothState.Recording"/> und erst ab
+    /// <c>MinDurationSeconds</c> Laufzeit (<see cref="CanStopVideo"/>); vorher, im Countdown und sonst <c>false</c>.
+    /// </summary>
+    public bool TryStopVideo()
+    {
+        if (_state != BoothState.Recording || _video is not { } run || !CanStopVideo)
+            return false;
+        if (!run.RequestStop(VideoStopReason.User))
+            return false;
+        AppLog.Info("Videoaufnahme vom Gast beendet.");
+        return true;
+    }
+
+    /// <summary>
+    /// Taste „Video“ mit gleicher Belegung für Start und Stopp: In Idle <see cref="TryStartVideo"/>, in Recording
+    /// <see cref="TryStopVideo"/>, sonst (Countdown, Speichern …) wirkungslos. Rückgabe: es wurde etwas ausgelöst.
+    /// </summary>
+    public bool TryToggleVideo() => _state switch
+    {
+        BoothState.Idle => TryStartVideo(),
+        BoothState.Recording => TryStopVideo(),
+        _ => false,
+    };
+
+    /// <summary>Abbrechen im Video-Countdown: still zurück zu Idle. In Recording wie <see cref="TryStopVideo"/>.</summary>
+    private bool TryCancelVideo()
+    {
+        switch (_state)
+        {
+            case BoothState.VideoCountdown:
+                var cts = _sessionCts;
+                if (cts is null)
+                    return false;
+                try { cts.Cancel(); }
+                catch (ObjectDisposedException) { return false; }
+                return true;
+            case BoothState.Recording:
+                return TryStopVideo();
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>App-Ende bei laufender Aufnahme: beenden, speichern (kurze Fristen) und höchstens <see cref="ShutdownVideoWait"/> warten.</summary>
+    private void FinishVideoForShutdown(VideoRun run)
+    {
+        try
+        {
+            // Das Speichern zuerst anmelden und auf dem Threadpool ausführen: Der Aufrufer (UI-Thread) blockiert gleich, und
+            // Fortsetzungen des Aufnahmedienstes, die auf seinen Synchronisationskontext warten, würden sonst nie laufen.
+            // Es muss vor dem Stopp-Signal angemeldet sein, weil der Ablauf auf dem UI-Thread inline weiterläuft und sonst
+            // selbst (mit den langen Fristen, auf dem UI-Thread) das Speichern beginnen würde.
+            var save = BeginFinalize(run, ShutdownStopTimeout, ShutdownCommitTimeout, onThreadPool: true);
+            run.RequestStop(VideoStopReason.AppExit);
+            if (!save.Wait(ShutdownVideoWait))
+                AppLog.Warn("Videoaufnahme wurde beim Beenden nicht rechtzeitig gespeichert.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Videoaufnahme konnte beim Beenden nicht gespeichert werden.", ex);
+        }
+    }
+
+    private async Task RunVideoSessionAsync(AppSettings cfg, CancellationTokenSource cts)
+    {
+        try
+        {
+            string? error;
+            try
+            {
+                error = await RunVideoPhasesAsync(cfg, cts.Token);
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+                AppLog.Info("Videodurchgang abgebrochen.");
+                error = null;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("Unerwarteter Fehler im Video-Durchgang.", ex);
+                error = "Es ist ein unerwarteter Fehler aufgetreten. Bitte versuche es noch einmal.";
+            }
+
+            if (error is not null)
+            {
+                AppLog.Warn($"Videodurchgang mit Fehler beendet: {error}");
+                ErrorMessage = error;
+                CountdownValue = 0;
+                State = BoothState.Error;
+                try { await DelayAsync(cfg.Flow.ErrorDisplaySeconds, cts.Token); }
+                catch (Exception) { /* Abbruch/Fehler beim Warten: trotzdem zurück zu Idle */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Fehler bei der Fehleranzeige.", ex);
+        }
+        finally
+        {
+            try
+            {
+                // Ausnahme mitten in der Aufnahme: nie eine laufende Aufnahme zurücklassen (stoppen und speichern bzw. verwerfen).
+                if (_video is { } run && !run.FinalizeStarted)
+                {
+                    _recActive = false;
+                    _ = BeginFinalize(run, VideoStopTimeout, VideoCommitTimeout);
+                }
+                _video = null;
+                _recActive = false;
+                CountdownValue = 0;
+                StatusMessage = null;
+                State = BoothState.Idle;
+            }
+            finally
+            {
+                _sessionCts = null;
+                cts.Dispose();
+                Volatile.Write(ref _busy, 0);
+            }
+        }
+    }
+
+    /// <summary>Führt alle Video-Phasen aus. Rückgabe: Fehlermeldung für den Gast oder null bei Erfolg (oder stillem Abbruch).</summary>
+    private async Task<string?> RunVideoPhasesAsync(AppSettings cfg, CancellationToken ct)
+    {
+        var video = cfg.Video;   // Snapshot: spätere Änderungen der Einstellungen wirken erst im nächsten Durchgang
+        var maxDuration = TimeSpan.FromSeconds(_recMaxSeconds);
+
+        // 1. Countdown (0 = sofort). Abbrechen wirft hier und verwirft alles (noch nichts vorbereitet).
+        for (var v = Math.Max(0, video.CountdownSeconds); v >= 1; v--)
+        {
+            CountdownValue = v;
+            await Task.Delay(Second, time, ct);
+        }
+        CountdownValue = 0;
+        ct.ThrowIfCancellationRequested();
+
+        // 2. Ziel vorbereiten (Ordner, Speicherplatz, temporäre Datei).
+        var timestamp = time.GetLocalNow().DateTime;
+        VideoTarget target;
+        using (var prepareCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        {
+            Task<VideoTarget>? prepare = null;
+            try
+            {
+                prepare = videoStorage!.PrepareAsync(video, camera.ActiveResolution, maxDuration, timestamp, prepareCts.Token);
+                ObserveFault(prepare);
+                target = await prepare.WaitAsync(VideoPrepareTimeout, time, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                prepareCts.Cancel();
+                DiscardLateTarget(prepare);
+                throw;
+            }
+            catch (TimeoutException)
+            {
+                AppLog.Error("Vorbereiten des Videos hat das Zeitlimit überschritten.");
+                prepareCts.Cancel();
+                DiscardLateTarget(prepare);
+                return VideoStartError;
+            }
+            catch (InsufficientDiskSpaceException ex)
+            {
+                AppLog.Error("Nicht genug Speicherplatz für ein Video.", ex);
+                return VideoDiskSpaceError;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("Video konnte nicht vorbereitet werden.", ex);
+                return VideoStartError;
+            }
+        }
+
+        // 3. Aufnahme starten.
+        IVideoRecording recording;
+        using (var startCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        {
+            Task<IVideoRecording>? start = null;
+            try
+            {
+                start = camera.StartRecordingAsync(new VideoRecordingRequest(target.TempPath, video.Quality), startCts.Token);
+                ObserveFault(start);
+                recording = await start.WaitAsync(VideoStartTimeout, time, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                startCts.Cancel();
+                _ = CleanUpUnusedRecordingAsync(start, target);
+                throw;
+            }
+            catch (TimeoutException)
+            {
+                AppLog.Error("Starten der Videoaufnahme hat das Zeitlimit überschritten.");
+                startCts.Cancel();
+                _ = CleanUpUnusedRecordingAsync(start, target);
+                return VideoStartError;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("Videoaufnahme konnte nicht gestartet werden.", ex);
+                videoStorage.Discard(target);
+                return VideoStartError;
+            }
+        }
+
+        // Abgebrochen, während die Kamera gerade startete: die (leere) Aufnahme wieder beenden und verwerfen.
+        if (ct.IsCancellationRequested)
+        {
+            _ = CleanUpUnusedRecordingAsync(Task.FromResult(recording), target);
+            ct.ThrowIfCancellationRequested();
+        }
+
+        // 4. Aufnahme läuft. Faulted kommt auf beliebigem Thread und geht über das Stopp-Signal in den Ablauf.
+        var run = new VideoRun(recording, target);
+        recording.Faulted += (_, reason) =>
+        {
+            if (run.RequestStop(VideoStopReason.Faulted, reason))
+                AppLog.Warn($"Videoaufnahme vom Gerät beendet: {reason}");
+        };
+        _video = run;
+        var startTimestamp = time.GetTimestamp();
+        Volatile.Write(ref _recStart, startTimestamp);
+        _recActive = true;
+        RecordingHasAudio = recording.HasAudio;
+        AppLog.Info($"Videoaufnahme gestartet (Ton: {(recording.HasAudio ? "ja" : "nein")}, Höchstdauer {_recMaxSeconds} s).");
+        Raise(Changed);
+        State = BoothState.Recording;
+
+        while (true)
+        {
+            var elapsed = time.GetElapsedTime(startTimestamp);
+            if (elapsed >= maxDuration)
+                run.RequestStop(VideoStopReason.MaxDuration);
+            if (run.StopSignal.IsCompleted)
+                break;
+
+            using var tickCts = new CancellationTokenSource();
+            var tick = Task.Delay(Min(Second, maxDuration - elapsed), time, tickCts.Token);
+            await Task.WhenAny(run.StopSignal, tick);
+            tickCts.Cancel();
+            if (!run.StopSignal.IsCompleted)
+                Raise(Changed);
+        }
+
+        var finalElapsed = RecordingElapsed;
+        Volatile.Write(ref _recFrozenTicks, finalElapsed.Ticks);
+        _recActive = false;
+        var stopReason = run.StopSignal.Result;
+        AppLog.Info($"Videoaufnahme beendet ({DescribeStopReason(stopReason, run.FaultDetail)}), Dauer {finalElapsed.TotalSeconds:0.0} s.");
+
+        // 5. Speichern.
+        Raise(Changed);
+        State = BoothState.VideoSaving;
+        var result = await BeginFinalize(run, VideoStopTimeout, VideoCommitTimeout);
+        if (result.FilePath is null)
+            return VideoSaveError;
+
+        AppLog.Info($"Video gespeichert: {result.FilePath} (Dauer {finalElapsed.TotalSeconds:0.0} s, Ton: {(recording.HasAudio ? "ja" : "nein")}).");
+        LastSavedVideo = result.FilePath;
+        State = BoothState.VideoSaved;
+        await DelayAsync(Math.Max(0, video.SuccessDisplaySeconds), ct);
+        return null;
+    }
+
+    /// <summary>
+    /// Beendet die Aufnahme und übernimmt die Datei, genau einmal je Aufnahme: Wer zuerst kommt (Ablauf oder App-Ende),
+    /// bestimmt die Fristen, alle anderen warten auf dasselbe Ergebnis. Läuft ohne Synchronisationskontext und wirft nie.
+    /// </summary>
+    private Task<VideoSaveResult> BeginFinalize(VideoRun run, TimeSpan stopTimeout, TimeSpan commitTimeout, bool onThreadPool = false)
+    {
+        TaskCompletionSource<VideoSaveResult> tcs;
+        lock (run.Gate)
+        {
+            if (run.Finalizing is { } existing)
+                return existing.Task;
+            tcs = run.Finalizing = new TaskCompletionSource<VideoSaveResult>();
+        }
+
+        if (onThreadPool)
+            _ = Task.Run(() => FinalizeVideoAsync(run, tcs, stopTimeout, commitTimeout));
+        else
+            _ = FinalizeVideoAsync(run, tcs, stopTimeout, commitTimeout);
+        return tcs.Task;
+    }
+
+    private async Task FinalizeVideoAsync(VideoRun run, TaskCompletionSource<VideoSaveResult> tcs, TimeSpan stopTimeout, TimeSpan commitTimeout)
+    {
+        VideoSaveResult result;
+        try
+        {
+            // Aufnahme abschließen. Scheitert das (z. B. nach Faulted), wird trotzdem versucht, das Teilvideo zu übernehmen;
+            // hängt es, ist die Datei nicht verlässlich: verwerfen.
+            var stopHung = false;
+            using (var stopCts = new CancellationTokenSource())
+            {
+                try
+                {
+                    var stop = run.Recording.StopAsync(stopCts.Token);
+                    ObserveFault(stop);
+                    await stop.WaitAsync(stopTimeout, time).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    AppLog.Error("Beenden der Videoaufnahme hat das Zeitlimit überschritten.");
+                    stopHung = true;
+                    stopCts.Cancel();
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Warn("Videoaufnahme ließ sich nicht sauber beenden, versuche das Teilvideo zu übernehmen.", ex);
+                }
+            }
+
+            if (stopHung)
+            {
+                videoStorage!.Discard(run.Target);
+                result = new VideoSaveResult(null);
+            }
+            else
+            {
+                using var commitCts = new CancellationTokenSource();
+                Task<string>? commit = null;
+                try
+                {
+                    commit = videoStorage!.CommitAsync(run.Target, commitCts.Token);
+                    ObserveFault(commit);
+                    result = new VideoSaveResult(await commit.WaitAsync(commitTimeout, time).ConfigureAwait(false));
+                }
+                catch (TimeoutException)
+                {
+                    AppLog.Error("Übernehmen des Videos hat das Zeitlimit überschritten.");
+                    commitCts.Cancel();
+                    LogLateCommit(commit);
+                    videoStorage!.Discard(run.Target);
+                    result = new VideoSaveResult(null);
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Error("Video konnte nicht gespeichert werden.", ex);
+                    videoStorage!.Discard(run.Target);
+                    result = new VideoSaveResult(null);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Unerwarteter Fehler beim Speichern des Videos.", ex);
+            try { videoStorage!.Discard(run.Target); } catch (Exception) { /* Discard wirft nie; Sicherheitsnetz */ }
+            result = new VideoSaveResult(null);
+        }
+
+        _ = DisposeRecordingAsync(run.Recording);
+        tcs.TrySetResult(result);
+    }
+
+    /// <summary>Beendet eine Aufnahme, die nach Abbruch/Zeitlimit des Starts doch noch zustande kam, und verwirft die Datei.</summary>
+    private async Task CleanUpUnusedRecordingAsync(Task<IVideoRecording>? start, VideoTarget target)
+    {
+        try
+        {
+            if (start is not null)
+            {
+                IVideoRecording? recording = null;
+                try { recording = await start.ConfigureAwait(false); }
+                catch (Exception) { /* Start gescheitert: nichts zu beenden */ }
+
+                if (recording is not null)
+                {
+                    try { await recording.StopAsync().WaitAsync(VideoStopTimeout, time).ConfigureAwait(false); }
+                    catch (Exception ex) { AppLog.Warn("Nicht benötigte Videoaufnahme ließ sich nicht beenden.", ex); }
+                    await DisposeRecordingAsync(recording).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Aufräumen einer nicht benötigten Videoaufnahme fehlgeschlagen.", ex);
+        }
+        finally
+        {
+            videoStorage?.Discard(target);
+        }
+    }
+
+    private void DiscardLateTarget(Task<VideoTarget>? prepare)
+    {
+        if (prepare is null)
+            return;
+        _ = prepare.ContinueWith(t => videoStorage?.Discard(t.Result),
+            CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+    }
+
+    private static void LogLateCommit(Task<string>? commit)
+    {
+        if (commit is null)
+            return;
+        _ = commit.ContinueWith(static t => AppLog.Warn($"Übernehmen des Videos war nach dem Zeitlimit doch noch erfolgreich: {t.Result}"),
+            TaskContinuationOptions.OnlyOnRanToCompletion);
+    }
+
+    private static async Task DisposeRecordingAsync(IVideoRecording recording)
+    {
+        try { await recording.DisposeAsync().ConfigureAwait(false); }
+        catch (Exception ex) { AppLog.Warn("Videoaufnahme ließ sich nicht freigeben.", ex); }
+    }
+
+    private static string DescribeStopReason(VideoStopReason reason, string? detail) => reason switch
+    {
+        VideoStopReason.User => "vom Gast",
+        VideoStopReason.MaxDuration => "Höchstdauer erreicht",
+        VideoStopReason.Faulted => $"Gerätefehler: {detail}",
+        VideoStopReason.AppExit => "Programmende",
+        _ => reason.ToString(),
+    };
+
+    private static TimeSpan Min(TimeSpan a, TimeSpan b) => a <= b ? a : b;
+
+    private enum VideoStopReason { User, MaxDuration, Faulted, AppExit }
+
+    /// <summary>Pfad der gespeicherten Datei oder <c>null</c>, wenn das Video verworfen wurde.</summary>
+    private sealed record VideoSaveResult(string? FilePath);
+
+    /// <summary>Eine laufende Aufnahme samt Stopp-Signal und gemeinsamem Speicher-Ergebnis.</summary>
+    private sealed class VideoRun(IVideoRecording recording, VideoTarget target)
+    {
+        public IVideoRecording Recording { get; } = recording;
+        public VideoTarget Target { get; } = target;
+        public object Gate { get; } = new();
+        public TaskCompletionSource<VideoSaveResult>? Finalizing { get; set; }
+        public bool FinalizeStarted { get { lock (Gate) return Finalizing is not null; } }
+        public string? FaultDetail { get; private set; }
+
+        private readonly TaskCompletionSource<VideoStopReason> _stop = new();   // bewusst ohne RunContinuationsAsynchronously
+        private bool _stopRequested;
+
+        public Task<VideoStopReason> StopSignal => _stop.Task;
+
+        /// <summary>Fordert das Ende an; nur die erste Anforderung zählt. Beliebiger Thread.</summary>
+        public bool RequestStop(VideoStopReason reason, string? detail = null)
+        {
+            lock (Gate)
+            {
+                if (_stopRequested)
+                    return false;
+                _stopRequested = true;
+                FaultDetail = detail;
+            }
+            _stop.TrySetResult(reason);
+            return true;
+        }
     }
 
     private async Task RunSessionAsync(AppSettings cfg, CancellationTokenSource cts)

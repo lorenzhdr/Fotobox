@@ -44,6 +44,15 @@ public sealed class WinRtCameraService : ICameraService
     private string? _statusMessage;
     private CameraResolution? _activeResolution;
 
+    // Ton und Aufnahme. _audio gilt für die nächste Session (ConfigureAudio); _audioAvailable/_sharingMode beschreiben die laufende
+    // (Schreiben unter _gate). _recording: höchstens eine Aufnahme, gesetzt unter _gate, geleert beim Ende/Abbau (Interlocked).
+    private volatile CameraAudio? _audio;
+    private int _audioSuspended;
+    private volatile bool _audioAvailable;
+    private MediaCaptureSharingMode _sharingMode;
+    private WinRtVideoRecording? _recording;
+    private static readonly TimeSpan RecordStartTimeout = TimeSpan.FromSeconds(10);
+
     // Frame-Zustand: Schreiben nur im FrameArrived-Handler (seriell), Lesen durch Capture unter _frameLock.
     private readonly object _frameLock = new();
     private byte[]? _pixels;
@@ -255,6 +264,160 @@ public sealed class WinRtCameraService : ICameraService
         return bitmap;
     }
 
+    // ---- Ton und Videoaufnahme ----
+
+    public void ConfigureAudio(CameraAudio? audio)
+    {
+        _audio = audio;
+        // Neue Wahl, neuer Versuch: Eine frühere Zeitüberschreitung mit Mikrofon gilt nicht mehr.
+        Volatile.Write(ref _audioSuspended, 0);
+    }
+
+    public bool AudioAvailable => _audioAvailable;
+
+    // Wie die Kameraaufzählung mit Frist; auf dem Threadpool (MTA).
+    public Task<IReadOnlyList<MicrophoneDevice>> GetMicrophonesAsync() => Task.Run(GetMicrophonesCoreAsync);
+
+    private static async Task<IReadOnlyList<MicrophoneDevice>> GetMicrophonesCoreAsync()
+    {
+        try
+        {
+            var infos = await AwaitStepAsync(DeviceInformation.FindAllAsync(DeviceClass.AudioCapture).AsTask(), "Mikrofonliste")
+                .ConfigureAwait(false);
+            return infos
+                .Select(i => new MicrophoneDevice(i.Id, string.IsNullOrWhiteSpace(i.Name) ? "Mikrofon" : i.Name))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Mikrofone konnten nicht aufgelistet werden.", ex);
+            return [];
+        }
+    }
+
+    public Task<IVideoRecording> StartRecordingAsync(VideoRecordingRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.FilePath))
+            throw new ArgumentException("Der Zielpfad der Videoaufnahme fehlt.", nameof(request));
+
+        // Threadpool (MTA), nie im Kontext des aufrufenden UI-Threads.
+        return Task.Run(async () => (IVideoRecording)await StartRecordingCoreAsync(request, ct).ConfigureAwait(false), ct);
+    }
+
+    // Unter _gate: Start/Abbau/Neustart der Session können nicht dazwischenfahren, und die Prüfung „läuft, höchstens eine
+    // Aufnahme“ bleibt bis zum Eintragen von _recording gültig. Das Beenden der Aufnahme nimmt das Gate bewusst NICHT
+    // (der Abbau hält es und wartet dabei selbst auf das Ende der Aufnahme).
+    //
+    // Aufnahmeweg: StartRecordToStorageFileAsync/StopRecordAsync (statt LowLagMediaRecording): Die Startverzögerung ist
+    // hier unerheblich (der Countdown liegt davor), und es gibt nur eine Operation zum Beenden, die auch den MP4-Index schreibt.
+    // Der MediaFrameReader (Livebild) läuft auf demselben MediaCapture unverändert weiter.
+    private async Task<WinRtVideoRecording> StartRecordingCoreAsync(VideoRecordingRequest request, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var capture = _capture;
+            if (Volatile.Read(ref _disposed) != 0 || Status != CameraStatus.Running || capture is null)
+                throw new InvalidOperationException("Die Kamera läuft nicht.");
+            if (_recording is not null)
+                throw new InvalidOperationException("Es läuft bereits eine Videoaufnahme.");
+            // Im gemeinsamen Modus (SharedReadOnly) hat die App nur lesenden Zugriff auf die Kamera: kein Foto, keine Aufnahme.
+            if (_sharingMode != MediaCaptureSharingMode.ExclusiveControl)
+                throw new InvalidOperationException(
+                    "Videoaufnahme nicht möglich: Die Kamera wird von einer anderen Anwendung verwendet. Bitte diese Anwendung schließen.");
+
+            var resolution = ActiveResolution ?? VideoBitrate.FallbackResolution;
+            var rate = _source?.CurrentFormat?.FrameRate;
+            var fps = rate is { Denominator: > 0 } ? (double)rate.Numerator / rate.Denominator : 0;
+            var hasAudio = _audioAvailable;
+            var profile = WinRtVideoRecording.CreateProfile(request.Quality, resolution, fps, hasAudio);
+
+            var recording = new WinRtVideoRecording(capture, request.FilePath, hasAudio, OnRecordingCompleted);
+            try
+            {
+                var directory = System.IO.Path.GetDirectoryName(request.FilePath)
+                                ?? throw new ArgumentException("Der Zielpfad der Videoaufnahme ist ungültig.", nameof(request));
+                var folder = await AwaitStepAsync(Windows.Storage.StorageFolder.GetFolderFromPathAsync(directory).AsTask(), "Zielordner")
+                    .ConfigureAwait(false);
+                var file = await AwaitStepAsync(
+                    folder.CreateFileAsync(System.IO.Path.GetFileName(request.FilePath), Windows.Storage.CreationCollisionOption.ReplaceExisting).AsTask(),
+                    "Zieldatei").ConfigureAwait(false);
+
+                // Vor dem Start eintragen: Ein Fehlerereignis während des Starts erreicht so schon diese Aufnahme.
+                _recording = recording;
+                AppLog.Info($"Videoaufnahme startet: {resolution.Width}x{resolution.Height}, {VideoBitrate.ClampFps(fps):0.#} fps, {request.Quality}, {(hasAudio ? "mit Ton" : "ohne Ton")}.");
+                var start = capture.StartRecordToStorageFileAsync(profile, file).AsTask();
+                try
+                {
+                    await start.WaitAsync(RecordStartTimeout, ct).ConfigureAwait(false);
+                }
+                catch (Exception) when (!start.IsCompleted)
+                {
+                    // Zeitüberschreitung oder Abbruch, der Start läuft noch: Läuft die Aufnahme später doch an, wird sie
+                    // gleich wieder beendet (sonst blockiert sie die Kamera für die nächste).
+                    StopLateRecording(capture, start, request.FilePath);
+                    throw;
+                }
+            }
+            catch (Exception ex)
+            {
+                Interlocked.CompareExchange(ref _recording, null, recording);
+                TryDeleteFile(request.FilePath);
+                switch (ex)
+                {
+                    case InvalidOperationException or OperationCanceledException or ArgumentException:
+                        throw;
+                    case TimeoutException:
+                        AppLog.Error("Videoaufnahme: Zeitüberschreitung beim Start.", ex);
+                        throw new System.IO.IOException("Die Videoaufnahme ließ sich nicht rechtzeitig starten.", ex);
+                    default:
+                        AppLog.Error("Videoaufnahme konnte nicht gestartet werden.", ex);
+                        throw new System.IO.IOException($"Die Videoaufnahme konnte nicht gestartet werden: {ex.Message.Trim()}", ex);
+                }
+            }
+
+            return recording;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private static void StopLateRecording(MediaCapture capture, Task start, string filePath)
+    {
+        _ = start.ContinueWith(async t =>
+        {
+            if (!t.IsCompletedSuccessfully)
+                return;
+            AppLog.Warn("Verspätet gestartete Videoaufnahme wird wieder beendet.");
+            try { await capture.StopRecordAsync().AsTask().WaitAsync(WinRtVideoRecording.FinishTimeout).ConfigureAwait(false); }
+            catch (Exception ex) { AppLog.Warn("Verspätete Videoaufnahme konnte nicht beendet werden.", ex); }
+            TryDeleteFile(filePath);
+        }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try { System.IO.File.Delete(path); }
+        catch { /* best effort */ }
+    }
+
+    // Aufnahme beendet (Gast-Stopp, Abbau, Dispose): Platz für die nächste machen.
+    private void OnRecordingCompleted(WinRtVideoRecording recording) =>
+        Interlocked.CompareExchange(ref _recording, null, recording);
+
+    // Das Gerät beendet die Aufnahme: nur melden, der Aufrufer beendet sie dann (Teilvideo) bzw. der Abbau holt es nach.
+    private void OnRecordLimitationExceeded(MediaCapture sender)
+    {
+        if (!ReferenceEquals(sender, _capture))
+            return;
+        var recording = Volatile.Read(ref _recording);
+        if (recording is not null && ReferenceEquals(recording.Capture, sender))
+            recording.RaiseFaulted("Das Aufnahmelimit des Systems wurde erreicht.");
+    }
+
     public ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -304,7 +467,8 @@ public sealed class WinRtCameraService : ICameraService
             var device = devices.FirstOrDefault(d => d.Id == settings.DeviceId) ?? devices[0];
             AppLog.Info($"Kamera wird gestartet: {device.Name}");
 
-            capture = await InitializeCaptureAsync(device.Id).ConfigureAwait(false);
+            var init = await InitializeCaptureAsync(device.Id, _audio).ConfigureAwait(false);
+            capture = init.Capture;
             ct.ThrowIfCancellationRequested();
 
             var source = PickColorSource(capture);
@@ -328,9 +492,12 @@ public sealed class WinRtCameraService : ICameraService
             _reader = reader;
             _source = source;
             _activeDeviceId = device.Id;
+            _sharingMode = init.Mode;
+            _audioAvailable = init.Audio;
             _watchdog = watchdog;
             reader.FrameArrived += OnFrameArrived;
             capture.Failed += OnCaptureFailed;
+            capture.RecordLimitationExceeded += OnRecordLimitationExceeded;
 
             var startStatus = await AwaitStepAsync(reader.StartAsync().AsTask(), "Start").ConfigureAwait(false);
             if (startStatus != MediaFrameReaderStartStatus.Success)
@@ -363,7 +530,7 @@ public sealed class WinRtCameraService : ICameraService
                 : null;
             lock (_stateLock)
                 _activeResolution = resolution;
-            AppLog.Info($"Kamera läuft: {resolution}");
+            AppLog.Info($"Kamera läuft: {resolution} ({(init.Audio ? "mit Ton" : "ohne Ton")}, {init.Mode})");
             SetStatus(CameraStatus.Running, null);
             StartWatchdog(reader, watchdog);
             return StartOutcome.Started;
@@ -417,11 +584,48 @@ public sealed class WinRtCameraService : ICameraService
             await DisposeSessionObjectsAsync(capture, reader, pending).ConfigureAwait(false);
     }
 
-    private static async Task<MediaCapture> InitializeCaptureAsync(string deviceId)
+    // Ergebnis des Session-Aufbaus: Zugriffsmodus und ob ein Mikrofon geöffnet wurde.
+    private readonly record struct CaptureInit(MediaCapture Capture, MediaCaptureSharingMode Mode, bool Audio);
+
+    // Reihenfolge der Rückfälle (jeder Schritt erst, wenn der vorige scheitert):
+    //  1. Exklusiv MIT Ton (nur wenn ConfigureAudio gesetzt ist).
+    //  2. Exklusiv OHNE Ton: Ein fehlendes oder gesperrtes Mikrofon (kein Gerät, Datenschutz, Gerät weg) darf die Kamera nie
+    //     verhindern, und exklusiver Zugriff bleibt nötig, weil nur er Aufnahmen erlaubt. Das kostet bei belegter Kamera einen
+    //     schnell scheiternden Versuch mehr, ist aber billiger als eine Session ohne Aufnahmemöglichkeit.
+    //  3. Gemeinsam (SharedReadOnly), immer ohne Ton: nur Livebild, keine Aufnahme (siehe StartRecordingAsync).
+    // UnauthorizedAccessException mit Ton ist mehrdeutig (Mikrofon oder Kamera gesperrt): Erst Schritt 2 klärt es; scheitert
+    // auch er mit UnauthorizedAccess, ist die Kamera gesperrt (wie bisher, kein Rückfall auf gemeinsamen Zugriff).
+    // Eine Zeitüberschreitung mit Ton (hängender Audiotreiber) wird gemeldet wie bisher, danach läuft dieser Dienst bis zum
+    // nächsten ConfigureAudio ohne Ton, damit die Wiederverbindung nicht endlos am Mikrofon hängt.
+    private async Task<CaptureInit> InitializeCaptureAsync(string deviceId, CameraAudio? audio)
     {
+        if (audio is not null && Volatile.Read(ref _audioSuspended) == 0)
+        {
+            try
+            {
+                var withAudio = await InitializeOnceAsync(deviceId, MediaCaptureSharingMode.ExclusiveControl, audio).ConfigureAwait(false);
+                return new CaptureInit(withAudio, MediaCaptureSharingMode.ExclusiveControl, true);
+            }
+            catch (CameraTimeoutException)
+            {
+                Volatile.Write(ref _audioSuspended, 1);
+                AppLog.Warn("Kamera-Initialisierung mit Mikrofon hängt, weitere Versuche laufen ohne Ton.");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"Mikrofon nicht nutzbar (fehlt, gesperrt oder Datenschutz) – Kamera startet ohne Ton. ({ex.GetType().Name}, HResult 0x{ex.HResult:X8})");
+            }
+        }
+        else if (audio is not null)
+        {
+            AppLog.Info("Mikrofon wird nach einer Zeitüberschreitung nicht mehr verwendet; Kamera startet ohne Ton.");
+        }
+
         try
         {
-            return await InitializeOnceAsync(deviceId, MediaCaptureSharingMode.ExclusiveControl).ConfigureAwait(false);
+            var exclusive = await InitializeOnceAsync(deviceId, MediaCaptureSharingMode.ExclusiveControl).ConfigureAwait(false);
+            return new CaptureInit(exclusive, MediaCaptureSharingMode.ExclusiveControl, false);
         }
         catch (UnauthorizedAccessException)
         {
@@ -436,18 +640,19 @@ public sealed class WinRtCameraService : ICameraService
             AppLog.Warn("Exklusiver Kamerazugriff nicht möglich, versuche gemeinsamen Zugriff.", ex);
         }
 
-        return await InitializeOnceAsync(deviceId, MediaCaptureSharingMode.SharedReadOnly).ConfigureAwait(false);
+        var shared = await InitializeOnceAsync(deviceId, MediaCaptureSharingMode.SharedReadOnly).ConfigureAwait(false);
+        return new CaptureInit(shared, MediaCaptureSharingMode.SharedReadOnly, false);
     }
 
     // Initialisiert ein MediaCapture mit Frist. Bei Zeitüberschreitung läuft die Initialisierung noch: Das Objekt
     // wird erst nach deren Abschluss freigegeben (nie währenddessen), im Hintergrund auf dem Threadpool.
-    private static async Task<MediaCapture> InitializeOnceAsync(string deviceId, MediaCaptureSharingMode mode)
+    private static async Task<MediaCapture> InitializeOnceAsync(string deviceId, MediaCaptureSharingMode mode, CameraAudio? audio = null)
     {
         var capture = new MediaCapture();
         Task init;
         try
         {
-            init = capture.InitializeAsync(CreateInitSettings(deviceId, mode)).AsTask();
+            init = capture.InitializeAsync(CreateInitSettings(deviceId, mode, audio)).AsTask();
         }
         catch
         {
@@ -532,13 +737,21 @@ public sealed class WinRtCameraService : ICameraService
         }
     }
 
-    private static MediaCaptureInitializationSettings CreateInitSettings(string deviceId, MediaCaptureSharingMode mode) => new()
+    // audio = null: nur Video (z. B. Auflösungsabfrage, gemeinsamer Zugriff). Mit Ton wird das Mikrofon beim Initialisieren
+    // geöffnet; MicrophoneId null = Windows-Standardmikrofon (AudioDeviceId bleibt dann ungesetzt).
+    private static MediaCaptureInitializationSettings CreateInitSettings(string deviceId, MediaCaptureSharingMode mode, CameraAudio? audio = null)
     {
-        VideoDeviceId = deviceId,
-        StreamingCaptureMode = StreamingCaptureMode.Video,
-        MemoryPreference = MediaCaptureMemoryPreference.Cpu,
-        SharingMode = mode,
-    };
+        var settings = new MediaCaptureInitializationSettings
+        {
+            VideoDeviceId = deviceId,
+            StreamingCaptureMode = audio is null ? StreamingCaptureMode.Video : StreamingCaptureMode.AudioAndVideo,
+            MemoryPreference = MediaCaptureMemoryPreference.Cpu,
+            SharingMode = mode,
+        };
+        if (audio?.MicrophoneId is { Length: > 0 } microphoneId)
+            settings.AudioDeviceId = microphoneId;
+        return settings;
+    }
 
     private static MediaFrameSource? PickColorSource(MediaCapture capture)
     {
@@ -601,6 +814,24 @@ public sealed class WinRtCameraService : ICameraService
 
     private async Task StopCoreAsync(Task? pending = null)
     {
+        // Eine laufende Aufnahme zuerst abschließen (Teilvideo retten), erst danach wird abgebaut. Der Aufrufer wird per
+        // Faulted informiert; das Abschließen hat eine eigene Frist (WinRtVideoRecording.FinishTimeout), der Abbau hängt also nie
+        // unbegrenzt. Läuft das Beenden schon (Gast-Stopp), wartet dieser Aufruf auf dieselbe Operation.
+        var recording = Interlocked.Exchange(ref _recording, null);
+        if (recording is not null)
+        {
+            recording.RaiseFaulted("Die Kamera wurde gestoppt, neu verbunden oder ist ausgefallen.");
+            try
+            {
+                await recording.FinishAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Teilvideo konnte beim Kamera-Abbau nicht sauber abgeschlossen werden.", ex);
+            }
+        }
+
+        _audioAvailable = false;
         var capture = _capture;
         var reader = _reader;
         _capture = null;
@@ -781,6 +1012,11 @@ public sealed class WinRtCameraService : ICameraService
             AppLog.Warn($"Kamera meldet Fehler einer veralteten Sitzung (ignoriert): {e.Message} (Code {e.Code})");
             return;
         }
+
+        // Läuft eine Aufnahme, sofort melden (das Abschließen übernimmt der Aufrufer bzw. der Abbau gleich danach).
+        var recording = Volatile.Read(ref _recording);
+        if (recording is not null && ReferenceEquals(recording.Capture, sender))
+            recording.RaiseFaulted($"Die Kamera hat einen Fehler gemeldet (Code {e.Code}).");
 
         // Während eines Starts (auch einer stillen Wiederholung, z. B. direkt nach einem Kamerawechsel) ist das noch
         // kein Verbindungsverlust im Betrieb; der Start behandelt den Fehler selbst.
