@@ -530,4 +530,44 @@ public sealed class PeaceOverlayViewModelTests
         var filtered = _guest.Current!.Tracks.Single().Pose.Center.X; // Foto-Pfad: ohne Vorhersage
         Assert.True(shown > filtered);
     }
+
+    [Fact]
+    public void PeaceAgainWhileMoustacheIsVisible_StillTriggersANewAction_InFastFaceMode()
+    {
+        using var vm = Create();
+        var actions = new List<PeaceTrigger>();
+        vm.ActionRequested += (_, t) => actions.Add(t);
+        var settings = Settings(s => { s.ActionSelfDestruct = false; s.ActionMoustache = true; });
+        vm.SetMode(PeaceMode.Watching, settings, false);
+        var status = _service.Last.Status;
+
+        // Schneller Gesichtsmodus: alle 100 ms Gesichter, alle 200 ms Hände (dann mit wiederholten Gesichtern).
+        void Fast(double seconds, IReadOnlyList<HandLandmarks> hands)
+        {
+            var steps = (int)Math.Round(seconds * 10);
+            for (var i = 0; i < steps; i++)
+            {
+                _time.Advance(TimeSpan.FromMilliseconds(100));
+                var handsRound = i % 2 == 0;
+                var update = handsRound
+                    ? new GestureUpdate([Face], hands, 1280, 720, status, HandsIncluded: true, FacesFresh: false, FrameTime: _time.GetUtcNow())
+                    : new GestureUpdate([Face], [], 1280, 720, status, HandsIncluded: false, FacesFresh: true, FrameTime: _time.GetUtcNow());
+                if (handsRound)
+                    _service.Last.RaiseUpdated(new GestureUpdate([Face], [], 1280, 720, status, HandsIncluded: false, FacesFresh: true, FrameTime: _time.GetUtcNow()));
+                _service.Last.RaiseUpdated(update);
+            }
+        }
+
+        _service.Last.RaiseUpdated([Face], []);
+        Run(1.4, [Face], [Peace]);
+        var first = Assert.Single(actions);
+        vm.StartMoustache(first);
+        Assert.Equal(2, _service.Last.Options.HandCycleDivisor);
+
+        Fast(1.0, []); // Hand runter
+        Fast(1.6, [Peace]); // erneut Peace, Bart ist sichtbar
+
+        Assert.Equal(2, actions.Count);
+        Assert.Equal(PeaceAction.Moustache, actions[1].Action);
+    }
 }

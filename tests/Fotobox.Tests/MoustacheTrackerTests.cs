@@ -232,6 +232,40 @@ public sealed class MoustacheTrackerTests
     }
 
     [Fact]
+    public void ShownPose_AtRest_IsCalmerThanTheRawDetections_EvenWithPredictionAge()
+    {
+        var tracker = Create();
+        tracker.StartSession(MoustacheTargets.Everyone, MoustacheStyle.Twirl, null, MoustacheVisibility.FixedDuration, 600);
+        var random = new Random(1234);
+        var truth = MoustacheGeometry.FromFace(Face(1, 0.3).Face, W, H).Center;
+        double rawSquares = 0, shownSquares = 0, filteredSquares = 0;
+        var n = 0;
+        for (var i = 0; i < 120; i++)
+        {
+            // Gleichverteiltes Rauschen von ±4 px in x und y; das Bild ist beim Eintreffen der Auswertung 80 ms alt.
+            var dx = (random.NextDouble() * 2 - 1) * 4 / W;
+            var dy = (random.NextDouble() * 2 - 1) * 4 / H;
+            var noisy = PeaceHandFixtures.Face(0.3 + dx, 0.4 + dy, 0.12);
+            tracker.OnFaces([new TrackedFace(1, noisy)], W, H, _time.GetUtcNow() - TimeSpan.FromMilliseconds(80));
+            if (i >= 20)
+            {
+                var raw = MoustacheGeometry.FromFace(noisy, W, H).Center;
+                var shown = tracker.Views.Single().Pose.Center;
+                var filtered = tracker.ExportPlanInput()!.Tracks.Single().Pose.Center;
+                filteredSquares += Math.Pow((filtered.X - truth.X) * W, 2) + Math.Pow((filtered.Y - truth.Y) * H, 2);
+                rawSquares += Math.Pow((raw.X - truth.X) * W, 2) + Math.Pow((raw.Y - truth.Y) * H, 2);
+                shownSquares += Math.Pow((shown.X - truth.X) * W, 2) + Math.Pow((shown.Y - truth.Y) * H, 2);
+                n++;
+            }
+            Advance(100);
+        }
+
+        var rawRms = Math.Sqrt(rawSquares / n);
+        var shownRms = Math.Sqrt(shownSquares / n);
+        Assert.True(shownRms < 0.6 * rawRms, $"Angezeigt {shownRms:0.00} px, gefiltert {Math.Sqrt(filteredSquares / n):0.00} px, roh {rawRms:0.00} px");
+    }
+
+    [Fact]
     public void Pose_DuringFastMotion_FollowsWithSmallLag()
     {
         var tracker = Create();

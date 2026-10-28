@@ -28,6 +28,12 @@ public sealed class MoustacheTracker
     public const double VelocityCutoff = 2.0;
     /// <summary>Größtes Alter einer Beobachtung, um das die Mitte in <see cref="Views"/> fortgeschrieben wird.</summary>
     public static readonly TimeSpan MaxPredictionAge = TimeSpan.FromMilliseconds(150);
+    /// <summary>
+    /// Totband der Vorhersage in Gesichtsbreiten pro Sekunde: Nur der Anteil der geschätzten Geschwindigkeit darüber wird
+    /// fortgeschrieben. Im Stillstand ist die Geschwindigkeit reines Rauschen (rund 0,1 Gesichtsbreiten/s); ohne Totband
+    /// würde die Vorhersage den Bart unruhiger machen als die gefilterte Lage.
+    /// </summary>
+    public const double PredictionDeadband = 0.25;
     /// <summary>Größter Weg der Vorhersage in Gesichtsbreiten.</summary>
     public const double MaxPredictionFaceWidths = 0.3;
     /// <summary>Beobachtungen eines Gesichts, die näher beieinander liegen, werden nicht gefiltert (die Geschwindigkeitsschätzung würde springen).</summary>
@@ -301,9 +307,17 @@ public sealed class MoustacheTracker
         if (!(age > 0) || entry.ImageWidth <= 0 || entry.ImageHeight <= 0)
             return entry.Pose;
 
-        var dx = entry.X.Velocity * age;
-        var dy = entry.Y.Velocity * age;
-        var limit = MaxPredictionFaceWidths * entry.FaceBox.Width * entry.ImageWidth;
+        var faceWidthPx = entry.FaceBox.Width * entry.ImageWidth;
+        var vx = entry.X.Velocity;
+        var vy = entry.Y.Velocity;
+        var speed = Math.Sqrt(vx * vx + vy * vy);
+        var deadband = PredictionDeadband * faceWidthPx;
+        if (speed <= deadband)
+            return entry.Pose;
+        var keep = (speed - deadband) / speed; // Betrag um das Totband verkleinern, Richtung beibehalten
+        var dx = vx * keep * age;
+        var dy = vy * keep * age;
+        var limit = MaxPredictionFaceWidths * faceWidthPx;
         var length = Math.Sqrt(dx * dx + dy * dy);
         if (length > limit && length > 0)
         {
