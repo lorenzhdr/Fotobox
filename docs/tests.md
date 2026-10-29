@@ -35,6 +35,8 @@ Grund: Parallel laufende StaFact-Collections laden gleichzeitig BAML und deadloc
 
 `WpfCollection.EnsurePackUris()` registriert das `pack://`-Schema (statischer Konstruktor von `System.Windows.Application`), ohne eine `Application` anzulegen. Sonst scheitert ein Pack-URI mit „The URI prefix is not recognized“, wenn der Test **allein** läuft und noch kein anderer Test WPF initialisiert hat.
 
+Zusatztasten (Strg/Alt/Umschalt/Win) liest die App nur über `ModifierState.Current` (`src/Fotobox/Views/ModifierState.cs`). Im Testlauf setzt `FixedModifierState` (Modul-Initialisierer) sie fest auf „keine“. Simulierte Tastendrücke und Mausradereignisse hängen dadurch nicht von Tasten ab, die gerade am Rechner gedrückt sind; vorher schlug z. B. `BoothWindow_HeldVideoKey_RepeatDoesNotToggle` sporadisch fehl. Neuer Code liest `Keyboard.Modifiers` nicht direkt.
+
 ## Muster
 
 - **`FakeTimeProvider`:** Zeit läuft im Code über `TimeProvider` (Controller, Engines, Tracker, Watchdog …). Tests treiben sie mit `Time.Advance(…)`. Beispiel `BoothControllerTests`: Ein `Harness` mit Fake-Kamera/-Composer/-Drucker/-Storage und einem eigenen `PumpContext` (`SynchronizationContext`), damit der Testthread der „UI-Thread“ des Controllers ist und Fortsetzungen deterministisch laufen; ein Flag verhindert, dass die Fake-Zeit vor dem `Task.Run`-Sprung der Seitengrößen-Abfrage weiterläuft.

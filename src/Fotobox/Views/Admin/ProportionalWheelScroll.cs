@@ -41,7 +41,7 @@ public static class ProportionalWheelScroll
         if (e.Handled || e.Delta == 0 || sender is not ScrollViewer viewer)
             return;
         // Umschalt = horizontales Scrollen, bleibt dem Standardverhalten überlassen
-        if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+        if ((ModifierState.Current & ModifierKeys.Shift) != 0)
             return;
         // Nur der innerste ScrollViewer, der in diese Richtung scrollen kann, handelt; äußere lassen das ungehandelt durch.
         if (!ReferenceEquals(FindResponsible(e.OriginalSource as DependencyObject, e.Delta), viewer))

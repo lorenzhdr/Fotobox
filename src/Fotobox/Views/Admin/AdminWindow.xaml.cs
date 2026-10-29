@@ -124,7 +124,7 @@ public partial class AdminWindow : Window
         if (IsModifierKey(key))
             return;
 
-        _viewModel.CaptureKey(KeyChord.FromKeyEvent(key, Key.None, Keyboard.Modifiers));
+        _viewModel.CaptureKey(KeyChord.FromKeyEvent(key, Key.None, ModifierState.Current));
     }
 
     private static Key ResolveKey(KeyEventArgs e) => e.Key switch

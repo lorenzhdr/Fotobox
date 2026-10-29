@@ -351,7 +351,7 @@ public sealed partial class BoothWindow : Window
         }
 
         // Belegung (Auslösen, Abbrechen, Admin) kommt aus den Einstellungen.
-        var chord = KeyChord.FromKeyEvent(e.Key, e.SystemKey, Keyboard.Modifiers);
+        var chord = KeyChord.FromKeyEvent(e.Key, e.SystemKey, ModifierState.Current);
         var action = _viewModel.HandleKey(chord);
         if (action == BoothKeyAction.None)
             return;
