@@ -1,5 +1,12 @@
 ## Fotobox+ {{VERSION}}
 
+### Neu in 2.5.0-beta
+
+- **Kamerasteuerung im Admin:** Im Tab „Kamera“ gibt es die neue Karte „Bildeinstellungen“ mit Schiebereglern für Zoom, Schwenken, Neigen, Helligkeit, Kontrast, Farbton, Belichtungszeit, Belichtungskorrektur, Gegenlichtausgleich, Fokus und Weißabgleich – jeweils mit „Automatisch“, wo die Kamera das anbietet. Die Regler wirken sofort auf das Livebild und damit gleich auf Fotos und Videos; gespeichert wird mit „Übernehmen“, „Schließen“ ohne Speichern stellt den alten Stand wieder her. Welche Regler verfügbar sind, bestimmt die Kamera bzw. ihr Treiber; was sie nicht kann, ist ausgegraut. Dazu Flimmerschutz (50/60 Hz, Standard 50 Hz) gegen Streifen unter LED- und Neonlicht, „Alle zurücksetzen“ und bis zu 10 benannte Profile je Kamera (z. B. „Tag“, „Abend“).
+- **Normales Scrollen mit dem Trackpad im Admin:** Die Einstellungsseiten springen beim Scrollen mit einem Touchpad nicht mehr sofort ans Ende, sondern scrollen so fein wie in anderen Programmen.
+- **Nur noch portable Version:** Es gibt keinen Installer mehr, sondern nur noch die ZIP-Dateien für x64 und ARM. Wer bisher die Setup-Version nutzt, siehe „Umstieg von der Setup-Version“ unten – Einstellungen, Fotos und Videos bleiben erhalten.
+- **Beta:** Enthält auch alles aus 2.4.0-beta (unten). Die Kamerasteuerung ist mit automatischen Tests und einer eingebauten Laptop-Kamera geprüft, mit USB-Webcams noch nicht.
+
 ### Neu in 2.4.0-beta
 
 - **Easter Egg „Mittelfingererkennung“:** Zeigt ein Gast den Mittelfinger in die Kamera und hält ihn kurz, verschwinden alle Schnurrbärte mit einem kleinen „Plopp“, und ein laufender Selbstzerstörungs-Countdown bricht still ab – wie mit Esc. Andere Countdowns laufen weiter; ein Foto direkt danach entsteht ohne Bart. Die Erkennung wirkt zusammen mit der Peaceerkennung und ist ab Werk eingeschaltet. Im Admin-Tab „Fun“ → „Mittelfinger“ lassen sich Haltedauer und Empfindlichkeit einstellen, eine Live-Vorschau mit „Aufheben testen“ zeigt die Wirkung. Die Gastansicht verrät nichts.
