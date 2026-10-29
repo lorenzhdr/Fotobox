@@ -5,8 +5,8 @@ public sealed record TrackedTarget(int Id, NormRect Box, DateTimeOffset FirstSee
 
 /// <summary>
 /// Ordnet die Boxen aufeinanderfolgender Analysen einander zu (gierig nach IoU), glättet die Position und bestätigt ein
-/// Ziel erst nach der Verweildauer. Ein Ziel ohne Treffer bleibt <see cref="LostTimeout"/> lang mit seiner letzten Position
-/// erhalten (überbrückt einzelne Aussetzer des Detektors). Ein bestätigtes Ziel, das länger fehlt, wird weitere
+/// Ziel erst nach der Verweildauer. Ein Ziel ohne Treffer bleibt <see cref="LostTimeout"/> lang (bei langsamer Analyse
+/// länger, siehe <see cref="Configure(TimeSpan, int)"/>) mit seiner letzten Position erhalten (überbrückt einzelne Aussetzer des Detektors). Ein bestätigtes Ziel, das länger fehlt, wird weitere
 /// <see cref="RecoveryWindow"/> (ab dem letzten Treffer) vorgemerkt: Taucht nahe seiner letzten Position wieder eine Box auf,
 /// übernimmt sie Id und Bestätigung (keine neue Person, keine neue Verweildauer). Nicht threadsicher.
 /// </summary>
@@ -16,6 +16,7 @@ public sealed class TargetTracker
     public const double SmoothingAlpha = 0.5;
     /// <summary>Mittenabstand (in Boxbreiten der verlorenen Spur), unter dem eine Box eine verlorene Spur wiederfindet.</summary>
     public const double RecoveryDistance = 0.5;
+    /// <summary>Untergrenze der Verlustfrist; bei langsamer Analyse (wenige Analysen/s) wächst sie auf mehrere Analyseabstände.</summary>
     public static readonly TimeSpan LostTimeout = TimeSpan.FromMilliseconds(700);
     /// <summary>So lange (ab dem letzten Treffer) wird eine bestätigte, verlorene Spur für das Wiederfinden vorgemerkt.</summary>
     public static readonly TimeSpan RecoveryWindow = TimeSpan.FromSeconds(3);
@@ -34,12 +35,29 @@ public sealed class TargetTracker
     private readonly List<Track> _tracks = [];
     private readonly List<Track> _lost = [];
     private TimeSpan _dwell = TimeSpan.Zero;
+    private TimeSpan _lostAfter = LostTimeout;
+    private TimeSpan _recoveryWindow = RecoveryWindow;
     private int _nextId = 1;
 
     public TargetTracker(TimeProvider time) => _time = time;
 
     /// <summary>Verweildauer, ab der ein Ziel bestätigt ist (0 = sofort).</summary>
     public void Configure(TimeSpan dwell) => _dwell = dwell < TimeSpan.Zero ? TimeSpan.Zero : dwell;
+
+    /// <summary>
+    /// Wie <see cref="Configure(TimeSpan)"/>, passt aber Verlust- und Vormerkfrist an die Analyserate an: Die Verlustfrist umfasst
+    /// mindestens <see cref="Peace.PeaceEngine.AnalysisIntervalFactor"/> Analyseabstände (nie unter <see cref="LostTimeout"/>), das
+    /// Vormerkfenster mindestens Verlustfrist + einen Analyseabstand (nie unter <see cref="RecoveryWindow"/>).
+    /// </summary>
+    public void Configure(TimeSpan dwell, int analysesPerSecond)
+    {
+        Configure(dwell);
+        var interval = TimeSpan.FromSeconds(1.0 / Math.Max(1, analysesPerSecond));
+        var lostAfter = TimeSpan.FromSeconds(Peace.PeaceEngine.AnalysisIntervalFactor * interval.TotalSeconds);
+        _lostAfter = lostAfter > LostTimeout ? lostAfter : LostTimeout;
+        var recovery = _lostAfter + interval;
+        _recoveryWindow = recovery > RecoveryWindow ? recovery : RecoveryWindow;
+    }
 
     /// <summary>Ids der vorgemerkten (verlorenen, aber noch wiederfindbaren) Ziele.</summary>
     public IEnumerable<int> RememberedIds => _lost.Select(t => t.Id);
@@ -121,13 +139,13 @@ public sealed class TargetTracker
         for (var i = _tracks.Count - 1; i >= 0; i--)
         {
             var track = _tracks[i];
-            if (now - track.LastSeen < LostTimeout)
+            if (now - track.LastSeen < _lostAfter)
                 continue;
             _tracks.RemoveAt(i);
             if (track.WasConfirmed)
                 _lost.Add(track);
         }
-        _lost.RemoveAll(t => now - t.LastSeen >= RecoveryWindow);
+        _lost.RemoveAll(t => now - t.LastSeen >= _recoveryWindow);
     }
 
     // Ordnet übrige Boxen verlorenen Spuren zu (IoU ≥ MinIoU oder Mittenabstand < RecoveryDistance Boxbreiten); beste zuerst.

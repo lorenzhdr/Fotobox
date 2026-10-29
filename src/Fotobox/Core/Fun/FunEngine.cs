@@ -61,7 +61,7 @@ public sealed class FunEngine
     {
         _time = time;
         _tracker = new TargetTracker(time);
-        _tracker.Configure(TimeSpan.FromMilliseconds(_settings.DwellMilliseconds));
+        _tracker.Configure(TimeSpan.FromMilliseconds(_settings.DwellMilliseconds), _settings.AnalysesPerSecond);
     }
 
     public FunSnapshot Snapshot => _snapshot;
@@ -81,7 +81,7 @@ public sealed class FunEngine
         var previousDuration = LockDuration;
         _settings = settings.Clone();
         _mirror = mirror;
-        _tracker.Configure(TimeSpan.FromMilliseconds(Math.Max(0, _settings.DwellMilliseconds)));
+        _tracker.Configure(TimeSpan.FromMilliseconds(Math.Max(0, _settings.DwellMilliseconds)), _settings.AnalysesPerSecond);
         if (_phase == FunPhase.LockingOn && LockDuration != previousDuration)
         {
             var latestStart = _confirmed.Where(t => _lockStart.ContainsKey(t.Id)).Select(t => _lockStart[t.Id]).DefaultIfEmpty().Max();

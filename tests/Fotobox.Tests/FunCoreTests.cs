@@ -595,6 +595,54 @@ public sealed class FunCoreTests : IDisposable
         Assert.False(again.IsConfirmed);
     }
 
+    [Theory]
+    [InlineData(10, 700)]
+    [InlineData(5, 700)]
+    [InlineData(4, 700)]
+    [InlineData(2, 1250)]
+    [InlineData(1, 2500)]
+    public void Tracker_LostFrame_GrowsWithAnalysisInterval(int analysesPerSecond, int lostMs)
+    {
+        var (tracker, time) = NewTracker();
+        tracker.Configure(TimeSpan.Zero, analysesPerSecond);
+        var box = new NormRect(0.2, 0.2, 0.2, 0.5);
+        var id = Assert.Single(tracker.Update([box])).Id;
+
+        time.Advance(TimeSpan.FromMilliseconds(lostMs - 1));
+        Assert.Equal(id, Assert.Single(tracker.Prune()).Id); // noch nicht verloren
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.Empty(tracker.Prune());
+    }
+
+    [Fact]
+    public void Tracker_AtTwoPerSecond_SurvivesOneMissedAnalysis()
+    {
+        var (tracker, time) = NewTracker(dwellMs: 800);
+        tracker.Configure(TimeSpan.FromMilliseconds(800), 2);
+        var box = new NormRect(0.2, 0.2, 0.2, 0.5);
+        var id = Assert.Single(tracker.Update([box])).Id;
+        time.Advance(TimeSpan.FromMilliseconds(500));
+        tracker.Update([box]);
+        time.Advance(TimeSpan.FromMilliseconds(1000)); // eine Analyse fehlt (1,0 s Lücke)
+        var again = Assert.Single(tracker.Update([box]));
+
+        Assert.Equal(id, again.Id);
+        Assert.True(again.IsConfirmed); // Verweildauer lief über den Aussetzer weiter
+    }
+
+    [Fact]
+    public void Tracker_AtOnePerSecond_RemembersConfirmedTargetForAnalysisIntervalLonger()
+    {
+        var (tracker, time) = NewTracker();
+        tracker.Configure(TimeSpan.Zero, 1);
+        var box = new NormRect(0.2, 0.2, 0.2, 0.5);
+        var id = Assert.Single(tracker.Update([box])).Id;
+        tracker.Prune(); // bestätigt
+
+        time.Advance(TimeSpan.FromMilliseconds(3400)); // länger als 3 s, aber kürzer als Verlustfrist 2,5 s + 1 s
+        Assert.Equal(id, Assert.Single(tracker.Update([box])).Id);
+    }
+
     [Fact]
     public void Tracker_RecoversByCenterDistance_WhenOverlapIsSmall()
     {

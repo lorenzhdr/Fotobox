@@ -879,4 +879,38 @@ public sealed class FunEngineTests
         rig.Run(0.2, P1, P2, P3);
         Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
     }
+
+    [Fact]
+    public void SlowAnalysis_OnePerSecond_StillReachesText()
+    {
+        // Updates im 1-s-Takt, Ticks alle 100 ms: Die Spur darf zwischen zwei Analysen nicht verfallen, sonst würde sie nie bestätigt.
+        var rig = new Rig(s => { s.AnalysesPerSecond = 1; s.DwellMilliseconds = 800; s.LockOnMilliseconds = 1200; });
+        var reached = false;
+        for (var step = 1; step <= 60 && !reached; step++)
+        {
+            rig.Time.Advance(TimeSpan.FromMilliseconds(100));
+            if (step % 10 == 1)
+                rig.Engine.OnDetections([P1]);
+            rig.Engine.Tick();
+            reached = rig.Snap.Phase == FunPhase.ShowingText;
+        }
+
+        Assert.True(reached);
+        Assert.Equal(1, rig.Snap.Count);
+    }
+
+    [Fact]
+    public void SlowAnalysis_OnePerSecond_EpisodeStaysOpenWhileTrackIsNotYetLost()
+    {
+        var rig = new Rig(s => { s.AnalysesPerSecond = 1; s.DwellMilliseconds = 0; });
+        rig.Run(0.1, P1);
+        rig.Run(1.2, P1);
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+
+        // Die Erkennung bleibt aus: Die bestätigte Spur gilt erst nach der Verlustfrist (2,5 s bei 1 Analyse/s) als verloren.
+        rig.Run(2.0);
+        Assert.Equal(1, rig.Snap.Count); // Spur gilt erst nach 2,5 s ohne Treffer als verloren
+        rig.Run(1.0);
+        Assert.Equal(0, rig.Snap.Count);
+    }
 }
