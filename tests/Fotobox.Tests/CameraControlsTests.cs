@@ -242,6 +242,7 @@ public sealed class CameraControlsTests : IDisposable
             [CameraControlKind.BacklightCompensation] = ("Gegenlichtausgleich", CameraControlGroup.Exposure),
             [CameraControlKind.Focus] = ("Fokus", CameraControlGroup.FocusAndWhiteBalance),
             [CameraControlKind.WhiteBalance] = ("Weißabgleich", CameraControlGroup.FocusAndWhiteBalance),
+            [CameraControlKind.ExposureCompensation] = ("Belichtungskorrektur", CameraControlGroup.Exposure),
         };
 
         foreach (var kind in Enum.GetValues<CameraControlKind>())
@@ -301,6 +302,17 @@ public sealed class CameraControlsTests : IDisposable
     }
 
     [Fact]
+    public void FormatValue_ExposureCompensation_IsSignedEv()
+    {
+        var info = Info(CameraControlKind.ExposureCompensation, -2, 2, 1.0 / 6, 0);
+        Assert.Equal("+0,5 EV", CameraControlFormatter.FormatValue(info, 0.5));
+        Assert.Equal("0 EV", CameraControlFormatter.FormatValue(info, 0));
+        Assert.Equal("0 EV", CameraControlFormatter.FormatValue(info, -0.04));
+        Assert.Equal("−1,3 EV", CameraControlFormatter.FormatValue(info, -4.0 / 3));
+        Assert.Equal("+2,0 EV", CameraControlFormatter.FormatValue(info, 2));
+    }
+
+    [Fact]
     public void FormatValue_BacklightCompensation_ZeroToOneIsOffOn()
     {
         var info = Info(CameraControlKind.BacklightCompensation, 0, 1, 1, 0);
@@ -325,6 +337,24 @@ public sealed class CameraControlsTests : IDisposable
     }
 
     // ---------- Normalizer ----------
+
+    [Fact]
+    public void Normalizer_KeepsExposureCompensation_AndStillDropsUnknownKinds()
+    {
+        var s = Normalized(c =>
+        {
+            c.ControlsDeviceId = "cam";
+            c.ControlValues =
+            [
+                V(CameraControlKind.ExposureCompensation, 0.5),
+                V((CameraControlKind)123, 1),
+            ];
+        });
+
+        var kept = Assert.Single(s.Camera.ControlValues);
+        Assert.Equal(CameraControlKind.ExposureCompensation, kept.Kind);
+        Assert.Equal(0.5, kept.Value);
+    }
 
     [Fact]
     public void Normalizer_NullListsBecomeEmpty_UnknownPowerlineBecomesHz50()

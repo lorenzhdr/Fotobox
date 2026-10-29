@@ -387,6 +387,128 @@ public sealed class CameraControlAccessTests
         Assert.Null(CameraPowerlineMap.FromWinRt((PowerlineFrequency)99));
     }
 
+    // ---------- Weg-Auswahl (Haupt- und Ersatzweg) ----------
+
+    [Fact]
+    public void FallbackTarget_UsesPrimaryWhenSupported_ElseFallback()
+    {
+        var primary = new FakeTarget();
+        primary.Caps[CameraControlKind.Brightness] = new ControlCaps(true, 0, 100, 1, 50, false);
+        primary.Values[CameraControlKind.Brightness] = 10;
+        var fallback = new FakeTarget();
+        fallback.Caps[CameraControlKind.Brightness] = new ControlCaps(true, 0, 5, 1, 2, false);
+        fallback.Caps[CameraControlKind.Zoom] = new ControlCaps(true, 1, 4, 0.125, 1, false);
+        fallback.Values[CameraControlKind.Zoom] = 2;
+        var target = new FallbackControlTarget(primary, fallback);
+
+        Assert.Equal(100, target.GetCaps(CameraControlKind.Brightness).Max);   // Hauptweg gewinnt
+        Assert.Equal(4, target.GetCaps(CameraControlKind.Zoom).Max);           // Ersatzweg
+        Assert.False(target.GetCaps(CameraControlKind.Focus).Supported);       // keiner
+
+        Assert.True(target.TryGetValue(CameraControlKind.Zoom, out var zoom));
+        Assert.Equal(2, zoom);
+        Assert.True(target.TrySetValue(CameraControlKind.Zoom, 3));
+        Assert.True(target.TrySetValue(CameraControlKind.Brightness, 20));
+        Assert.Equal(["value:Zoom=3"], fallback.Calls);
+        Assert.Equal(["value:Brightness=20"], primary.Calls);
+    }
+
+    [Fact]
+    public void FallbackTarget_PowerlineOnlyFromPrimary()
+    {
+        var primary = new FakeTarget { PowerlineValue = CameraPowerline.Hz50 };
+        var fallback = new FakeTarget { PowerlineValue = CameraPowerline.Hz60 };
+        var target = new FallbackControlTarget(primary, fallback);
+
+        Assert.True(target.TryGetPowerline(out var value));
+        Assert.Equal(CameraPowerline.Hz50, value);
+        Assert.True(target.TrySetPowerline(CameraPowerline.Auto));
+        Assert.Empty(fallback.Calls);
+    }
+
+    [Fact]
+    public void Read_AndApply_WorkThroughFallbackTarget()
+    {
+        var primary = new FakeTarget();
+        var fallback = new FakeTarget();
+        fallback.Caps[CameraControlKind.ExposureCompensation] = new ControlCaps(true, -2, 2, 0.25, 0, false);
+        fallback.Values[CameraControlKind.ExposureCompensation] = 0.5;
+        var target = new FallbackControlTarget(primary, fallback);
+
+        var snap = CameraControlAccess.Read(target, "dev", writable: true);
+        var info = snap.Controls.Single(c => c.Kind == CameraControlKind.ExposureCompensation);
+        Assert.True(info.Supported);
+        Assert.Equal(0.5, info.Value);
+
+        CameraControlAccess.Apply(target, [new CameraControlValue { Kind = CameraControlKind.ExposureCompensation, Value = 1.1 }], CameraPowerline.Unchanged, live: true);
+        Assert.Equal(["value:ExposureCompensation=1"], fallback.Calls);
+    }
+
+    // ---------- Abbildungen der erweiterten Regler ----------
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(0.0001)]
+    [InlineData(0.033333)]
+    [InlineData(2.5)]
+    public void ExposureSeconds_RoundTripWithTimeSpan(double seconds)
+    {
+        var span = CameraControlMapping.ToTimeSpan(seconds);
+        Assert.Equal(seconds, CameraControlMapping.ToSeconds(span), 6);
+        Assert.Equal(TimeSpan.FromTicks((long)Math.Round(seconds * TimeSpan.TicksPerSecond)), span);
+    }
+
+    [Fact]
+    public void ToTimeSpan_HandlesExtremeValues()
+    {
+        Assert.Equal(TimeSpan.Zero, CameraControlMapping.ToTimeSpan(double.NaN));
+        Assert.Equal(TimeSpan.MaxValue, CameraControlMapping.ToTimeSpan(double.PositiveInfinity));
+        Assert.Equal(TimeSpan.MinValue, CameraControlMapping.ToTimeSpan(double.NegativeInfinity));
+        Assert.Equal(TimeSpan.MaxValue, CameraControlMapping.ToTimeSpan(1e30));
+    }
+
+    [Fact]
+    public void WhiteBalancePreset_MapsToAuto()
+    {
+        Assert.True(CameraControlMapping.IsAutoWhiteBalance(Windows.Media.Devices.ColorTemperaturePreset.Auto));
+        Assert.False(CameraControlMapping.IsAutoWhiteBalance(Windows.Media.Devices.ColorTemperaturePreset.Manual));
+        Assert.False(CameraControlMapping.IsAutoWhiteBalance(Windows.Media.Devices.ColorTemperaturePreset.Fluorescent));
+        Assert.Equal(Windows.Media.Devices.ColorTemperaturePreset.Auto, CameraControlMapping.WhiteBalancePresetFor(true));
+        Assert.Equal(Windows.Media.Devices.ColorTemperaturePreset.Manual, CameraControlMapping.WhiteBalancePresetFor(false));
+    }
+
+    [Fact]
+    public void FocusSupport_ReadsContinuousAndManual()
+    {
+        Assert.Equal((false, false), CameraControlMapping.FocusSupport(null));
+        Assert.Equal((false, false), CameraControlMapping.FocusSupport([Windows.Media.Devices.FocusMode.Single]));
+        Assert.Equal((true, false), CameraControlMapping.FocusSupport([Windows.Media.Devices.FocusMode.Continuous]));
+        Assert.Equal((false, true), CameraControlMapping.FocusSupport([Windows.Media.Devices.FocusMode.Manual]));
+        Assert.Equal((true, true), CameraControlMapping.FocusSupport(
+            [Windows.Media.Devices.FocusMode.Single, Windows.Media.Devices.FocusMode.Continuous, Windows.Media.Devices.FocusMode.Manual]));
+    }
+
+    [Fact]
+    public void PickZoomMode_PrefersDirect_ThenAuto_ThenFirst()
+    {
+        var m = Windows.Media.Devices.ZoomTransitionMode.Auto;
+        Assert.Null(CameraControlMapping.PickZoomMode(null));
+        Assert.Null(CameraControlMapping.PickZoomMode([]));
+        Assert.Equal(Windows.Media.Devices.ZoomTransitionMode.Direct, CameraControlMapping.PickZoomMode(
+            [Windows.Media.Devices.ZoomTransitionMode.Smooth, Windows.Media.Devices.ZoomTransitionMode.Direct, m]));
+        Assert.Equal(m, CameraControlMapping.PickZoomMode([Windows.Media.Devices.ZoomTransitionMode.Smooth, m]));
+        Assert.Equal(Windows.Media.Devices.ZoomTransitionMode.Smooth, CameraControlMapping.PickZoomMode([Windows.Media.Devices.ZoomTransitionMode.Smooth]));
+    }
+
+    [Fact]
+    public void Defaults_MidAndZeroClamped()
+    {
+        Assert.Equal(3000, CameraControlMapping.Mid(2000, 4000));
+        Assert.Equal(0, CameraControlMapping.ZeroClamped(-2, 2));
+        Assert.Equal(1, CameraControlMapping.ZeroClamped(1, 3));
+        Assert.Equal(-1, CameraControlMapping.ZeroClamped(-3, -1));
+    }
+
     [Fact]
     public async Task WinRtService_WithoutSession_ControlsAreEmptyAndLiveIsNoOp()
     {

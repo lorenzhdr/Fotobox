@@ -30,6 +30,14 @@ public sealed partial class WinRtCameraService
     // Momentaufnahme der laufenden Session; Generation zum Erkennen eines Neustarts zwischendurch.
     private sealed record SessionSnapshot(MediaCapture Capture, string? DeviceId, bool Writable, int Generation);
 
+    // Haupt-Weg: MediaDeviceControl-Regler; Ersatzweg für Zoom/Belichtung/Weißabgleich/Fokus/Belichtungskorrektur: die erweiterten
+    // WinRT-Regler (viele eingebaute Kameras bieten nur diese).
+    private static ICameraControlTarget CreateTarget(MediaCapture capture)
+    {
+        var controller = capture.VideoDeviceController;
+        return new FallbackControlTarget(new VideoDeviceControllerTarget(controller), new ExtendedControlTarget(controller));
+    }
+
     public string? ActiveDeviceId => Volatile.Read(ref _activeDeviceId);
 
     public void ConfigureControls(CameraSettings saved)
@@ -49,7 +57,7 @@ public sealed partial class WinRtCameraService
             if (session is null)
                 return CameraControlsSnapshot.Empty;
 
-            var target = new VideoDeviceControllerTarget(session.Capture.VideoDeviceController);
+            var target = CreateTarget(session.Capture);
             return await AwaitStepAsync(
                 Task.Run(() => CameraControlAccess.Read(target, session.DeviceId, session.Writable)),
                 "Kamerareglerabfrage").ConfigureAwait(false);
@@ -97,7 +105,7 @@ public sealed partial class WinRtCameraService
             if (session is null || !session.Writable)
                 return; // Keine Session bzw. nur Livebild (SharedReadOnly): nichts schreiben.
 
-            var target = new VideoDeviceControllerTarget(session.Capture.VideoDeviceController);
+            var target = CreateTarget(session.Capture);
             await AwaitStepAsync(Task.Run(() =>
             {
                 // Letzte Prüfung direkt vor dem Schreiben: nur dieselbe, noch laufende Session.
@@ -158,7 +166,7 @@ public sealed partial class WinRtCameraService
             if (values.Count == 0 && state.Powerline == CameraPowerline.Unchanged)
                 return;
 
-            var target = new VideoDeviceControllerTarget(capture.VideoDeviceController);
+            var target = CreateTarget(capture);
             await AwaitStepAsync(
                 Task.Run(() => CameraControlAccess.Apply(target, values, state.Powerline, live: false)),
                 "Kamerareglerwerte").ConfigureAwait(false);

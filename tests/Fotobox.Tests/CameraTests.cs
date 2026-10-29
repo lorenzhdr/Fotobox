@@ -183,11 +183,12 @@ public sealed class CameraFormatSelectorTests
 [Collection(WpfCollection.Name)]
 public sealed class CameraHardwareTests(Xunit.Abstractions.ITestOutputHelper output)
 {
-    private static CameraControlInfo? PickWritableControl(CameraControlsSnapshot snap) =>
+    private static IEnumerable<CameraControlInfo> WritableControls(CameraControlsSnapshot snap) =>
         snap.Controls
             .Where(c => c is { Supported: true, Writable: true, Value: not null } && c.Min < c.Max && !(c.AutoSupported && c.Auto == true))
-            .OrderBy(c => c.Kind == CameraControlKind.Brightness ? 0 : 1)
-            .FirstOrDefault();
+            .OrderBy(c => c.Kind == CameraControlKind.Brightness ? 0 : 1);
+
+    private static CameraControlInfo? PickWritableControl(CameraControlsSnapshot snap) => WritableControls(snap).FirstOrDefault();
 
     // Ein anderer Wert im Bereich, deutlich vom Ausgangswert entfernt (in Richtung der größeren Spanne).
     private static double OtherValue(CameraControlInfo c)
@@ -253,10 +254,14 @@ public sealed class CameraHardwareTests(Xunit.Abstractions.ITestOutputHelper out
             return;
         }
 
-        var control = f.Control;
         Assert.Equal(camera.ActiveDeviceId, f.Snapshot.DeviceId);
         Assert.True(f.Snapshot.Writable);
+        foreach (var control in WritableControls(f.Snapshot))
+            await LiveWriteRoundTripAsync(camera, control);
+    }
 
+    private async Task LiveWriteRoundTripAsync(WinRtCameraService camera, CameraControlInfo control)
+    {
         var original = control.Value!.Value;
         var target = OtherValue(control);
         output.WriteLine($"Test mit {control.Kind}: {original} -> {target}");

@@ -51,7 +51,8 @@ internal static class CameraPowerlineMap
 /// <summary>Echte Implementierung auf <see cref="VideoDeviceController"/>.</summary>
 internal sealed class VideoDeviceControllerTarget(VideoDeviceController controller) : ICameraControlTarget
 {
-    private MediaDeviceControl Get(CameraControlKind kind) => kind switch
+    // null = diese Art hat keinen MediaDeviceControl-Weg (Belichtungskorrektur: nur über den erweiterten Weg).
+    private MediaDeviceControl? Get(CameraControlKind kind) => kind switch
     {
         CameraControlKind.Zoom => controller.Zoom,
         CameraControlKind.Pan => controller.Pan,
@@ -63,19 +64,30 @@ internal sealed class VideoDeviceControllerTarget(VideoDeviceController controll
         CameraControlKind.BacklightCompensation => controller.BacklightCompensation,
         CameraControlKind.Focus => controller.Focus,
         CameraControlKind.WhiteBalance => controller.WhiteBalance,
-        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        _ => null,
     };
 
     public ControlCaps GetCaps(CameraControlKind kind)
     {
-        var c = Get(kind).Capabilities;
+        if (Get(kind)?.Capabilities is not { } c)
+            return default;
         return new ControlCaps(c.Supported, c.Min, c.Max, c.Step, c.Default, c.AutoModeSupported);
     }
 
-    public bool TryGetValue(CameraControlKind kind, out double value) => Get(kind).TryGetValue(out value);
-    public bool TryGetAuto(CameraControlKind kind, out bool value) => Get(kind).TryGetAuto(out value);
-    public bool TrySetValue(CameraControlKind kind, double value) => Get(kind).TrySetValue(value);
-    public bool TrySetAuto(CameraControlKind kind, bool value) => Get(kind).TrySetAuto(value);
+    public bool TryGetValue(CameraControlKind kind, out double value)
+    {
+        value = 0;
+        return Get(kind) is { } c && c.TryGetValue(out value);
+    }
+
+    public bool TryGetAuto(CameraControlKind kind, out bool value)
+    {
+        value = false;
+        return Get(kind) is { } c && c.TryGetAuto(out value);
+    }
+
+    public bool TrySetValue(CameraControlKind kind, double value) => Get(kind) is { } c && c.TrySetValue(value);
+    public bool TrySetAuto(CameraControlKind kind, bool value) => Get(kind) is { } c && c.TrySetAuto(value);
 
     public bool TryGetPowerline(out CameraPowerline value)
     {
