@@ -101,9 +101,9 @@ public sealed class AdminHeartTabTests : IDisposable
             _changed?.Invoke(this, EventArgs.Empty);
         }
 
-        public void FadeOut(TimeSpan duration)
-        {
-        }
+        public List<TimeSpan> FadeOuts { get; } = [];
+
+        public void FadeOut(TimeSpan duration) => FadeOuts.Add(duration);
 
         public void Stop()
         {
@@ -762,7 +762,7 @@ public sealed class AdminHeartTabTests : IDisposable
     }
 
     [Fact]
-    public void PlaybackChanged_FromAnotherThread_IsMarshalledToTheUiContext()
+    public async Task PlaybackChanged_FromAnotherThread_IsMarshalledToTheUiContext()
     {
         var context = new RecordingContext();
         SynchronizationContext.SetSynchronizationContext(context);
@@ -781,7 +781,7 @@ public sealed class AdminHeartTabTests : IDisposable
         Assert.True(vm.KisscamMusicPreviewPlaying);
 
         _music.SetPlayingSilently(false);
-        Task.Run(() => _music.RaiseChanged()).GetAwaiter().GetResult();
+        await RaiseMusicChangedOnAnotherThreadAsync();
 
         Assert.True(vm.KisscamMusicPreviewPlaying); // noch nicht: das Ereignis wartet auf den UI-Kontext
         context.RunAll();
@@ -789,8 +789,17 @@ public sealed class AdminHeartTabTests : IDisposable
 
         vm.Dispose();
         _music.SetPlayingSilently(true);
-        Task.Run(() => _music.RaiseChanged()).GetAwaiter().GetResult();
+        await RaiseMusicChangedOnAnotherThreadAsync();
         context.RunAll(); // nach dem Schließen wirkungslos, wirft nicht
+    }
+
+    // Löst das Ereignis auf dem Threadpool aus. Gewartet wird per Schleife und erst dann „await“ auf die fertige Aufgabe: Ein echtes
+    // await würde den aufzeichnenden Kontext des Tests erfassen und dort nie fortgesetzt.
+    private async Task RaiseMusicChangedOnAnotherThreadAsync()
+    {
+        var raise = Task.Run(() => _music.RaiseChanged());
+        Assert.True(SpinWait.SpinUntil(() => raise.IsCompleted, TimeSpan.FromSeconds(10)));
+        await raise;
     }
 
     [Fact]
@@ -813,10 +822,50 @@ public sealed class AdminHeartTabTests : IDisposable
         Assert.False(string.IsNullOrEmpty(vm.SaveStatusMessage));
     }
 
-    // ------------------------------------------------------------------ Vorschau-Verhalten (vorerst keine Herz-Vorschau)
+    // ------------------------------------------------------------------ Vorschau-Verhalten
+
+    private static readonly IReadOnlyList<HandLandmarks> ClassicHeart = HeartHandFixtures.Classic(cx: 0.5, cy: 0.6);
+    private static readonly IReadOnlyList<HandLandmarks> RoofHeart = HeartHandFixtures.Roof(cx: 0.5, cy: 0.6);
+    private static readonly HandLandmarks Middle = PeaceHandFixtures.Hand(HandPose.MiddleOnly);
+    private static readonly HandLandmarks PeaceHand = PeaceHandFixtures.Hand(HandPose.Peace);
+    private static readonly FaceLandmarks Face = PeaceHandFixtures.Face(0.5, 0.3, 0.12);
+
+    // Timer der Erkennung selbst (laufen, solange die Vorschau läuft); der Kisscam-Test darf darüber hinaus keine übrig lassen.
+    private int _timerBaseline;
+
+    private AdminViewModel OpenHeartPage(bool withMusic = true)
+    {
+        var vm = CreateViewModel(withMusic, withServices: true);
+        vm.IsFunTabSelected = true;
+        vm.FunPage = FunPage.Heart;
+        _timerBaseline = _time.ActiveTimers;
+        return vm;
+    }
+
+    // Eine Analyse alle 100 ms, die Zeit läuft mit (auch die des Kisscam-Tests).
+    private void Run(double seconds, IReadOnlyList<HandLandmarks> hands)
+    {
+        var steps = (int)Math.Round(seconds * 10);
+        for (var i = 0; i < steps; i++)
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(100));
+            if (_gestures.Requests.Count > 0 && !_gestures.Last.IsDisposed)
+                _gestures.Last.RaiseUpdated([Face], hands);
+        }
+    }
+
+    // Hält das Herz, bis der Test läuft (höchstens 5 s); gibt zurück, ob er lief.
+    private bool HoldHeartUntilTestRuns(AdminViewModel vm)
+    {
+        for (var i = 0; i < 50 && !vm.KisscamTestRunning; i++)
+            Run(0.1, ClassicHeart);
+        return vm.KisscamTestRunning;
+    }
+
+    private void AdvanceSeconds(double seconds) => _time.Advance(TimeSpan.FromSeconds(seconds));
 
     [Fact]
-    public void HeartPage_StartsNoPreview_AndStopsThePeacePreview()
+    public void HeartPage_StartsThePreview_WithTheHeartDraft_AndWithoutPeaceGestures()
     {
         NoContext();
         var vm = CreateViewModel(withServices: true);
@@ -824,21 +873,544 @@ public sealed class AdminHeartTabTests : IDisposable
         vm.FunPage = FunPage.Peace;
         Assert.Equal(PeaceMode.Watching, vm.PeacePreview.Mode);
         Assert.Equal(1, _gestures.OpenRequests);
+        Assert.False(_gestures.Last.Options.PairedHands);
 
+        vm.HeartEnabled = false; // die Vorschau zeigt die Erkennung trotzdem
         vm.FunPage = FunPage.Heart;
 
-        Assert.Equal(PeaceMode.Off, vm.PeacePreview.Mode);
-        Assert.Equal(0, _gestures.OpenRequests);
+        Assert.Equal(PeaceMode.Watching, vm.PeacePreview.Mode);
+        Assert.Equal(1, _gestures.OpenRequests);
+        Assert.True(_gestures.Last.Options.PairedHands);
         Assert.False(vm.FunPreview.IsActive);
 
-        vm.HeartHoldMilliseconds = 1200; // Änderungen auf der Herz-Seite lösen nichts aus
-        vm.KisscamSeconds = 20;
+        Run(0.5, ClassicHeart);
+        Assert.True(vm.PeacePreview.HeartDetectedNow);
+        Assert.Equal(HeartShape.Classic, vm.PeacePreview.HeartDetectedShape);
+
+        vm.FunPage = FunPage.MiddleFinger; // dort keine Herzerkennung
+        Assert.Equal(PeaceMode.Watching, vm.PeacePreview.Mode);
+        Assert.False(_gestures.Last.Options.PairedHands);
+
+        vm.FunPage = FunPage.Start;
         Assert.Equal(PeaceMode.Off, vm.PeacePreview.Mode);
         Assert.Equal(0, _gestures.OpenRequests);
+    }
+
+    [Fact]
+    public void HeartPage_PeaceGestures_AreOff_SoPeaceDoesNothingThere()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+
+        Run(1.6, [PeaceHand]);
+
+        Assert.False(vm.PeaceTestSelfDestructVisible);
+        Assert.False(vm.PeacePhotoBadgeVisible);
+        Assert.False(vm.KisscamTestRunning);
+    }
+
+    [Fact]
+    public void ChangedHeartSettings_UpdateThePreview()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        Run(0.5, RoofHeart);
+        Assert.True(vm.PeacePreview.HeartDetectedNow);
+        Assert.Equal(HeartShape.Roof, vm.PeacePreview.HeartDetectedShape);
+        Run(1.0, []);
+        Assert.False(vm.PeacePreview.HeartDetectedNow);
+
+        vm.HeartShapeRoof = false; // gilt sofort, ohne Neustart der Anforderung
+
+        Assert.Single(_gestures.Requests);
+        Run(0.5, RoofHeart);
+        Assert.False(vm.PeacePreview.HeartDetectedNow);
+        Run(0.5, ClassicHeart);
+        Assert.True(vm.PeacePreview.HeartDetectedNow);
+    }
+
+    [Fact]
+    public void DisplayOnlyHeartProperties_DoNotRestartThePreview()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        var requests = _gestures.Requests.Count;
+        var updates = _gestures.Last.Updates.Count;
+
+        vm.KisscamSeconds = 20;
+        vm.KisscamText = "Hallo";
+        vm.KisscamColor = KisscamColor.Gold;
+        vm.HeartShowHoldFeedback = false;
+
+        Assert.Equal(PeaceMode.Watching, vm.PeacePreview.Mode);
+        Assert.Equal(requests, _gestures.Requests.Count);
+        Assert.Equal(updates, _gestures.Last.Updates.Count);
+    }
+
+    [Fact]
+    public void LeavingThePageOrTheTab_StopsThePreview_AndTheTest()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.ToggleKisscamTestCommand.Execute(null);
+        Assert.True(vm.KisscamTestRunning);
+
+        vm.FunPage = FunPage.Start;
+        Assert.False(vm.KisscamTestRunning);
+        Assert.Equal(PeaceMode.Off, vm.PeacePreview.Mode);
+        Assert.Equal(0, _gestures.OpenRequests);
+        Assert.Equal(0, _time.ActiveTimers);
+
+        vm.FunPage = FunPage.Heart;
+        vm.ToggleKisscamTestCommand.Execute(null);
+        Assert.True(vm.KisscamTestRunning);
+        vm.IsFunTabSelected = false;
+        Assert.False(vm.KisscamTestRunning);
+        Assert.Equal(PeaceMode.Off, vm.PeacePreview.Mode);
+        Assert.Equal(0, _time.ActiveTimers);
+    }
+
+    [Fact]
+    public void LeavingTheHeartPageForAnotherPreviewPage_StopsTheTest()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.ToggleKisscamTestCommand.Execute(null);
 
         vm.FunPage = FunPage.MiddleFinger;
-        Assert.Equal(PeaceMode.Watching, vm.PeacePreview.Mode);
+
+        Assert.False(vm.KisscamTestRunning);
+        Assert.False(vm.PeacePreview.MiddleFingerWatching);
+        Assert.Equal(_timerBaseline, _time.ActiveTimers);
     }
+
+    // ------------------------------------------------------------------ Kisscam-Test
+
+    [Fact]
+    public void HeartGesture_InThePreview_StartsTheTest_AndNeverAPhoto()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        var triggers = 0;
+        vm.PeacePreview.HeartTriggered += (_, _) => triggers++;
+
+        Assert.False(vm.KisscamTestRunning);
+        Assert.True(HoldHeartUntilTestRuns(vm));
+
+        Assert.Equal(1, triggers);
+        Assert.InRange(vm.KisscamTestSeconds, 1, vm.KisscamSeconds);
+        Assert.NotNull(vm.KisscamTestFrame);
+        Assert.Equal(PhotoFrameKind.Kisscam, vm.KisscamTestFrame!.Kind);
+        Assert.Equal("Test abbrechen", vm.KisscamTestButtonText);
+        Assert.Equal(0, _gestures.PhotoDetectCalls); // nie ein Foto
+        Assert.Empty(_music.Plays);                   // ohne gewählte Datei bleibt es still
+    }
+
+    [Fact]
+    public void HeartGesture_OnAnotherPage_DoesNotStartTheTest()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.FunPage = FunPage.MiddleFinger;
+
+        Run(3.0, ClassicHeart);
+
+        Assert.False(vm.KisscamTestRunning);
+    }
+
+    [Fact]
+    public void Button_StartsWithoutAHeart_AndCancels()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        Assert.Equal("Kisscam testen", vm.KisscamTestButtonText);
+        Assert.True(vm.ToggleKisscamTestCommand.CanExecute(null));
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.True(vm.KisscamTestRunning);
+        Assert.Equal(vm.KisscamSeconds, vm.KisscamTestSeconds);
+        Assert.Equal("Test abbrechen", vm.KisscamTestButtonText);
+        Assert.Equal(_timerBaseline + 1, _time.ActiveTimers);
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.False(vm.KisscamTestRunning);
+        Assert.Null(vm.KisscamTestFrame);
+        Assert.Equal("Kisscam testen", vm.KisscamTestButtonText);
+        Assert.Equal(_timerBaseline, _time.ActiveTimers);
+    }
+
+    [Fact]
+    public void Button_OnAnotherPage_StartsNothing()
+    {
+        NoContext();
+        var vm = CreateViewModel(withServices: true);
+        vm.IsFunTabSelected = true;
+        vm.FunPage = FunPage.Peace;
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.False(vm.KisscamTestRunning);
+    }
+
+    [Fact]
+    public void Test_Runs_TextThenDigitsThenBadge_ThenEnds()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.KisscamSeconds = 5;
+        vm.KisscamText = "Noch {Sekunden} s";
+        vm.KisscamBannerText = "UNSER BANNER";
+        vm.KisscamColor = KisscamColor.Gold;
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.Equal(5, vm.KisscamTestSeconds);
+        Assert.Equal("Noch 5 s", vm.KisscamTestText);
+        Assert.True(vm.KisscamTestShowText);
+        Assert.False(vm.KisscamTestShowDigits);
+        Assert.Equal(string.Empty, vm.KisscamTestDigits);
+        Assert.Equal(new PhotoFrame(PhotoFrameKind.Kisscam, "UNSER BANNER", KisscamColor.Gold), vm.KisscamTestFrame);
+        Assert.False(vm.KisscamTestPhotoBadgeVisible);
+
+        AdvanceSeconds(1); // 4
+        Assert.Equal(4, vm.KisscamTestSeconds);
+        Assert.Equal("Noch 4 s", vm.KisscamTestText);
+        Assert.True(vm.KisscamTestShowText);
+
+        AdvanceSeconds(1); // 3: ab hier die Ziffern
+        Assert.False(vm.KisscamTestShowText);
+        Assert.True(vm.KisscamTestShowDigits);
+        Assert.Equal("3", vm.KisscamTestDigits);
+
+        AdvanceSeconds(1);
+        Assert.Equal("2", vm.KisscamTestDigits);
+        AdvanceSeconds(1);
+        Assert.Equal("1", vm.KisscamTestDigits);
+        Assert.True(vm.KisscamTestRunning);
+
+        AdvanceSeconds(1); // 0: Auslösemoment, nur das Abzeichen
+        Assert.True(vm.KisscamTestRunning);
+        Assert.Equal(0, vm.KisscamTestSeconds);
+        Assert.True(vm.KisscamTestPhotoBadgeVisible);
+        Assert.False(vm.KisscamTestShowDigits);
+        Assert.False(vm.KisscamTestShowText);
+        Assert.NotNull(vm.KisscamTestFrame);
+        Assert.Equal(_timerBaseline + 1, _time.ActiveTimers); // nur noch die Abzeichen-Frist
+
+        _time.Advance(TimeSpan.FromMilliseconds(1400));
+        Assert.True(vm.KisscamTestRunning);
+        _time.Advance(TimeSpan.FromMilliseconds(200));
+
+        Assert.False(vm.KisscamTestRunning);
+        Assert.False(vm.KisscamTestPhotoBadgeVisible);
+        Assert.Null(vm.KisscamTestFrame);
+        Assert.Equal(_timerBaseline, _time.ActiveTimers);
+    }
+
+    [Fact]
+    public void Test_WithAShortTimer_ShowsDigitsFromTheStart()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.KisscamSeconds = SettingsLimits.KisscamSecondsMin; // = 3
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.False(vm.KisscamTestShowText);
+        Assert.True(vm.KisscamTestShowDigits);
+        Assert.Equal("3", vm.KisscamTestDigits);
+    }
+
+    [Fact]
+    public void Test_UsesTheDefaultTexts_WhenTheDraftHasNone()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.Equal(HeartSettings.DefaultKisscamBannerText, vm.KisscamTestFrame!.BannerText);
+        Assert.Contains(vm.KisscamSeconds.ToString(), vm.KisscamTestText);
+    }
+
+    [Fact]
+    public void Test_FollowsTextAndFrameChanges_MadeWhileRunning()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.ToggleKisscamTestCommand.Execute(null);
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        vm.KisscamText = "Neu {Sekunden}";
+        vm.KisscamBannerText = "NEU";
+        vm.KisscamColor = KisscamColor.Purple;
+
+        Assert.Equal($"Neu {vm.KisscamSeconds}", vm.KisscamTestText);
+        Assert.Equal(new PhotoFrame(PhotoFrameKind.Kisscam, "NEU", KisscamColor.Purple), vm.KisscamTestFrame);
+        Assert.Contains(nameof(AdminViewModel.KisscamTestText), changed);
+        Assert.Contains(nameof(AdminViewModel.KisscamTestFrame), changed);
+    }
+
+    [Fact]
+    public void MiddleFinger_EndsTheTest_WhenTheActionIsOn()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.ToggleKisscamTestCommand.Execute(null);
+        Assert.True(vm.PeacePreview.MiddleFingerWatching); // der Test ist ein aufhebbares Ziel
+
+        Run(0.5, []);
+        Run(0.7, [Middle]);
+
+        Assert.False(vm.KisscamTestRunning);
+        Assert.False(vm.PeacePreview.MiddleFingerWatching);
+        Assert.Equal(_timerBaseline, _time.ActiveTimers);
+    }
+
+    [Fact]
+    public void MiddleFinger_LeavesTheTest_WhenTheActionIsOff()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.MiddleFingerActionCancelKisscam = false;
+        vm.ToggleKisscamTestCommand.Execute(null);
+        Assert.False(vm.PeacePreview.MiddleFingerWatching);
+
+        Run(0.5, []);
+        Run(0.9, [Middle]);
+
+        Assert.True(vm.KisscamTestRunning);
+    }
+
+    [Fact]
+    public void HeartSwitchOff_EndsTheTest()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        vm.HeartEnabled = false;
+
+        Assert.False(vm.KisscamTestRunning);
+        Assert.Equal(_timerBaseline, _time.ActiveTimers);
+    }
+
+    [Fact]
+    public void Dispose_EndsTheTest_AndReleasesEverything()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        vm.Dispose();
+
+        Assert.False(vm.KisscamTestRunning);
+        Assert.Equal(0, _time.ActiveTimers);
+        Assert.Equal(0, _gestures.OpenRequests);
+        Run(2.0, ClassicHeart); // nach dem Schließen wirkungslos
+        Assert.False(vm.KisscamTestRunning);
+        vm.ToggleKisscamTestCommand.Execute(null);
+        Assert.False(vm.KisscamTestRunning);
+    }
+
+    [Fact]
+    public async Task ReplacingTheDraft_EndsTheTest()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.ToggleKisscamTestCommand.Execute(null);
+        _ui.ConfirmResult = true;
+
+        await vm.ResetToDefaultsCommand.ExecuteAsync(null);
+
+        Assert.False(vm.KisscamTestRunning);
+        Assert.Equal(PeaceMode.Watching, vm.PeacePreview.Mode); // die Vorschau selbst läuft weiter
+    }
+
+    [Fact]
+    public async Task TestState_IsNoSettingsChange_AndKeepsTheSavedMessage()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        await vm.ApplyCommand.ExecuteAsync(null);
+        Assert.False(string.IsNullOrEmpty(vm.SaveStatusMessage));
+        Assert.False(vm.HasUnsavedChanges);
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+        AdvanceSeconds(1);
+        Run(0.3, ClassicHeart); // Statuszeile und Abzeichen ändern sich
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.False(vm.HasUnsavedChanges);
+        Assert.False(string.IsNullOrEmpty(vm.SaveStatusMessage));
+    }
+
+    [Theory]
+    [InlineData(nameof(AdminViewModel.KisscamTestRunning))]
+    [InlineData(nameof(AdminViewModel.KisscamTestSeconds))]
+    [InlineData(nameof(AdminViewModel.KisscamTestText))]
+    [InlineData(nameof(AdminViewModel.KisscamTestShowText))]
+    [InlineData(nameof(AdminViewModel.KisscamTestShowDigits))]
+    [InlineData(nameof(AdminViewModel.KisscamTestDigits))]
+    [InlineData(nameof(AdminViewModel.KisscamTestFrame))]
+    [InlineData(nameof(AdminViewModel.KisscamTestPhotoBadgeVisible))]
+    [InlineData(nameof(AdminViewModel.KisscamTestButtonText))]
+    [InlineData(nameof(AdminViewModel.HeartPreviewStatusText))]
+    [InlineData(nameof(AdminViewModel.HeartPreviewWarningText))]
+    [InlineData(nameof(AdminViewModel.HasHeartPreviewWarning))]
+    [InlineData(nameof(AdminViewModel.HeartPreviewBadgeText))]
+    public void TestAndPreviewProperties_AreViewState_NotSettings(string name)
+    {
+        var method = typeof(AdminViewModel).GetMethod("IsHeartViewStateProperty",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        Assert.True((bool)method.Invoke(null, [name])!);
+        // … und keine davon ist eine Vorschau-Einstellung, die die Erkennung neu konfiguriert
+        var affects = typeof(AdminViewModel).GetMethod("AffectsPeacePreview",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        Assert.False((bool)affects.Invoke(null, [name])!);
+    }
+
+    // ---- Musik im Test
+
+    private async Task<AdminViewModel> OpenHeartPageWithMusicAsync()
+    {
+        var vm = OpenHeartPage();
+        _ui.AudioFileToPick = CreateMusicFile();
+        vm.PickKisscamMusicCommand.Execute(null);
+        await vm.KisscamMusicCheck;
+        return vm;
+    }
+
+    [Fact]
+    public async Task Music_PlaysAtTheStart_FadesOutAtTheEnd_AndIsNotStoppedBrutally()
+    {
+        NoContext();
+        var vm = await OpenHeartPageWithMusicAsync();
+        vm.KisscamSeconds = 4;
+        vm.KisscamMusicVolumePercent = 35;
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        var play = Assert.Single(_music.Plays);
+        Assert.Equal(vm.KisscamMusicPath, play.Path);
+        Assert.Equal(35, play.Volume);
+        Assert.True(play.Loop);
+        Assert.False(vm.ToggleKisscamMusicPreviewCommand.CanExecute(null)); // der Test hat den Player
+
+        AdvanceSeconds(3);
+        Assert.Empty(_music.FadeOuts);
+        AdvanceSeconds(1); // Auslösemoment
+        Assert.Equal([TimeSpan.FromMilliseconds(800)], _music.FadeOuts);
+
+        _time.Advance(TimeSpan.FromMilliseconds(1600));
+        Assert.False(vm.KisscamTestRunning);
+        Assert.Equal(0, _music.StopCalls);
+        Assert.True(vm.ToggleKisscamMusicPreviewCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Music_IsStopped_WhenTheTestIsAborted()
+    {
+        NoContext();
+        var vm = await OpenHeartPageWithMusicAsync();
+        vm.ToggleKisscamTestCommand.Execute(null);
+        Assert.Single(_music.Plays);
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.Equal(1, _music.StopCalls);
+        Assert.Empty(_music.FadeOuts);
+        Assert.False(_music.IsPlaying);
+    }
+
+    [Fact]
+    public async Task Music_IsStopped_WhenThePageIsLeft_OrTheWindowClosed()
+    {
+        NoContext();
+        var vm = await OpenHeartPageWithMusicAsync();
+        vm.ToggleKisscamTestCommand.Execute(null);
+        vm.FunPage = FunPage.Start;
+        Assert.Equal(1, _music.StopCalls);
+
+        vm.FunPage = FunPage.Heart;
+        vm.ToggleKisscamTestCommand.Execute(null);
+        vm.Dispose();
+        Assert.Equal(2, _music.StopCalls);
+    }
+
+    [Fact]
+    public async Task Music_IsStopped_WhenAMiddleFingerEndsTheTest()
+    {
+        NoContext();
+        var vm = await OpenHeartPageWithMusicAsync();
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Run(0.5, []);
+        Run(0.7, [Middle]);
+
+        Assert.False(vm.KisscamTestRunning);
+        Assert.Equal(1, _music.StopCalls);
+    }
+
+    [Fact]
+    public async Task Test_StopsTheMusicListening_BeforePlayingItself()
+    {
+        NoContext();
+        var vm = await OpenHeartPageWithMusicAsync();
+        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
+        Assert.True(vm.KisscamMusicPreviewPlaying);
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.False(vm.KisscamMusicPreviewPlaying);
+        Assert.Equal(2, _music.Plays.Count); // Anhören, dann der Test
+        Assert.True(_music.IsPlaying);
+    }
+
+    [Fact]
+    public void Music_WithoutAFile_StaysSilent_AndAbortDoesNotStopTheSharedPlayer()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        vm.ToggleKisscamTestCommand.Execute(null);
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.Empty(_music.Plays);
+        Assert.Equal(0, _music.StopCalls);
+    }
+
+    // ---- Statuszeile
+
+    [Fact]
+    public void StatusLine_ShowsTheHeartAndItsShape_WhileOneIsDetected()
+    {
+        NoContext();
+        var vm = OpenHeartPage();
+        _gestures.Last.RaiseStatus(new GestureStatus(true, true, null, null, 10));
+        Assert.DoesNotContain("Herz erkannt", vm.HeartPreviewStatusText);
+        Assert.Equal(string.Empty, vm.HeartPreviewBadgeText);
+
+        Run(0.5, ClassicHeart);
+
+        Assert.Contains("· Herz erkannt ❤", vm.HeartPreviewStatusText);
+        Assert.Equal("Herz erkannt ❤ (Klassisch)", vm.HeartPreviewBadgeText);
+
+        vm.FunPage = FunPage.Start;
+        Assert.Equal(string.Empty, vm.HeartPreviewStatusText);
+        Assert.Equal(string.Empty, vm.HeartPreviewBadgeText);
+    }
+
+    [Theory]
+    [InlineData(HeartShape.Classic, "Herz erkannt ❤ (Klassisch)")]
+    [InlineData(HeartShape.Roof, "Herz erkannt ❤ (Dach)")]
+    [InlineData(HeartShape.Inverted, "Herz erkannt ❤ (Umgedreht)")]
+    [InlineData(HeartShape.FingerHeart, "Herz erkannt ❤ (Fingerherz)")]
+    [InlineData(null, "Herz erkannt ❤")]
+    public void Formatter_NamesTheHeartShape(HeartShape? shape, string expected) =>
+        Assert.Equal(expected, PeacePreviewStatusFormatter.HeartBadge(shape));
 
     [Fact]
     public void MiddleFingerKisscamTick_DoesNotRestartThePreview()
@@ -1012,6 +1584,110 @@ public sealed class AdminHeartTabTests : IDisposable
             Assert.False(panel.IsEnabled);
             Assert.True(check.IsEnabled);
             Assert.False(InView<CheckBox>(view, "HeartShapeClassicCheck").IsEnabled);
+        });
+    }
+
+    [StaTheory]
+    [InlineData(AdminThemeMode.Light)]
+    [InlineData(AdminThemeMode.Dark)]
+    public void Page_ShowsThePreviewCard_OutsideTheDimmedArea_InBothThemes(AdminThemeMode theme)
+    {
+        NoContext();
+        WithWindow((window, vm) =>
+        {
+            vm.IsAdminThemeLight = theme == AdminThemeMode.Light;
+            vm.IsAdminThemeDark = theme == AdminThemeMode.Dark;
+            vm.FunPage = FunPage.Heart;
+            ShowFunTab(window);
+            vm.HeartEnabled = false; // die Vorschau bleibt bedienbar
+            var view = HeartView(window);
+
+            var host = InView<Border>(view, "HeartPreviewHost");
+            Assert.Equal(16.0 / 9.0, host.Width / host.Height, 3);
+            Assert.Single(FindDescendants<Fotobox.Views.Controls.CameraPreview>(host));
+            var overlay = Assert.Single(FindDescendants<Fotobox.Views.Booth.Peace.PeaceOverlay>(host));
+            Assert.True(overlay.ShowLandmarks);
+            Assert.Single(FindDescendants<Fotobox.Views.Booth.Heart.HeartFeedbackOverlay>(host));
+            Assert.Single(FindDescendants<Fotobox.Views.Booth.Heart.KisscamOverlay>(host));
+            Assert.Empty(FindDescendants<Fotobox.Views.Booth.Peace.SelfDestructOverlay>(host));
+
+            var panel = InView<StackPanel>(view, "HeartSettingsPanel");
+            Assert.False(panel.IsEnabled);
+            Assert.False(panel.IsAncestorOf(host)); // außerhalb des ausgegrauten Bereichs
+            var test = InView<Button>(view, "KisscamTestButton");
+            Assert.True(test.IsEnabled);
+            Assert.Equal("Kisscam testen", test.Content);
+            Assert.Same(vm.ToggleKisscamTestCommand, test.Command);
+            Assert.Equal(Visibility.Collapsed, InView<Border>(view, "HeartDetectedBadge").Visibility);
+        });
+    }
+
+    [StaFact]
+    public void Page_TestButton_ShowsTheKisscamInThePreview_AndCancels()
+    {
+        NoContext();
+        WithWindow((window, vm) =>
+        {
+            vm.FunPage = FunPage.Heart;
+            ShowFunTab(window);
+            var view = HeartView(window);
+            var button = InView<Button>(view, "KisscamTestButton");
+            var overlay = InView<Fotobox.Views.Booth.Heart.KisscamOverlay>(view, "HeartKisscamTestOverlay");
+            var digits = InView<Border>(view, "HeartKisscamTestDigits");
+            var photoBadge = InView<Border>(view, "HeartKisscamTestPhotoBadge");
+            Assert.Equal(Visibility.Collapsed, overlay.Visibility);
+            Assert.Equal(Visibility.Collapsed, digits.Visibility);
+            Assert.Equal(Visibility.Collapsed, photoBadge.Visibility);
+
+            vm.KisscamSeconds = 5;
+            vm.KisscamBannerText = "BANNER";
+            button.Command.Execute(null);
+
+            Assert.Equal("Test abbrechen", button.Content);
+            Assert.Equal(Visibility.Visible, overlay.Visibility);
+            Assert.True(overlay.ShowText);
+            Assert.Equal(vm.KisscamTestText, overlay.Text);
+            Assert.Equal("BANNER", overlay.Frame!.BannerText);
+            Assert.Equal(Visibility.Collapsed, digits.Visibility);
+            ((FrameworkElement)window.Content).UpdateLayout();
+            var guestText = (TextBlock)overlay.FindName("GuestText");
+            Assert.Equal(vm.KisscamTestText, guestText.Text);
+            Assert.True(guestText.ActualHeight > 0);                                  // der Text liegt im Layout, unten in der Vorschau
+            Assert.True(guestText.TranslatePoint(new Point(0, 0), overlay).Y > overlay.ActualHeight / 2);
+
+            AdvanceSeconds(2); // 3: Ziffern statt Text
+            Assert.False(overlay.ShowText);
+            Assert.Equal(Visibility.Visible, digits.Visibility);
+            Assert.Equal("3", InView<TextBlock>(view, "HeartKisscamTestDigitsText").Text);
+
+            AdvanceSeconds(3); // Auslösemoment
+            Assert.Equal(Visibility.Collapsed, digits.Visibility);
+            Assert.Equal(Visibility.Visible, photoBadge.Visibility);
+
+            button.Command.Execute(null); // abbrechen
+            Assert.Equal("Kisscam testen", button.Content);
+            Assert.Equal(Visibility.Collapsed, overlay.Visibility);
+            Assert.Equal(Visibility.Collapsed, photoBadge.Visibility);
+        });
+    }
+
+    [StaFact]
+    public void Page_HoldFeedback_FollowsTheSetting_AndTheStatusLineShowsTheWarning()
+    {
+        NoContext();
+        WithWindow((window, vm) =>
+        {
+            vm.FunPage = FunPage.Heart;
+            ShowFunTab(window);
+            var view = HeartView(window);
+            var feedback = InView<Fotobox.Views.Booth.Heart.HeartFeedbackOverlay>(view, "HeartPreviewFeedback");
+            Assert.Equal(Visibility.Visible, feedback.Visibility);
+
+            vm.HeartShowHoldFeedback = false;
+            Assert.Equal(Visibility.Collapsed, feedback.Visibility);
+
+            Assert.Equal(vm.HeartPreviewStatusText, InView<TextBlock>(view, "HeartPreviewStatus").Text);
+            Assert.Equal(vm.HeartPreviewWarningText, InView<TextBlock>(view, "HeartPreviewWarning").Text);
         });
     }
 

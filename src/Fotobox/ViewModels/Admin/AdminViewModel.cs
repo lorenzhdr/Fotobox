@@ -209,6 +209,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         PeacePreview.PropertyChanged += OnPeacePreviewPropertyChanged;
         PeacePreview.ActionRequested += OnPeacePreviewAction;
         PeacePreview.MiddleFingerTriggered += OnPeacePreviewMiddleFinger;
+        PeacePreview.HeartTriggered += OnPeacePreviewHeart;
         _store = store;
         _pin = pin;
         Camera = camera;
@@ -2962,11 +2963,14 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         }
     }
 
-    // Das Anhören der Kisscam-Musik gehört zur Seite „Herz“: Verlassen der Seite oder des Tabs beendet es.
+    // Das Anhören der Kisscam-Musik und der Kisscam-Test gehören zur Seite „Herz“: Verlassen der Seite oder des Tabs beendet sie.
     private void UpdateHeartPageState()
     {
         if (!(_isFunTabSelected && _funPage == FunPage.Heart))
+        {
+            EndKisscamTest(completed: false);
             StopKisscamMusicPreview();
+        }
     }
 
     /// <summary>Wechselt die Seite des Tabs „Fun“ (Parameter: die Zielseite).</summary>
@@ -3114,7 +3118,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         RaiseFolder();
         RaiseVideoFolder();
         RaisePrintTimeoutHint();
-        // Der Entwurf hat eine andere Musikdatei bzw. Aktion: Anhören beenden, Datei neu prüfen, Wahlkarten neu lesen.
+        // Der Entwurf hat eine andere Musikdatei bzw. Aktion: Anhören und Kisscam-Test beenden, Datei neu prüfen, Wahlkarten neu lesen.
+        EndKisscamTest(completed: false);
         StopKisscamMusicPreview();
         RefreshKisscamMusicCheck();
         RefreshHeartActionOptions();

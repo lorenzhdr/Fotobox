@@ -3,7 +3,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Fotobox.Core;
 using Fotobox.Core.Heart;
+using Fotobox.Core.Peace;
 using Fotobox.Services.Storage;
+using Fotobox.ViewModels.Booth;
 
 namespace Fotobox.ViewModels.Admin;
 
@@ -30,10 +32,27 @@ public sealed class HeartActionOption(AdminViewModel owner, HeartActionInfo info
     internal void Refresh() => OnPropertyChanged(nameof(IsSelected));
 }
 
-// Herzerkennung (Fun → Herz) – Entwurfs-Properties, Kisscam-Einstellungen, Musik-Anhören und Validierung.
-// Die Live-Vorschau der Herzerkennung folgt erst mit der Gastansicht (siehe FunPage.Heart in UpdatePeacePreview/PushPeacePreviewMode).
+// Herzerkennung (Fun → Herz) – Entwurfs-Properties, Kisscam-Einstellungen, Musik-Anhören, Live-Vorschau mit Kisscam-Test und Validierung.
+// Die Vorschau teilt sich die Kamera-Vorschau (PeacePreview) mit den Seiten Peace und Mittelfinger (siehe PushPeacePreviewMode).
 public sealed partial class AdminViewModel
 {
+    /// <summary>Takt des Kisscam-Tests in der Vorschau.</summary>
+    private static readonly TimeSpan KisscamTestTick = TimeSpan.FromSeconds(1);
+
+    /// <summary>So lange steht nach dem Ablauf des Timers das Abzeichen „Foto würde jetzt ausgelöst“, dann endet der Test.</summary>
+    internal static readonly TimeSpan KisscamTestPhotoBadgeDuration = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>Ausblenddauer der Musik am Ende des Tests (wie in der Gastansicht beim Blitz).</summary>
+    internal static readonly TimeSpan KisscamTestMusicFadeOut = TimeSpan.FromMilliseconds(800);
+
+    private bool _kisscamTestRunning;
+    private int _kisscamTestSeconds;
+    private bool _kisscamTestPhotoBadge;
+    // Der Test hat die Musik gestartet (nur dann darf er sie stoppen; der Player gehört auch der Gastansicht).
+    private bool _kisscamTestMusic;
+    private ITimer? _kisscamTestTimer;
+    private int _kisscamTestGeneration;
+
     /// <summary>Hinweis, wenn die Musikdatei fehlt oder nicht erreichbar ist (nur Warnung, blockiert das Speichern nicht).</summary>
     public const string KisscamMusicMissingText =
         "Die Musikdatei wurde nicht gefunden oder ist nicht erreichbar. Die Kisscam läuft dann ohne Ton.";
@@ -69,7 +88,10 @@ public sealed partial class AdminViewModel
             if (!SetProperty(_draft.Heart.Enabled, value, v => _draft.Heart.Enabled = v))
                 return;
             if (!value)
+            {
                 StopKisscamMusicPreview();
+                EndKisscamTest(completed: false);
+            }
             OnPropertyChanged(nameof(HeartStatusText));
             OnPropertyChanged(nameof(HeartHasNoShape));
             OnPropertyChanged(nameof(MiddleFingerPeaceDisabledWarning));
@@ -234,6 +256,7 @@ public sealed partial class AdminViewModel
                 OnPropertyChanged(nameof(KisscamTextProblems));
                 OnPropertyChanged(nameof(KisscamTextProblemsText));
                 OnPropertyChanged(nameof(HasKisscamTextProblems));
+                OnPropertyChanged(nameof(KisscamTestText));
             }
         }
     }
@@ -255,8 +278,12 @@ public sealed partial class AdminViewModel
     public string KisscamBannerText
     {
         get => _draft.Heart.KisscamBannerText ?? string.Empty;
-        set => SetProperty(_draft.Heart.KisscamBannerText ?? string.Empty, value ?? string.Empty,
-            v => _draft.Heart.KisscamBannerText = string.IsNullOrWhiteSpace(v) ? null : v);
+        set
+        {
+            if (SetProperty(_draft.Heart.KisscamBannerText ?? string.Empty, value ?? string.Empty,
+                    v => _draft.Heart.KisscamBannerText = string.IsNullOrWhiteSpace(v) ? null : v))
+                OnPropertyChanged(nameof(KisscamTestFrame));
+        }
     }
 
     /// <summary>Der Standard-Banner-Text (grauer Platzhalter im Eingabefeld).</summary>
@@ -268,8 +295,8 @@ public sealed partial class AdminViewModel
         get => _draft.Heart.KisscamColor;
         set
         {
-            if (Enum.IsDefined(value))
-                SetProperty(_draft.Heart.KisscamColor, value, v => _draft.Heart.KisscamColor = v);
+            if (Enum.IsDefined(value) && SetProperty(_draft.Heart.KisscamColor, value, v => _draft.Heart.KisscamColor = v))
+                OnPropertyChanged(nameof(KisscamTestFrame));
         }
     }
 
@@ -367,13 +394,15 @@ public sealed partial class AdminViewModel
         PickKisscamMusicCommand = new RelayCommand(PickKisscamMusic);
         RemoveKisscamMusicCommand = new RelayCommand(RemoveKisscamMusic, () => HasKisscamMusic);
         ToggleKisscamMusicPreviewCommand = new RelayCommand(ToggleKisscamMusicPreview, CanToggleKisscamMusicPreview);
+        ToggleKisscamTestCommand = new RelayCommand(ToggleKisscamTest, () => !_disposed);
         if (music is not null)
             music.PlaybackChanged += OnMusicPlaybackChanged;
         RefreshKisscamMusicCheck();
     }
 
     private bool CanToggleKisscamMusicPreview() =>
-        !_disposed && _music is not null && (_kisscamPreviewStarted || (HasKisscamMusic && !_kisscamMusicMissing));
+        !_disposed && _music is not null && !_kisscamTestRunning
+        && (_kisscamPreviewStarted || (HasKisscamMusic && !_kisscamMusicMissing));
 
     private void RaiseKisscamMusicCommands()
     {
@@ -534,7 +563,218 @@ public sealed partial class AdminViewModel
     {
         if (_music is not null)
             _music.PlaybackChanged -= OnMusicPlaybackChanged;
+        EndKisscamTest(completed: false);
         StopKisscamMusicPreview();
+    }
+
+    // ---------------------------------------------------------------- Live-Vorschau: Kisscam-Test
+
+    /// <summary>Test-Knopf: startet den Kisscam-Test in der Vorschau (ohne Foto, ohne Druck); während des Tests bricht er ihn ab.</summary>
+    public IRelayCommand ToggleKisscamTestCommand { get; private set; } = null!;
+
+    /// <summary>„Kisscam testen“ bzw. während des Tests „Test abbrechen“.</summary>
+    public string KisscamTestButtonText => _kisscamTestRunning ? "Test abbrechen" : "Kisscam testen";
+
+    /// <summary>Ein Kisscam-Test läuft (Rahmen und Timer in der Vorschau; bis zum Ende des Abzeichens „Foto würde jetzt ausgelöst“).</summary>
+    public bool KisscamTestRunning => _kisscamTestRunning;
+
+    /// <summary>Verbleibende Sekunden des Tests (0 = Auslösemoment).</summary>
+    public int KisscamTestSeconds => _kisscamTestSeconds;
+
+    /// <summary>Gasttext des Tests, mit der Restzeit formatiert (wie in der Gastansicht).</summary>
+    public string KisscamTestText => KisscamTextFormatter.Format(_draft.Heart.KisscamText, _kisscamTestSeconds);
+
+    /// <summary>Gasttext einblenden: solange mehr als <see cref="SettingsLimits.KisscamFinalDigitsSeconds"/> Sekunden übrig sind.</summary>
+    public bool KisscamTestShowText =>
+        _kisscamTestRunning && !_kisscamTestPhotoBadge && _kisscamTestSeconds > SettingsLimits.KisscamFinalDigitsSeconds;
+
+    /// <summary>Die großen Ziffern der letzten Sekunden stehen in der Vorschau.</summary>
+    public bool KisscamTestShowDigits =>
+        _kisscamTestRunning && !_kisscamTestPhotoBadge && _kisscamTestSeconds >= 1 && _kisscamTestSeconds <= SettingsLimits.KisscamFinalDigitsSeconds;
+
+    /// <summary>Die Ziffer der letzten Sekunden (3, 2, 1).</summary>
+    public string KisscamTestDigits => KisscamTestShowDigits ? _kisscamTestSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
+
+    /// <summary>Abzeichen „Foto würde jetzt ausgelöst 📷“ am Ende des Tests (kurz sichtbar, danach endet der Test).</summary>
+    public bool KisscamTestPhotoBadgeVisible => _kisscamTestPhotoBadge;
+
+    /// <summary>Rahmen aus dem Entwurf (Banner und Farbe) für die Vorschau; null, solange kein Test läuft.</summary>
+    public PhotoFrame? KisscamTestFrame
+    {
+        get
+        {
+            if (!_kisscamTestRunning)
+                return null;
+            var banner = string.IsNullOrWhiteSpace(_draft.Heart.KisscamBannerText) ? HeartSettings.DefaultKisscamBannerText : _draft.Heart.KisscamBannerText;
+            return new PhotoFrame(PhotoFrameKind.Kisscam, banner, _draft.Heart.KisscamColor);
+        }
+    }
+
+    private void ToggleKisscamTest()
+    {
+        if (_kisscamTestRunning)
+            EndKisscamTest(completed: false);
+        else
+            StartKisscamTest();
+    }
+
+    // Der Test lebt nur auf der Seite „Herz“ (Seiten- und Tabwechsel beenden ihn); er löst nie ein Foto, einen Druck oder eine Aufnahme aus.
+    private void StartKisscamTest()
+    {
+        if (_disposed || _kisscamTestRunning || !(_isFunTabSelected && _funPage == FunPage.Heart))
+            return;
+
+        // Der Player gehört beiden Anhör-Wegen: das Anhören der Musik endet, bevor der Test sie spielt.
+        StopKisscamMusicPreview();
+        var generation = ++_kisscamTestGeneration;
+        StartKisscamTestMusic();
+        SetKisscamTestState(running: true,
+            Math.Clamp(_draft.Heart.KisscamSeconds, SettingsLimits.KisscamSecondsMin, SettingsLimits.KisscamSecondsMax), photoBadge: false);
+        _kisscamTestTimer = _time.CreateTimer(_ => PostPeace(() => KisscamTestTickElapsed(generation)), null, KisscamTestTick, KisscamTestTick);
+        AppLog.Info("Admin-Vorschau: Kisscam-Test gestartet.");
+    }
+
+    private void StartKisscamTestMusic()
+    {
+        var path = _draft.Heart.KisscamMusicPath;
+        if (_music is null || string.IsNullOrWhiteSpace(path) || _kisscamMusicMissing)
+            return;
+        try
+        {
+            _music.Play(path, _draft.Heart.KisscamMusicVolumePercent, loop: true);
+            _kisscamTestMusic = true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Kisscam-Musik konnte im Test nicht gestartet werden.", ex);
+        }
+    }
+
+    private void KisscamTestTickElapsed(int generation)
+    {
+        if (_disposed || generation != _kisscamTestGeneration || !_kisscamTestRunning || _kisscamTestPhotoBadge)
+            return;
+
+        var next = _kisscamTestSeconds - 1;
+        if (next > 0)
+        {
+            SetKisscamTestState(running: true, next, photoBadge: false);
+            return;
+        }
+
+        // Der Auslösemoment: In der Gastansicht entstünde jetzt das Foto; hier erscheint nur das Abzeichen. Die Musik blendet aus.
+        DisposeKisscamTestTimer();
+        if (_kisscamTestMusic)
+        {
+            _kisscamTestMusic = false;
+            try
+            {
+                _music?.FadeOut(KisscamTestMusicFadeOut);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Kisscam-Musik konnte im Test nicht ausgeblendet werden.", ex);
+            }
+        }
+        SetKisscamTestState(running: true, 0, photoBadge: true);
+        _kisscamTestTimer = _time.CreateTimer(
+            _ => PostPeace(() =>
+            {
+                if (!_disposed && generation == _kisscamTestGeneration)
+                    EndKisscamTest(completed: true);
+            }), null, KisscamTestPhotoBadgeDuration, Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>
+    /// Beendet den Kisscam-Test (Ablauf, Knopf, Mittelfinger, Seiten-/Tabwechsel, Herz-Schalter aus, Entwurfswechsel, Schließen):
+    /// Timer weg, Musik gestoppt (falls der Test sie gestartet hat), Rahmen und Abzeichen verschwinden. Ohne laufenden Test wirkungslos.
+    /// </summary>
+    internal void EndKisscamTest(bool completed)
+    {
+        _kisscamTestGeneration++;
+        DisposeKisscamTestTimer();
+        if (!_kisscamTestRunning)
+            return;
+
+        if (_kisscamTestMusic)
+        {
+            _kisscamTestMusic = false;
+            try
+            {
+                _music?.Stop();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Kisscam-Musik konnte im Test nicht gestoppt werden.", ex);
+            }
+        }
+        SetKisscamTestState(running: false, 0, photoBadge: false);
+        AppLog.Info(completed ? "Admin-Vorschau: Kisscam-Test beendet." : "Admin-Vorschau: Kisscam-Test abgebrochen.");
+    }
+
+    private void DisposeKisscamTestTimer()
+    {
+        var timer = _kisscamTestTimer;
+        _kisscamTestTimer = null;
+        timer?.Dispose();
+    }
+
+    private void SetKisscamTestState(bool running, int seconds, bool photoBadge)
+    {
+        var runningChanged = _kisscamTestRunning != running;
+        _kisscamTestRunning = running;
+        _kisscamTestSeconds = seconds;
+        _kisscamTestPhotoBadge = photoBadge;
+        foreach (var name in new[]
+        {
+            nameof(KisscamTestRunning), nameof(KisscamTestSeconds), nameof(KisscamTestText), nameof(KisscamTestShowText),
+            nameof(KisscamTestShowDigits), nameof(KisscamTestDigits), nameof(KisscamTestPhotoBadgeVisible),
+            nameof(KisscamTestFrame), nameof(KisscamTestButtonText),
+        })
+            OnPropertyChanged(name);
+        if (!runningChanged)
+            return;
+        ToggleKisscamMusicPreviewCommand.NotifyCanExecuteChanged();
+        // Der laufende Test ist für die Mittelfingererkennung ein aufhebbares Ziel (external im SetMode).
+        if (PeacePreview.Mode != PeaceMode.Off)
+            PushPeacePreviewMode();
+    }
+
+    // ---------------------------------------------------------------- Live-Vorschau: Statuszeile
+
+    /// <summary>Statuszeile unter der Vorschau der Seite „Herz“ (Hände, Gesichter, Rate, „Herz erkannt ❤“).</summary>
+    public string HeartPreviewStatusText => HeartPreviewStatus.Text;
+
+    public string HeartPreviewWarningText => HeartPreviewStatus.Warning ?? string.Empty;
+
+    public bool HasHeartPreviewWarning => HeartPreviewStatus.Warning is not null;
+
+    /// <summary>Text des Abzeichens in der Vorschau: „Herz erkannt ❤ (Klassisch)“ (leer, solange kein Herz erkannt ist).</summary>
+    public string HeartPreviewBadgeText =>
+        PeacePreview.Mode != PeaceMode.Off && PeacePreview.HeartDetectedNow
+            ? PeacePreviewStatusFormatter.HeartBadge(PeacePreview.HeartDetectedShape)
+            : string.Empty;
+
+    private PeacePreviewStatusLines HeartPreviewStatus =>
+        PeacePreview.Mode == PeaceMode.Off
+            ? new PeacePreviewStatusLines(string.Empty, null)
+            : PeacePreviewStatusFormatter.Format(PeacePreview.Status, PeacePreview.Hands.Count, PeacePreview.FaceCount,
+                peaceNow: false, FunPreviewCameraRunning, heartNow: PeacePreview.HeartDetectedNow);
+
+    private void RaiseHeartPreviewStatus()
+    {
+        OnPropertyChanged(nameof(HeartPreviewStatusText));
+        OnPropertyChanged(nameof(HeartPreviewWarningText));
+        OnPropertyChanged(nameof(HasHeartPreviewWarning));
+        OnPropertyChanged(nameof(HeartPreviewBadgeText));
+    }
+
+    // Ein Herz wurde in der Vorschau lange genug gehalten: startet den Kisscam-Test (nur auf der Seite „Herz“, nie ein Foto).
+    private void OnPeacePreviewHeart(object? sender, HeartTrigger trigger)
+    {
+        if (_disposed || !(_isFunTabSelected && _funPage == FunPage.Heart))
+            return;
+        StartKisscamTest();
     }
 
     // Zustands-Properties der Herz-Seite: sie sind keine Einstellungen und löschen „Einstellungen gespeichert“ nicht.
@@ -544,7 +784,11 @@ public sealed partial class AdminViewModel
             or nameof(KisscamTextProblems) or nameof(KisscamTextProblemsText) or nameof(HasKisscamTextProblems)
             or nameof(KisscamFileNameExample)
         || (propertyName is not null && propertyName.StartsWith("HeartShape", StringComparison.Ordinal)
-            && propertyName.EndsWith("Enabled", StringComparison.Ordinal));
+            && propertyName.EndsWith("Enabled", StringComparison.Ordinal))
+        // Live-Vorschau und Kisscam-Test: reiner Zustand, keine Einstellung
+        || (propertyName is not null && (propertyName.StartsWith("KisscamTest", StringComparison.Ordinal)
+            || propertyName.StartsWith("HeartPreview", StringComparison.Ordinal)
+            || propertyName.StartsWith("HasHeartPreview", StringComparison.Ordinal)));
 
     // ---------------------------------------------------------------- Validierung
 
