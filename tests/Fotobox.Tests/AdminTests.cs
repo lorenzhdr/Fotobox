@@ -1837,6 +1837,23 @@ public sealed class AdminViewModelTests : IDisposable
     }
 
     [Fact]
+    public void DecideCameraHandling_AppliedAudioDiscarded_RestartsCamera()
+    {
+        // Gespeichert Ton an; im Admin Ton aus (Neustart mit dem Entwurf), dann verworfen: Die Kamera läuft ohne Ton.
+        var saved = new AppSettings { Video = new VideoSettings { RecordAudio = true } };
+        var video = new VideoSettings { RecordAudio = true };
+
+        var result = Fotobox.Views.Admin.AdminLauncher.DecideCameraHandling(
+            true, false, true, new CameraSettings(), video, new CameraSettings(), saved, new VideoSettings { RecordAudio = false });
+        Assert.False(result.RestoreCamera);
+        Assert.True(result.CameraChanged);
+
+        var same = Fotobox.Views.Admin.AdminLauncher.DecideCameraHandling(
+            true, false, true, new CameraSettings(), video, new CameraSettings(), saved, new VideoSettings { RecordAudio = true });
+        Assert.False(same.CameraChanged);
+    }
+
+    [Fact]
     public void DecideCameraHandling_AppliedMicrophoneChange_RestartsCamera()
     {
         var before = new VideoSettings { MicrophoneId = "mic-a" };
