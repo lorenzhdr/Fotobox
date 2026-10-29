@@ -180,8 +180,8 @@ public sealed class BoothController(
     /// <summary>Die laufende Aufnahme enthält Ton (<see cref="IVideoRecording.HasAudio"/>).</summary>
     public bool RecordingHasAudio { get => _recHasAudio; private set => Set(ref _recHasAudio, value); }
     /// <summary>
-    /// Im Zustand <see cref="BoothState.Recording"/> hat die Aufnahme die Mindestlänge erreicht; erst dann wirken
-    /// <see cref="TryStopVideo"/> und die Abbrechen-Taste.
+    /// Im Zustand <see cref="BoothState.Recording"/> hat die Aufnahme die Mindestlänge erreicht; erst dann wirkt
+    /// <see cref="TryStopVideo"/> (die Abbrechen-Taste beendet eine Aufnahme nie).
     /// </summary>
     public bool CanStopVideo =>
         _state == BoothState.Recording && _recActive && RecordingElapsed >= TimeSpan.FromSeconds(_recMinSeconds);
@@ -363,8 +363,9 @@ public sealed class BoothController(
     }
 
     /// <summary>
-    /// Taste „Abbrechen“: bricht den Foto- oder Video-Countdown ab (still, nichts wird aufgenommen), beendet eine laufende
-    /// Videoaufnahme wie <see cref="TryStopVideo"/> (speichern, erst ab Mindestlänge), sonst einen laufenden Druck; sonst wirkungslos.
+    /// Taste „Abbrechen“: bricht den Foto- oder Video-Countdown ab (still, nichts wird aufgenommen), sonst einen laufenden
+    /// Druck; sonst wirkungslos. Eine laufende Videoaufnahme beendet sie nie (das tun die Videotaste, die Maximaldauer
+    /// und das App-Ende).
     /// </summary>
     public bool TryCancel() => TryCancelCountdown() || TryCancelVideo() || TryCancelPrint();
 
@@ -470,23 +471,18 @@ public sealed class BoothController(
         _ => false,
     };
 
-    /// <summary>Abbrechen im Video-Countdown: still zurück zu Idle. In Recording wie <see cref="TryStopVideo"/>.</summary>
+    /// <summary>Abbrechen im Video-Countdown: still zurück zu Idle. In Recording (und sonst) wirkungslos.</summary>
     private bool TryCancelVideo()
     {
-        switch (_state)
-        {
-            case BoothState.VideoCountdown:
-                var cts = _sessionCts;
-                if (cts is null)
-                    return false;
-                try { cts.Cancel(); }
-                catch (ObjectDisposedException) { return false; }
-                return true;
-            case BoothState.Recording:
-                return TryStopVideo();
-            default:
-                return false;
-        }
+        if (_state != BoothState.VideoCountdown)
+            return false;
+
+        var cts = _sessionCts;
+        if (cts is null)
+            return false;
+        try { cts.Cancel(); }
+        catch (ObjectDisposedException) { return false; }
+        return true;
     }
 
     /// <summary>App-Ende bei laufender Aufnahme: beenden, speichern (kurze Fristen) und höchstens <see cref="ShutdownVideoWait"/> warten.</summary>

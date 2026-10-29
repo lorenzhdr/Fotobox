@@ -264,19 +264,28 @@ public partial class BoothControllerTests
     }
 
     [Fact]
-    public void Escape_InRecording_Saves_OnlyAfterMinDuration()
+    public void Escape_InRecording_HasNoEffect()
     {
         var h = RecordingHarness();
         h.AdvanceBy(Second, Second);
-        Assert.False(h.Controller.TryCancel());   // zu kurz
+        Assert.False(h.Controller.TryCancel());   // vor der Mindestlänge
 
         h.AdvanceBy(Second, Second);
-        Assert.True(h.Controller.TryCancel());
+        Assert.True(h.Controller.CanStopVideo);
+        Assert.False(h.Controller.TryCancel());   // auch nach der Mindestlänge: nichts
         h.Drain();
 
-        Assert.Equal(BoothState.VideoSaved, h.Controller.State);
-        Assert.Equal(1, h.VideoStorage.CommitCalls);
+        Assert.Equal(BoothState.Recording, h.Controller.State);
+        Assert.Equal(0, h.Camera.LastRecording!.StopCalls);
+        Assert.Equal(0, h.VideoStorage.CommitCalls);
         Assert.Empty(h.VideoStorage.Discarded);
+
+        // Die Videotaste beendet die Aufnahme weiterhin normal.
+        Assert.True(h.Controller.TryToggleVideo());
+        h.Drain();
+        Assert.Equal(BoothState.VideoSaved, h.Controller.State);
+        Assert.Equal(1, h.Camera.LastRecording!.StopCalls);
+        Assert.Equal(1, h.VideoStorage.CommitCalls);
     }
 
     [Fact]
