@@ -494,7 +494,7 @@ public sealed partial class WinRtCameraService : ICameraService
             await ApplySavedControlsAsync(capture, init.Mode, device.Id).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
 
-            reader =await CreateReaderAsync(capture, source).ConfigureAwait(false);
+            reader = await CreateReaderAsync(capture, source).ConfigureAwait(false);
             reader.AcquisitionMode = MediaFrameReaderAcquisitionMode.Realtime;
             // Erst eintragen, dann anmelden: Die Handler verwerfen Ereignisse fremder (alter) Objekte per ReferenceEquals.
             // Abgemeldet wird bewusst nie (siehe DisposeSessionObjectsAsync).

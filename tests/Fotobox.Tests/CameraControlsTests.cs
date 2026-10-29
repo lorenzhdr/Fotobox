@@ -238,7 +238,7 @@ public sealed class CameraControlsTests : IDisposable
             [CameraControlKind.Brightness] = ("Helligkeit", CameraControlGroup.Picture),
             [CameraControlKind.Contrast] = ("Kontrast", CameraControlGroup.Picture),
             [CameraControlKind.Hue] = ("Farbton", CameraControlGroup.Picture),
-            [CameraControlKind.Exposure] = ("Belichtung", CameraControlGroup.Exposure),
+            [CameraControlKind.Exposure] = ("Belichtungszeit", CameraControlGroup.Exposure),
             [CameraControlKind.BacklightCompensation] = ("Gegenlichtausgleich", CameraControlGroup.Exposure),
             [CameraControlKind.Focus] = ("Fokus", CameraControlGroup.FocusAndWhiteBalance),
             [CameraControlKind.WhiteBalance] = ("Weißabgleich", CameraControlGroup.FocusAndWhiteBalance),

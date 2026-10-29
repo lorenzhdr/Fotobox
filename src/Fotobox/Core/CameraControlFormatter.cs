@@ -18,7 +18,7 @@ public static class CameraControlFormatter
         CameraControlKind.Brightness => "Helligkeit",
         CameraControlKind.Contrast => "Kontrast",
         CameraControlKind.Hue => "Farbton",
-        CameraControlKind.Exposure => "Belichtung",
+        CameraControlKind.Exposure => "Belichtungszeit",
         CameraControlKind.BacklightCompensation => "Gegenlichtausgleich",
         CameraControlKind.Focus => "Fokus",
         CameraControlKind.WhiteBalance => "Weißabgleich",
