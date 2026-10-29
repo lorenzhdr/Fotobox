@@ -36,6 +36,8 @@ public sealed class MediaPipeHandDetector : IHandLandmarkDetector
     private float[]? _palmBuffer;
     private float[]? _landmarkBuffer;
     private int _disposeStarted;
+    // Diagnose (Herz-Log): bekommt den Roh-Score jedes Landmark-Laufs, auch bei verworfenen Händen.
+    private volatile Action<double>? _scoreObserver;
 
     public MediaPipeHandDetector(string? palmModelPath = null, string? landmarkModelPath = null)
     {
@@ -155,6 +157,9 @@ public sealed class MediaPipeHandDetector : IHandLandmarkDetector
         return await Task.Run(() => RunLandmarks(image, roi, minScore), CancellationToken.None).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public void SetScoreObserver(Action<double>? observer) => _scoreObserver = observer;
+
     private IReadOnlyList<PalmCandidate> RunPalm(BgraImage image, NormRect region, int max)
     {
         if (!_gate.TryEnter())
@@ -205,6 +210,7 @@ public sealed class MediaPipeHandDetector : IHandLandmarkDetector
                 if (data.Length < 63 || scores.Length < 1)
                     throw new InvalidDataException("Unerwartete Ausgabeform der Handpunkte.");
                 var score = scores[0];
+                _scoreObserver?.Invoke(score); // Diagnose: Roh-Score auch für verworfene Hände
                 if (!(score >= minScore))
                     return null;
 

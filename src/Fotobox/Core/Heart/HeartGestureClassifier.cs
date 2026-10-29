@@ -22,7 +22,7 @@ public sealed record HeartVerdict(bool IsHeart, HeartShape? Shape, double Score,
 /// gelten alle Prüfungen unabhängig von Seitenverhältnis und Handgröße. Jede Schwelle wird mit der Empfindlichkeit von streng
 /// (<c>t</c> = 0, Empfindlichkeit 10) auf locker (<c>t</c> = 1, Empfindlichkeit 95) gelegt. Reine Rechnung, ohne Zustand.
 /// </summary>
-public static class HeartGestureClassifier
+public static partial class HeartGestureClassifier
 {
     public const int PointCount = HandPoseMath.PointCount;
 
@@ -30,7 +30,10 @@ public static class HeartGestureClassifier
     public const int MaxHands = 8;
 
     // Feste Grenzen (keine Empfindlichkeit): Verhältnisse zur gemittelten Handgröße S.
-    private const double MinWristDistance = 0.8;
+    // Bei einem echten Herz mit zwei Händen sind die Zeigefinger stark gekrümmt: Oben berühren sich Fingerrücken (PIP/DIP), nicht die
+    // Spitzen, und Höhe, Öffnung und Neigung fallen entsprechend kleiner bzw. größer aus. Die Schwellen unten sind an echten Aufnahmen
+    // (eine Person, beide Hände) kalibriert; die Handgelenke stehen dabei weit auseinander (Gebetshände liegen deutlich darunter).
+    private const double MinWristDistance = 1.5;
     private const double MinMeanLandmarkDistance = 0.5;
     private const double MaxHeightFactor = 3.0;
     private const double MinWristSide = 0.3;
@@ -38,7 +41,12 @@ public static class HeartGestureClassifier
     private const double FingerHeartPalmDistance = 0.7;
     private const double FingerHeartIndexReach = 1.1;
 
-    /// <summary>Schwellen für eine Empfindlichkeit (10…95 %, außerhalb geklemmt); <see cref="T"/> = 0 (streng) … 1 (locker).</summary>
+    /// <summary>
+    /// Schwellen für eine Empfindlichkeit (10…95 %, außerhalb geklemmt); <see cref="T"/> = 0 (streng) … 1 (locker). Alle Abstände relativ
+    /// zur Handgröße: <see cref="TipTouch"/> gilt für den Zeigefinger-Kontakt (kleinster Abstand der Punkte 6/7/8 beider Hände) und den
+    /// Daumenspitzen-Abstand, <see cref="MinHeight"/> für den Abstand Daumenspitzen-Mitte → Gipfel-Mitte, <see cref="MinOpening"/> für die
+    /// größte Entfernung der Daumenspitze zu den Punkten 5…8 derselben Hand, <see cref="MaxTiltDeg"/> für die Neigung der Herzachse.
+    /// </summary>
     public readonly record struct Thresholds(
         double T,
         double MaxSizeRatio,
@@ -58,9 +66,9 @@ public static class HeartGestureClassifier
                 T: t,
                 MaxSizeRatio: Lerp(1.6, 2.2, t),
                 TipTouch: Lerp(0.30, 0.55, t),
-                MinHeight: Lerp(0.70, 0.45, t),
-                MaxTiltDeg: Lerp(30, 55, t),
-                MinOpening: Lerp(0.70, 0.45, t),
+                MinHeight: Lerp(0.60, 0.40, t),
+                MaxTiltDeg: Lerp(30, 70, t),
+                MinOpening: Lerp(0.80, 0.55, t),
                 FingerHeartPinch: Lerp(0.30, 0.45, t),
                 ExtensionFactor: Lerp(1.25, 1.05, t),
                 PipAngleDeg: Lerp(165, 140, t));
@@ -164,12 +172,14 @@ public static class HeartGestureClassifier
         if (meanDistance / PointCount < MinMeanLandmarkDistance * size)
             return HeartVerdict.Reject("Es ist dieselbe Hand.");
 
-        var tipsIndex = D2(pa[8], pb[8]);
+        // Oben berühren sich die gekrümmten Zeigefinger (Fingerrücken, Punkte 6/7/8), unten die Daumenspitzen.
+        var indexContact = IndexContact(pa, pb);
         var tipsThumb = D2(pa[4], pb[4]);
-        if (tipsIndex > th.TipTouch * size || tipsThumb > th.TipTouch * size)
+        if (indexContact > th.TipTouch * size || tipsThumb > th.TipTouch * size)
             return HeartVerdict.Reject("Fingerspitzen berühren sich nicht.");
 
-        var (tx, ty) = Mid(pa[8], pb[8]);
+        // Herzachse: von der Mitte der Daumenspitzen zur Mitte der „Gipfel“ (je Hand der vom Daumen am weitesten entfernte Zeigefingerpunkt).
+        var (tx, ty) = Mid(pa[PeakIndex(pa)], pb[PeakIndex(pb)]);
         var (ux, uy) = Mid(pa[4], pb[4]);
         var vx = tx - ux;
         var vy = ty - uy;
@@ -184,13 +194,13 @@ public static class HeartGestureClassifier
         if (!upright && !inverted)
             return HeartVerdict.Reject("Herz zu stark geneigt.");
 
-        // Handgelenke auf verschiedenen Seiten der Linie Daumenspitzen → Zeigefingerspitzen (schließt Gebetshände aus).
+        // Handgelenke auf verschiedenen Seiten der Herzachse Daumenspitzen → Gipfel (schließt Gebetshände aus).
         var sideA = Cross2(vx, vy, pa[0].X - ux, pa[0].Y - uy) / height;
         var sideB = Cross2(vx, vy, pb[0].X - ux, pb[0].Y - uy) / height;
         if (Math.Sign(sideA) == Math.Sign(sideB) || Math.Abs(sideA) < MinWristSide * size || Math.Abs(sideB) < MinWristSide * size)
             return HeartVerdict.Reject("Handgelenke nicht beidseits des Herzens.");
 
-        if (D2(pa[8], pa[4]) < th.MinOpening * sA || D2(pb[8], pb[4]) < th.MinOpening * sB)
+        if (Opening(pa) < th.MinOpening * sA || Opening(pb) < th.MinOpening * sB)
             return HeartVerdict.Reject("Daumen und Zeigefinger nicht geöffnet.");
 
         HeartShape shape;
@@ -201,7 +211,7 @@ public static class HeartGestureClassifier
         else
             shape = HeartShape.Classic;
 
-        var cost = (tipsIndex + tipsThumb) / size;
+        var cost = (indexContact + tipsThumb) / size;
         var quality = Math.Clamp(1 - cost / (2 * th.TipTouch), 0, 1);
         var center = new NormPoint((tx + ux) / 2 / aspect, (ty + uy) / 2);
         return new HeartVerdict(true, shape, quality, cost, center, 0.8 * height, null);
@@ -285,17 +295,58 @@ public static class HeartGestureClassifier
     }
 
     // Dach: Mindestens zwei der Finger Mittel/Ring/klein sind gestreckt und zeigen grob nach oben.
-    private static bool IsRoofHand(V3[] p, Thresholds th)
+    private static bool IsRoofHand(V3[] p, Thresholds th) => RoofFingerCount(p, th, out _) >= 2;
+
+    // Anzahl der gestreckten und nach oben zeigenden Finger Mittel/Ring/klein (Rückgabe = nach oben; extended = nur gestreckt).
+    private static int RoofFingerCount(V3[] p, Thresholds th, out int extended)
     {
         var up = 0;
+        extended = 0;
         foreach (var mcp in new[] { 9, 13, 17 })
         {
             if (!IsExtended(p, mcp, th.ExtensionFactor, th.PipAngleDeg))
                 continue;
+            extended++;
             if (Angle2(p[mcp + 3].X - p[mcp].X, p[mcp + 3].Y - p[mcp].Y, 0, -1) <= RoofFingerMaxDeg)
                 up++;
         }
-        return up >= 2;
+        return up;
+    }
+
+    // Kleinster Abstand zwischen den Zeigefingerpunkten PIP/DIP/Spitze (6/7/8) der beiden Hände (Kontakt gekrümmter Zeigefinger).
+    private static double IndexContact(V3[] a, V3[] b)
+    {
+        var min = double.MaxValue;
+        for (var i = 6; i <= 8; i++)
+            for (var j = 6; j <= 8; j++)
+                min = Math.Min(min, D2(a[i], b[j]));
+        return min;
+    }
+
+    // „Gipfel“ einer Hand: der vom eigenen Daumen (4) am weitesten entfernte Zeigefingerpunkt aus 6/7/8 (bei Gleichstand der erste).
+    private static int PeakIndex(V3[] p)
+    {
+        var best = 6;
+        var bestDistance = D2(p[4], p[6]);
+        for (var k = 7; k <= 8; k++)
+        {
+            var distance = D2(p[4], p[k]);
+            if (distance > bestDistance)
+            {
+                best = k;
+                bestDistance = distance;
+            }
+        }
+        return best;
+    }
+
+    // Öffnung einer Hand (absolut): größte Entfernung der Daumenspitze zu den Punkten 5…8 des Zeigefingers.
+    private static double Opening(V3[] p)
+    {
+        var max = 0.0;
+        for (var k = 5; k <= 8; k++)
+            max = Math.Max(max, D2(p[4], p[k]));
+        return max;
     }
 
     private static double D2(V3 a, V3 b)

@@ -1,6 +1,6 @@
 # Fun „Herzerkennung“ und „Kisscam“
 
-Stand: nach 2.5.2 (Branch `feature/herz-kisscam`, noch nicht veröffentlicht). Die Herzerkennung ist ein verstecktes Extra („Easter Egg“) wie Peace und Mittelfinger: Die Gastansicht verrät nichts davon (kein Hinweistext). Sie nutzt Dienst, Modelle, Analyserate und Vorschau der Peaceerkennung mit. Aktuell gibt es genau eine Herz-Aktion: die **Kisscam**. Pfade sind relativ zum Repo-Root.
+Stand: 2.6.0. Die Herzerkennung ist ein verstecktes Extra („Easter Egg“) wie Peace und Mittelfinger: Die Gastansicht verrät nichts davon (kein Hinweistext). Sie nutzt Dienst, Modelle, Analyserate und Vorschau der Peaceerkennung mit. Aktuell gibt es genau eine Herz-Aktion: die **Kisscam**. Pfade sind relativ zum Repo-Root.
 
 | Schicht | Dateien |
 |---|---|
@@ -17,7 +17,7 @@ Stand: nach 2.5.2 (Branch `feature/herz-kisscam`, noch nicht veröffentlicht). D
 
 ## Funktion und Bedienung
 
-Formen zwei Gäste im `Idle` mit ihren Händen ein Herz (oder ein Gast mit beiden Händen; optional ein Fingerherz mit einer Hand) und halten es (Standard 1 s), startet die Aktion Kisscam:
+Formen zwei Gäste im `Idle` mit ihren Händen ein Herz (oder ein Gast mit beiden Händen; optional ein Fingerherz mit einer Hand) und halten es (Standard 1,8 s), startet die Aktion Kisscam:
 
 1. Ein Jumbotron-Rahmen (Lichterkette, Banner „KISS CAM“, vier Eckherzen) erscheint über dem Livebild, ein Hinweistext fordert die Gäste auf, sich einen Kusspartner zu suchen. Der Timer läuft (Standard 10 s, 3–60 s).
 2. In den letzten drei Sekunden ersetzen die großen Ziffern 3 – 2 – 1 den Text. Bei einem Timer von höchstens 3 s erscheinen von Anfang an nur die Ziffern, nie der Gasttext (der Admin weist unter dem Timer darauf hin: „Bei 3 Sekunden erscheint nur der Countdown 3 – 2 – 1, kein Text.“). Optional zoomt das Livebild auf die Herz-Gäste, optional läuft Musik.
@@ -33,7 +33,7 @@ Flacher, eigener Abschnitt (Wertebereiche in `SettingsLimits.Heart*`/`Kisscam*`)
 |---|---|---|---|
 | `Enabled` | an | | Herzerkennung insgesamt |
 | `ShapeClassic` / `ShapeRoof` / `ShapeInverted` / `ShapeFingerHeart` | an / an / aus / aus | | erkannte Formen; der Normalizer erzwingt mindestens eine (sonst Klassisch), im Admin ist die letzte gewählte nicht abwählbar |
-| `HoldMilliseconds` | 1000 | 300–3000 ms, Schritt 100 | Haltedauer |
+| `HoldMilliseconds` | 1800 | 300–3000 ms, Schritt 100 | Haltedauer |
 | `SensitivityPercent` | 50 | 10–95 | Empfindlichkeit (legt alle Schwellen und den Mindest-Handscore fest) |
 | `ShowHoldFeedback` | an | | Fortschrittsherz beim Halten |
 | `Action` | `Kisscam` | `HeartAction` | ausgelöste Aktion (nur hinten erweitern) |
@@ -60,21 +60,24 @@ Alle Bedingungen müssen gelten, sonst wird das Paar mit einem kurzen deutschen 
 | Prüfung | streng → locker (fest, wo ohne Pfeil) | Bedeutung |
 |---|---|---|
 | Größenverhältnis der Hände | höchstens 1,6 → 2,2 | zwei Hände ähnlicher Entfernung |
-| Handgelenke auseinander | mindestens 0,8 S | nicht übereinanderliegend |
+| Handgelenke auseinander | mindestens 1,5 S (fest) | nicht übereinanderliegend; schließt Gebetshände aus |
 | Nicht dieselbe Hand | mittlerer Punktabstand ≥ 0,5 S | Doppelerkennungen derselben Hand |
-| Fingerspitzen berühren sich | Abstand der Zeigefingerspitzen und der Daumenspitzen je ≤ 0,30 → 0,55 S | die beiden Spitzen oben und unten |
-| Höhe des Herzens | 0,70 → 0,45 S bis höchstens 3,0 S | Strecke Daumenspitzen-Mitte → Zeigefingerspitzen-Mitte |
-| Neigung | höchstens 30° → 55° aus der Senkrechten (aufrecht oder auf dem Kopf) | |
+| Zeigefinger-Kontakt | `K` = kleinster Abstand zwischen den Zeigefingerpunkten 6/7/8 (PIP, DIP, Spitze) der beiden Hände ≤ 0,30 → 0,55 S | oben berühren sich bei gekrümmten Zeigefingern die Fingerrücken, nicht die Spitzen |
+| Daumen-Kontakt | Abstand der Daumenspitzen (Punkt 4) ≤ 0,30 → 0,55 S | die beiden Daumenspitzen unten |
+| Höhe des Herzens | `h` = Strecke Daumenspitzen-Mitte → Gipfel-Mitte, 0,60 → 0,40 S bis höchstens 3,0 S | „Gipfel“ je Hand = der vom eigenen Daumen (Punkt 4) am weitesten entfernte Zeigefingerpunkt aus 6/7/8 |
+| Neigung | Herzachse (Daumenspitzen-Mitte → Gipfel-Mitte) höchstens 30° → 70° aus der Senkrechten (aufrecht oder auf dem Kopf) | |
 | Handgelenke beidseits | auf verschiedenen Seiten der Herzachse, je ≥ 0,3 S entfernt | schließt Gebetshände aus |
-| Daumen und Zeigefinger geöffnet | Abstand Spitze Zeigefinger – Spitze Daumen ≥ 0,70 → 0,45 der eigenen Handgröße | |
+| Daumen und Zeigefinger geöffnet | `O` = größte Entfernung der Daumenspitze zu den Punkten 5…8 derselben Hand ≥ 0,80 → 0,55 der eigenen Handgröße (je Hand) | |
+
+Die Werte (gekrümmte Zeigefinger statt gestreckter Spitzen, größere Neigung, geringere Höhe/Öffnung, größerer Handgelenkabstand) sind an echten Aufnahmen kalibriert: Ein Herz zwischen Gesicht und Brust zeigt stark gekrümmte Zeigefinger, deren Spitzen weit auseinander stehen, während sich PIP/DIP berühren; Kopf- und Körperneigung bis etwa 50° kommen vor.
 
 **Formen** (disjunkt, in dieser Reihenfolge entschieden):
 
-- **Umgedreht** (`Inverted`): Die Herzachse zeigt nach unten (Zeigefingerspitzen unter den Daumenspitzen innerhalb der Neigungsgrenze).
+- **Umgedreht** (`Inverted`): Die Herzachse zeigt nach unten (Gipfel unter den Daumenspitzen innerhalb der Neigungsgrenze).
 - **Dach** (`Roof`): aufrecht, und bei beiden Händen sind mindestens zwei der Finger Mittel/Ring/klein gestreckt (`ExtensionFactor` 1,25 → 1,05, PIP-Winkel ≥ 165° → 140°) und zeigen höchstens 60° von der Senkrechten ab.
 - **Klassisch** (`Classic`): aufrecht und nicht Dach – es gibt keine eigene Prüfung der übrigen Finger (der Admin-Text nennt sie „eingerollt oder locker gekrümmt“; das ist die Absicht, keine Bedingung im Code). Der Admin-Text zu Dach lautet „Mindestens zwei der übrigen Finger gestreckt nach oben“.
 
-Die Güte (`Score`) fällt linear mit dem Spitzenabstand; die Kosten (`Cost`, Spitzenabstände / S) entscheiden über die Paarwahl.
+Die Güte (`Score`) fällt linear mit den Kontaktabständen; die Kosten (`Cost` = (`K` + Daumenspitzen-Abstand) / S) entscheiden über die Paarwahl. Herzmitte und Größe (`0,8 · h`) beziehen sich auf die Herzachse Daumenspitzen-Mitte → Gipfel-Mitte.
 
 ### Fingerherz (`ClassifyFingerHeart`, experimentell)
 
@@ -93,8 +96,8 @@ Eine Hand: Daumenspitze am Zeigefinger (Spitze oder DIP) ≤ 0,30 → 0,45 S; Ze
 
 `GestureRequestOptions.PairedHands` (gesetzt von `PeaceOverlayViewModel.BuildOptions`, wenn die Herzerkennung an ist) ändert die Hand-Pipeline, weil sich bei einem Herz die Hände berühren und die normale Duplikatprüfung die zweite Hand schlucken würde. Drei Regeln (`PeaceDetectionService.Pipeline.cs`):
 
-1. **Suchbereich erst bei zwei verfolgten Händen abgedeckt:** Normal genügt eine verfolgte Hand im Suchbereich eines Gesichts, um die Palm-Erkennung dort zu sparen. Mit `PairedHands` müssen es `PalmsPerRegion` (2) sein, sonst wird weiter nach der zweiten Hand gesucht (`RegionCovered`).
-2. **Palm-ROI ist nur dann Duplikat einer verfolgten Hand, wenn sie nahe an deren Handfläche liegt:** Mitte der Palm-ROI näher als 0,5 × ROI-Größe am Handflächenschwerpunkt (Mittel der Punkte 0, 5, 9, 13, 17). Die aus Handpunkten abgeleiteten Ausschnitte sind 2 × Handausdehnung groß; die übliche ROI-Abstandsschwelle würde eine anliegende zweite Hand unterdrücken (`AddPalmRois`, `IsNearPalm`).
+1. **Suchbereich erst bei zwei in diesem Zyklus bestätigten Händen abgedeckt:** Normal genügt eine verfolgte Hand im Suchbereich eines Gesichts, um die Palm-Erkennung dort zu sparen. Mit `PairedHands` laufen die verfolgten Hände zuerst durch den Landmark-Lauf; nur Hände, deren Lauf **in diesem Zyklus** gelungen ist, zählen als Abdeckung (`RegionCovered`), und es müssen `PalmsPerRegion` (2) **verschiedene** sein (zwei Ergebnisse, die `IsPairedDuplicate` als dieselbe Hand wertet, zählen einmal). Scheitert der Lauf einer verfolgten Hand (typisch: die zweite, überlappende Hand eines Herzens, Score weit unter dem Mindestscore), deckt sie nichts ab und absorbiert keine Palm-ROI (Regel 2 gilt nur gegen bestätigte Hände): Die Palm-Suche läuft im selben Zyklus und holt die Hand nach. Früher zählten die verfolgten Hände des Vorzyklus; dann wurde die Palm-Suche übersprungen, der Lauf scheiterte, und die Hand fehlte für diesen Zyklus (gemessen: nur etwa jede dritte Analyse mit beiden Händen). Die Obergrenzen bleiben strikt: Jeder Landmark-Lauf zählt auf `MaxLandmarkRuns` (4), auch die gescheiterten verfolgten (`AddPalmRois(…, capacity)` kappt die Palm-ROIs entsprechend), die Palm-Suchen auf `MaxPalmRuns` (3). Belegen die verfolgten Hände (auch gescheiterte) alle vier Plätze, bleibt für das Nachholen kein Platz; der nächste Zyklus sucht dann wieder. Ohne `PairedHands` bleibt Ablauf und Reihenfolge unverändert (alle Läufe erst nach der Palm-Suche, Abdeckung durch verfolgte Hände des Vorzyklus).
+2. **Eine bestätigte Hand absorbiert höchstens eine nahe Palm-ROI:** Pro Palm-Lauf gilt eine Palm-ROI nur dann als Duplikat einer in diesem Zyklus bestätigten (verfolgten) Hand, wenn ihre Mitte näher als 0,25 × ROI-Größe am Handflächenschwerpunkt (Mittel der Punkte 0, 5, 9, 13, 17) liegt (`PairedTrackedPalmDistance`), und jede verfolgte Hand absorbiert davon nur die nächste. Weitere Kandidaten werden nie wegen derselben verfolgten Hand verworfen: Sie werden entweder als Palm-ROI übernommen (Palm-gegen-Palm-Prüfung mit der üblichen Schwelle bleibt) oder landen im Landmark-Lauf, wo `IsPairedDuplicate` (Regel 3) echte Doppelerkennungen zusammenfasst. Gemessen im Diagnose-Log (eine Person formt allein ein Herz): Doppelerkennungen der verfolgten Hand liegen bei 6 bis 47 px, die zweite Hand bei ca. 100 bis 160 px; die frühere Schwelle 0,5 × ROI-Größe (140 bis 175 px) verschluckte die zweite Hand fast immer (`AddPalmRois`). Die Obergrenzen `MaxPalmRuns`/`MaxLandmarkRuns` bleiben unberührt.
 3. **Ergebnis-Duplikate über Landmarkabstand und Handseite:** Zwei Handergebnisse sind dieselbe Hand, wenn der mittlere 2D-Punktabstand (in Pixeln) unter 0,3 × der kleineren Handlänge (Punkt 0 – 9) liegt **und** die Handseiten nicht eindeutig verschieden sind (`IsPairedDuplicate`). Statt der normalen Box-IoU-Schwelle (> 0,5).
 
 **Handseite:** `MediaPipeHandDetector` liest, falls das Landmark-Modell die Ausgabe `lefthand_0_or_righthand_1` liefert, die Händigkeit (`HandLandmarks.Handedness`, 0 = links, 1 = rechts, sonst `null`). Eindeutig verschieden heißt: beide Werte mehr als 0,3 von 0,5 entfernt und auf verschiedenen Seiten (`HandednessMargin`). Eine linke und eine rechte Hand, die sich überlagern, werden so nie zusammengefasst; fehlt die Ausgabe, zählt nur der Abstand.
@@ -106,8 +109,8 @@ Es bleibt bei `MaxPalmRuns` = 3 und `MaxLandmarkRuns` = 4 je Zyklus: **Höchsten
 `Core/Heart/HeartEngine.cs`, Zustandsmaschine wie `PeaceEngine`/`MiddleFingerEngine`, nicht threadsicher (UI-Thread):
 
 - **Halten global:** Es gibt keine Paar-Identität über Bilder hinweg; das Halten gilt für „irgendein Herz“, ein Wechsel der beteiligten Hände ist unerheblich. Nach `HoldMilliseconds` löst die Engine genau einmal `Triggered` aus (`HeartTrigger`: Aktion, Form, Mitte, `HeartBox`, `FaceBoxes` der beteiligten Personen).
-- **Aussetzer:** Ein kurzer Ausfall des Herzens setzt das Halten nicht zurück. Toleranz `GapTolerance` = max(`PeaceEngine.MinGapTolerance`, 2,5 Analyseabstände); dieselbe Regel wie bei Peace (`Configure(settings, analysesPerSecond)`).
-- **Wiederscharf nur nach beobachteter Ruhe:** Nach einer Auslösung ist die Engine entwaffnet und wird erst wieder scharf, wenn `RearmQuietTime` (mindestens `PeaceEngine.MinRearmQuietTime`, sonst 2,5 Analyseabstände) lang **in Hand-Updates beobachtet** kein Herz zu sehen war. Während Foto/Kisscam laufen nur Gesichts-Updates; die reine Uhrzeit genügt deshalb nicht (ein stehengebliebenes Herz würde sofort wieder auslösen). Lücken zwischen Hand-Updates, länger als die Ruhefrist, zählen als unbeobachtet.
+- **Aussetzer:** Ein kurzer Ausfall des Herzens setzt das Halten nicht zurück. Herzen werden mit sich berührenden Händen geformt und flackern in der Erkennung; die Peace-Frist (250 ms bzw. 2,5 Analyseabstände) war dafür zu knapp. Toleranz `GapTolerance` = max(`HeartEngine.MinGapTolerance` = 700 ms, `GapToleranceIntervals` = 4 Analyseabstände); bei 5 Analysen/s also 800 ms, bei 10/s 700 ms (`Configure(settings, analysesPerSecond)`, `HeartEngine.Timings`). Gilt auch für `DetectedNow`/Snapshot.
+- **Wiederscharf nur nach beobachteter Ruhe:** Nach einer Auslösung ist die Engine entwaffnet und wird erst wieder scharf, wenn `RearmQuietTime` lang **in Hand-Updates beobachtet** kein Herz zu sehen war. `RearmQuietTime` = max(bisheriger Peace-Wert = max(400 ms, 2,5 Analyseabstände), `GapTolerance` + 1 Analyseabstand); bei 5/s 1000 ms, bei 10/s 800 ms. Sie muss länger als die Toleranz sein: Sonst gälte ein flackernd weitergehaltenes Herz als „beobachtete Ruhe“, und die Engine löste (eine zweite Kisscam) erneut aus. Während Foto/Kisscam laufen nur Gesichts-Updates; die reine Uhrzeit genügt deshalb nicht (ein stehengebliebenes Herz würde sofort wieder auslösen). Lücken zwischen Hand-Updates, länger als die Ruhefrist, zählen als unbeobachtet. `PeaceEngine` und `MiddleFingerEngine` behalten ihre Fristen.
 - **`Configure` löst nie aus:** Es übernimmt Einstellungen und Rate und aktualisiert nur Snapshot und `Changed`; `Triggered` kommt ausschließlich aus `OnUpdate` und `Tick`. Der Aufrufer konfiguriert mitten in `PeaceOverlayViewModel.SetMode`, ein Auslösen dort würde synchron einen Kisscam-Durchgang starten und die Betriebsart verschachtelt umschalten. Zusätzlich verwirft `SetMode` nach dem Konfigurieren den Rest des Aufrufs, falls sich `_mode` (oder die Entsorgung) in der Zwischenzeit geändert hat.
 - **Nur im Leerlauf:** `GesturesEnabled` ist nur im `PeaceMode.Watching` (also `BoothState.Idle`) und bei eingeschalteter Erkennung wahr. Sonst wird weder ausgelöst noch gehalten; die Prüfung „Herz wieder weg“ läuft weiter. `Reset()` behält die Entwaffnung.
 - `Snapshot` (`HeartSnapshot`: ein `HeartView` mit Mitte, Größe, Fortschritt 0..1, Form; `Armed`) speist das Fortschrittsherz (`HeartFeedbackOverlay`), `DetectedNow`/`DetectedShape` die Admin-Anzeige.
@@ -207,6 +210,12 @@ Eine Geometrie für Livebild und Foto: Alle Maße hängen nur von der kürzeren 
 
 `AppLog`: `Herzerkennung: Herz erkannt (Form …, 1 Hand/2 Hände), Aktion Kisscam.`, `Kisscam gestartet (… s, Zoom aus/… %, Musik an/aus).`, `Kisscam abgebrochen.`, `Mittelfinger: Kisscam abgebrochen.`, Warnungen bei Musik- und Zuschnittfehlern. Jede Fun-Auslösung steht im Log.
 
+**`Herz-Diagnose:`-Zeilen (Level Info, gedrosselt, ohne Einfluss auf die Erkennung):** Für Nachtests, wenn ein Herz nicht erkannt wird. Alle Zeilen beginnen mit `Herz-Diagnose:` (Filter z. B. `Select-String "Herz-Diagnose"` im Tageslog); es werden nur Zahlen und normierte Landmarks geloggt, nie Bilder. Auswertung: „Pipeline“ unterscheidet Handverlust in der Hand-Pipeline (Landmark-Scores auch verworfener Hände gegen den Mindestscore, von einer verfolgten Hand absorbierte Palm-ROIs, Paar-Duplikatprüfung mit Abstand, Schwelle und Handseiten); „Hände ohne Herz“ zeigt, welche Klassifikatorprüfung scheitert; die Ereigniszeilen zeigen, ob ein Treffer nur vereinzelt kommt und das Halten wegen `GapTolerance` neu beginnt.
+- `Herz-Diagnose: Pipeline: …` (`PeaceDetectionService.Pipeline.cs`, `PairedHandDiagnostics`): nur bei `PairedHands`, höchstens 1 Zeile/s und nur, wenn Gesicht, verfolgte Hand, Palm- oder Landmark-Ergebnis vorhanden sind. Enthält Gesichter, verfolgte Hände, Palmsuchen (Gesichtsbereiche, Vollbild), Palm-Treffer, übernommene und verworfene Palm-ROIs (mit Abstand/Schwelle in Pixeln), Mindestscore, Roh-Score jedes Landmark-Laufs (`IHandLandmarkDetector.SetScoreObserver`, auch unter dem Mindestscore verworfene), Hände vor/nach der Paar-Duplikatprüfung samt mittlerem Abstand, Schwelle und Handseiten. Der Sammler wird wiederverwendet; in Zyklen ohne Zeile entsteht keine Allokation und keine Formatierung.
+- `Herz-Diagnose: Hände ohne Herz: …` (`HeartEngine.OnUpdate`): bei mindestens einer Hand ohne Herz höchstens 1 Zeile/s (Engine-Zeit). Hände, Scores, Seitenverhältnis, Empfindlichkeit, Mindest-Handscore, scharf/Gesten erlaubt, dann für das nächstliegende Paar (`HeartGestureClassifier.FindNearestPair`: kleinste Summe aus Zeigefinger-Kontakt `K` und Daumenspitzenabstand relativ zu S) die komplette `HeartGestureClassifier.Diagnose` (jede Prüfgröße mit Schwelle und `ok`/`FEHL`, ohne beim ersten Fehlschlag abzubrechen; `ClassifyPair` bleibt unverändert und liefert das Urteil) und die rohen 21 Landmarks beider Hände (normiert, 3 Nachkommastellen) zum Nachrechnen; bei einer einzelnen Hand `DiagnoseFingerHeart`.
+- Ereigniszeilen (ungedrosselt): `Herz-Diagnose: Herz-Treffer beginnt (Form …, Güte …, Hände im Bild …, … GapTolerance … ms, Haltedauer … ms) | Hand0 [x,y;…] Hand1 […]` (hängt die rohen 21 Landmarks der beteiligten Hände an, bei einem Fingerherz die eine Hand) und `Herz-Diagnose: Halten abgebrochen (Grund); Lücke … ms, GapTolerance … ms; Fortschritt … von … ms`.
+- `Herz-Diagnose: Statistik 30 s: …` (`HeartEngine.RecordStats`): alle 30 s (Engine-Zeit), nur wenn im Fenster Hände zu sehen waren: `Analysen N, mit ≥1 Hand N, mit ≥2 Händen N, Herz-Treffer N, längste Trefferserie N Analysen, Halteabbrüche N, Auslösungen N.` Zeigt, wie lückenhaft die Erkennung läuft (Verhältnis Hände/Treffer, Länge der Trefferserien gegen die Haltezeit). Die Pipeline-Zeile nennt zusätzlich `verfolgte Hände=N (bestätigt M)`.
+
 ## Tests
 
-Siehe `docs/tests.md`: `HeartGestureClassifierTests` (mit `HeartHandFixtures`), `HeartEngineTests`, `HeartActionsTests`, `HeartSettingsTests`, `HeartPipelineTests` (`PairedHands`), `KisscamFrameGeometryTests`, `KisscamZoomTests`, `KisscamTextFormatterTests`, `BoothControllerKisscamTests`, `BoothViewModelKisscamTests`, `PeaceOverlayViewModelHeartTests`, `LayoutComposerKisscamTests`, `MusicPlayerTests`, `AdminHeartTabTests`, `HeartViewsTests`, `KisscamVisualRenderTests` (Visual).
+Siehe `docs/tests.md`: `HeartGestureClassifierTests` (mit `HeartHandFixtures`), `HeartDiagnoseTests`, `HeartEngineTests`, `HeartActionsTests`, `HeartSettingsTests`, `HeartPipelineTests` (`PairedHands`), `KisscamFrameGeometryTests`, `KisscamZoomTests`, `KisscamTextFormatterTests`, `BoothControllerKisscamTests`, `BoothViewModelKisscamTests`, `PeaceOverlayViewModelHeartTests`, `LayoutComposerKisscamTests`, `MusicPlayerTests`, `AdminHeartTabTests`, `HeartViewsTests`, `KisscamVisualRenderTests` (Visual).

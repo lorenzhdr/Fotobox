@@ -115,6 +115,77 @@ public class HeartPipelineTests
         Assert.Single(updates.Last().Hands);
     }
 
+    // ------------------------------------------------------------ gescheiterte verfolgte Hand
+
+    /// <summary>
+    /// Zwei Hände A/B werden verfolgt (Zyklus 1). In Zyklus 2 scheitert der Landmark-Lauf der verfolgten Hand B einmalig; die Palm-Suche
+    /// liefert weiter beide Hände. Gibt die Aufrufe und Hände von Zyklus 2 zurück.
+    /// </summary>
+    private async Task<(int Palms, int Landmarks, int Hands)> SecondCycleWithFailingTrackedB(bool paired)
+    {
+        var a = PeaceFakes.Hand(0.45, 0.6);
+        var b = PeaceFakes.Hand(0.55, 0.6);
+        await using var service = NewService();
+        _hand.OnPalms = (_, _) => [PalmForHandAt(0.45, 0.6), PalmForHandAt(0.55, 0.6)];
+        var bFailures = 0;
+        _hand.OnLandmarks = roi => Math.Abs(roi.Center.X - 0.55) < 0.03 ? (Interlocked.Decrement(ref bFailures) >= 0 ? null : b) : a;
+        var (request, updates) = await Start(service, paired);
+        using var _ = request;
+
+        await Cycle(updates, 1);
+        Assert.Equal(2, updates.Last().Hands.Count);
+        var palmsBefore = _hand.PalmCalls;
+        var landmarksBefore = _hand.LandmarkCalls;
+
+        Volatile.Write(ref bFailures, 1);
+        await Cycle(updates, 2);
+        return (_hand.PalmCalls - palmsBefore, _hand.LandmarkCalls - landmarksBefore, updates.Last().Hands.Count);
+    }
+
+    [Fact]
+    public async Task Paired_TrackedHandFails_PalmSearchRunsInTheSameCycle_AndFindsIt()
+    {
+        var (palms, landmarks, hands) = await SecondCycleWithFailingTrackedB(paired: true);
+
+        Assert.Equal(1, palms); // die gescheiterte verfolgte Hand deckt den Suchbereich nicht ab
+        Assert.Equal(3, landmarks); // A, B (gescheitert), B aus der Palm-Suche; A's Palm-ROI wurde von der bestätigten A absorbiert
+        Assert.Equal(2, hands);
+    }
+
+    [Fact]
+    public async Task NotPaired_TrackedHandFails_StillSkipsPalmSearch_AsBefore()
+    {
+        var (palms, landmarks, hands) = await SecondCycleWithFailingTrackedB(paired: false);
+
+        Assert.Equal(0, palms);
+        Assert.Equal(2, landmarks);
+        Assert.Equal(1, hands);
+    }
+
+    [Fact]
+    public async Task Paired_TrackedHandsFail_StayWithinPalmAndLandmarkLimits()
+    {
+        await using var service = NewService();
+        double[] xs = [0.2, 0.4, 0.6, 0.8];
+        _hand.OnPalms = (_, _) => xs.Select(x => PalmForHandAt(x, 0.6)).ToArray();
+        var failures = 0;
+        _hand.OnLandmarks = roi => Interlocked.Decrement(ref failures) >= 0 ? null : PeaceFakes.Hand(roi.Center.X, 0.6);
+        var (request, updates) = await Start(service, paired: true);
+        using var _ = request;
+
+        await Cycle(updates, 1);
+        Assert.Equal(4, updates.Last().Hands.Count);
+        var palmsBefore = _hand.PalmCalls;
+        var landmarksBefore = _hand.LandmarkCalls;
+
+        Volatile.Write(ref failures, 3); // drei der vier verfolgten Hände scheitern: nur eine bestätigt, die Palm-Suche läuft
+        await Cycle(updates, 2);
+
+        Assert.InRange(_hand.PalmCalls - palmsBefore, 1, PeaceDetectionService.MaxPalmRuns);
+        Assert.Equal(PeaceDetectionService.MaxLandmarkRuns, _hand.LandmarkCalls - landmarksBefore); // 4 verfolgte Läufe verbrauchen alles
+        Assert.Single(updates.Last().Hands);
+    }
+
     // ------------------------------------------------------------ Schluss-Dedupe
 
     /// <summary>Zwei Ergebnisse aus zwei weit auseinander liegenden Palm-ROIs; die Landmarks kommen der Reihe nach aus <paramref name="hands"/>.</summary>
@@ -232,6 +303,138 @@ public class HeartPipelineTests
         PeaceDetectionService.AddPalmRois(rois, [tracked], [PalmForHandAt(0.4, 0.6)], W, H);
 
         Assert.Single(rois);
+    }
+
+    // Palm-ROI-Größe der Standardpalm (0,05 Bildbreiten × 2,9) in Pixeln und der Versatz in Bruchteilen davon, als normierte x-Verschiebung.
+    private const double PalmRoiPx = 0.05 * W * HandRoiMath.PalmScale;
+    private static double Shift(double roiFraction) => roiFraction * PalmRoiPx / W;
+
+    [Fact]
+    public void AddPalmRois_Paired_TwoCandidates_NearAndFarther_SecondHandSurvives()
+    {
+        var tracked = PeaceFakes.Hand(0.4, 0.6);
+        var rois = new List<HandRoi> { HandRoiMath.FromLandmarks(tracked, W, H) };
+        var sources = new List<HandLandmarks?> { tracked };
+        var diag = new PairedHandDiagnostics().Reset(1, true, 0.5);
+
+        // Einer praktisch auf der verfolgten Hand (~0,05 × ROI), einer bei ~0,4 × ROI daneben (die alte Schwelle 0,5 hätte beide verworfen).
+        PeaceDetectionService.AddPalmRois(rois, sources, [PalmForHandAt(0.4 + Shift(0.05), 0.6), PalmForHandAt(0.4 + Shift(0.4), 0.6)], W, H, diag);
+
+        Assert.Equal(2, rois.Count);
+        Assert.Equal(2, sources.Count);
+        Assert.Null(sources[1]);
+        Assert.InRange(rois[1].Center.X, 0.4 + Shift(0.4) - 0.002, 0.4 + Shift(0.4) + 0.002);
+        Assert.Equal(1, diag.NearPalmDropped);
+        Assert.Equal(1, diag.PalmRoisKept);
+    }
+
+    [Fact]
+    public void AddPalmRois_Paired_TrackedHand_AbsorbsOnlyTheNearestCandidate()
+    {
+        var tracked = PeaceFakes.Hand(0.4, 0.6);
+        var rois = new List<HandRoi> { HandRoiMath.FromLandmarks(tracked, W, H) };
+        var sources = new List<HandLandmarks?> { tracked };
+
+        // Beide Kandidaten innerhalb der Schwelle (0,25 × ROI), aber weit genug auseinander, um keine Palm-Duplikate zu sein.
+        PeaceDetectionService.AddPalmRois(rois, sources, [PalmForHandAt(0.4 + Shift(0.2), 0.6), PalmForHandAt(0.4 - Shift(0.04), 0.6)], W, H);
+
+        Assert.Equal(2, rois.Count); // verfolgt + der entferntere Kandidat; der nähere (0,04) wurde absorbiert
+        Assert.InRange(rois[1].Center.X, 0.4 + Shift(0.2) - 0.002, 0.4 + Shift(0.2) + 0.002);
+    }
+
+    [Fact]
+    public void AddPalmRois_Paired_TwoTrackedHands_AbsorbOneCandidateEach_NeverTheSameTwice()
+    {
+        var a = PeaceFakes.Hand(0.35, 0.6);
+        var b = PeaceFakes.Hand(0.65, 0.6);
+        var rois = new List<HandRoi> { HandRoiMath.FromLandmarks(a, W, H), HandRoiMath.FromLandmarks(b, W, H) };
+        var sources = new List<HandLandmarks?> { a, b };
+
+        PeaceDetectionService.AddPalmRois(rois, sources, [PalmForHandAt(0.35, 0.6), PalmForHandAt(0.65, 0.6)], W, H);
+
+        Assert.Equal(2, rois.Count);
+    }
+
+    [Fact]
+    public void AddPalmRois_Paired_CandidatesNearEachOther_ButFarFromTrackedHand_AreMergedAsPalmDuplicates()
+    {
+        var tracked = PeaceFakes.Hand(0.2, 0.6);
+        var rois = new List<HandRoi> { HandRoiMath.FromLandmarks(tracked, W, H) };
+        var sources = new List<HandLandmarks?> { tracked };
+
+        PeaceDetectionService.AddPalmRois(rois, sources, [PalmForHandAt(0.6, 0.6), PalmForHandAt(0.6 + Shift(0.1), 0.6)], W, H);
+
+        Assert.Equal(2, rois.Count); // verfolgt + eine Palm-ROI
+    }
+
+    [Fact]
+    public void AddPalmRois_NotPaired_AllCandidatesNearTheTrackedRoi_AreDropped_AsBefore()
+    {
+        var tracked = PeaceFakes.Hand(0.4, 0.6);
+        var rois = new List<HandRoi> { HandRoiMath.FromLandmarks(tracked, W, H) };
+
+        PeaceDetectionService.AddPalmRois(rois, null, [PalmForHandAt(0.4, 0.6), PalmForHandAt(0.4 + Shift(0.1), 0.6)], W, H);
+
+        Assert.Single(rois); // ohne PairedHands kein Ein-Kandidat-Limit: beide gelten als Duplikat der verfolgten Hand
+    }
+
+    [Fact]
+    public void AddPalmRois_Paired_RespectsMaxLandmarkRuns()
+    {
+        var tracked = PeaceFakes.Hand(0.1, 0.3);
+        var rois = new List<HandRoi> { HandRoiMath.FromLandmarks(tracked, W, H) };
+        var sources = new List<HandLandmarks?> { tracked };
+        var diag = new PairedHandDiagnostics().Reset(1, true, 0.5);
+
+        PeaceDetectionService.AddPalmRois(rois, sources,
+            [PalmForHandAt(0.3, 0.6), PalmForHandAt(0.5, 0.6), PalmForHandAt(0.7, 0.6), PalmForHandAt(0.9, 0.6)], W, H, diag);
+
+        Assert.Equal(PeaceDetectionService.MaxLandmarkRuns, rois.Count);
+        Assert.Equal(sources.Count, rois.Count);
+        Assert.Equal(1, diag.RoiCapDropped);
+    }
+
+    [Fact]
+    public async Task Paired_TrackedHandPlusNearAndFarCandidate_FindsTheSecondHand()
+    {
+        var a = PeaceFakes.Hand(0.45, 0.6);
+        var b = PeaceFakes.Hand(0.45 + Shift(0.4), 0.6);
+        await using var service = NewService();
+        _hand.OnPalms = (_, _) => _hand.PalmCalls <= 1
+            ? [PalmForHandAt(0.45, 0.6)]
+            : [PalmForHandAt(0.45 + Shift(0.05), 0.6), PalmForHandAt(0.45 + Shift(0.4), 0.6)];
+        _hand.OnLandmarks = roi => Math.Abs(roi.Center.X - b.Box.CenterX) < 0.5 * Shift(0.4) ? b : a;
+        var (request, updates) = await Start(service, paired: true);
+        using var _ = request;
+
+        await Cycle(updates, 1);
+        Assert.Single(updates.Last().Hands);
+        await Cycle(updates, 2);
+
+        Assert.Equal(2, updates.Last().Hands.Count);
+        Assert.True(_hand.LandmarkCalls <= 1 + PeaceDetectionService.MaxLandmarkRuns);
+    }
+
+    [Fact]
+    public async Task Paired_TwoCandidatesBothOnTrackedHand_ResultsInOneHand()
+    {
+        var a = PeaceFakes.Hand(0.45, 0.6);
+        await using var service = NewService();
+        // Nach dem ersten Zyklus (Hand verfolgt) liefert die Palm-Suche zwei Kandidaten sehr nah an der verfolgten Hand.
+        _hand.OnPalms = (_, _) => _hand.PalmCalls <= 1
+            ? [PalmForHandAt(0.45, 0.6)]
+            : [PalmForHandAt(0.45 + Shift(0.03), 0.6), PalmForHandAt(0.45 + Shift(0.1), 0.6)];
+        _hand.OnLandmarks = _ => a; // jeder Landmark-Lauf findet dieselbe Hand
+        var (request, updates) = await Start(service, paired: true);
+        using var _ = request;
+
+        await Cycle(updates, 1);
+        var landmarkCallsBefore = _hand.LandmarkCalls;
+        await Cycle(updates, 2);
+
+        // Eine verfolgte Hand absorbiert nur einen Kandidaten; der andere läuft durch die Landmarks und wird von IsPairedDuplicate zusammengefasst.
+        Assert.Equal(2, _hand.LandmarkCalls - landmarkCallsBefore);
+        Assert.Single(updates.Last().Hands);
     }
 
     [Fact]

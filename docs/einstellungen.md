@@ -100,7 +100,7 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `MiddleFinger.SensitivityPercent` | 50 | 10–95 |
 | `Heart.Enabled` | an | – |
 | `Heart.ShapeClassic` / `ShapeRoof` / `ShapeInverted` / `ShapeFingerHeart` | an / an / aus / aus | mindestens eine (Normalizer erzwingt Klassisch) |
-| `Heart.HoldMilliseconds` | 1000 | 300–3000 (100er, `HeartHoldMilliseconds*`) |
+| `Heart.HoldMilliseconds` | 1800 | 300–3000 (100er, `HeartHoldMilliseconds*`) |
 | `Heart.SensitivityPercent` | 50 | 10–95 (`HeartSensitivity*`) |
 | `Heart.ShowHoldFeedback` | an | – |
 | `Heart.Action` | `Kisscam` | Enum `HeartAction` |
