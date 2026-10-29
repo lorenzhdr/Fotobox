@@ -323,6 +323,97 @@ public class AdminViewTests
         }
     }
 
+    private static System.Windows.Controls.ContentPresenter ContentHost(System.Windows.Controls.TabControl tabs)
+    {
+        tabs.ApplyTemplate();
+        return (System.Windows.Controls.ContentPresenter)tabs.Template.FindName("PART_SelectedContentHost", tabs);
+    }
+
+    [StaFact]
+    public void AdminWindow_AppearanceTab_ZoomSlider_UsesSettingsLimits_AndBindsToDraft()
+    {
+        WithWindow((window, vm) =>
+        {
+            var tabs = FindTabControl(window)!;
+            tabs.SelectedItem = tabs.Items.OfType<System.Windows.Controls.TabItem>().Single(t => t.Header as string == "Darstellung");
+            var root = (System.Windows.FrameworkElement)window.Content;
+            root.Measure(new System.Windows.Size(1100, 750));
+            root.Arrange(new System.Windows.Rect(0, 0, 1100, 750));
+            root.UpdateLayout();
+
+            var slider = FindDescendants<System.Windows.Controls.Slider>(root)
+                .Single(s => System.Windows.Automation.AutomationProperties.GetName(s) == "Größe der Einstellungen");
+            Assert.Equal(SettingsLimits.AdminZoomMin, slider.Minimum);
+            Assert.Equal(SettingsLimits.AdminZoomMax, slider.Maximum);
+            Assert.Equal(SettingsLimits.AdminZoomStep, slider.TickFrequency);
+            Assert.Equal(SettingsLimits.AdminZoomStep, slider.SmallChange);
+            Assert.Equal(SettingsLimits.AdminZoomStep, slider.LargeChange);
+            Assert.True(slider.IsSnapToTickEnabled);
+            Assert.Equal(80, slider.Value);
+
+            slider.Value = 65;
+            Assert.Equal(65, vm.AdminZoomPercent);
+            Assert.Equal(65, vm.Draft.Appearance.AdminZoomPercent);
+            Assert.Equal("65 %", vm.AdminZoomText);
+            Assert.True(vm.HasUnsavedChanges);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_ContentHost_FollowsZoomLive_ViaLayoutTransform()
+    {
+        WithWindow((window, vm) =>
+        {
+            var tabs = FindTabControl(window)!;
+            var host = ContentHost(tabs);
+            var root = (System.Windows.FrameworkElement)window.Content;
+            root.Measure(new System.Windows.Size(1100, 750));
+            root.Arrange(new System.Windows.Rect(0, 0, 1100, 750));
+            root.UpdateLayout();
+
+            // Standard 80 %.
+            var scale = Assert.IsType<System.Windows.Media.ScaleTransform>(host.LayoutTransform);
+            Assert.Equal(0.8, scale.ScaleX, 3);
+            Assert.Equal(0.8, scale.ScaleY, 3);
+            Assert.Equal(System.Windows.Media.TextFormattingMode.Ideal, System.Windows.Media.TextOptions.GetTextFormattingMode(host));
+
+            vm.AdminZoomPercent = 60;
+            scale = Assert.IsType<System.Windows.Media.ScaleTransform>(host.LayoutTransform);
+            Assert.Equal(0.6, scale.ScaleX, 3);
+            Assert.Equal(0.6, scale.ScaleY, 3);
+
+            // Bei 100 % bleibt das Textformat wie im übrigen Fenster.
+            vm.AdminZoomPercent = 100;
+            scale = Assert.IsType<System.Windows.Media.ScaleTransform>(host.LayoutTransform);
+            Assert.Equal(1.0, scale.ScaleX, 3);
+            Assert.Equal(System.Windows.Media.TextFormattingMode.Display, System.Windows.Media.TextOptions.GetTextFormattingMode(host));
+
+            // Der Zoom wirkt nur auf den Inhalt: Die Tab-Leiste im selben Template bleibt ungeskaliert.
+            var strip = FindDescendants<System.Windows.Controls.Border>(tabs).First();
+            Assert.Null(strip.LayoutTransform as System.Windows.Media.ScaleTransform);
+        });
+    }
+
+    [StaFact]
+    public void AdminViewModel_Zoom_DefaultsTo80_AndRaisesChangeNotifications()
+    {
+        WithWindow((_, vm) =>
+        {
+            Assert.Equal(SettingsLimits.AdminZoomDefault, vm.AdminZoomPercent);
+            Assert.Equal(0.8, vm.AdminContentScale, 3);
+            Assert.Equal("80 %", vm.AdminZoomText);
+
+            var changed = new List<string?>();
+            vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+            vm.AdminZoomPercent = 90;
+
+            Assert.Contains(nameof(AdminViewModel.AdminZoomPercent), changed);
+            Assert.Contains(nameof(AdminViewModel.AdminZoomText), changed);
+            Assert.Contains(nameof(AdminViewModel.AdminContentScale), changed);
+            Assert.Equal(0.9, vm.AdminContentScale, 3);
+        });
+    }
+
     [StaFact]
     public void AdminWindow_HasAppearanceTab_AfterGuestScreenTab()
     {

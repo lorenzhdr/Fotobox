@@ -154,6 +154,35 @@ public sealed class SettingsTransferTests : IDisposable
         s.Video.Folder = @"D:\Eigene\Videos-Pfad";
         s.Appearance.GuestMonitorId = @"\\?\DISPLAY#MONITOR-4711";
         s.Appearance.GuestMonitorName = "Monitor-Name-4711";
+        s.Appearance.AdminZoomPercent = 65;
+    }
+
+    /// <summary>Gerätefeld nach Export/Import: leer (null/leere Liste) bzw. beim Admin-Zoom der Standard (eine Zahl, nie null).</summary>
+    private static bool IsClearedDeviceValue(string path, object? value) =>
+        value is null
+        || value is System.Collections.IList { Count: 0 }
+        || (path == "Appearance.AdminZoomPercent" && value is int zoom && zoom == SettingsLimits.AdminZoomDefault);
+
+    [Fact]
+    public void AdminZoom_IsNotExported_AndNotOverwrittenByImport()
+    {
+        var original = NonDefaultSettings();
+        Assert.Equal(65, original.Appearance.AdminZoomPercent);
+
+        var json = SettingsTransfer.Serialize(original, null, "2.3.0", ExportedAt);
+        Assert.DoesNotContain("AdminZoomPercent", json);
+        // Ein Zoom in einer fremden Datei (z. B. rohe settings.json) wird beim Einlesen ebenfalls ignoriert.
+        var raw = SettingsTransfer.Parse(JsonSerializer.Serialize(original, AppSettings.JsonOptions));
+        Assert.Equal(SettingsLimits.AdminZoomDefault, raw.Sections.Appearance.AdminZoomPercent);
+
+        var result = SettingsTransfer.Parse(json);
+        var target = new AppSettings();
+        target.Appearance.AdminZoomPercent = 90;
+        var targetDevices = target.Clone();
+        SettingsSections.CopyPortableSections(result.Sections, target);
+        DeviceSpecificSettings.CopyFrom(targetDevices, target);
+
+        Assert.Equal(90, target.Appearance.AdminZoomPercent);
     }
 
     private static readonly string[] DeviceValues =
@@ -331,7 +360,7 @@ public sealed class SettingsTransferTests : IDisposable
             var parts = path.Split('.');
             var section = typeof(AppSettings).GetProperty(parts[0])!.GetValue(result.Sections)!;
             var value = section.GetType().GetProperty(parts[1])!.GetValue(section);
-            Assert.True(value is null || (value is System.Collections.IList { Count: 0 }), $"{path} muss leer sein.");
+            Assert.True(IsClearedDeviceValue(path, value), $"{path} muss leer sein.");
         }
         // Der Flimmerschutz ist übertragbar.
         Assert.Equal(CameraPowerline.Hz60, result.Sections.Camera.Powerline);
@@ -424,7 +453,7 @@ public sealed class SettingsTransferTests : IDisposable
             var parts = path.Split('.');
             var section = typeof(AppSettings).GetProperty(parts[0])!.GetValue(result.Sections)!;
             var value = section.GetType().GetProperty(parts[1])!.GetValue(section);
-            Assert.True(value is null || value is System.Collections.IList { Count: 0 }, $"{path} muss leer sein.");
+            Assert.True(IsClearedDeviceValue(path, value), $"{path} muss leer sein.");
         }
         Assert.False(result.FromNewerVersion);
     }

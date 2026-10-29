@@ -92,6 +92,7 @@ internal static class SettingsNormalizer
 
         if (!Enum.IsDefined(s.Appearance.AdminTheme))
             s.Appearance.AdminTheme = AdminThemeMode.System;
+        s.Appearance.AdminZoomPercent = NormalizeAdminZoom(s.Appearance.AdminZoomPercent);
 
         // Id exakt lassen (Geräte-Pfad); zu lang → verwerfen, denn gekürzt passte sie nie. Name nur zur Anzeige, gehört zur Id.
         var monitorId = s.Appearance.GuestMonitorId;
@@ -103,6 +104,18 @@ internal static class SettingsNormalizer
             : TrimToLength(s.Appearance.GuestMonitorName, SettingsLimits.MonitorNameMaxLength);
 
         return s;
+    }
+
+    /// <summary>
+    /// Admin-Zoom: auf [<see cref="SettingsLimits.AdminZoomMin"/>, <see cref="SettingsLimits.AdminZoomMax"/>] klemmen, dann auf den
+    /// nächsten <see cref="SettingsLimits.AdminZoomStep"/>-Schritt runden (kaufmännisch: 82 → 80, 83 → 85). Beide Grenzen liegen auf
+    /// dem Raster, das Ergebnis bleibt also im Bereich.
+    /// </summary>
+    internal static int NormalizeAdminZoom(int percent)
+    {
+        var clamped = Math.Clamp(percent, SettingsLimits.AdminZoomMin, SettingsLimits.AdminZoomMax);
+        var step = SettingsLimits.AdminZoomStep;
+        return (clamped + step / 2) / step * step;
     }
 
     /// <summary>
