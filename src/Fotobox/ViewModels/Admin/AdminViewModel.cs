@@ -2548,14 +2548,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Beispiel für einen Dateinamen mit dem aktuellen Präfix (leeres Präfix: Standard).</summary>
-    public string VideoFileNameExample
-    {
-        get
-        {
-            var prefix = string.IsNullOrWhiteSpace(_draft.Video.FilePrefix) ? VideoSettings.DefaultFilePrefix : _draft.Video.FilePrefix;
-            return $"Dateien heißen zum Beispiel „{prefix}_20261028_153000.mp4“.";
-        }
-    }
+    public string VideoFileNameExample =>
+        $"Dateien heißen zum Beispiel „{SettingsNormalizer.SanitizePrefix(_draft.Video.FilePrefix, VideoSettings.DefaultFilePrefix)}_20261028_153000.mp4“.";
 
     // ---- Speicherordner der Videos
 
