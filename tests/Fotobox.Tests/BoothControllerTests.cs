@@ -1406,6 +1406,20 @@ public partial class BoothControllerTests
 
         public int GetRequiredPhotoCount(LayoutSettings layout) => LastRequestedCount = CountFor?.Invoke(layout) ?? RequiredPhotoCount;
 
+        /// <summary>Rahmen des letzten Compose-Aufrufs mit Rahmen (null, wenn der Controller die rahmenlose Variante aufrief).</summary>
+        public Fotobox.Core.Peace.PhotoFrame? LastFrame { get; private set; }
+        /// <summary>Anzahl der Aufrufe der Variante mit Rahmen.</summary>
+        public int FrameCalls { get; private set; }
+
+        public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page,
+            string overlayDirectory, DateTime timestamp, Fotobox.Core.Peace.PhotoFrame? frame)
+        {
+            FrameCalls++;
+            var result = Compose(photos, layout, page, overlayDirectory, timestamp);
+            LastFrame = frame;
+            return result;
+        }
+
         public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page,
             string overlayDirectory, DateTime timestamp)
         {
@@ -1512,6 +1526,8 @@ public partial class BoothControllerTests
     private sealed class FakeStorage : IPhotoStorage
     {
         public List<(BitmapSource Layout, IReadOnlyList<BitmapSource> Originals)> Saved { get; } = [];
+        /// <summary>Speichereinstellungen des letzten SaveAsync-Aufrufs (zeigt z. B. das Präfix des Durchgangs).</summary>
+        public StorageSettings? LastStorage { get; private set; }
         public Exception? Failure { get; set; }
         /// <summary>SaveAsync liefert eine Aufgabe, die nie endet (hängende Netzwerkfreigabe).</summary>
         public bool Hang { get; set; }
@@ -1526,6 +1542,7 @@ public partial class BoothControllerTests
         public Task<SavedPhotoSet> SaveAsync(BitmapSource layout, IReadOnlyList<BitmapSource> originals,
             StorageSettings storage, DateTime timestamp, CancellationToken ct = default)
         {
+            LastStorage = storage;
             if (Failure is not null) return Task.FromException<SavedPhotoSet>(Failure);
             ct.Register(() => _cancelled = true);
             if (Hang) return HangSource.Task;

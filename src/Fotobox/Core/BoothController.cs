@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows;
+using Fotobox.Core.Fun;
+using Fotobox.Core.Heart;
 using Fotobox.Core.Peace;
 
 namespace Fotobox.Core;
@@ -240,8 +243,10 @@ public sealed class BoothController(
     /// <summary>
     /// Startet einen Durchgang mit <see cref="TriggerOptions"/> (gleiche Sperren wie <see cref="TryTrigger(GuestLayout?)"/>).
     /// <see cref="TriggerOptions.SingleShotOnly"/> ersetzt ein Streifen-Layout durch das Einzelfoto (Overlay und Einzelfoto bleiben),
-    /// <see cref="TriggerOptions.CountdownSeconds"/> überschreibt den Countdown (0 = sofort, auf 0–30 begrenzt). Auch dann arbeitet
-    /// der Durchgang nur auf einer Kopie der Einstellungen.
+    /// <see cref="TriggerOptions.CountdownSeconds"/> überschreibt den Countdown (0 = sofort, auf 0–30 begrenzt; beim Stil
+    /// <see cref="CountdownStyle.Kisscam"/> auf 3–60). <see cref="TriggerOptions.Frame"/> erzwingt das Einzelfoto (auch bei Streifen oder
+    /// Overlay), <see cref="TriggerOptions.FilePrefix"/> ersetzt das Dateipräfix, <see cref="TriggerOptions.CropRegion"/> schneidet die
+    /// Aufnahme zu. Auch dann arbeitet der Durchgang nur auf einer Kopie der Einstellungen.
     /// </summary>
     public bool TryTrigger(TriggerOptions options)
     {
@@ -260,15 +265,24 @@ public sealed class BoothController(
             var effective = options.Layout ?? defaultLayout;
             if (options.SingleShotOnly && effective is GuestLayout.StripDouble or GuestLayout.StripSingle)
                 effective = GuestLayout.Single;
+            // Ein Rahmen (Kisscam) gibt es nur um ein einzelnes Foto: kein Streifen, kein Overlay-PNG.
+            if (options.Frame is not null)
+                effective = GuestLayout.Single;
             var layoutChanged = effective != defaultLayout;
-            var countdown = options.CountdownSeconds is { } c ? Math.Clamp(c, SettingsLimits.PeacePhotoCountdownMin, SettingsLimits.PeacePhotoCountdownMax) : (int?)null;
-            if (layoutChanged || (countdown is { } cd && cd != cfg.Flow.CountdownSeconds))
+            var kisscam = options.Style == CountdownStyle.Kisscam;
+            var countdownMin = kisscam ? SettingsLimits.KisscamSecondsMin : SettingsLimits.PeacePhotoCountdownMin;
+            var countdownMax = kisscam ? SettingsLimits.KisscamSecondsMax : SettingsLimits.PeacePhotoCountdownMax;
+            var countdown = options.CountdownSeconds is { } c ? Math.Clamp(c, countdownMin, countdownMax) : (int?)null;
+            var prefix = string.IsNullOrWhiteSpace(options.FilePrefix) ? null : options.FilePrefix;
+            if (layoutChanged || (countdown is { } cd && cd != cfg.Flow.CountdownSeconds) || (prefix is not null && prefix != cfg.Storage.FilePrefix))
             {
                 cfg = cfg.Clone();
                 if (layoutChanged)
                     GuestLayouts.ApplyTo(cfg.Layout, effective);
                 if (countdown is { } value)
                     cfg.Flow.CountdownSeconds = value;
+                if (prefix is not null)
+                    cfg.Storage.FilePrefix = prefix;
             }
 
             CountdownStyle = options.Style;
@@ -286,7 +300,7 @@ public sealed class BoothController(
             // Bis zur Komposition vergeht der Countdown: genug Zeit, die Seitengröße vorab zu holen.
             StartPageSpecPrefetch(cfg.Layout.Kind);
 
-            _ = RunSessionAsync(cfg, cts);
+            _ = RunSessionAsync(cfg, new SessionExtras(options.CropRegion, options.Frame), cts);
             return true;
         }
         catch (Exception ex)
@@ -885,14 +899,14 @@ public sealed class BoothController(
         }
     }
 
-    private async Task RunSessionAsync(AppSettings cfg, CancellationTokenSource cts)
+    private async Task RunSessionAsync(AppSettings cfg, SessionExtras extras, CancellationTokenSource cts)
     {
         try
         {
             string? error;
             try
             {
-                error = await RunPhasesAsync(cfg, cts.Token);
+                error = await RunPhasesAsync(cfg, extras, cts.Token);
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested)
             {
@@ -943,7 +957,7 @@ public sealed class BoothController(
     }
 
     /// <summary>Führt alle Phasen aus. Rückgabe: Fehlermeldung für den Gast oder null bei Erfolg.</summary>
-    private async Task<string?> RunPhasesAsync(AppSettings cfg, CancellationToken ct)
+    private async Task<string?> RunPhasesAsync(AppSettings cfg, SessionExtras extras, CancellationToken ct)
     {
         var count = Math.Max(1, composer.GetRequiredPhotoCount(cfg.Layout));
         ShotCount = count;
@@ -975,6 +989,10 @@ public sealed class BoothController(
             {
                 var photo = await camera.CapturePhotoAsync(ct);
                 photo = await DecorateAsync(photo, i + 1, ct);
+                // Zuschnitt erst nach dem Verzieren (der Bartplaner rechnet mit den Koordinaten des ganzen Bildes), vor dem Spiegeln
+                // (der Ausschnitt gilt für das ungespiegelte Rohfoto).
+                if (extras.Crop is { } crop)
+                    photo = CropPhoto(photo, crop);
                 photos.Add(cfg.Camera.MirrorPhoto ? MirrorPhoto(photo) : photo);
             }
             catch (OperationCanceledException)
@@ -1019,7 +1037,9 @@ public sealed class BoothController(
         BitmapSource layout;
         try
         {
-            layout = composer.Compose(photos, cfg.Layout, page, settings.OverlayDirectory, timestamp);
+            layout = extras.Frame is { } frame
+                ? composer.Compose(photos, cfg.Layout, page, settings.OverlayDirectory, timestamp, frame)
+                : composer.Compose(photos, cfg.Layout, page, settings.OverlayDirectory, timestamp);
         }
         catch (Exception ex)
         {
@@ -1363,6 +1383,34 @@ public sealed class BoothController(
         {
             AppLog.Warn($"Foto {shot} konnte nicht verziert werden; es wird unverziert verwendet ({ex.GetType().Name}: {ex.Message}).");
             return photo;
+        }
+    }
+
+    /// <summary>Zusätzliche Angaben eines Durchgangs aus <see cref="TriggerOptions"/> (Zuschnitt des Rohfotos, Rahmen um das Layout).</summary>
+    private sealed record SessionExtras(NormRect? Crop, PhotoFrame? Frame);
+
+    /// <summary>
+    /// Schneidet das (ungespiegelte) Foto auf den normierten Ausschnitt zu (<see cref="KisscamZoom.ToPixelRect"/>). Bei jedem Fehler
+    /// gilt das unbeschnittene Foto (mit Warnung im Log), nie ein Fehlerzustand.
+    /// </summary>
+    internal static BitmapSource CropPhoto(BitmapSource source, NormRect region)
+    {
+        try
+        {
+            var (x, y, w, h) = KisscamZoom.ToPixelRect(region, source.PixelWidth, source.PixelHeight);
+            if (w <= 0 || h <= 0 || (x == 0 && y == 0 && w == source.PixelWidth && h == source.PixelHeight))
+                return source;
+            if (!source.IsFrozen && source.CanFreeze)
+                source.Freeze();
+            var cropped = new CroppedBitmap(source, new Int32Rect(x, y, w, h));
+            if (cropped.CanFreeze)
+                cropped.Freeze();
+            return cropped;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Foto konnte nicht zugeschnitten werden; es wird unbeschnitten verwendet ({ex.GetType().Name}: {ex.Message}).");
+            return source;
         }
     }
 

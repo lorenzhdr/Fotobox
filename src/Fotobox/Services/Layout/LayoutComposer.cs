@@ -5,6 +5,8 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Fotobox.Core;
+using Fotobox.Core.Peace;
+using Fotobox.Views.Booth.Heart;
 
 namespace Fotobox.Services.Layout;
 
@@ -44,7 +46,15 @@ public sealed class LayoutComposer : ILayoutComposer
     private static int ClampStripPhotoCount(LayoutSettings layout) =>
         Math.Clamp(layout.StripPhotoCount, SettingsLimits.StripPhotosMin, SettingsLimits.StripPhotosMax);
 
-    public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page, string overlayDirectory, DateTime timestamp)
+    public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page, string overlayDirectory, DateTime timestamp) =>
+        Compose(photos, layout, page, overlayDirectory, timestamp, null);
+
+    /// <summary>
+    /// Wie <see cref="Compose(IReadOnlyList{BitmapSource}, LayoutSettings, PageSpec, string, DateTime)"/>; mit <paramref name="frame"/> füllt das
+    /// erste Foto die ganze Seite (crop-to-fill, unabhängig von der Layout-Art), darüber liegt nur der Rahmen. Ohne Bildunterschrift,
+    /// Datum, Overlay-PNG und Streifen. Seitengröße und dpi bleiben unverändert.
+    /// </summary>
+    public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page, string overlayDirectory, DateTime timestamp, PhotoFrame? frame)
     {
         if (photos is null || photos.Count == 0)
             throw new ArgumentException("Es wird mindestens ein Foto benötigt.", nameof(photos));
@@ -65,26 +75,36 @@ public sealed class LayoutComposer : ILayoutComposer
         RenderOptions.SetBitmapScalingMode(visual, BitmapScalingMode.HighQuality);
         using (var dc = visual.RenderOpen())
         {
-            switch (layout.Kind)
+            if (frame is not null)
             {
-                case LayoutKind.Strip:
-                    DrawStrips(dc, photos, layout.StripStyle, GetRequiredPhotoCount(layout), pw, ph, caption, date, page.Dpi, face);
-                    break;
+                dc.DrawRectangle(Brushes.Black, null, pageRect);
+                DrawPhotoFill(dc, photos[0], pageRect);
+                // Die Seite wird in einer 96-dpi-RenderTargetBitmap gezeichnet (Pixelkoordinaten), daher 96 für die Textausrichtung.
+                KisscamFrameRenderer.Draw(dc, pageRect, frame, 96);
+            }
+            else
+            {
+                switch (layout.Kind)
+                {
+                    case LayoutKind.Strip:
+                        DrawStrips(dc, photos, layout.StripStyle, GetRequiredPhotoCount(layout), pw, ph, caption, date, page.Dpi, face);
+                        break;
 
-                case LayoutKind.Overlay:
-                    dc.DrawRectangle(Brushes.Black, null, pageRect);
-                    DrawPhotoFill(dc, photos[0], pageRect);
-                    var overlay = LoadOverlay(overlayDirectory, layout.OverlayFileName);
-                    if (overlay is not null)
-                        dc.DrawImage(overlay, pageRect);
-                    DrawCaptionBand(dc, pw, ph, caption, date, page.Dpi, face);
-                    break;
+                    case LayoutKind.Overlay:
+                        dc.DrawRectangle(Brushes.Black, null, pageRect);
+                        DrawPhotoFill(dc, photos[0], pageRect);
+                        var overlay = LoadOverlay(overlayDirectory, layout.OverlayFileName);
+                        if (overlay is not null)
+                            dc.DrawImage(overlay, pageRect);
+                        DrawCaptionBand(dc, pw, ph, caption, date, page.Dpi, face);
+                        break;
 
-                default:
-                    dc.DrawRectangle(Brushes.Black, null, pageRect);
-                    DrawPhotoFill(dc, photos[0], pageRect);
-                    DrawCaptionBand(dc, pw, ph, caption, date, page.Dpi, face);
-                    break;
+                    default:
+                        dc.DrawRectangle(Brushes.Black, null, pageRect);
+                        DrawPhotoFill(dc, photos[0], pageRect);
+                        DrawCaptionBand(dc, pw, ph, caption, date, page.Dpi, face);
+                        break;
+                }
             }
         }
 
