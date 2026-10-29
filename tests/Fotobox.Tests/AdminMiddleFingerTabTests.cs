@@ -94,6 +94,9 @@ public sealed class AdminMiddleFingerTabTests : IDisposable
 
         Assert.True(vm.MiddleFingerEnabled);
         Assert.True(vm.MiddleFingerActionCancelPeace);
+        Assert.True(vm.MiddleFingerActionCancelKisscam);
+        Assert.True(vm.MiddleFingerActionCancelPeaceEnabled);   // zwei Aktionen: keine ist die letzte
+        Assert.True(vm.MiddleFingerActionCancelKisscamEnabled);
         Assert.False(vm.MiddleFingerHasNoAction);
         Assert.Equal(500, vm.MiddleFingerHoldMilliseconds);
         Assert.Equal(50, vm.MiddleFingerSensitivityPercent);
@@ -156,17 +159,26 @@ public sealed class AdminMiddleFingerTabTests : IDisposable
     }
 
     [Fact]
-    public void PeaceDisabledWarning_FollowsThePeaceSwitch()
+    public void NothingToCancelWarning_AppearsOnlyWhenPeaceAndHeartAreBothOff()
     {
         NoContext();
         var vm = CreateViewModel();
+        var raised = new List<string?>();
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
 
         vm.PeaceEnabled = false;
+        Assert.False(vm.HasMiddleFingerPeaceDisabledWarning); // Herz ist noch an
+        vm.HeartEnabled = false;
         Assert.True(vm.HasMiddleFingerPeaceDisabledWarning);
-        Assert.Equal("Die Peaceerkennung ist aus – ohne sie gibt es nichts aufzuheben.", vm.MiddleFingerPeaceDisabledWarning);
+        Assert.Equal("Peace- und Herzerkennung sind aus – es gibt nichts abzubrechen.", vm.MiddleFingerPeaceDisabledWarning);
+        Assert.Contains(nameof(AdminViewModel.MiddleFingerPeaceDisabledWarning), raised);
 
+        vm.HeartEnabled = true;
+        Assert.False(vm.HasMiddleFingerPeaceDisabledWarning);
+        vm.HeartEnabled = false;
         vm.PeaceEnabled = true;
         Assert.False(vm.HasMiddleFingerPeaceDisabledWarning);
+        Assert.Equal(string.Empty, vm.MiddleFingerPeaceDisabledWarning);
     }
 
     [Fact]
@@ -174,12 +186,20 @@ public sealed class AdminMiddleFingerTabTests : IDisposable
     {
         NoContext();
         var vm = CreateViewModel();
-        Assert.False(vm.MiddleFingerActionCancelPeaceEnabled);
+        Assert.True(vm.MiddleFingerActionCancelPeaceEnabled);
+        Assert.True(vm.MiddleFingerActionCancelKisscamEnabled);
 
         bool? closed = null;
         vm.CloseRequested += save => closed = save;
-        vm.Draft.MiddleFinger.ActionCancelKisscam = false; // (die Kisscam-Aktion gibt es in der Ansicht noch nicht)
-        vm.MiddleFingerActionCancelPeace = false; // (nur programmatisch möglich, die Ansicht sperrt den Haken)
+        vm.MiddleFingerActionCancelKisscam = false;
+        Assert.False(vm.MiddleFingerActionCancelPeaceEnabled); // Peace ist jetzt die letzte Aktion
+        Assert.True(vm.MiddleFingerActionCancelKisscamEnabled);
+        vm.MiddleFingerActionCancelKisscam = true;
+        vm.MiddleFingerActionCancelPeace = false;
+        Assert.True(vm.MiddleFingerActionCancelPeaceEnabled);
+        Assert.False(vm.MiddleFingerActionCancelKisscamEnabled); // Kisscam ist jetzt die letzte Aktion
+
+        vm.MiddleFingerActionCancelKisscam = false; // (nur programmatisch möglich, die Ansicht sperrt den Haken)
         Assert.True(vm.MiddleFingerActionCancelPeaceEnabled);
         Assert.True(vm.MiddleFingerHasNoAction);
         vm.SaveCommand.Execute(null);
@@ -546,7 +566,7 @@ public sealed class AdminMiddleFingerTabTests : IDisposable
             Assert.Equal(Visibility.Collapsed, MfView(window).Visibility);
             Assert.Equal("Mittelfinger", AutomationProperties.GetName(tile));
             Assert.Same(window.TryFindResource("FunTile"), tile.Style);
-            Assert.Contains(FindDescendants<TextBlock>(tile), t => t.Text == "Hebt Bart und Selbstzerstörung auf.");
+            Assert.Contains(FindDescendants<TextBlock>(tile), t => t.Text == "Hebt Bart, Selbstzerstörung und Kisscam auf.");
             Assert.Contains(FindDescendants<TextBlock>(tile), t => t.Text == "An");
 
             vm.MiddleFingerEnabled = false;
@@ -608,7 +628,14 @@ public sealed class AdminMiddleFingerTabTests : IDisposable
 
             Assert.Equal(3, FindDescendants<NumberStepper>(view).Count()); // Haltedauer, Empfindlichkeit, Analysen pro Sekunde
             var check = InView<CheckBox>(view, "MiddleFingerActionCancelPeaceCheck");
+            var kisscamCheck = InView<CheckBox>(view, "MiddleFingerActionCancelKisscamCheck");
             Assert.True(check.IsChecked);
+            Assert.True(kisscamCheck.IsChecked);
+            Assert.True(check.IsEnabled);
+            Assert.True(kisscamCheck.IsEnabled);
+            Assert.Equal("Aktion: Kisscam abbrechen", AutomationProperties.GetName(kisscamCheck));
+            vm.MiddleFingerActionCancelKisscam = false;
+            Assert.False(kisscamCheck.IsChecked);
             Assert.False(check.IsEnabled); // der letzte Haken ist gesperrt
             Assert.Contains(FindDescendants<ToggleButton>(view), c => AutomationProperties.GetName(c) == "Mittelfingererkennung aktiv");
             Assert.Equal(Visibility.Collapsed, InView<TextBlock>(view, "MiddleFingerNoActionWarning").Visibility);
@@ -632,6 +659,8 @@ public sealed class AdminMiddleFingerTabTests : IDisposable
 
             vm.MiddleFingerEnabled = false;
             vm.PeaceEnabled = false;
+            Assert.Equal(Visibility.Collapsed, warning.Visibility); // Herz ist noch an
+            vm.HeartEnabled = false;
 
             Assert.False(panel.IsEnabled);
             Assert.True(test.IsEnabled); // die Vorschau liegt außerhalb des ausgegrauten Bereichs

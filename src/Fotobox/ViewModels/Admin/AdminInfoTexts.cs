@@ -28,20 +28,33 @@ public static class AdminInfoTexts
         "Höher: Das Peace-Zeichen wird schneller erkannt und die Haltedauer genauer gemessen, die Analyse kostet aber mehr Rechenleistung (CPU).\n" +
         "Niedriger: Das spart Leistung, die Erkennung reagiert träger, und kurze Haltedauern werden ungenauer, weil Aussetzer erst nach etwa 2,5 Analyseabständen zählen.\n" +
         "\n" +
-        "Der Wert gilt gemeinsam für die Peace- und die Mittelfingererkennung. Ist ein Bart sichtbar, werden Gesichter automatisch häufiger verfolgt (mindestens 10, höchstens 20 pro Sekunde); die Handerkennung bleibt beim eingestellten Wert.\n" +
+        "Der Wert gilt gemeinsam für die Peace-, die Mittelfinger- und die Herzerkennung. Ist ein Bart sichtbar, werden Gesichter automatisch häufiger verfolgt (mindestens 10, höchstens 20 pro Sekunde); die Handerkennung bleibt beim eingestellten Wert.\n" +
         "\n" +
         "Empfehlung: 5 (Standard), auf schwachen PCs 3.\n" +
         "\n" +
         "Tipp: Zeigt die Statuszeile der Vorschau dauerhaft weniger Analysen/s als eingestellt, ist der PC ausgelastet. Senken Sie dann den Wert.";
 
-    // MiddleFingerEngine.Configure nutzt denselben Wert (PeaceSettings.AnalysesPerSecond) und dieselbe 2,5-Abstände-Regel.
+    // MiddleFingerEngine.Configure nutzt denselben Wert (PeaceSettings.AnalysesPerSecond) und dieselbe 2,5-Abstände-Regel (gilt auch für die Herzerkennung).
     public const string MiddleFingerAnalysesPerSecond =
         "Wie oft pro Sekunde Hände und Gesichter im Livebild ausgewertet werden. Das Livebild bleibt flüssig und hat immer Vorrang.\n" +
         "\n" +
         "Höher: Der Mittelfinger wird schneller erkannt und die Haltedauer genauer gemessen, die Analyse kostet aber mehr Rechenleistung (CPU).\n" +
         "Niedriger: Das spart Leistung, die Erkennung reagiert träger, und kurze Haltedauern werden ungenauer, weil Aussetzer erst nach etwa 2,5 Analyseabständen zählen.\n" +
         "\n" +
-        "Der Wert gilt gemeinsam für die Peace- und die Mittelfingererkennung und ist auf der Peace-Seite ebenfalls einstellbar. Ist ein Bart sichtbar, werden Gesichter automatisch häufiger verfolgt (mindestens 10, höchstens 20 pro Sekunde); die Handerkennung bleibt beim eingestellten Wert.\n" +
+        "Der Wert gilt gemeinsam für die Peace-, die Mittelfinger- und die Herzerkennung und ist auf der Peace-Seite ebenfalls einstellbar. Ist ein Bart sichtbar, werden Gesichter automatisch häufiger verfolgt (mindestens 10, höchstens 20 pro Sekunde); die Handerkennung bleibt beim eingestellten Wert.\n" +
+        "\n" +
+        "Empfehlung: 5 (Standard), auf schwachen PCs 3.\n" +
+        "\n" +
+        "Tipp: Zeigt die Statuszeile der Vorschau dauerhaft weniger Analysen/s als eingestellt, ist der PC ausgelastet. Senken Sie dann den Wert.";
+
+    // HeartEngine nutzt denselben Wert (PeaceSettings.AnalysesPerSecond) und dieselbe 2,5-Abstände-Regel wie PeaceEngine.Configure.
+    public const string HeartAnalysesPerSecond =
+        "Wie oft pro Sekunde Hände und Gesichter im Livebild ausgewertet werden. Das Livebild bleibt flüssig und hat immer Vorrang.\n" +
+        "\n" +
+        "Höher: Das Herz wird schneller erkannt und die Haltedauer genauer gemessen, die Analyse kostet aber mehr Rechenleistung (CPU).\n" +
+        "Niedriger: Das spart Leistung, die Erkennung reagiert träger, und kurze Haltedauern werden ungenauer, weil Aussetzer erst nach etwa 2,5 Analyseabständen zählen.\n" +
+        "\n" +
+        "Der Wert gilt gemeinsam für die Peace-, die Mittelfinger- und die Herzerkennung und ist auf der Peace-Seite ebenfalls einstellbar.\n" +
         "\n" +
         "Empfehlung: 5 (Standard), auf schwachen PCs 3.\n" +
         "\n" +

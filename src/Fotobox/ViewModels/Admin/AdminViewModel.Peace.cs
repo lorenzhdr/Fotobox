@@ -325,6 +325,7 @@ public sealed partial class AdminViewModel
     {
         if (_disposed)
             return;
+        // FunPage.Heart startet vorerst keine Vorschau (folgt mit der Gastansicht): Dort ist die Vorschau aus und die Peace-Tests enden.
         var active = _isFunTabSelected && _funPage is FunPage.Peace or FunPage.MiddleFinger;
         // Die Mittelfinger-Einstellungen gelten immer; ein sichtbarer Selbstzerstörungs-Test zählt als aufhebbares Ziel.
         var external = PeaceTestSelfDestructVisible ? MiddleFingerTargets.SelfDestruct : MiddleFingerTargets.None;
@@ -347,7 +348,8 @@ public sealed partial class AdminViewModel
             && !propertyName.StartsWith("MiddleFingerTest", StringComparison.Ordinal)
             && !propertyName.StartsWith("HasMiddleFinger", StringComparison.Ordinal)
             && propertyName is not (nameof(MiddleFingerStatusText) or nameof(MiddleFingerHasNoAction)
-                or nameof(MiddleFingerPeaceDisabledWarning) or nameof(MiddleFingerActionCancelPeaceEnabled)));
+                or nameof(MiddleFingerPeaceDisabledWarning) or nameof(MiddleFingerActionCancelPeaceEnabled)
+                or nameof(MiddleFingerActionCancelKisscamEnabled)));
 
     private void RaisePeacePreviewStatus()
     {

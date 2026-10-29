@@ -199,7 +199,7 @@
                             </StackPanel>
                             <local:NumberStepper x:Name="PeaceAnalysesStepper" Value="{Binding PeaceAnalysesPerSecond}" Minimum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMin}" Maximum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMax}" />
                             <TextBlock Style="{DynamicResource Hint}"
-                                       Text="Mehr Analysen reagieren schneller, belasten den Rechner aber stärker. Das Livebild hat immer Vorrang. Der Wert gilt auch für die Mittelfingererkennung." />
+                                       Text="Mehr Analysen reagieren schneller, belasten den Rechner aber stärker. Das Livebild hat immer Vorrang. Der Wert gilt auch für die Mittelfinger- und die Herzerkennung." />
                         </StackPanel>
                     </Border>
 
