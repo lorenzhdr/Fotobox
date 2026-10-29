@@ -1103,8 +1103,20 @@ public partial class BoothViewModelTests
             return CountFor?.Invoke(layout) ?? 1;
         }
 
+        /// <summary>Rahmen der letzten Komposition mit Rahmen (Kisscam) und die zugehörigen Fotos; sonst null.</summary>
+        public Fotobox.Core.Peace.PhotoFrame? LastFrame { get; private set; }
+        public IReadOnlyList<BitmapSource>? LastPhotos { get; private set; }
+
         public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page,
             string overlayDirectory, DateTime timestamp) => Result ?? throw new NotSupportedException();
+
+        public BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page,
+            string overlayDirectory, DateTime timestamp, Fotobox.Core.Peace.PhotoFrame? frame)
+        {
+            LastFrame = frame;
+            LastPhotos = photos;
+            return Compose(photos, layout, page, overlayDirectory, timestamp);
+        }
     }
 
     private sealed class FakePrinter : IPrintService
@@ -1133,11 +1145,17 @@ public partial class BoothViewModelTests
         /// <summary>Speichern gelingt; sonst wird eine Ausnahme geworfen.</summary>
         public bool Works { get; set; }
 
+        /// <summary>Speichereinstellungen der letzten Speicherung (Dateipräfix des Durchgangs).</summary>
+        public StorageSettings? LastStorage { get; private set; }
+
         public string ResolveTargetFolder(StorageSettings storage, DateTime timestamp) => "fake";
 
         public Task<SavedPhotoSet> SaveAsync(BitmapSource layout, IReadOnlyList<BitmapSource> originals,
-            StorageSettings storage, DateTime timestamp, CancellationToken ct = default) =>
-            Works ? Task.FromResult(new SavedPhotoSet("fake/layout.jpg", [])) : throw new NotSupportedException();
+            StorageSettings storage, DateTime timestamp, CancellationToken ct = default)
+        {
+            LastStorage = storage;
+            return Works ? Task.FromResult(new SavedPhotoSet("fake/layout.jpg", [])) : throw new NotSupportedException();
+        }
     }
 
     private sealed class FakeSettingsStore : ISettingsStore

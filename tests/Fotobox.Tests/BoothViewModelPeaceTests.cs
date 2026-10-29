@@ -36,6 +36,8 @@ public partial class BoothViewModelTests
                 MoustacheAutoPhotoCountdownSeconds = 2,
             };
             configure?.Invoke(H.Settings.Current.Peace);
+            // Die Herzerkennung ist standardmäßig an und hielte die Erkennung auch bei ausgeschaltetem Peace am Laufen: hier aus.
+            H.Settings.Current.Heart.Enabled = false;
             H.Camera.Photo = CreateBitmap();
             H.Composer.Result = CreateBitmap();
             H.Storage.Works = true;

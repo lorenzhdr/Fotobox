@@ -4,6 +4,7 @@
         xmlns:controls="clr-namespace:Fotobox.Views.Controls"
         xmlns:booth="clr-namespace:Fotobox.Views.Booth"
         xmlns:peace="clr-namespace:Fotobox.Views.Booth.Peace"
+        xmlns:heart="clr-namespace:Fotobox.Views.Booth.Heart"
         Title="Fotobox+"
         WindowStyle="None" WindowState="Maximized" ResizeMode="NoResize"
         Background="#0B0D14" Cursor="None"
@@ -280,26 +281,36 @@
     </Window.Resources>
 
     <Grid>
-        <!-- Live-Bild -->
-        <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}" ShowStatusOverlay="False" />
+        <!-- Live-Bild samt Overlays; die Kisscam zoomt optional auf die Herz-Gäste (alles im selben Kind bleibt deckungsgleich) -->
+        <heart:LiveZoomHost Region="{Binding KisscamZoomRegion}" ImageWidth="{Binding Peace.ImageWidth}"
+                            ImageHeight="{Binding Peace.ImageHeight}" Mirror="{Binding MirrorPreview}">
+            <Grid>
+                <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}" ShowStatusOverlay="False" />
 
-        <!-- Fun „Zielerfassung“: Zielboxen über dem Livebild (nur im Leerlauf, nie im Foto/Video); der Ausschnitt geht zurück an die Engine -->
-        <booth:TargetOverlay Snapshot="{Binding Fun.Snapshot}" ImageWidth="{Binding Fun.ImageWidth}"
-                             ImageHeight="{Binding Fun.ImageHeight}" Mirror="{Binding Fun.Mirror}"
-                             BoxStyle="{Binding Fun.BoxStyle}" BoxColor="{Binding Fun.Color}"
-                             Animation="{Binding Fun.Animation}"
-                             LockOnMilliseconds="{Binding Fun.LockOnMilliseconds}"
-                             LockOnIntensity="{Binding Fun.LockOnIntensityPercent}"
-                             VisibleRegion="{Binding Fun.VisibleRegion, Mode=OneWayToSource}"
-                             Visibility="{Binding Fun.IsShown, Converter={StaticResource BoolToVis}}" />
+                <!-- Fun „Zielerfassung“: Zielboxen über dem Livebild (nur im Leerlauf, nie im Foto/Video); der Ausschnitt geht zurück an die Engine -->
+                <booth:TargetOverlay Snapshot="{Binding Fun.Snapshot}" ImageWidth="{Binding Fun.ImageWidth}"
+                                     ImageHeight="{Binding Fun.ImageHeight}" Mirror="{Binding Fun.Mirror}"
+                                     BoxStyle="{Binding Fun.BoxStyle}" BoxColor="{Binding Fun.Color}"
+                                     Animation="{Binding Fun.Animation}"
+                                     LockOnMilliseconds="{Binding Fun.LockOnMilliseconds}"
+                                     LockOnIntensity="{Binding Fun.LockOnIntensityPercent}"
+                                     VisibleRegion="{Binding Fun.VisibleRegion, Mode=OneWayToSource}"
+                                     Visibility="{Binding Fun.IsShown, Converter={StaticResource BoolToVis}}" />
 
-        <!-- Peaceerkennung (Easter Egg): Schnurrbärte über den Gesichtern; ohne Landmarken, der Haltering nur bei eingeschaltetem Schalter.
-             Die Gastansicht zeigt sonst nichts davon. -->
-        <peace:PeaceOverlay x:Name="PeaceLayer" Moustaches="{Binding Peace.Moustaches}" Hands="{Binding Peace.Hands}"
-                            ImageWidth="{Binding Peace.ImageWidth}" ImageHeight="{Binding Peace.ImageHeight}"
-                            Mirror="{Binding MirrorPreview}" ShowHoldProgress="{Binding PeaceShowHoldProgress}"
-                            ShowLandmarks="False"
-                            Visibility="{Binding Peace.IsShown, Converter={StaticResource BoolToVis}}" />
+                <!-- Peaceerkennung (Easter Egg): Schnurrbärte über den Gesichtern; ohne Landmarken, der Haltering nur bei eingeschaltetem Schalter.
+                     Die Gastansicht zeigt sonst nichts davon. -->
+                <peace:PeaceOverlay x:Name="PeaceLayer" Moustaches="{Binding Peace.Moustaches}" Hands="{Binding Peace.Hands}"
+                                    ImageWidth="{Binding Peace.ImageWidth}" ImageHeight="{Binding Peace.ImageHeight}"
+                                    Mirror="{Binding MirrorPreview}" ShowHoldProgress="{Binding PeaceShowHoldProgress}"
+                                    ShowLandmarks="False"
+                                    Visibility="{Binding Peace.IsShown, Converter={StaticResource BoolToVis}}" />
+
+                <!-- Herzerkennung: Herz mit Haltefortschritt zwischen den Händen (nur im Leerlauf, abschaltbar) -->
+                <heart:HeartFeedbackOverlay Heart="{Binding HeartFeedback}" ImageWidth="{Binding Peace.ImageWidth}"
+                                            ImageHeight="{Binding Peace.ImageHeight}" Mirror="{Binding MirrorPreview}"
+                                            Visibility="{Binding ShowHeartFeedback, Converter={StaticResource BoolToVis}}" />
+            </Grid>
+        </heart:LiveZoomHost>
 
         <!-- Dezenter Verlauf unten für die Lesbarkeit des Hinweises -->
         <Border VerticalAlignment="Bottom" Height="320" IsHitTestVisible="False">
@@ -401,6 +412,11 @@
                 </TextBlock.Effect>
             </TextBlock>
         </Grid>
+
+        <!-- Kisscam (Herzerkennung): Jumbotron-Rahmen und Gasttext. Nach dem Countdown-Raster, damit der Rahmen hell bleibt und die Ziffern
+             der letzten Sekunden in der Mitte frei stehen; der Rahmen bleibt bis zum Foto, der Text nur vor den letzten Sekunden. -->
+        <heart:KisscamOverlay Frame="{Binding KisscamFrame}" Text="{Binding KisscamText}" ShowText="{Binding ShowKisscamText}"
+                              Visibility="{Binding ShowKisscamFrame, Converter={StaticResource BoolToVis}}" />
 
         <!-- Selbstzerstörung (Peaceerkennung): Alarm-Countdown und Explosion. Bewusst NICHT im Countdown-Grid: Beim Blitz wechselt der
              Zustand auf Aufnahme, das Overlay muss dann sichtbar bleiben, sonst wirkt PlayExplosion nicht (ShowSelfDestruct). -->

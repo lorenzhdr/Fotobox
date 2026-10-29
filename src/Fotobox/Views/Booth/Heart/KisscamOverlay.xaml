@@ -1,0 +1,18 @@
+<UserControl x:Class="Fotobox.Views.Booth.Heart.KisscamOverlay"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:heart="clr-namespace:Fotobox.Views.Booth.Heart"
+             IsHitTestVisible="False" Focusable="False">
+
+    <!-- Kisscam-Ansicht: Jumbotron-Rahmen über die ganze Fläche und darunter der Gasttext im unteren Bereich zwischen den unteren
+         Eckherzen. Bewusst ohne Schatten-Effekte über dem Livebild: ein dunkles, halbtransparentes Band sorgt für die Lesbarkeit.
+         Die Maße des Textes setzt der Code-behind aus KisscamFrameGeometry (Rahmenstärke, Eckherzen). -->
+    <Grid>
+        <heart:KisscamFrameElement x:Name="FrameElement" />
+        <Border x:Name="TextBand" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                Background="#B3000000" Padding="28,14">
+            <TextBlock x:Name="GuestText" Foreground="White" FontWeight="Bold" FontSize="56"
+                       TextWrapping="Wrap" TextAlignment="Center" />
+        </Border>
+    </Grid>
+</UserControl>
