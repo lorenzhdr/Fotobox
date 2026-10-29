@@ -32,7 +32,7 @@ public sealed class MediaPipeHandDetector : IHandLandmarkDetector
     private string _landmarkInput = "input";
     private string[] _palmOutputs = [];
     private string[] _landmarkOutputs = [];
-    private int _pointsIndex, _scoreIndex = 1;
+    private int _pointsIndex, _scoreIndex = 1, _handednessIndex = -1;
     private float[]? _palmBuffer;
     private float[]? _landmarkBuffer;
     private int _disposeStarted;
@@ -102,6 +102,8 @@ public sealed class MediaPipeHandDetector : IHandLandmarkDetector
             var scoreIndex = Array.IndexOf(landmarkOutputs, "hand_score");
             if (pointsIndex < 0) pointsIndex = 0;
             if (scoreIndex < 0) scoreIndex = 1;
+            // Händigkeit (0 = links, 1 = rechts) ist optional: fehlt die Ausgabe, bleibt Handedness null.
+            var handednessIndex = Array.IndexOf(landmarkOutputs, "lefthand_0_or_righthand_1");
 
             // Aufwärmläufe innerhalb der Ladefrist (der erste Run ist deutlich langsamer).
             var palmBuffer = new float[3 * PalmInputSize * PalmInputSize];
@@ -119,6 +121,7 @@ public sealed class MediaPipeHandDetector : IHandLandmarkDetector
             _landmarkOutputs = landmarkOutputs;
             _pointsIndex = pointsIndex;
             _scoreIndex = scoreIndex;
+            _handednessIndex = handednessIndex;
             _palmBuffer = palmBuffer;
             _landmarkBuffer = landmarkBuffer;
             _palm = palm;
@@ -218,7 +221,15 @@ public sealed class MediaPipeHandDetector : IHandLandmarkDetector
                     minY = Math.Min(minY, p.Y);
                     maxY = Math.Max(maxY, p.Y);
                 }
-                return new HandLandmarks(points, score, NormRect.FromEdges(minX, minY, maxX, maxY));
+                // Alle Ausgaben werden ohnehin berechnet (Run mit der vollen Ausgabeliste), das Auslesen kostet nichts.
+                double? handedness = null;
+                if (_handednessIndex >= 0 && _handednessIndex < results.Count)
+                {
+                    var sides = results[_handednessIndex].GetTensorDataAsSpan<float>();
+                    if (sides.Length >= 1 && float.IsFinite(sides[0]))
+                        handedness = Math.Clamp((double)sides[0], 0, 1);
+                }
+                return new HandLandmarks(points, score, NormRect.FromEdges(minX, minY, maxX, maxY), handedness);
             }
         }
         finally

@@ -10,6 +10,12 @@ public sealed partial class PeaceDetectionService
     private const int PalmsPerRegion = 2;
     private const double DuplicateRoiDistance = 0.35;
     private const double DuplicateHandIoU = 0.5;
+    // Herz (PairedHands): Palm-ROI gilt nur als Duplikat einer verfolgten Hand, wenn ihre Mitte näher als 0,5 × ROI-Größe an deren Handfläche liegt.
+    private const double PairedTrackedPalmDistance = 0.5;
+    // Herz (PairedHands): zwei Ergebnisse sind Duplikat, wenn der mittlere Landmarkabstand unter 0,3 × |p0−p9| liegt.
+    private const double PairedDuplicateLandmarkDistance = 0.3;
+    // Handseite gilt nur als eindeutig, wenn der Wert mehr als 0,3 von 0,5 entfernt ist.
+    private const double HandednessMargin = 0.3;
 
     // Nur innerhalb von RunCycleAsync benutzt (serielle Zyklen).
     private volatile Stage? _inFlight;
@@ -51,7 +57,7 @@ public sealed partial class PeaceDetectionService
         if (useHands)
         {
             _inFlight = _handStage;
-            hands = await FindHandsAsync(handDetector!, image, faces, useFaces, options.MinHandScore, cycle / divisor).ConfigureAwait(false);
+            hands = await FindHandsAsync(handDetector!, image, faces, useFaces, options.MinHandScore, cycle / divisor, options.PairedHands).ConfigureAwait(false);
         }
         else if (!wantHands)
         {
@@ -74,11 +80,13 @@ public sealed partial class PeaceDetectionService
     }
 
     private async Task<IReadOnlyList<HandLandmarks>> FindHandsAsync(IHandLandmarkDetector detector, BgraImage image,
-        IReadOnlyList<FaceLandmarks> faces, bool facesAvailable, double minHandScore, long handCycle)
+        IReadOnlyList<FaceLandmarks> faces, bool facesAvailable, double minHandScore, long handCycle, bool paired = false)
     {
         int w = image.Width, h = image.Height;
         var palmBudget = MaxPalmRuns;
         var rois = new List<HandRoi>();
+        // Nur bei PairedHands: zu jeder ROI die verfolgte Hand, aus der sie stammt (null = Palm-ROI), für die Duplikatprüfung.
+        var sources = paired ? new List<HandLandmarks?>() : null;
 
         // (a) Verfolgte Hände: Ausschnitt aus den letzten Handpunkten, die Handflächen-Suche entfällt.
         foreach (var tracked in _tracked)
@@ -86,6 +94,7 @@ public sealed partial class PeaceDetectionService
             if (rois.Count >= MaxLandmarkRuns)
                 break;
             rois.Add(HandRoiMath.FromLandmarks(tracked, w, h));
+            sources?.Add(tracked);
         }
 
         // (b) Je Gesicht ohne verfolgte Hand in seinem Suchbereich: Handflächen im Bereich um das Gesicht (reihum, wenn es zu viele sind).
@@ -99,13 +108,13 @@ public sealed partial class PeaceDetectionService
                 var face = faces[(start + i) % count];
                 processed++;
                 var region = SearchRegion(face, w, h);
-                if (region.IsEmpty || _tracked.Any(t => region.ContainsPoint(t.Box.CenterX, t.Box.CenterY)))
+                if (region.IsEmpty || RegionCovered(region, paired))
                     continue;
                 palmBudget--;
                 var tp = _time.GetTimestamp();
                 var palms = await Guarded(_handStage, () => detector.DetectPalmsAsync(image, region, PalmsPerRegion, CancellationToken.None)).ConfigureAwait(false);
                 _palmTime += _time.GetElapsedTime(tp);
-                AddPalmRois(rois, palms, w, h);
+                AddPalmRois(rois, sources, palms, w, h);
             }
             _faceCursor = (start + processed) % count;
         }
@@ -117,7 +126,7 @@ public sealed partial class PeaceDetectionService
             var tp = _time.GetTimestamp();
             var palms = await Guarded(_handStage, () => detector.DetectPalmsAsync(image, NormRect.Full, PalmsPerRegion, CancellationToken.None)).ConfigureAwait(false);
             _palmTime += _time.GetElapsedTime(tp);
-            AddPalmRois(rois, palms, w, h);
+            AddPalmRois(rois, sources, palms, w, h);
         }
 
         var found = new List<HandLandmarks>();
@@ -136,23 +145,95 @@ public sealed partial class PeaceDetectionService
         var result = new List<HandLandmarks>(found.Count);
         foreach (var hand in found)
         {
-            if (!result.Any(kept => kept.Box.IoU(hand.Box) > DuplicateHandIoU))
+            var duplicate = paired
+                ? result.Any(kept => IsPairedDuplicate(kept, hand, w, h))
+                : result.Any(kept => kept.Box.IoU(hand.Box) > DuplicateHandIoU);
+            if (!duplicate)
                 result.Add(hand);
         }
         _tracked = result;
         return result;
     }
 
-    private static void AddPalmRois(List<HandRoi> rois, IReadOnlyList<PalmCandidate> palms, int w, int h)
+    /// <summary>
+    /// Ob der Suchbereich als abgedeckt gilt und keine Handflächen-Suche braucht: bisher schon bei einer verfolgten Hand darin;
+    /// mit <paramref name="paired"/> erst bei <see cref="PalmsPerRegion"/> verfolgten Händen (die zweite Hand eines Herzens wird gesucht).
+    /// </summary>
+    private bool RegionCovered(NormRect region, bool paired)
+    {
+        if (!paired)
+            return _tracked.Any(t => region.ContainsPoint(t.Box.CenterX, t.Box.CenterY));
+        return _tracked.Count(t => region.ContainsPoint(t.Box.CenterX, t.Box.CenterY)) >= PalmsPerRegion;
+    }
+
+    internal static void AddPalmRois(List<HandRoi> rois, List<HandLandmarks?>? sources, IReadOnlyList<PalmCandidate> palms, int w, int h)
     {
         foreach (var palm in palms)
         {
             if (rois.Count >= MaxLandmarkRuns)
                 return;
             var roi = HandRoiMath.FromPalm(palm, w, h);
-            if (!rois.Any(existing => IsDuplicate(existing, roi, w, h)))
+            var duplicate = false;
+            for (var i = 0; i < rois.Count && !duplicate; i++)
+            {
+                // Aus einer verfolgten Hand stammende ROIs sind 2,0 × Handausdehnung groß: Die übliche Schwelle würde eine anliegende zweite Hand unterdrücken.
+                if (sources?[i] is { } tracked)
+                    duplicate = IsNearPalm(roi, tracked, w, h);
+                else
+                    duplicate = IsDuplicate(rois[i], roi, w, h);
+            }
+            if (!duplicate)
+            {
                 rois.Add(roi);
+                sources?.Add(null);
+            }
         }
+    }
+
+    private static bool IsNearPalm(HandRoi palmRoi, HandLandmarks tracked, int w, int h)
+    {
+        var (cx, cy) = PalmCentroid(tracked);
+        var dx = (palmRoi.Center.X - cx) * w;
+        var dy = (palmRoi.Center.Y - cy) * h;
+        return Math.Sqrt(dx * dx + dy * dy) < PairedTrackedPalmDistance * palmRoi.SizePx;
+    }
+
+    /// <summary>Handflächenschwerpunkt: Mittel der Punkte 0 (Handgelenk) und 5, 9, 13, 17 (Fingerwurzeln), normiert.</summary>
+    private static (double X, double Y) PalmCentroid(HandLandmarks hand)
+    {
+        var p = hand.Points;
+        return ((p[0].X + p[5].X + p[9].X + p[13].X + p[17].X) / 5, (p[0].Y + p[5].Y + p[9].Y + p[13].Y + p[17].Y) / 5);
+    }
+
+    /// <summary>
+    /// Duplikat zweier Handergebnisse (nur PairedHands): mittlerer 2D-Landmarkabstand (in Pixeln, isotrop) unter 0,3 × |p0−p9|,
+    /// und die Handseiten sind nicht eindeutig verschieden. Fehlt die Handseite, zählt nur der Abstand.
+    /// </summary>
+    internal static bool IsPairedDuplicate(HandLandmarks a, HandLandmarks b, int w, int h)
+    {
+        if (a.Handedness is { } ha && b.Handedness is { } hb
+            && Math.Abs(ha - 0.5) > HandednessMargin && Math.Abs(hb - 0.5) > HandednessMargin && (ha > 0.5) != (hb > 0.5))
+            return false;
+        var count = Math.Min(a.Points.Count, b.Points.Count);
+        if (count == 0)
+            return false;
+        double sum = 0;
+        for (var i = 0; i < count; i++)
+        {
+            var dx = (a.Points[i].X - b.Points[i].X) * w;
+            var dy = (a.Points[i].Y - b.Points[i].Y) * h;
+            sum += Math.Sqrt(dx * dx + dy * dy);
+        }
+        // Maßstab: die kleinere der beiden Handlängen (Handgelenk → Mittelfingerwurzel), damit eher getrennt als zusammengefasst wird.
+        var scale = Math.Min(WristToMiddle(a, w, h), WristToMiddle(b, w, h));
+        return sum / count < PairedDuplicateLandmarkDistance * scale;
+    }
+
+    private static double WristToMiddle(HandLandmarks hand, int w, int h)
+    {
+        var dx = (hand.Points[0].X - hand.Points[9].X) * w;
+        var dy = (hand.Points[0].Y - hand.Points[9].Y) * h;
+        return Math.Sqrt(dx * dx + dy * dy);
     }
 
     private static bool IsDuplicate(HandRoi a, HandRoi b, int w, int h)
