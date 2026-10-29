@@ -4,7 +4,10 @@
              xmlns:local="clr-namespace:Fotobox.Views.Admin"
              xmlns:core="clr-namespace:Fotobox.Core"
              xmlns:vm="clr-namespace:Fotobox.ViewModels.Admin"
-             xmlns:conv="clr-namespace:Fotobox.Views.Converters">
+             xmlns:conv="clr-namespace:Fotobox.Views.Converters"
+             xmlns:controls="clr-namespace:Fotobox.Views.Controls"
+             xmlns:peace="clr-namespace:Fotobox.Views.Booth.Peace"
+             xmlns:heart="clr-namespace:Fotobox.Views.Booth.Heart">
 
     <!-- Seite „Herz“ im Tab „Fun“. Der DataContext (AdminViewModel) wird vom Fenster geerbt. Stile und Farben des Admins
          kommen per DynamicResource aus dem Fenster (dieses Steuerelement wird beim Laden noch nicht im Fenster geparst). -->
@@ -48,7 +51,70 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Vorschau folgt -->
+                <!-- Vorschau: außerhalb des ausgegrauten Bereichs, damit man sie auch bei ausgeschalteter Herzerkennung ansehen kann -->
+                <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Vorschau" Style="{DynamicResource SectionTitle}" />
+                        <TextBlock Style="{DynamicResource Hint}" Margin="0,2,0,0"
+                                   Text="Formen Sie zu zweit mit den Händen ein Herz (oder zeigen Sie allein ein Fingerherz) und halten Sie es: Die erkannten Handpunkte erscheinen im Bild, und nach der Haltedauer startet die Kisscam als Test. Mit „Kisscam testen“ starten Sie den Test auch ohne Herz. Die Vorschau zeigt die Erkennung auch bei ausgeschalteter Herzerkennung, nutzt die aktuellen (noch nicht gespeicherten) Einstellungen und löst nie ein echtes Foto oder einen Druck aus. Der Zoom wird in der Vorschau nicht gezeigt." />
+                        <!-- Gastansicht im Maßstab 1:3 (1920 × 1080). Fest eingefärbt wie die Gastansicht (bewusst nicht themenabhängig). -->
+                        <Border x:Name="HeartPreviewHost" Width="640" Height="360" HorizontalAlignment="Left" Margin="0,12,0,0"
+                                Background="#14171D" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="10" ClipToBounds="True" AutomationProperties.Name="Vorschau der Herzerkennung">
+                            <Viewbox Stretch="Uniform">
+                                <Grid Width="1920" Height="1080" ClipToBounds="True" Background="#14171D">
+                                    <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}"
+                                                            Stretch="Uniform" ShowStatusOverlay="False" />
+                                    <TextBlock x:Name="HeartPreviewNoCameraText" Foreground="#A3ADBC" FontSize="48" TextAlignment="Center"
+                                               TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="160,0"
+                                               Text="Keine Kamera – „Kisscam testen“ zeigt trotzdem den Ablauf."
+                                               Visibility="{Binding FunPreviewNoCamera, Converter={StaticResource BoolToVis}}" />
+                                    <peace:PeaceOverlay x:Name="HeartPreviewOverlay" Fit="Uniform" ShowLandmarks="True" ShowHoldProgress="False"
+                                                        Hands="{Binding PeacePreview.Hands}"
+                                                        ImageWidth="{Binding PeacePreview.ImageWidth}" ImageHeight="{Binding PeacePreview.ImageHeight}"
+                                                        Mirror="{Binding MirrorPreview}" />
+                                    <!-- Haltefortschritt des Herzens (wie in der Gastansicht, nur bei „Herz beim Halten anzeigen“) -->
+                                    <heart:HeartFeedbackOverlay x:Name="HeartPreviewFeedback" Fit="Uniform" Heart="{Binding PeacePreview.Heart}"
+                                                                ImageWidth="{Binding PeacePreview.ImageWidth}" ImageHeight="{Binding PeacePreview.ImageHeight}"
+                                                                Mirror="{Binding MirrorPreview}"
+                                                                Visibility="{Binding HeartShowHoldFeedback, Converter={StaticResource BoolToVis}}" />
+                                    <!-- Abzeichen „Herz erkannt ❤“ -->
+                                    <Border x:Name="HeartDetectedBadge" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="48" Padding="36,16"
+                                            Background="#CCC2185B" CornerRadius="48"
+                                            Visibility="{Binding PeacePreview.HeartDetectedNow, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock x:Name="HeartDetectedBadgeText" Text="{Binding HeartPreviewBadgeText}" Foreground="White" FontSize="54" FontWeight="SemiBold" />
+                                    </Border>
+                                    <!-- Kisscam-Test: Jumbotron-Rahmen mit Gasttext, in den letzten Sekunden große Ziffern -->
+                                    <heart:KisscamOverlay x:Name="HeartKisscamTestOverlay" Frame="{Binding KisscamTestFrame}"
+                                                          Text="{Binding KisscamTestText}" ShowText="{Binding KisscamTestShowText}"
+                                                          Visibility="{Binding KisscamTestRunning, Converter={StaticResource BoolToVis}}" />
+                                    <Border x:Name="HeartKisscamTestDigits" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                            Width="480" Height="480" CornerRadius="240" Background="#99000000" IsHitTestVisible="False"
+                                            Visibility="{Binding KisscamTestShowDigits, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock x:Name="HeartKisscamTestDigitsText" Text="{Binding KisscamTestDigits}" Foreground="White" FontSize="360"
+                                                   FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <!-- Ende des Tests: nur ein Hinweis, nie ein echtes Foto -->
+                                    <Border x:Name="HeartKisscamTestPhotoBadge" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="36,16"
+                                            Background="#CC14171D" CornerRadius="48" IsHitTestVisible="False"
+                                            Visibility="{Binding KisscamTestPhotoBadgeVisible, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="Foto würde jetzt ausgelöst 📷" Foreground="White" FontSize="54" FontWeight="SemiBold" />
+                                    </Border>
+                                </Grid>
+                            </Viewbox>
+                        </Border>
+                        <StackPanel Margin="0,12,0,0">
+                            <Button x:Name="KisscamTestButton" Content="{Binding KisscamTestButtonText}" Command="{Binding ToggleKisscamTestCommand}"
+                                    Style="{DynamicResource PrimaryButton}" HorizontalAlignment="Left" MinWidth="160"
+                                    AutomationProperties.Name="Kisscam testen oder Test abbrechen" />
+                            <TextBlock x:Name="HeartPreviewStatus" Text="{Binding HeartPreviewStatusText}" FontSize="14"
+                                       Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
+                            <TextBlock x:Name="HeartPreviewWarning" Text="{Binding HeartPreviewWarningText}" FontSize="13"
+                                       Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Visibility="{Binding HasHeartPreviewWarning, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
 
                 <!-- Alles Weitere ist bei ausgeschalteter Herzerkennung ausgegraut. -->
                 <StackPanel x:Name="HeartSettingsPanel" IsEnabled="{Binding HeartEnabled}" Style="{StaticResource Dim}">

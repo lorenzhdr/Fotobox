@@ -161,6 +161,9 @@ public sealed partial class AdminViewModel
             return;
         PeacePreview.VanishMoustaches();
         StopPeaceSelfDestructTest();
+        // Mit der Aktion „Kisscam abbrechen“ beendet der Mittelfinger auch den Kisscam-Test (ohne Foto, wie in der Gastansicht).
+        if (_kisscamTestRunning && _draft.MiddleFinger.ActionCancelKisscam)
+            EndKisscamTest(completed: false);
     }
 
     /// <summary>Mittelfingererkennung: mindestens eine Aktion und alle Zahlen im Wertebereich.</summary>
