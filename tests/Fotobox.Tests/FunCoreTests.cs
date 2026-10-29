@@ -90,6 +90,7 @@ public sealed class FunCoreTests : IDisposable
             s.Fun.DwellMilliseconds = 99_999;
             s.Fun.LockOnMilliseconds = 99_999;
             s.Fun.LockOnIntensityPercent = 999;
+            s.Fun.MaxLockOnRestarts = 99;
             s.Fun.AnalysesPerSecond = 99;
         }).Fun;
 
@@ -102,6 +103,7 @@ public sealed class FunCoreTests : IDisposable
         Assert.Equal(SettingsLimits.FunDwellMillisecondsMax, f.DwellMilliseconds);
         Assert.Equal(SettingsLimits.FunLockOnMillisecondsMax, f.LockOnMilliseconds);
         Assert.Equal(SettingsLimits.FunLockOnIntensityMax, f.LockOnIntensityPercent);
+        Assert.Equal(SettingsLimits.FunLockOnRestartsMax, f.MaxLockOnRestarts);
         Assert.Equal(SettingsLimits.FunAnalysesPerSecondMax, f.AnalysesPerSecond);
     }
 
@@ -119,6 +121,7 @@ public sealed class FunCoreTests : IDisposable
             s.Fun.DwellMilliseconds = -5;
             s.Fun.LockOnMilliseconds = 0;
             s.Fun.LockOnIntensityPercent = -20;
+            s.Fun.MaxLockOnRestarts = -3;
             s.Fun.AnalysesPerSecond = 0;
         }).Fun;
 
@@ -131,6 +134,7 @@ public sealed class FunCoreTests : IDisposable
         Assert.Equal(SettingsLimits.FunDwellMillisecondsMin, f.DwellMilliseconds);
         Assert.Equal(SettingsLimits.FunLockOnMillisecondsMin, f.LockOnMilliseconds);
         Assert.Equal(SettingsLimits.FunLockOnIntensityMin, f.LockOnIntensityPercent);
+        Assert.Equal(SettingsLimits.FunLockOnRestartsMin, f.MaxLockOnRestarts);
         Assert.Equal(SettingsLimits.FunAnalysesPerSecondMin, f.AnalysesPerSecond);
     }
 
@@ -140,6 +144,8 @@ public sealed class FunCoreTests : IDisposable
         var d = new FunSettings();
         Assert.Equal(1200, d.LockOnMilliseconds);
         Assert.Equal(50, d.LockOnIntensityPercent);
+        Assert.Equal(3, d.MaxLockOnRestarts);
+        Assert.Equal((0, 10), (SettingsLimits.FunLockOnRestartsMin, SettingsLimits.FunLockOnRestartsMax));
         Assert.Equal(FunEngine.LockOnDuration.TotalMilliseconds, d.LockOnMilliseconds);
         Assert.Equal((500, 5000, 100), (SettingsLimits.FunLockOnMillisecondsMin, SettingsLimits.FunLockOnMillisecondsMax, SettingsLimits.FunLockOnMillisecondsStep));
         Assert.Equal((0, 100, 5), (SettingsLimits.FunLockOnIntensityMin, SettingsLimits.FunLockOnIntensityMax, SettingsLimits.FunLockOnIntensityStep));
@@ -148,6 +154,7 @@ public sealed class FunCoreTests : IDisposable
         Assert.False(store.LoadFailed);
         Assert.Equal(1200, store.Current.Fun.LockOnMilliseconds);
         Assert.Equal(50, store.Current.Fun.LockOnIntensityPercent);
+        Assert.Equal(3, store.Current.Fun.MaxLockOnRestarts);
         Assert.Equal(2, store.Current.Version); // keine Versionsänderung
 
         var withValues = StoreWithFile("{ \"Version\": 2, \"Fun\": { \"LockOnMilliseconds\": 2500, \"LockOnIntensityPercent\": 80 } }");
@@ -158,9 +165,10 @@ public sealed class FunCoreTests : IDisposable
     [Fact]
     public void Fun_Clone_CopiesTheLockOnValues()
     {
-        var clone = new FunSettings { LockOnMilliseconds = 3300, LockOnIntensityPercent = 15 }.Clone();
+        var clone = new FunSettings { LockOnMilliseconds = 3300, LockOnIntensityPercent = 15, MaxLockOnRestarts = 7 }.Clone();
         Assert.Equal(3300, clone.LockOnMilliseconds);
         Assert.Equal(15, clone.LockOnIntensityPercent);
+        Assert.Equal(7, clone.MaxLockOnRestarts);
     }
 
     [Fact]

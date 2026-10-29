@@ -49,6 +49,8 @@ public sealed class FunEngine
     private readonly Dictionary<int, DateTimeOffset> _lockStart = [];
     // Neue Personen, die während des Texts erschienen: Sie bekommen nur einen Zielrahmen und rasten nach dem Text ein.
     private readonly HashSet<int> _pending = [];
+    // Neustarts des gemeinsamen Einrastens in der laufenden Einrastrunde (Begrenzung: FunSettings.MaxLockOnRestarts).
+    private int _restartsThisRound;
     // Anzahl der Personen beim Beginn der Meldung: Sie bestimmt den Text (du/ihr, {Anzahl}) bis zum Textende.
     private int _textCount = 1;
     // Ende des letzten Texts (geplanter Zeitpunkt); Grundlage der Wiederholung. Null: kein Text seit der letzten Erfassung.
@@ -167,6 +169,7 @@ public sealed class FunEngine
         _known.Clear();
         _lockStart.Clear();
         _pending.Clear();
+        _restartsThisRound = 0;
         _textCount = 1;
         _lastTextEnd = null;
         _pendingCues.Clear();
@@ -252,7 +255,10 @@ public sealed class FunEngine
                 _phase = FunPhase.ShowingText;
                 _phaseEnd += TimeSpan.FromSeconds(Math.Max(0, _settings.TextSeconds));
                 // Der Text bleibt bei der Personenzahl vom Beginn der Meldung (kein Umschalten du/ihr während der Anzeige).
-                _textCount = Math.Max(1, _confirmed.Count);
+                // Gezählt werden die tatsächlich eingerasteten Personen (wer während des Einrastens ging, zählt nicht mehr);
+                // ohne eingerastete Person (SwapTriggers aus, Tausch ohne Auslösung) gilt die Zahl der Anwesenden.
+                var locked = _confirmed.Count(t => _lockStart.ContainsKey(t.Id));
+                _textCount = locked > 0 ? locked : Math.Max(1, _confirmed.Count);
                 Cue(FunSoundCue.Text);
             }
             else if (_phase == FunPhase.ShowingText && _phaseEnd <= now)
@@ -274,10 +280,12 @@ public sealed class FunEngine
                     _lastTextEnd = textEnd;
                     if (waiting.Count > 0)
                     {
-                        // Personen, die während des Texts dazukamen und noch da sind: sofort eine eigene Meldung.
-                        LockOn(waiting, textEnd);
+                        // Personen, die während des Texts dazukamen und noch da sind: Alle Anwesenden rasten gemeinsam neu ein,
+                        // danach folgt sofort eine neue Meldung mit der Gesamtzahl.
+                        LockOn(_confirmed, textEnd);
                         _phase = FunPhase.LockingOn;
                         _phaseEnd = textEnd + LockDuration;
+                        _restartsThisRound = 0;
                         Cue(FunSoundCue.Acquire);
                     }
                     else
@@ -334,25 +342,23 @@ public sealed class FunEngine
             }
             else if (count > _episodeMax || (_settings.SwapTriggers && fresh.Count > 0))
             {
-                // B: Zuwachs (oder bei SwapTriggers: Personentausch) – nur die neuen Ziele rasten ein.
+                // B: Zuwachs (oder bei SwapTriggers: Personentausch).
                 _episodeMax = Math.Max(_episodeMax, count);
                 _episodeTriggered = true;
                 switch (_phase)
                 {
                     case FunPhase.ShowingText:
-                        // Der Text läuft unverändert weiter; die Neuen bekommen nur einen Zielrahmen und eine eigene Meldung danach.
+                        // Der Text läuft unverändert weiter; die Neuen bekommen nur einen Zielrahmen. Nach dem Text rasten alle
+                        // Anwesenden gemeinsam neu ein.
                         foreach (var t in fresh)
                             _pending.Add(t.Id);
                         break;
                     case FunPhase.LockingOn:
-                        LockOn(fresh, now);
-                        var lockEnd = now + LockDuration;
-                        if (lockEnd > _phaseEnd)
-                            _phaseEnd = lockEnd;
-                        Cue(FunSoundCue.Acquire);
+                        OnArrivalDuringLockOn(now, fresh);
                         break;
                     default:
-                        LockOn(fresh, now);
+                        // Watching/Cooldown: Alle Anwesenden rasten gemeinsam ein.
+                        LockOn(_confirmed, now);
                         StartLockingOn(now);
                         Cue(FunSoundCue.Acquire);
                         break;
@@ -378,6 +384,35 @@ public sealed class FunEngine
         _phase = FunPhase.LockingOn;
         _phaseEnd = now + LockDuration;
         _lastTextEnd = null;
+        _restartsThisRound = 0;
+    }
+
+    /// <summary>
+    /// Neue Person(en) während des Einrastens: Solange die Grenze (<see cref="FunSettings.MaxLockOnRestarts"/>) nicht erreicht ist, startet
+    /// die Animation für alle bestätigten Personen gemeinsam neu (ein Neustart und ein Erfassungston, auch bei mehreren Neuen im selben
+    /// Durchgang). Danach rasten Spätkommer einzeln ein und verlängern das Ende nur bei Bedarf.
+    /// </summary>
+    private void OnArrivalDuringLockOn(DateTimeOffset now, List<TrackedTarget> fresh)
+    {
+        if (fresh.Count == 0)
+            return;
+
+        var maxRestarts = Math.Clamp(_settings.MaxLockOnRestarts, SettingsLimits.FunLockOnRestartsMin, SettingsLimits.FunLockOnRestartsMax);
+        if (_restartsThisRound < maxRestarts)
+        {
+            _restartsThisRound++;
+            LockOn(_confirmed, now);
+            _phaseEnd = now + LockDuration;
+            AppLog.Info($"Zielerfassung: Einrasten startet für {_confirmed.Count} Personen neu (Neustart {_restartsThisRound} von {maxRestarts}).");
+        }
+        else
+        {
+            LockOn(fresh, now);
+            var lockEnd = now + LockDuration;
+            if (lockEnd > _phaseEnd)
+                _phaseEnd = lockEnd;
+        }
+        Cue(FunSoundCue.Acquire);
     }
 
     private void LockOn(IEnumerable<TrackedTarget> targets, DateTimeOffset now)

@@ -2814,6 +2814,13 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         set => SetProperty(_draft.Fun.LockOnIntensityPercent, value, v => _draft.Fun.LockOnIntensityPercent = v);
     }
 
+    /// <summary>Wie oft das Einrasten für alle neu startet, wenn währenddessen jemand dazukommt (<see cref="SettingsLimits.FunLockOnRestartsMin"/> bis <see cref="SettingsLimits.FunLockOnRestartsMax"/>; 0 = Spätkommer rasten einzeln ein).</summary>
+    public int FunMaxLockOnRestarts
+    {
+        get => _draft.Fun.MaxLockOnRestarts;
+        set => SetProperty(_draft.Fun.MaxLockOnRestarts, value, v => _draft.Fun.MaxLockOnRestarts = v);
+    }
+
     public int FunTextSeconds
     {
         get => _draft.Fun.TextSeconds;

@@ -166,7 +166,7 @@ public sealed class FunEngineTests
     }
 
     [Fact]
-    public void Increase_DuringCooldown_LocksOnlyTheNewTarget()
+    public void Increase_DuringCooldown_LocksAllPresentTargetsTogether()
     {
         var rig = new Rig();
         rig.RunToCooldown(P1);
@@ -175,8 +175,8 @@ public sealed class FunEngineTests
 
         Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
         Assert.Equal(2, rig.Snap.Count);
-        Assert.False(rig.Snap.Targets.Single(t => t.Box.X < 0.2).IsLockingOn);
-        Assert.True(rig.Snap.Targets.Single(t => t.Box.X > 0.3).IsLockingOn);
+        Assert.All(rig.Snap.Targets, t => Assert.True(t.IsLockingOn));
+        Assert.Single(rig.Snap.Targets.Select(t => t.LockStartedAt).Distinct());
         Assert.Equal(FunSoundCue.Acquire, rig.Cues[^1]);
         Assert.Equal(4, rig.Cues.Count);
 
@@ -198,7 +198,7 @@ public sealed class FunEngineTests
     }
 
     [Fact]
-    public void Increase_DuringText_KeepsTextFixed_AndLocksTheNewTargetAfterwards()
+    public void Increase_DuringText_KeepsTextFixed_AndLocksAllPresentTargetsAfterwards()
     {
         var rig = new Rig();
         rig.Run(0.1, P1);
@@ -219,11 +219,11 @@ public sealed class FunEngineTests
         Assert.Equal(FunSettings.DefaultSingularText, rig.Snap.Text);
         Assert.Equal(cuesBefore, rig.Cues.Count);
 
-        rig.Run(0.1, P1, P2); // t = 7,3 s: Textende, sofort Einrasten, nur für P2
+        rig.Run(0.1, P1, P2); // t = 7,3 s: Textende, sofort gemeinsames Einrasten für P1 und P2
         Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
         Assert.False(rig.Snap.ShowText);
-        Assert.False(rig.Snap.Targets.Single(t => t.Box.X < 0.2).IsLockingOn);
-        Assert.True(rig.Snap.Targets.Single(t => t.Box.X > 0.3).IsLockingOn);
+        Assert.All(rig.Snap.Targets, t => Assert.True(t.IsLockingOn));
+        Assert.Single(rig.Snap.Targets.Select(t => t.LockStartedAt).Distinct());
         Assert.Equal([FunSoundCue.Acquire], rig.Cues.Skip(cuesBefore));
 
         rig.Run(1.2, P1, P2); // t = 8,5 s: neue Meldung mit aktueller Anzahl
@@ -251,15 +251,82 @@ public sealed class FunEngineTests
     }
 
     [Fact]
-    public void Increase_DuringLockOn_StaysLockingOn_UntilNewTargetIsLocked()
+    public void Increase_DuringLockOn_RestartsTheAnimationForAll_WithOneAcquireCue()
     {
         var rig = new Rig();
         rig.Run(0.1, P1);      // t = 0,1; Einrasten bis 1,3
         rig.Run(0.9, P1);      // t = 1,0
-        rig.Run(0.1, P1, P2);  // t = 1,1: P2 rastet bis 2,3 ein
+        rig.Run(0.1, P1, P2);  // t = 1,1: P2 kommt, die Animation startet für beide neu (bis 2,3)
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        Assert.Equal(2, rig.Snap.Targets.Count);
+        Assert.All(rig.Snap.Targets, t => Assert.True(t.IsLockingOn));
+        Assert.Single(rig.Snap.Targets.Select(t => t.LockStartedAt).Distinct());
+
+        rig.Run(0.5, P1, P2);  // t = 1,6: das alte Ende (1,3) ist vorbei, beide rasten weiter ein
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        Assert.All(rig.Snap.Targets, t => Assert.True(t.IsLockingOn));
+
+        rig.Run(0.7, P1, P2);  // t = 2,3
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.Equal(FunSettings.DefaultPluralText, rig.Snap.Text);
+        Assert.Equal([FunSoundCue.Acquire, FunSoundCue.Acquire, FunSoundCue.Lock, FunSoundCue.Text], rig.Cues);
+    }
+
+    [Fact]
+    public void Increase_DuringLockOn_TwoNewInTheSameFrame_AreOneRestartAndOneCue()
+    {
+        var rig = new Rig();
+        rig.Run(0.1, P1);
+        rig.Run(0.4, P1);                // t = 0,5
+        rig.Run(0.1, P1, P2, P3);        // t = 0,6: zwei Neue im selben Durchgang
+        Assert.Equal(3, rig.Snap.Targets.Count);
+        Assert.All(rig.Snap.Targets, t => Assert.True(t.IsLockingOn));
+        Assert.Single(rig.Snap.Targets.Select(t => t.LockStartedAt).Distinct());
+        Assert.Equal(2, rig.Cues.Count(c => c == FunSoundCue.Acquire));
+
+        rig.Run(1.2, P1, P2, P3);        // t = 1,8 (Ende des einen Neustarts: 0,6 + 1,2)
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.Equal([FunSoundCue.Acquire, FunSoundCue.Acquire, FunSoundCue.Lock, FunSoundCue.Text], rig.Cues);
+    }
+
+    [Fact]
+    public void Increase_DuringLockOn_AfterTheRestartLimit_LateComersLockOnIndividually()
+    {
+        var rig = new Rig(s => s.MaxLockOnRestarts = 2);
+        var p4 = Person(0.85);
+        rig.Run(0.1, P1);                // t = 0,1; Einrasten bis 1,3
+        rig.Run(0.1, P1, P2);            // t = 0,2: Neustart 1 (bis 1,4)
+        rig.Run(0.1, P1, P2, P3);        // t = 0,3: Neustart 2 (bis 1,5)
+        Assert.Single(rig.Snap.Targets.Select(t => t.LockStartedAt).Distinct());
+        var restartedAt = rig.Snap.Targets[0].LockStartedAt;
+
+        rig.Run(0.5, P1, P2, P3);        // t = 0,8
+        rig.Run(0.1, P1, P2, P3, p4);    // t = 0,9: Grenze erreicht, P4 rastet einzeln ein (bis 2,1)
+        var p4Target = rig.Snap.Targets.Single(t => t.Box.X > 0.8);
+        Assert.True(p4Target.IsLockingOn);
+        Assert.True(p4Target.LockStartedAt > restartedAt);
+        Assert.All(rig.Snap.Targets.Where(t => t.Box.X < 0.8), t => Assert.Equal(restartedAt, t.LockStartedAt));
+        Assert.Equal(4, rig.Cues.Count(c => c == FunSoundCue.Acquire));
+
+        rig.Run(0.7, P1, P2, P3, p4);    // t = 1,6: die Gruppe ist fertig, P4 rastet noch ein
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        Assert.Equal(1, rig.Snap.Targets.Count(t => t.IsLockingOn));
+
+        rig.Run(0.5, P1, P2, P3, p4);    // t = 2,1
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.Equal(FunSettings.DefaultPluralText, rig.Snap.Text);
+    }
+
+    [Fact]
+    public void Increase_DuringLockOn_WithZeroRestarts_KeepsTheOldBehavior()
+    {
+        var rig = new Rig(s => s.MaxLockOnRestarts = 0);
+        rig.Run(0.1, P1);      // t = 0,1; Einrasten bis 1,3
+        rig.Run(0.9, P1);      // t = 1,0
+        rig.Run(0.1, P1, P2);  // t = 1,1: P2 rastet einzeln bis 2,3 ein
         Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
 
-        rig.Run(0.5, P1, P2);  // t = 1,6: P1 fertig, aber P2 noch nicht
+        rig.Run(0.5, P1, P2);  // t = 1,6: P1 fertig, P2 noch nicht
         Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
         Assert.False(rig.Snap.Targets.Single(t => t.Box.X < 0.2).IsLockingOn);
         Assert.True(rig.Snap.Targets.Single(t => t.Box.X > 0.3).IsLockingOn);
@@ -267,6 +334,61 @@ public sealed class FunEngineTests
         rig.Run(0.7, P1, P2);  // t = 2,3
         Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
         Assert.Equal([FunSoundCue.Acquire, FunSoundCue.Acquire, FunSoundCue.Lock, FunSoundCue.Text], rig.Cues);
+    }
+
+    [Fact]
+    public void RestartCounter_IsResetForEachLockOnRound()
+    {
+        var rig = new Rig(s => { s.MaxLockOnRestarts = 1; s.CooldownSeconds = 0; });
+        rig.Run(0.1, P1);
+        rig.Run(0.1, P1, P2);            // Neustart 1 von 1
+        rig.Run(0.1, P1, P2, P3);        // Grenze erreicht: P3 rastet einzeln ein
+        Assert.Equal(2, rig.Snap.Targets.Select(t => t.LockStartedAt).Distinct().Count());
+
+        rig.Run(1.5, P1, P2, P3);
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        rig.Run(6.1, P1, P2, P3);        // Textende, Pause 0
+        Assert.Equal(FunPhase.Watching, rig.Snap.Phase);
+
+        rig.Run(4);                      // alle weg, die Episode endet
+        rig.Run(0.1, P1);                // neue Runde
+        rig.Run(0.1, P1, P2);            // der erste Neustart der neuen Runde ist wieder möglich
+        Assert.Equal(2, rig.Snap.Targets.Count);
+        Assert.Single(rig.Snap.Targets.Select(t => t.LockStartedAt).Distinct());
+    }
+
+    [Fact]
+    public void Leaving_DuringLockOn_DoesNotRestart_AndTheTextCountsTheRemainingPerson()
+    {
+        var rig = new Rig();
+        rig.Run(0.1, P1, P2);  // t = 0,1: beide rasten ein bis 1,3
+        var cues = rig.Cues.Count;
+        var started = rig.Snap.Targets[0].LockStartedAt;
+
+        rig.Run(0.9, P1);      // P2 geht (nach 0,7 s ohne Treffer ist das Ziel weg)
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        Assert.Equal(started, Assert.Single(rig.Snap.Targets).LockStartedAt);
+        Assert.Equal(cues, rig.Cues.Count);
+
+        rig.Run(0.3, P1);      // t = 1,3: Einrastende, die Meldung gilt dem Rest
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.Equal(FunSettings.DefaultSingularText, rig.Snap.Text);
+    }
+
+    [Fact]
+    public void Leaving_DuringLockOn_WithSwapTriggersOff_UnlockedNewcomerDoesNotCountForTheText()
+    {
+        var rig = new Rig(s => s.SwapTriggers = false);
+        rig.Run(0.1, P1, P2);  // t = 0,1: beide rasten ein bis 1,3
+        rig.Run(0.8, P1);      // t = 0,9: P2 ist weg
+        rig.Run(0.1, P1, P3);  // t = 1,0: P3 kommt, die Anzahl erreicht die Höchstzahl nicht → kein Auslöser, P3 rastet nicht ein
+        Assert.Equal(2, rig.Snap.Count);
+        Assert.Equal(FunPhase.LockingOn, rig.Snap.Phase);
+        Assert.False(rig.Snap.Targets.Single(t => t.Box.X > 0.6).IsLockingOn);
+
+        rig.Run(0.3, P1, P3);  // t = 1,3
+        Assert.Equal(FunPhase.ShowingText, rig.Snap.Phase);
+        Assert.Equal(FunSettings.DefaultSingularText, rig.Snap.Text); // nur P1 ist eingerastet
     }
 
     [Fact]

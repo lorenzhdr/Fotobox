@@ -83,6 +83,7 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Fun.DwellMilliseconds` | 800 | 0–3000 |
 | `Fun.LockOnMilliseconds` | 1200 | 500–5000 (100er-Schritte) |
 | `Fun.LockOnIntensityPercent` | 50 | 0–100 (5er-Schritte) |
+| `Fun.MaxLockOnRestarts` | 3 | 0–10 |
 | `Fun.AnalysesPerSecond` | 5 | 1–10 |
 | `Peace.Enabled` | an | – |
 | `Peace.ActionSelfDestruct` / `ActionPhoto` / `ActionMoustache` | an / aus / aus | mindestens eine (Normalizer erzwingt Selbstzerstörung) |

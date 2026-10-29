@@ -129,6 +129,8 @@ public static class SettingsLimits
     public const int FunLockOnMillisecondsMin = 500, FunLockOnMillisecondsMax = 5000, FunLockOnMillisecondsStep = 100;
     /// <summary>Fun: Intensität der Einrast-Animation in Prozent (Bewegung, Leuchten, Blinken, Lautstärke); 50 = bisheriges Aussehen.</summary>
     public const int FunLockOnIntensityMin = 0, FunLockOnIntensityMax = 100, FunLockOnIntensityStep = 5;
+    /// <summary>Fun: Wie oft das Einrasten für alle neu startet, wenn während einer Einrastrunde weitere Personen dazukommen (0 = Spätkommer rasten einzeln ein).</summary>
+    public const int FunLockOnRestartsMin = 0, FunLockOnRestartsMax = 10;
     /// <summary>Fun: Analysen pro Sekunde (Rechenlast); das Livebild hat immer Vorrang.</summary>
     public const int FunAnalysesPerSecondMin = 1, FunAnalysesPerSecondMax = 10;
     /// <summary>Peace: Haltedauer des Zeichens in Millisekunden (100er-Schritte).</summary>
@@ -501,6 +503,11 @@ public sealed class FunSettings
     public int LockOnMilliseconds { get; set; } = 1200;
     /// <summary>Wie auffällig das Einrasten ist (Bewegung, Leuchten, Blinken, Lautstärke der Töne); 50 = bisheriges Verhalten.</summary>
     public int LockOnIntensityPercent { get; set; } = 50;
+    /// <summary>
+    /// Kommt während des Einrastens jemand dazu, startet die Animation für alle bestätigten Personen gemeinsam neu – höchstens so oft
+    /// je Einrastrunde. Danach (und bei 0) rasten Spätkommer einzeln ein.
+    /// </summary>
+    public int MaxLockOnRestarts { get; set; } = 3;
     public int AnalysesPerSecond { get; set; } = 5;
     public bool SoundEnabled { get; set; }
 
