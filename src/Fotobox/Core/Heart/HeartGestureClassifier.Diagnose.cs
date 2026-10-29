@@ -58,19 +58,21 @@ public static partial class HeartGestureClassifier
         var mean = meanDistance / PointCount / size;
         checks.Add(new HeartCheck("Mittl. Punktabstand/S", mean, ">=", MinMeanLandmarkDistance, mean >= MinMeanLandmarkDistance));
 
-        var tipsIndex = D2(pa[8], pb[8]) / size;
+        var indexContact = IndexContact(pa, pb) / size;
         var tipsThumb = D2(pa[4], pb[4]) / size;
-        checks.Add(new HeartCheck("Zeigefingerspitzen/S", tipsIndex, "<=", th.TipTouch, tipsIndex <= th.TipTouch));
+        checks.Add(new HeartCheck("Zeigefinger-Kontakt/S", indexContact, "<=", th.TipTouch, indexContact <= th.TipTouch));
         checks.Add(new HeartCheck("Daumenspitzen/S", tipsThumb, "<=", th.TipTouch, tipsThumb <= th.TipTouch));
 
-        var (tx, ty) = Mid(pa[8], pb[8]);
+        var peakA = PeakIndex(pa);
+        var peakB = PeakIndex(pb);
+        var (tx, ty) = Mid(pa[peakA], pb[peakB]);
         var (ux, uy) = Mid(pa[4], pb[4]);
         var vx = tx - ux;
         var vy = ty - uy;
         var heightAbs = Math.Sqrt(vx * vx + vy * vy);
         var height = heightAbs / size;
-        checks.Add(new HeartCheck("Höhe/S (min)", height, ">=", th.MinHeight, height >= th.MinHeight));
-        checks.Add(new HeartCheck("Höhe/S (max)", height, "<=", MaxHeightFactor, height <= MaxHeightFactor));
+        checks.Add(new HeartCheck("Höhe Daumen→Gipfel/S (min)", height, ">=", th.MinHeight, height >= th.MinHeight));
+        checks.Add(new HeartCheck("Höhe Daumen→Gipfel/S (max)", height, "<=", MaxHeightFactor, height <= MaxHeightFactor));
 
         var angleUp = Angle2(vx, vy, 0, -1);
         var angleInverted = Angle2(-vx, -vy, 0, -1);
@@ -87,10 +89,10 @@ public static partial class HeartGestureClassifier
         checks.Add(new HeartCheck("Handgelenk A Abstand zur Achse/S", Math.Abs(sideA) / size, ">=", MinWristSide, Math.Abs(sideA) >= MinWristSide * size));
         checks.Add(new HeartCheck("Handgelenk B Abstand zur Achse/S", Math.Abs(sideB) / size, ">=", MinWristSide, Math.Abs(sideB) >= MinWristSide * size));
 
-        var openingA = D2(pa[8], pa[4]) / sA;
-        var openingB = D2(pb[8], pb[4]) / sB;
-        checks.Add(new HeartCheck("Öffnung A (Zeige-Daumen)/S_A", openingA, ">=", th.MinOpening, openingA >= th.MinOpening));
-        checks.Add(new HeartCheck("Öffnung B (Zeige-Daumen)/S_B", openingB, ">=", th.MinOpening, openingB >= th.MinOpening));
+        var openingA = Opening(pa) / sA;
+        var openingB = Opening(pb) / sB;
+        checks.Add(new HeartCheck("Öffnung A (max. Daumen-Zeigefinger)/S_A", openingA, ">=", th.MinOpening, openingA >= th.MinOpening));
+        checks.Add(new HeartCheck("Öffnung B (max. Daumen-Zeigefinger)/S_B", openingB, ">=", th.MinOpening, openingB >= th.MinOpening));
 
         // Formkriterien (auch wenn eine Prüfung oben scheitert: so sieht man, was daraus würde).
         var roofA = RoofFingerCount(pa, th, out var extA);
@@ -104,7 +106,8 @@ public static partial class HeartGestureClassifier
             shape = "Klassisch";
         else
             shape = "keine (zu geneigt)";
-        info += $", Neigung aufrecht={HeartDiagnosisFormat.Num(angleUp)}°/umgedreht={HeartDiagnosisFormat.Num(angleInverted)}°"
+        info += $", Gipfel A=P{HeartDiagnosisFormat.Int(peakA)}/B=P{HeartDiagnosisFormat.Int(peakB)}"
+            + $", Neigung aufrecht={HeartDiagnosisFormat.Num(angleUp)}°/umgedreht={HeartDiagnosisFormat.Num(angleInverted)}°"
             + $", Dach-Finger A={HeartDiagnosisFormat.Int(roofA)}(gestreckt {HeartDiagnosisFormat.Int(extA)})/B={HeartDiagnosisFormat.Int(roofB)}(gestreckt {HeartDiagnosisFormat.Int(extB)}) (je >=2 für Dach)"
             + $", Form falls alles besteht={shape}";
 
@@ -176,8 +179,8 @@ public static partial class HeartGestureClassifier
     }
 
     /// <summary>
-    /// Das „nächstliegende“ Paar unter den Händen: kleinste Summe aus Zeigefingerspitzen- und Daumenspitzen-Abstand relativ zur
-    /// mittleren Handgröße. Berücksichtigt nur Hände mit gültigen Punkten (höchstens <see cref="MaxHands"/>); null, wenn es kein
+    /// Das „nächstliegende“ Paar unter den Händen: kleinste Summe aus Zeigefinger-Kontakt (kleinster Abstand der Punkte 6/7/8) und
+    /// Daumenspitzen-Abstand relativ zur mittleren Handgröße (dieselben Kosten wie <see cref="ClassifyPair"/>). Berücksichtigt nur Hände mit gültigen Punkten (höchstens <see cref="MaxHands"/>); null, wenn es kein
     /// Paar gibt. Nur für die Diagnose.
     /// </summary>
     public static (int A, int B, double Cost)? FindNearestPair(IReadOnlyList<HandLandmarks> hands, double aspect = 16.0 / 9)
@@ -206,7 +209,7 @@ public static partial class HeartGestureClassifier
                 var size = (D2(pa[0], pa[9]) + D2(pb[0], pb[9])) / 2;
                 if (size < MinHandSize)
                     continue;
-                var cost = (D2(pa[8], pb[8]) + D2(pa[4], pb[4])) / size;
+                var cost = (IndexContact(pa, pb) + D2(pa[4], pb[4])) / size;
                 if (best is null || cost < best.Value.Cost)
                     best = (i, j, cost);
             }

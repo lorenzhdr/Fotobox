@@ -60,21 +60,24 @@ Alle Bedingungen müssen gelten, sonst wird das Paar mit einem kurzen deutschen 
 | Prüfung | streng → locker (fest, wo ohne Pfeil) | Bedeutung |
 |---|---|---|
 | Größenverhältnis der Hände | höchstens 1,6 → 2,2 | zwei Hände ähnlicher Entfernung |
-| Handgelenke auseinander | mindestens 0,8 S | nicht übereinanderliegend |
+| Handgelenke auseinander | mindestens 1,5 S (fest) | nicht übereinanderliegend; schließt Gebetshände aus |
 | Nicht dieselbe Hand | mittlerer Punktabstand ≥ 0,5 S | Doppelerkennungen derselben Hand |
-| Fingerspitzen berühren sich | Abstand der Zeigefingerspitzen und der Daumenspitzen je ≤ 0,30 → 0,55 S | die beiden Spitzen oben und unten |
-| Höhe des Herzens | 0,70 → 0,45 S bis höchstens 3,0 S | Strecke Daumenspitzen-Mitte → Zeigefingerspitzen-Mitte |
-| Neigung | höchstens 30° → 55° aus der Senkrechten (aufrecht oder auf dem Kopf) | |
+| Zeigefinger-Kontakt | `K` = kleinster Abstand zwischen den Zeigefingerpunkten 6/7/8 (PIP, DIP, Spitze) der beiden Hände ≤ 0,30 → 0,55 S | oben berühren sich bei gekrümmten Zeigefingern die Fingerrücken, nicht die Spitzen |
+| Daumen-Kontakt | Abstand der Daumenspitzen (Punkt 4) ≤ 0,30 → 0,55 S | die beiden Daumenspitzen unten |
+| Höhe des Herzens | `h` = Strecke Daumenspitzen-Mitte → Gipfel-Mitte, 0,60 → 0,40 S bis höchstens 3,0 S | „Gipfel“ je Hand = der vom eigenen Daumen (Punkt 4) am weitesten entfernte Zeigefingerpunkt aus 6/7/8 |
+| Neigung | Herzachse (Daumenspitzen-Mitte → Gipfel-Mitte) höchstens 30° → 70° aus der Senkrechten (aufrecht oder auf dem Kopf) | |
 | Handgelenke beidseits | auf verschiedenen Seiten der Herzachse, je ≥ 0,3 S entfernt | schließt Gebetshände aus |
-| Daumen und Zeigefinger geöffnet | Abstand Spitze Zeigefinger – Spitze Daumen ≥ 0,70 → 0,45 der eigenen Handgröße | |
+| Daumen und Zeigefinger geöffnet | `O` = größte Entfernung der Daumenspitze zu den Punkten 5…8 derselben Hand ≥ 0,80 → 0,55 der eigenen Handgröße (je Hand) | |
+
+Die Werte (gekrümmte Zeigefinger statt gestreckter Spitzen, größere Neigung, geringere Höhe/Öffnung, größerer Handgelenkabstand) sind an echten Aufnahmen kalibriert: Ein Herz zwischen Gesicht und Brust zeigt stark gekrümmte Zeigefinger, deren Spitzen weit auseinander stehen, während sich PIP/DIP berühren; Kopf- und Körperneigung bis etwa 50° kommen vor.
 
 **Formen** (disjunkt, in dieser Reihenfolge entschieden):
 
-- **Umgedreht** (`Inverted`): Die Herzachse zeigt nach unten (Zeigefingerspitzen unter den Daumenspitzen innerhalb der Neigungsgrenze).
+- **Umgedreht** (`Inverted`): Die Herzachse zeigt nach unten (Gipfel unter den Daumenspitzen innerhalb der Neigungsgrenze).
 - **Dach** (`Roof`): aufrecht, und bei beiden Händen sind mindestens zwei der Finger Mittel/Ring/klein gestreckt (`ExtensionFactor` 1,25 → 1,05, PIP-Winkel ≥ 165° → 140°) und zeigen höchstens 60° von der Senkrechten ab.
 - **Klassisch** (`Classic`): aufrecht und nicht Dach – es gibt keine eigene Prüfung der übrigen Finger (der Admin-Text nennt sie „eingerollt oder locker gekrümmt“; das ist die Absicht, keine Bedingung im Code). Der Admin-Text zu Dach lautet „Mindestens zwei der übrigen Finger gestreckt nach oben“.
 
-Die Güte (`Score`) fällt linear mit dem Spitzenabstand; die Kosten (`Cost`, Spitzenabstände / S) entscheiden über die Paarwahl.
+Die Güte (`Score`) fällt linear mit den Kontaktabständen; die Kosten (`Cost` = (`K` + Daumenspitzen-Abstand) / S) entscheiden über die Paarwahl. Herzmitte und Größe (`0,8 · h`) beziehen sich auf die Herzachse Daumenspitzen-Mitte → Gipfel-Mitte.
 
 ### Fingerherz (`ClassifyFingerHeart`, experimentell)
 
@@ -209,7 +212,7 @@ Eine Geometrie für Livebild und Foto: Alle Maße hängen nur von der kürzeren 
 
 **`Herz-Diagnose:`-Zeilen (Level Info, gedrosselt, ohne Einfluss auf die Erkennung):** Für Nachtests, wenn ein Herz nicht erkannt wird. Alle Zeilen beginnen mit `Herz-Diagnose:` (Filter z. B. `Select-String "Herz-Diagnose"` im Tageslog); es werden nur Zahlen und normierte Landmarks geloggt, nie Bilder. Auswertung: „Pipeline“ unterscheidet Handverlust in der Hand-Pipeline (Landmark-Scores auch verworfener Hände gegen den Mindestscore, von einer verfolgten Hand absorbierte Palm-ROIs, Paar-Duplikatprüfung mit Abstand, Schwelle und Handseiten); „Hände ohne Herz“ zeigt, welche Klassifikatorprüfung scheitert; die Ereigniszeilen zeigen, ob ein Treffer nur vereinzelt kommt und das Halten wegen `GapTolerance` neu beginnt.
 - `Herz-Diagnose: Pipeline: …` (`PeaceDetectionService.Pipeline.cs`, `PairedHandDiagnostics`): nur bei `PairedHands`, höchstens 1 Zeile/s und nur, wenn Gesicht, verfolgte Hand, Palm- oder Landmark-Ergebnis vorhanden sind. Enthält Gesichter, verfolgte Hände, Palmsuchen (Gesichtsbereiche, Vollbild), Palm-Treffer, übernommene und verworfene Palm-ROIs (mit Abstand/Schwelle in Pixeln), Mindestscore, Roh-Score jedes Landmark-Laufs (`IHandLandmarkDetector.SetScoreObserver`, auch unter dem Mindestscore verworfene), Hände vor/nach der Paar-Duplikatprüfung samt mittlerem Abstand, Schwelle und Handseiten. Der Sammler wird wiederverwendet; in Zyklen ohne Zeile entsteht keine Allokation und keine Formatierung.
-- `Herz-Diagnose: Hände ohne Herz: …` (`HeartEngine.OnUpdate`): bei mindestens einer Hand ohne Herz höchstens 1 Zeile/s (Engine-Zeit). Hände, Scores, Seitenverhältnis, Empfindlichkeit, Mindest-Handscore, scharf/Gesten erlaubt, dann für das nächstliegende Paar (`HeartGestureClassifier.FindNearestPair`: kleinste Summe der Zeigefinger- und Daumenspitzenabstände relativ zu S) die komplette `HeartGestureClassifier.Diagnose` (jede Prüfgröße mit Schwelle und `ok`/`FEHL`, ohne beim ersten Fehlschlag abzubrechen; `ClassifyPair` bleibt unverändert und liefert das Urteil) und die rohen 21 Landmarks beider Hände (normiert, 3 Nachkommastellen) zum Nachrechnen; bei einer einzelnen Hand `DiagnoseFingerHeart`.
+- `Herz-Diagnose: Hände ohne Herz: …` (`HeartEngine.OnUpdate`): bei mindestens einer Hand ohne Herz höchstens 1 Zeile/s (Engine-Zeit). Hände, Scores, Seitenverhältnis, Empfindlichkeit, Mindest-Handscore, scharf/Gesten erlaubt, dann für das nächstliegende Paar (`HeartGestureClassifier.FindNearestPair`: kleinste Summe aus Zeigefinger-Kontakt `K` und Daumenspitzenabstand relativ zu S) die komplette `HeartGestureClassifier.Diagnose` (jede Prüfgröße mit Schwelle und `ok`/`FEHL`, ohne beim ersten Fehlschlag abzubrechen; `ClassifyPair` bleibt unverändert und liefert das Urteil) und die rohen 21 Landmarks beider Hände (normiert, 3 Nachkommastellen) zum Nachrechnen; bei einer einzelnen Hand `DiagnoseFingerHeart`.
 - Ereigniszeilen (ungedrosselt): `Herz-Diagnose: Herz-Treffer beginnt …` und `Herz-Diagnose: Halten abgebrochen (Grund); Lücke … ms, GapTolerance … ms; Fortschritt … von … ms`.
 
 ## Tests

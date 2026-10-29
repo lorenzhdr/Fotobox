@@ -248,7 +248,8 @@ public sealed class HeartGestureClassifierTests
         var b9 = b.Points[9];
         var originalLength = Math.Sqrt(Math.Pow((b.Points[0].X - b9.X) * aspect, 2) + Math.Pow(b.Points[0].Y - b9.Y, 2));
         var dx = uX - b9.X * aspect;
-        var wrist = new HandPoint(uX / aspect, b9.Y + Math.Sqrt(originalLength * originalLength - dx * dx), 0);
+        // Lösung oberhalb von P9 (Handgelenk weit genug von Hand A entfernt, damit nicht schon der Mindestabstand der Handgelenke greift).
+        var wrist = new HandPoint(uX / aspect, b9.Y - Math.Sqrt(originalLength * originalLength - dx * dx), 0);
 
         var points = b.Points.ToList();
         points[0] = wrist;
@@ -261,6 +262,59 @@ public sealed class HeartGestureClassifierTests
             Assert.False(verdict.IsHeart);
             Assert.Equal("Handgelenke nicht beidseits des Herzens.", verdict.RejectReason);
         }
+    }
+
+    // ---- Echte Aufnahmen (zwei Hände einer Person, gekrümmte Zeigefinger)
+
+    public static TheoryData<int> RealNumbers() => new(1, 2, 3, 4, 5);
+
+    [Theory]
+    [MemberData(nameof(RealNumbers))]
+    public void RealHearts_AreRecognized_AtMediumAndLooseSensitivity(int number)
+    {
+        var hands = HeartHandFixtures.RealHeart(number);
+        foreach (var sensitivity in new[] { 50, 95 })
+        {
+            var verdict = HeartGestureClassifier.ClassifyPair(hands[0], hands[1], Settings(sensitivity), HeartHandFixtures.RealAspect);
+            Assert.True(verdict.IsHeart, $"Echtes Herz {number} bei Empfindlichkeit {sensitivity}: {verdict.RejectReason}");
+            var match = Assert.Single(Find(hands, sensitivity, HeartHandFixtures.RealAspect, s => s.ShapeFingerHeart = false));
+            Assert.Equal(verdict.Shape, match.Shape);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(RealNumbers))]
+    public void RealNonHearts_AreRejected_AtMediumAndLooseSensitivity(int number)
+    {
+        var hands = HeartHandFixtures.RealNonHeart(number);
+        foreach (var sensitivity in new[] { 50, 95 })
+        {
+            var verdict = HeartGestureClassifier.ClassifyPair(hands[0], hands[1], Settings(sensitivity), HeartHandFixtures.RealAspect);
+            Assert.False(verdict.IsHeart, $"Keine Geste {number} bei Empfindlichkeit {sensitivity} fälschlich als Herz erkannt.");
+            Assert.Empty(Find(hands, sensitivity, HeartHandFixtures.RealAspect, s => s.ShapeFingerHeart = false));
+        }
+    }
+
+    [Fact]
+    public void CurvedIndexFingers_TouchingAtTheBack_CountAsContact()
+    {
+        // Bei den echten Herzen liegen die Zeigefingerspitzen teils weit auseinander, doch PIP/DIP berühren sich: Der Kontakt zählt
+        // (kleinster Abstand der Punkte 6/7/8). Mindestens ein echtes Herz würde allein an den Spitzen scheitern.
+        const double aspect = HeartHandFixtures.RealAspect;
+        var limit = HeartGestureClassifier.Thresholds.For(50).TipTouch;
+        var tipsWouldFail = 0;
+        for (var number = 1; number <= 5; number++)
+        {
+            var hands = HeartHandFixtures.RealHeart(number);
+            double Dist(int index) => Math.Sqrt(Math.Pow((hands[0].Points[index].X - hands[1].Points[index].X) * aspect, 2)
+                + Math.Pow(hands[0].Points[index].Y - hands[1].Points[index].Y, 2));
+            var size = (Math.Sqrt(Math.Pow((hands[0].Points[0].X - hands[0].Points[9].X) * aspect, 2) + Math.Pow(hands[0].Points[0].Y - hands[0].Points[9].Y, 2))
+                + Math.Sqrt(Math.Pow((hands[1].Points[0].X - hands[1].Points[9].X) * aspect, 2) + Math.Pow(hands[1].Points[0].Y - hands[1].Points[9].Y, 2))) / 2;
+            if (Dist(8) > limit * size)
+                tipsWouldFail++;
+            Assert.True(HeartGestureClassifier.ClassifyPair(hands[0], hands[1], Settings(50), aspect).IsHeart);
+        }
+        Assert.True(tipsWouldFail > 0, "Gegenprobe: Mindestens ein echtes Herz hat Zeigefingerspitzen jenseits der Schwelle.");
     }
 
     // ---- Empfindlichkeit
@@ -295,9 +349,11 @@ public sealed class HeartGestureClassifierTests
         Assert.Equal(0.30, strict.TipTouch, 6);
         Assert.Equal(0.55, loose.TipTouch, 6);
         Assert.Equal(30, strict.MaxTiltDeg, 6);
-        Assert.Equal(55, loose.MaxTiltDeg, 6);
-        Assert.Equal(0.70, strict.MinHeight, 6);
-        Assert.Equal(0.45, loose.MinHeight, 6);
+        Assert.Equal(70, loose.MaxTiltDeg, 6);
+        Assert.Equal(0.60, strict.MinHeight, 6);
+        Assert.Equal(0.40, loose.MinHeight, 6);
+        Assert.Equal(0.80, strict.MinOpening, 6);
+        Assert.Equal(0.55, loose.MinOpening, 6);
         Assert.Equal(strict, HeartGestureClassifier.Thresholds.For(-5));
         Assert.Equal(loose, HeartGestureClassifier.Thresholds.For(200));
     }
