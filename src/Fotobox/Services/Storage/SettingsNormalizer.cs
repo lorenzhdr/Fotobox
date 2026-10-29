@@ -38,6 +38,8 @@ internal static class SettingsNormalizer
         s.Peace ??= new PeaceSettings();
         s.MiddleFinger ??= new MiddleFingerSettings();
 
+        NormalizeCamera(s.Camera);
+
         s.Flow.CountdownSeconds = Math.Clamp(s.Flow.CountdownSeconds, SettingsLimits.CountdownMin, SettingsLimits.CountdownMax);
         s.Flow.PreviewSeconds = Math.Clamp(s.Flow.PreviewSeconds, SettingsLimits.PreviewMin, SettingsLimits.PreviewMax);
         s.Flow.PauseBetweenShotsSeconds = Math.Clamp(s.Flow.PauseBetweenShotsSeconds, SettingsLimits.PauseMin, SettingsLimits.PauseMax);
@@ -217,6 +219,75 @@ internal static class SettingsNormalizer
     /// Mittelfinger-Einstellungen: Zahlen auf <see cref="SettingsLimits"/> klemmen, Haltedauer auf 100er-Schritte runden;
     /// ohne gewählte Aktion gilt „Peace-Effekte aufheben“.
     /// </summary>
+    /// <summary>
+    /// Kamerasteuerung: Listen nie null; unbekannter Flimmerschutz → 50 Hz. Reglerwerte siehe <see cref="NormalizeControlValues"/>.
+    /// Eine leere oder zu lange <c>ControlsDeviceId</c> wird null und leert <c>ControlValues</c> (die Werte gehören zu keiner Kamera).
+    /// Profile: Name getrimmt und auf <see cref="SettingsLimits.CameraProfileNameMaxLength"/> gekürzt, ohne Namen oder Kamera-Id
+    /// verworfen, je Kamera eindeutige Namen (ohne Beachtung der Groß-/Kleinschreibung, der erste gewinnt) und höchstens
+    /// <see cref="SettingsLimits.CameraProfilesMax"/> Profile je Kamera (Reihenfolge bleibt).
+    /// </summary>
+    private static void NormalizeCamera(CameraSettings c)
+    {
+        if (!Enum.IsDefined(c.Powerline))
+            c.Powerline = CameraPowerline.Hz50;
+
+        c.ControlValues = NormalizeControlValues(c.ControlValues);
+        if (string.IsNullOrWhiteSpace(c.ControlsDeviceId) || c.ControlsDeviceId.Length > SettingsLimits.CameraDeviceIdMaxLength)
+        {
+            c.ControlsDeviceId = null;
+            c.ControlValues = [];
+        }
+
+        var profiles = new List<CameraControlProfile>();
+        var perDevice = new Dictionary<string, (int Count, HashSet<string> Names)>(StringComparer.Ordinal);
+        foreach (var profile in c.ControlProfiles ?? [])
+        {
+            if (profile is null)
+                continue;
+
+            var name = TrimToLength(profile.Name?.Trim(), SettingsLimits.CameraProfileNameMaxLength)?.Trim();
+            var deviceId = profile.DeviceId;
+            if (string.IsNullOrEmpty(name) ||
+                string.IsNullOrWhiteSpace(deviceId) || deviceId.Length > SettingsLimits.CameraDeviceIdMaxLength)
+                continue;
+
+            if (!perDevice.TryGetValue(deviceId, out var state))
+                state = (0, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            if (state.Count >= SettingsLimits.CameraProfilesMax || !state.Names.Add(name))
+                continue;
+            perDevice[deviceId] = (state.Count + 1, state.Names);
+
+            profiles.Add(new CameraControlProfile
+            {
+                Name = name,
+                DeviceId = deviceId,
+                Values = NormalizeControlValues(profile.Values),
+            });
+        }
+        c.ControlProfiles = profiles;
+    }
+
+    /// <summary>
+    /// Entfernt null-Einträge, unbekannte Arten, doppelte Arten (der erste gewinnt) und leere Einträge (weder Wert noch Automatik);
+    /// ein nicht endlicher Wert (NaN/∞) wird null. Ergebnis nach Art sortiert, neue Objekte.
+    /// </summary>
+    private static List<CameraControlValue> NormalizeControlValues(List<CameraControlValue>? values)
+    {
+        var map = new Dictionary<CameraControlKind, CameraControlValue>();
+        foreach (var v in values ?? [])
+        {
+            if (v is null || !Enum.IsDefined(v.Kind) || map.ContainsKey(v.Kind))
+                continue;
+
+            var value = v.Value is { } d && double.IsFinite(d) ? d : (double?)null;
+            if (value is null && v.Auto is null)
+                continue;
+
+            map[v.Kind] = new CameraControlValue { Kind = v.Kind, Value = value, Auto = v.Auto };
+        }
+        return map.Values.OrderBy(v => v.Kind).ToList();
+    }
+
     private static void NormalizeMiddleFinger(MiddleFingerSettings m)
     {
         var step = SettingsLimits.MiddleFingerHoldMillisecondsStep;

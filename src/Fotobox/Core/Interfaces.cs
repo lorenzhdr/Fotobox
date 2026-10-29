@@ -45,6 +45,20 @@ public interface ICameraService : IAsyncDisposable
     bool AudioAvailable => false;
     /// <summary>Mikrofone (Windows-Audioaufnahmegeräte). Wirft nie; bei Fehler/Timeout leere Liste (und Log).</summary>
     Task<IReadOnlyList<MicrophoneDevice>> GetMicrophonesAsync() => Task.FromResult<IReadOnlyList<MicrophoneDevice>>([]);
+    /// <summary>Aufgelöste Geräte-Id der laufenden Session (null ohne Session).</summary>
+    string? ActiveDeviceId => null;
+    /// <summary>
+    /// Liest Fähigkeiten und aktuelle Werte der Hardware-Regler der laufenden Session (leer ohne Session oder Unterstützung).
+    /// Wirft nie wegen fehlender Unterstützung.
+    /// </summary>
+    Task<CameraControlsSnapshot> GetControlsAsync() => Task.FromResult(CameraControlsSnapshot.Empty);
+    /// <summary>
+    /// Übernimmt die GESPEICHERTEN Reglerwerte (<see cref="CameraSettings.ControlsDeviceId"/>, <see cref="CameraSettings.ControlValues"/>,
+    /// <see cref="CameraSettings.Powerline"/>) für alle späteren Starts und Wiederverbindungen, ohne Neustart.
+    /// </summary>
+    void ConfigureControls(CameraSettings saved) { }
+    /// <summary>Wendet Werte vorübergehend live an (Admin-Vorschau); ändert die für Starts gespeicherten Werte nie.</summary>
+    Task ApplyControlsLiveAsync(IReadOnlyList<CameraControlValue> values, CameraPowerline powerline) => Task.CompletedTask;
     /// <summary>
     /// Startet die Aufnahme der laufenden Session als MP4 in <see cref="VideoRecordingRequest.FilePath"/> (seitenrichtig, ungespiegelt);
     /// das Livebild (<see cref="FrameArrived"/>) läuft weiter. InvalidOperationException, wenn nicht Running oder schon eine

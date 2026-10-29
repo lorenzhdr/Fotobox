@@ -1885,16 +1885,28 @@ public sealed class AdminViewModelTests : IDisposable
     [Fact]
     public void CameraSettings_Clone_CopiesAllFields_AndIsIndependent()
     {
-        var original = new CameraSettings { DeviceId = "cam1", ResolutionWidth = 1280, ResolutionHeight = 720, MirrorPreview = false, MirrorPhoto = true };
+        var original = new CameraSettings { DeviceId = "cam1", ResolutionWidth = 1280, ResolutionHeight = 720, MirrorPreview = false, MirrorPhoto = true,
+            ControlsDeviceId = "cam1", Powerline = CameraPowerline.Hz60,
+            ControlValues = [new CameraControlValue { Kind = CameraControlKind.Zoom, Value = 2 }],
+            ControlProfiles = [new CameraControlProfile { Name = "P", DeviceId = "cam1", Values = [new CameraControlValue { Kind = CameraControlKind.Focus, Auto = true }] }] };
 
         var copy = original.Clone();
         original.DeviceId = "andere";
+        original.ControlValues[0].Value = 5;
+        original.ControlProfiles[0].Values.Clear();
+        original.ControlProfiles[0].Name = "Q";
 
         Assert.Equal("cam1", copy.DeviceId);
         Assert.Equal(1280, copy.ResolutionWidth);
         Assert.Equal(720, copy.ResolutionHeight);
         Assert.False(copy.MirrorPreview);
         Assert.True(copy.MirrorPhoto);
+        Assert.Equal("cam1", copy.ControlsDeviceId);
+        Assert.Equal(CameraPowerline.Hz60, copy.Powerline);
+        Assert.Equal(2, Assert.Single(copy.ControlValues).Value);
+        var profile = Assert.Single(copy.ControlProfiles);
+        Assert.Equal("P", profile.Name);
+        Assert.True(Assert.Single(profile.Values).Auto);
     }
 
     [Fact]
@@ -3617,6 +3629,10 @@ public sealed class AdminViewModelTests : IDisposable
                 ResolutionHeight = settings.ResolutionHeight,
                 MirrorPreview = settings.MirrorPreview,
                 MirrorPhoto = settings.MirrorPhoto,
+                ControlsDeviceId = settings.ControlsDeviceId,
+                ControlValues = CameraSettings.CloneValues(settings.ControlValues),
+                ControlProfiles = settings.ControlProfiles.Select(p => p.Clone()).ToList(),
+                Powerline = settings.Powerline,
             });
             AudioAtStart.Add(ConfiguredAudio);
             Status = CameraStatus.Running;

@@ -2,7 +2,7 @@ namespace Fotobox.Core;
 
 /// <summary>
 /// Die geräte- und pfadabhängigen Einstellungen, die nie exportiert und nie importiert werden (der Zielrechner behält seine
-/// eigenen): Kamera, Drucker/Papier, Foto- und Videoordner, Mikrofon und Monitor der Gastansicht. Einzige Quelle für diese
+/// eigenen): Kamera (Gerät, Auflösung, Reglerwerte und Profile; der Flimmerschutz <c>Camera.Powerline</c> ist übertragbar), Drucker/Papier, Foto- und Videoordner, Mikrofon und Monitor der Gastansicht. Einzige Quelle für diese
 /// Felder; ein Test erzwingt, dass jedes neue Feld von <see cref="AppSettings"/> entweder hier oder in dessen Liste
 /// der übertragbaren Felder eingeordnet wird.
 /// </summary>
@@ -14,6 +14,9 @@ public static class DeviceSpecificSettings
         "Camera.DeviceId",
         "Camera.ResolutionWidth",
         "Camera.ResolutionHeight",
+        "Camera.ControlsDeviceId",
+        "Camera.ControlValues",
+        "Camera.ControlProfiles",
         "Printer.PrinterName",
         "Printer.PaperSizeName",
         "Printer.PaperWidthMm",
@@ -36,6 +39,9 @@ public static class DeviceSpecificSettings
             camera.DeviceId = null;
             camera.ResolutionWidth = null;
             camera.ResolutionHeight = null;
+            camera.ControlsDeviceId = null;
+            camera.ControlValues = [];
+            camera.ControlProfiles = [];
         }
         if (s.Printer is { } printer)
         {
@@ -68,6 +74,9 @@ public static class DeviceSpecificSettings
         target.Camera.DeviceId = source.Camera.DeviceId;
         target.Camera.ResolutionWidth = source.Camera.ResolutionWidth;
         target.Camera.ResolutionHeight = source.Camera.ResolutionHeight;
+        target.Camera.ControlsDeviceId = source.Camera.ControlsDeviceId;
+        target.Camera.ControlValues = CameraSettings.CloneValues(source.Camera.ControlValues);
+        target.Camera.ControlProfiles = source.Camera.ControlProfiles is null ? [] : source.Camera.ControlProfiles.Select(p => p?.Clone()!).ToList();
 
         target.Printer.PrinterName = source.Printer.PrinterName;
         target.Printer.PaperSizeName = source.Printer.PaperSizeName;

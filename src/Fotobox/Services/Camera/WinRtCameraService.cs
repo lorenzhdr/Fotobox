@@ -1253,5 +1253,9 @@ public sealed class WinRtCameraService : ICameraService
         ResolutionHeight = s.ResolutionHeight,
         MirrorPreview = s.MirrorPreview,
         MirrorPhoto = s.MirrorPhoto,
+        ControlsDeviceId = s.ControlsDeviceId,
+        ControlValues = CameraSettings.CloneValues(s.ControlValues),
+        ControlProfiles = s.ControlProfiles is null ? [] : s.ControlProfiles.Select(p => p?.Clone()!).ToList(),
+        Powerline = s.Powerline,
     };
 }

@@ -31,6 +31,7 @@ public sealed class SettingsTransferTests : IDisposable
         var s = new AppSettings();
         s.Camera.MirrorPreview = false;
         s.Camera.MirrorPhoto = true;
+        s.Camera.Powerline = CameraPowerline.Hz60;
         s.Flow.CountdownSeconds = 7;
         s.Flow.PreviewSeconds = 6;
         s.Flow.PauseBetweenShotsSeconds = 3;
@@ -137,6 +138,12 @@ public sealed class SettingsTransferTests : IDisposable
         s.Camera.DeviceId = "kamera-geraet-4711";
         s.Camera.ResolutionWidth = 1920;
         s.Camera.ResolutionHeight = 1080;
+        s.Camera.ControlsDeviceId = "kamera-controls-4711";
+        s.Camera.ControlValues = [new CameraControlValue { Kind = CameraControlKind.Zoom, Value = 777.5 }];
+        s.Camera.ControlProfiles =
+        [
+            new CameraControlProfile { Name = "Profil-Name-4711", DeviceId = "kamera-controls-4711", Values = [new CameraControlValue { Kind = CameraControlKind.Hue, Auto = true }] },
+        ];
         s.Printer.PrinterName = "Drucker-Wohnzimmer";
         s.Printer.PaperSizeName = "Papier-Spezial";
         s.Printer.PaperWidthMm = 101.6;
@@ -151,7 +158,7 @@ public sealed class SettingsTransferTests : IDisposable
 
     private static readonly string[] DeviceValues =
     [
-        "kamera-geraet-4711", "Drucker-Wohnzimmer", "Papier-Spezial", "Fotos-Pfad", "mikrofon-id-4711", "Mikrofon-Name-4711",
+        "kamera-geraet-4711", "kamera-controls-4711", "Profil-Name-4711", "777.5", "Drucker-Wohnzimmer", "Papier-Spezial", "Fotos-Pfad", "mikrofon-id-4711", "Mikrofon-Name-4711",
         "Videos-Pfad", "MONITOR-4711", "Monitor-Name-4711", "101.6", "152.4", "1920", "1080",
     ];
 
@@ -323,8 +330,35 @@ public sealed class SettingsTransferTests : IDisposable
         {
             var parts = path.Split('.');
             var section = typeof(AppSettings).GetProperty(parts[0])!.GetValue(result.Sections)!;
-            Assert.Null(section.GetType().GetProperty(parts[1])!.GetValue(section));
+            var value = section.GetType().GetProperty(parts[1])!.GetValue(section);
+            Assert.True(value is null || (value is System.Collections.IList { Count: 0 }), $"{path} muss leer sein.");
         }
+        // Der Flimmerschutz ist übertragbar.
+        Assert.Equal(CameraPowerline.Hz60, result.Sections.Camera.Powerline);
+        Assert.Contains("\"Powerline\"", json);
+        Assert.DoesNotContain("ControlValues", json);
+        Assert.DoesNotContain("ControlProfiles", json);
+        Assert.DoesNotContain("ControlsDeviceId", json);
+    }
+
+    [Fact]
+    public void Import_KeepsTargetControlValuesAndProfiles_WhenDevicesAreCopiedBack()
+    {
+        var original = NonDefaultSettings();
+        var result = SettingsTransfer.Parse(SettingsTransfer.Serialize(original, null, "2.3.0", ExportedAt));
+
+        var target = new AppSettings();
+        target.Camera.ControlsDeviceId = "ziel-kamera";
+        target.Camera.ControlValues = [new CameraControlValue { Kind = CameraControlKind.Brightness, Value = 3 }];
+        target.Camera.ControlProfiles = [new CameraControlProfile { Name = "Ziel", DeviceId = "ziel-kamera" }];
+        var targetDevices = target.Clone();
+        SettingsSections.CopyPortableSections(result.Sections, target);
+        DeviceSpecificSettings.CopyFrom(targetDevices, target);
+
+        Assert.Equal("ziel-kamera", target.Camera.ControlsDeviceId);
+        Assert.Equal(CameraControlKind.Brightness, Assert.Single(target.Camera.ControlValues).Kind);
+        Assert.Equal("Ziel", Assert.Single(target.Camera.ControlProfiles).Name);
+        Assert.Equal(CameraPowerline.Hz60, target.Camera.Powerline);
     }
 
     [Fact]
@@ -389,7 +423,8 @@ public sealed class SettingsTransferTests : IDisposable
         {
             var parts = path.Split('.');
             var section = typeof(AppSettings).GetProperty(parts[0])!.GetValue(result.Sections)!;
-            Assert.Null(section.GetType().GetProperty(parts[1])!.GetValue(section));
+            var value = section.GetType().GetProperty(parts[1])!.GetValue(section);
+            Assert.True(value is null || value is System.Collections.IList { Count: 0 }, $"{path} muss leer sein.");
         }
         Assert.False(result.FromNewerVersion);
     }

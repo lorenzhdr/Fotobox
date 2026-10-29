@@ -81,6 +81,10 @@ public class AppSettingsTests
         Assert.Null(s.Camera.ResolutionHeight);
         Assert.True(s.Camera.MirrorPreview);
         Assert.False(s.Camera.MirrorPhoto);
+        Assert.Null(s.Camera.ControlsDeviceId);
+        Assert.Empty(s.Camera.ControlValues);
+        Assert.Empty(s.Camera.ControlProfiles);
+        Assert.Equal(CameraPowerline.Hz50, s.Camera.Powerline);
 
         Assert.Equal(5, s.Flow.CountdownSeconds);
         Assert.Equal(4, s.Flow.PreviewSeconds);

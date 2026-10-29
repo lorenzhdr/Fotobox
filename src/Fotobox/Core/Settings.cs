@@ -79,6 +79,14 @@ public static class SettingsLimits
     public const int MonitorIdMaxLength = 512;
     /// <summary>Längster gespeicherter Monitorname (nur Anzeige); längere Werte aus der settings.json werden gekürzt.</summary>
     public const int MonitorNameMaxLength = 200;
+    /// <summary>Längste gespeicherte Kamera-Id (Geräte-Id der Reglerwerte und Profile); längere Werte werden verworfen (gekürzt passte die Id nie).</summary>
+    public const int CameraDeviceIdMaxLength = 512;
+    /// <summary>
+    /// Kamerasteuerung: Höchstzahl benannter Profile je Kamera und Länge des Profilnamens (längere Namen kürzt der Normalizer).
+    /// Die Wertebereiche der Regler selbst kommen zur Laufzeit vom Treiber und werden beim Anwenden im Kameradienst geklemmt
+    /// (<see cref="CameraControlMath"/>), nicht hier.
+    /// </summary>
+    public const int CameraProfilesMax = 10, CameraProfileNameMaxLength = 40;
     /// <summary>Videoaufnahme: Höchstdauer eines Clips in Sekunden (Standard 300).</summary>
     public const int VideoMaxDurationMin = 10, VideoMaxDurationMax = 1800;
     /// <summary>Countdown vor dem Video; 0 = sofort.</summary>
@@ -240,7 +248,28 @@ public sealed class CameraSettings
     public bool MirrorPreview { get; set; } = true;
     public bool MirrorPhoto { get; set; } = false;
 
-    /// <summary>Kopie aller Felder.</summary>
+    /// <summary>
+    /// Die tatsächlich geöffnete Kamera (aufgelöste Geräte-Id, nicht <see cref="DeviceId"/>, das null = „erstes Gerät“ sein kann),
+    /// zu der <see cref="ControlValues"/> gehört. Gerätespezifisch (wird nicht geteilt).
+    /// </summary>
+    public string? ControlsDeviceId { get; set; }
+
+    /// <summary>
+    /// Nur die im Admin verstellten Regler der Kamera <see cref="ControlsDeviceId"/> (Rohwerte des Treibers). Die Fotobox setzt
+    /// beim Start nur diese und lässt den Rest dem Treiber. Gerätespezifisch (wird nicht geteilt).
+    /// </summary>
+    public List<CameraControlValue> ControlValues { get; set; } = [];
+
+    /// <summary>Benannte Profile mit Reglerwerten, je an eine Kamera gebunden. Gerätespezifisch (wird nicht geteilt).</summary>
+    public List<CameraControlProfile> ControlProfiles { get; set; } = [];
+
+    /// <summary>
+    /// Flimmerschutz (Netzfrequenz des Raumlichts), Standard 50 Hz. Bewusste Ausnahme von „nur Verstelltes setzen“: wird bei jedem
+    /// Kamerastart gesetzt; <see cref="CameraPowerline.Unchanged"/> lässt den Treiber unberührt. Übertragbar (hängt vom Ort ab).
+    /// </summary>
+    public CameraPowerline Powerline { get; set; } = CameraPowerline.Hz50;
+
+    /// <summary>Tiefe Kopie aller Felder (auch der Listen und ihrer Objekte).</summary>
     public CameraSettings Clone() => new()
     {
         DeviceId = DeviceId,
@@ -248,11 +277,20 @@ public sealed class CameraSettings
         ResolutionHeight = ResolutionHeight,
         MirrorPreview = MirrorPreview,
         MirrorPhoto = MirrorPhoto,
+        ControlsDeviceId = ControlsDeviceId,
+        ControlValues = CloneValues(ControlValues),
+        ControlProfiles = ControlProfiles is null ? [] : ControlProfiles.Select(p => p?.Clone()!).ToList(),
+        Powerline = Powerline,
     };
+
+    /// <summary>Tiefe Kopie einer Reglerwerte-Liste (null → leer).</summary>
+    internal static List<CameraControlValue> CloneValues(IEnumerable<CameraControlValue>? values) =>
+        values is null ? [] : values.Select(v => v?.Clone()!).ToList();
 
     /// <summary>
     /// Muss die Kamera neu gestartet werden, damit <paramref name="other"/> gilt? Nur bei anderem Gerät oder anderer Auflösung;
-    /// Spiegeln wirkt ohne Neustart (Vorschau live per Bindung, Foto liest der Controller je Durchgang).
+    /// Spiegeln wirkt ohne Neustart (Vorschau live per Bindung, Foto liest der Controller je Durchgang). Reglerwerte, Profile und
+    /// Flimmerschutz lösen keinen Neustart aus (sie gelten live bzw. über <c>ICameraService.ConfigureControls</c>).
     /// </summary>
     public bool RequiresRestartComparedTo(CameraSettings other) =>
         DeviceId != other.DeviceId

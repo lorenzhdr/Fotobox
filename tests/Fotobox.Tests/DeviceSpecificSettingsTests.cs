@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Reflection;
+using System.Text.Json;
 using Fotobox.Core;
 using Xunit;
 
@@ -18,6 +19,7 @@ public sealed class DeviceSpecificSettingsTests
         // Camera
         "Camera.MirrorPreview",
         "Camera.MirrorPhoto",
+        "Camera.Powerline",
         // Flow
         "Flow.CountdownSeconds",
         "Flow.PreviewSeconds",
@@ -157,12 +159,13 @@ public sealed class DeviceSpecificSettingsTests
     }
 
     [Fact]
-    public void Paths_AreTheThirteenAgreedDeviceFields()
+    public void Paths_AreTheSixteenAgreedDeviceFields()
     {
         Assert.Equal(
             new[]
             {
                 "Appearance.GuestMonitorId", "Appearance.GuestMonitorName",
+                "Camera.ControlProfiles", "Camera.ControlValues", "Camera.ControlsDeviceId",
                 "Camera.DeviceId", "Camera.ResolutionHeight", "Camera.ResolutionWidth",
                 "Printer.PaperHeightMm", "Printer.PaperSizeName", "Printer.PaperWidthMm", "Printer.PrinterName",
                 "Storage.PhotoFolder",
@@ -186,7 +189,7 @@ public sealed class DeviceSpecificSettingsTests
 
         var fresh = new AppSettings();
         foreach (var path in DeviceSpecificSettings.Paths)
-            Assert.Equal(Get(fresh, path), Get(s, path));
+            Assert.Equal(Canon(Get(fresh, path)), Canon(Get(s, path)));
         Assert.True(s.Camera.MirrorPhoto);
         Assert.Equal(3, s.Printer.Copies);
         Assert.Equal("Eigen", s.Storage.FilePrefix);
@@ -220,10 +223,15 @@ public sealed class DeviceSpecificSettingsTests
         DeviceSpecificSettings.CopyFrom(source, target);
 
         foreach (var path in DeviceSpecificSettings.Paths)
-            Assert.Equal(Get(source, path), Get(target, path));
+            Assert.Equal(Canon(Get(source, path)), Canon(Get(target, path)));
         Assert.False(target.Camera.MirrorPhoto);
         Assert.Equal("Ziel", target.Storage.FilePrefix);
         Assert.NotSame(source.Camera, target.Camera);
+        // Listen werden tief kopiert, nicht geteilt.
+        Assert.NotSame(source.Camera.ControlValues, target.Camera.ControlValues);
+        Assert.NotSame(source.Camera.ControlValues[0], target.Camera.ControlValues[0]);
+        Assert.NotSame(source.Camera.ControlProfiles[0], target.Camera.ControlProfiles[0]);
+        Assert.NotSame(source.Camera.ControlProfiles[0].Values[0], target.Camera.ControlProfiles[0].Values[0]);
     }
 
     [Fact]
@@ -235,7 +243,7 @@ public sealed class DeviceSpecificSettingsTests
         DeviceSpecificSettings.CopyFrom(new AppSettings(), target);
 
         foreach (var path in DeviceSpecificSettings.Paths)
-            Assert.Null(Get(target, path));
+            Assert.True(IsNullOrEmpty(Get(target, path)), $"{path} ist nicht leer.");
     }
 
     /// <summary>Alle Blattfelder (öffentlich les-/schreibbar) der übertragbaren Abschnitte; verschachtelte Objekte werden durchlaufen, Texte und Listen sind Blätter.</summary>
@@ -282,13 +290,24 @@ public sealed class DeviceSpecificSettingsTests
         return property.GetValue(owner);
     }
 
+    /// <summary>Vergleichbare Form eines Werts: Listen als JSON (tiefe Kopien sind nie referenzgleich).</summary>
+    private static object? Canon(object? value) =>
+        value is IEnumerable and not string ? JsonSerializer.Serialize(value, AppSettings.JsonOptions) : value;
+
+    private static bool IsNullOrEmpty(object? value) =>
+        value is null || (value is IEnumerable e and not string && !e.GetEnumerator().MoveNext());
+
     private static void FillDeviceFields(AppSettings s)
     {
         foreach (var path in DeviceSpecificSettings.Paths)
         {
             var (owner, property) = Resolve(s, path);
             var type = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
-            object value = type == typeof(string) ? (object)("wert-" + path)
+            object value = type == typeof(List<CameraControlValue>) ? new List<CameraControlValue>
+                    { new() { Kind = CameraControlKind.Zoom, Value = 2.5 }, new() { Kind = CameraControlKind.Focus, Auto = true } }
+                : type == typeof(List<CameraControlProfile>) ? new List<CameraControlProfile>
+                    { new() { Name = "Profil", DeviceId = "wert-" + path, Values = [new() { Kind = CameraControlKind.Hue, Value = 3 }] } }
+                : type == typeof(string) ? (object)("wert-" + path)
                 : type == typeof(int) ? (object)1234
                 : type == typeof(double) ? (object)12.5
                 : throw new InvalidOperationException($"Unbekannter Typ für {path}: {type.Name}");
