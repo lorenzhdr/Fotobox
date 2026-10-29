@@ -622,6 +622,28 @@ public sealed class AdminSettingsTransferTests : IDisposable
     }
 
     [Fact]
+    public async Task Import_ThenChangePin_ChangedPinWinsOnSave()
+    {
+        SetStorePin();
+        var vm = await CreateInitializedAsync();
+        _ui.ImportFileToPick = WriteImportFile(new AppSettings(), FilePin());
+        _ui.ConfirmResults.Enqueue(true);   // Import
+        _ui.ConfirmResults.Enqueue(true);   // PIN übernehmen
+        await vm.ImportSettingsCommand.ExecuteAsync(null);
+        Assert.True(vm.HasUnsavedChanges);
+
+        vm.NewPin = "2468";
+        vm.RepeatPin = "2468";
+        vm.ChangePinCommand.Execute(null);
+        Assert.Equal("hash:2468", _store.Current.Security.PinHash);
+
+        vm.CountdownSeconds = 8;
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.Equal("hash:2468", _store.Current.Security.PinHash);
+    }
+
+    [Fact]
     public async Task Reset_ClearsPendingImportedPin()
     {
         SetStorePin();
