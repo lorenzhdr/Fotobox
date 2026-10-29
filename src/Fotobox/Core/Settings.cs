@@ -165,8 +165,14 @@ public static class SettingsLimits
     public const int KisscamBannerMaxLength = 30;
     /// <summary>Kisscam: In den letzten so vielen Sekunden des Countdowns erscheinen große Ziffern.</summary>
     public const int KisscamFinalDigitsSeconds = 3;
-    /// <summary>Kisscam: längster gespeicherter Pfad der Musikdatei; längere Werte aus der settings.json werden verworfen (gekürzt passte der Pfad nie).</summary>
-    public const int KisscamMusicPathMaxLength = 1024;
+    /// <summary>Kisscam: längster gespeicherter Pfad des Musikordners; längere Werte aus der settings.json werden verworfen (gekürzt passte der Pfad nie).</summary>
+    public const int KisscamMusicFolderMaxLength = 1024;
+    /// <summary>Kisscam: Startzeit eines Songs in Sekunden (1-s-Schritte; 3599 = 59:59).</summary>
+    public const int KisscamSongStartSecondsMin = 0, KisscamSongStartSecondsMax = 3599, KisscamSongStartSecondsStep = 1;
+    /// <summary>Kisscam: Lautstärke eines Songs in Prozent der Gesamtlautstärke (5er-Schritte).</summary>
+    public const int KisscamSongVolumeMin = 10, KisscamSongVolumeMax = 100, KisscamSongVolumeStep = 5, KisscamSongVolumeDefault = 100;
+    /// <summary>Kisscam: höchste Zahl berücksichtigter Songs im Musikordner (weitere Dateien werden ignoriert).</summary>
+    public const int KisscamMusicMaxSongs = 500;
     /// <summary>Admin-Ansicht: Zoom des Inhaltsbereichs in Prozent (5er-Schritte, Standard 80); Tab-Leiste und Fußleiste bleiben bei 100 %.</summary>
     public const int AdminZoomMin = 60, AdminZoomMax = 100, AdminZoomStep = 5, AdminZoomDefault = 80;
 }
@@ -658,8 +664,11 @@ public sealed class HeartSettings
     public int KisscamZoomPercent { get; set; } = 140;
     /// <summary>Dateiname-Präfix des Kisscam-Fotos.</summary>
     public string KisscamFilePrefix { get; set; } = DefaultKisscamFilePrefix;
-    /// <summary>Musikdatei (WAV/MP3) während der Kisscam; null = keine Musik. Gerätespezifisch (wird nicht geteilt).</summary>
-    public string? KisscamMusicPath { get; set; }
+    /// <summary>
+    /// Musikordner der Kisscam (Songs und Config <c>kisscam-musik.json</c> liegen darin); null = <see cref="AppInfo.DefaultKisscamMusicFolder"/>.
+    /// Gerätespezifisch (wird nicht geteilt). Ein früheres Feld <c>KisscamMusicPath</c> (Einzeldatei) wird ignoriert.
+    /// </summary>
+    public string? KisscamMusicFolder { get; set; }
     public int KisscamMusicVolumePercent { get; set; } = 80;
 
     public const string DefaultKisscamText = "Du hast {Sekunden} Sekunden Zeit, dir jemanden zum Küssen zu suchen!";

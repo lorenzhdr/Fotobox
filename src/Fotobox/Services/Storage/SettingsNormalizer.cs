@@ -347,12 +347,12 @@ internal static class SettingsNormalizer
         h.KisscamBannerText = string.IsNullOrEmpty(banner) ? null : banner;
         h.KisscamFilePrefix = SanitizePrefix(h.KisscamFilePrefix, HeartSettings.DefaultKisscamFilePrefix);
 
-        var music = h.KisscamMusicPath?.Trim();
-        if (string.IsNullOrEmpty(music)
-            || music.Length > SettingsLimits.KisscamMusicPathMaxLength
-            || music.Any(char.IsControl))
-            music = null;
-        h.KisscamMusicPath = music;
+        var musicFolder = h.KisscamMusicFolder?.Trim();
+        if (string.IsNullOrEmpty(musicFolder)
+            || musicFolder.Length > SettingsLimits.KisscamMusicFolderMaxLength
+            || musicFolder.Any(char.IsControl))
+            musicFolder = null;
+        h.KisscamMusicFolder = musicFolder;
     }
 
     /// <summary>Rundet kaufmännisch auf ein Vielfaches von <paramref name="step"/> und klemmt auf [<paramref name="min"/>, <paramref name="max"/>].</summary>

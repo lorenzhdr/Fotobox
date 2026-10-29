@@ -3,6 +3,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Fotobox.Core;
+using Fotobox.Core.Music;
 using Fotobox.Core.Fun;
 using Fotobox.Core.Heart;
 using Fotobox.Core.Peace;
@@ -50,9 +51,16 @@ public sealed class BoothViewModel : ObservableObject
     private readonly DispatcherTimer _explosionTimer;
     // Herz/Kisscam: Musik, Rahmen und Zoom-Ausschnitt des laufenden Durchgangs; „pending“ = Kisscam-Countdown gesehen (Musik läuft).
     private readonly IMusicPlayer? _music;
+    private readonly IKisscamMusicLibrary? _musicLibrary;
 
     /// <summary>Hat die Gastansicht einen Musikspieler (DI)? Für Tests der Zusammensetzung.</summary>
     internal bool HasMusic => _music is not null;
+
+    /// <summary>Hat die Gastansicht die Musikbibliothek (DI)? Für Tests der Zusammensetzung.</summary>
+    internal bool HasMusicLibrary => _musicLibrary is not null;
+
+    /// <summary>Quelle der Zufallswahl des Songs. Für Tests austauschbar.</summary>
+    internal Random MusicRandom { get; set; } = Random.Shared;
 
     private bool _kisscamPending;
     private PhotoFrame? _kisscamFrame;
@@ -68,8 +76,10 @@ public sealed class BoothViewModel : ObservableObject
     /// <param name="fun">Zielerfassung der gesamten Gastansicht (DI); ohne Angabe eine untätige Instanz (Tests).</param>
     /// <param name="peace">Peaceerkennung der Gastansicht (DI, mit dem Bart-Zustand für die Foto-Planung); ohne Angabe eine untätige Instanz (Tests).</param>
     /// <param name="music">Musik der Kisscam (DI); ohne Angabe läuft die Kisscam stumm.</param>
+    /// <param name="musicLibrary">Songs, Häkchen, Startzeiten und Lautstärken der Kisscam-Musik (DI); ohne Angabe läuft die Kisscam stumm.</param>
     public BoothViewModel(BoothController controller, ICameraService camera, ISettingsStore settings,
-        FunOverlayViewModel? fun = null, PeaceOverlayViewModel? peace = null, IMusicPlayer? music = null)
+        FunOverlayViewModel? fun = null, PeaceOverlayViewModel? peace = null, IMusicPlayer? music = null,
+        IKisscamMusicLibrary? musicLibrary = null)
     {
         Controller = controller;
         Camera = camera;
@@ -77,6 +87,7 @@ public sealed class BoothViewModel : ObservableObject
         Fun = fun ?? FunOverlayViewModel.CreateInert();
         Peace = peace ?? PeaceOverlayViewModel.CreateInert();
         _music = music;
+        _musicLibrary = musicLibrary;
         Peace.ActionRequested += (_, trigger) => OnPeaceAction(trigger);
         Peace.MiddleFingerTriggered += (_, _) => OnMiddleFinger();
         Peace.HeartTriggered += (_, trigger) => OnHeartAction(trigger);
@@ -1111,20 +1122,42 @@ public sealed class BoothViewModel : ObservableObject
         }
 
         ResetLayoutSelection();
-        var music = !string.IsNullOrWhiteSpace(heart.KisscamMusicPath);
-        if (music)
-        {
-            try
-            {
-                _music?.Play(heart.KisscamMusicPath, heart.KisscamMusicVolumePercent, loop: true);
-            }
-            catch (Exception ex)
-            {
-                AppLog.Warn("Kisscam-Musik konnte nicht gestartet werden.", ex);
-            }
-        }
-        AppLog.Info($"Kisscam gestartet ({heart.KisscamSeconds} s, Zoom {(region is null ? "aus" : $"{heart.KisscamZoomPercent} %")}, Musik {(music ? "an" : "aus")}).");
+        var musicText = StartKisscamMusic(heart);
+        AppLog.Info($"Kisscam gestartet ({heart.KisscamSeconds} s, Zoom {(region is null ? "aus" : $"{heart.KisscamZoomPercent} %")}, Musik {musicText}).");
         return true;
+    }
+
+    // Wählt rein zufällig (Wiederholung erlaubt) unter den angehakten, abspielbaren Songs und startet ihn ab seiner Startzeit in einer
+    // Schleife. Liest nur den letzten Stand der Bibliothek (nie ein Dateizugriff); ohne Treffer bleibt die Kisscam stumm.
+    private string StartKisscamMusic(HeartSettings heart)
+    {
+        if (_music is null || _musicLibrary is null)
+            return "aus";
+        try
+        {
+            var snapshot = _musicLibrary.Current;
+            var pick = KisscamSongPicker.Pick(snapshot, heart.KisscamMusicVolumePercent, MusicRandom);
+            if (pick is null)
+            {
+                if (snapshot.Status == KisscamLibraryStatus.ConfigBroken)
+                    AppLog.Warn("Kisscam ohne Musik: Die Musikconfig ist unlesbar.");
+                return snapshot.Status switch
+                {
+                    KisscamLibraryStatus.ConfigBroken => "aus (Config unlesbar)",
+                    KisscamLibraryStatus.FolderUnavailable => "aus (Ordner nicht erreichbar)",
+                    KisscamLibraryStatus.Loading => "aus (Ordner wird gelesen)",
+                    _ => "aus (kein Song ausgewählt)",
+                };
+            }
+
+            _music.Play(pick.Path, pick.VolumePercent, loop: true, pick.StartAt);
+            return $"an ({System.IO.Path.GetFileName(pick.Path)}, ab {KisscamTimeFormat.Format((int)pick.StartAt.TotalSeconds)}, {pick.VolumePercent} %)";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Kisscam-Musik konnte nicht gestartet werden.", ex);
+            return "aus (Fehler)";
+        }
     }
 
     private bool TriggerPeacePhoto(int countdownSeconds, CountdownStyle style)

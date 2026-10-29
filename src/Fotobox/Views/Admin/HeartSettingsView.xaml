@@ -334,30 +334,96 @@
                             <TextBlock x:Name="KisscamFileNameExampleText" Text="{Binding KisscamFileNameExample}" Style="{DynamicResource Hint}" />
 
                             <TextBlock Text="Musik" Style="{DynamicResource FieldLabel}" />
-                            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                                <Button x:Name="KisscamMusicPickButton" Content="Datei wählen …" Command="{Binding PickKisscamMusicCommand}"
-                                        AutomationProperties.Name="Musikdatei wählen" />
-                                <Button x:Name="KisscamMusicRemoveButton" Content="Entfernen" Command="{Binding RemoveKisscamMusicCommand}"
-                                        Margin="10,0,0,0" AutomationProperties.Name="Musikdatei entfernen" />
-                                <Button x:Name="KisscamMusicPreviewButton" Content="{Binding KisscamMusicPreviewButtonText}"
-                                        Command="{Binding ToggleKisscamMusicPreviewCommand}" Margin="10,0,0,0" MinWidth="90"
-                                        AutomationProperties.Name="Musik anhören oder stoppen" />
-                            </StackPanel>
-                            <TextBlock x:Name="KisscamMusicFileNameText" Text="{Binding KisscamMusicFileName}" ToolTip="{Binding KisscamMusicPath}"
+                            <TextBlock Style="{DynamicResource Hint}" Margin="0,2,0,0"
+                                       Text="Kopieren Sie Musikdateien (MP3, WAV, M4A, WMA) in den Musikordner und haken Sie die Songs an, die zur Kisscam laufen sollen. Bei jeder Kisscam wird zufällig einer der angehakten Songs gespielt (Wiederholungen sind möglich), ab seiner Startzeit; ist er kürzer, läuft er in einer Schleife. Der Musikordner gilt nur für diesen Rechner und wird beim Teilen der Einstellungen nicht übertragen. Häkchen, Startzeiten und Lautstärken der Songs werden sofort in der Datei kisscam-musik.json im Musikordner gespeichert, unabhängig vom Speichern der übrigen Einstellungen." />
+                            <TextBlock x:Name="KisscamMusicFolderText" Text="{Binding KisscamMusicFolderDisplay}" ToolTip="{Binding KisscamMusicFolderDisplay}"
                                        Foreground="{DynamicResource TextBrush}" FontSize="14" TextTrimming="CharacterEllipsis" Margin="0,10,0,0" />
-                            <TextBlock x:Name="KisscamMusicMissingWarning" Text="{x:Static vm:AdminViewModel.KisscamMusicMissingText}"
-                                       Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
-                                       Visibility="{Binding KisscamMusicMissing, Converter={StaticResource BoolToVis}}" />
-                            <TextBlock x:Name="KisscamMusicPlayFailedWarning" Text="{x:Static vm:AdminViewModel.KisscamMusicPlayFailedText}"
-                                       Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
-                                       Visibility="{Binding KisscamMusicPlayFailed, Converter={StaticResource BoolToVis}}" />
-                            <TextBlock Style="{DynamicResource Hint}"
-                                       Text="Ohne Datei läuft die Kisscam ohne Ton. Erlaubt sind WAV- und MP3-Dateien. Der Dateipfad gilt nur für diesen Rechner und wird beim Teilen der Einstellungen nicht übertragen." />
+                            <WrapPanel Margin="0,8,0,0">
+                                <Button x:Name="KisscamMusicFolderPickButton" Content="Ordner wählen …" Command="{Binding ChooseKisscamMusicFolderCommand}"
+                                        Margin="0,0,10,6" AutomationProperties.Name="Musikordner wählen" />
+                                <Button x:Name="KisscamMusicFolderResetButton" Content="Standard" Command="{Binding ResetKisscamMusicFolderCommand}"
+                                        IsEnabled="{Binding HasCustomKisscamMusicFolder}"
+                                        Margin="0,0,10,6" AutomationProperties.Name="Standard-Musikordner verwenden" />
+                                <Button x:Name="KisscamMusicFolderOpenButton" Content="Ordner öffnen" Command="{Binding OpenKisscamMusicFolderCommand}"
+                                        Margin="0,0,10,6" AutomationProperties.Name="Musikordner im Explorer öffnen" />
+                                <Button x:Name="KisscamMusicRefreshButton" Content="Aktualisieren" Command="{Binding RefreshKisscamMusicCommand}"
+                                        Margin="0,0,10,6" AutomationProperties.Name="Songliste aktualisieren" />
+                            </WrapPanel>
+                            <TextBlock x:Name="KisscamMusicHintsText" Text="{Binding KisscamMusicHintsText}" Style="{DynamicResource Hint}"
+                                       Foreground="{DynamicResource WarningBrush}"
+                                       Visibility="{Binding HasKisscamMusicHints, Converter={StaticResource BoolToVis}}" />
 
-                            <TextBlock Text="Lautstärke" Style="{DynamicResource FieldLabel}" />
+                            <ItemsControl x:Name="KisscamSongList" ItemsSource="{Binding KisscamSongs}" Margin="0,8,0,0"
+                                          KeyboardNavigation.TabNavigation="Continue">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="0,10,0,10">
+                                            <StackPanel>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <CheckBox Grid.Column="0" IsChecked="{Binding Enabled}" FontWeight="SemiBold"
+                                                              VerticalAlignment="Center" ToolTip="{Binding FullPath}"
+                                                              AutomationProperties.Name="{Binding FileName, StringFormat=Song {0} verwenden}">
+                                                        <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" />
+                                                    </CheckBox>
+                                                    <TextBlock Grid.Column="1" Text="{Binding DurationText, StringFormat=Länge {0}}" Style="{DynamicResource Hint}"
+                                                               Margin="10,0,10,0" VerticalAlignment="Center" />
+                                                    <Button Grid.Column="2" Content="{Binding PreviewButtonText}" Command="{Binding PreviewCommand}" MinWidth="90"
+                                                            AutomationProperties.Name="{Binding FileName, StringFormat=Song {0} anspielen oder stoppen}" />
+                                                </Grid>
+                                                <WrapPanel Margin="0,8,0,0">
+                                                    <TextBlock Text="Startzeit" Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                                    <RepeatButton Style="{DynamicResource StepButton}" Content="−" Delay="400" Interval="90"
+                                                                  Command="{Binding StartEarlierCommand}"
+                                                                  AutomationProperties.Name="Startzeit verringern" />
+                                                    <TextBox Text="{Binding StartText, UpdateSourceTrigger=LostFocus}" Width="64" TextAlignment="Center"
+                                                             Margin="6,0" VerticalAlignment="Center"
+                                                             AutomationProperties.Name="{Binding FileName, StringFormat=Startzeit von {0} (Minuten:Sekunden)}" />
+                                                    <RepeatButton Style="{DynamicResource StepButton}" Content="+" Delay="400" Interval="90"
+                                                                  Command="{Binding StartLaterCommand}"
+                                                                  AutomationProperties.Name="Startzeit erhöhen" />
+                                                    <TextBlock Text="Lautstärke" Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" Margin="24,0,8,0" />
+                                                    <local:NumberStepper Value="{Binding VolumePercent}"
+                                                                         Minimum="{x:Static core:SettingsLimits.KisscamSongVolumeMin}"
+                                                                         Maximum="{x:Static core:SettingsLimits.KisscamSongVolumeMax}"
+                                                                         Step="{x:Static core:SettingsLimits.KisscamSongVolumeStep}" Suffix=" %" />
+                                                </WrapPanel>
+                                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                                    <StackPanel.Style>
+                                                        <Style TargetType="StackPanel">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsPreviewing}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </StackPanel.Style>
+                                                    <TextBlock Text="{Binding PositionText, StringFormat=Position {0}}" Foreground="{DynamicResource TextBrush}"
+                                                               VerticalAlignment="Center" Margin="0,0,12,0" />
+                                                    <Button Content="Position übernehmen" Command="{Binding TakePositionCommand}"
+                                                            AutomationProperties.Name="Position als Startzeit übernehmen" />
+                                                </StackPanel>
+                                                <TextBlock Text="{x:Static vm:KisscamSongRowViewModel.StartBeyondEndText}" Style="{DynamicResource Hint}"
+                                                           Foreground="{DynamicResource WarningBrush}"
+                                                           Visibility="{Binding StartBeyondEnd, Converter={StaticResource BoolToVis}}" />
+                                                <TextBlock Text="{x:Static vm:KisscamSongRowViewModel.NotPlayableText}" Style="{DynamicResource Hint}"
+                                                           Foreground="{DynamicResource WarningBrush}"
+                                                           Visibility="{Binding NotPlayable, Converter={StaticResource BoolToVis}}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="Gesamtlautstärke" Style="{DynamicResource FieldLabel}" />
                             <local:NumberStepper x:Name="KisscamMusicVolumeStepper" Value="{Binding KisscamMusicVolumePercent}" Minimum="{x:Static core:SettingsLimits.KisscamMusicVolumeMin}" Maximum="{x:Static core:SettingsLimits.KisscamMusicVolumeMax}" Step="{x:Static core:SettingsLimits.KisscamMusicVolumeStep}" Suffix=" %" />
                             <TextBlock Style="{DynamicResource Hint}"
-                                       Text="Die Lautstärke gilt beim nächsten Anhören." />
+                                       Text="Die Lautstärke eines Songs ist ein Anteil der Gesamtlautstärke. Änderungen gelten beim nächsten Anspielen." />
                         </StackPanel>
                     </Border>
                 </StackPanel>

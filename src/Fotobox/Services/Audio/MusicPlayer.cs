@@ -6,10 +6,12 @@ using Fotobox.Core;
 namespace Fotobox.Services.Audio;
 
 /// <summary>
-/// Spielt die Kisscam-Musik (WAV oder MP3) über den WPF-<see cref="MediaPlayer"/> (Media Foundation). Der Player lebt auf einem eigenen
+/// Spielt die Kisscam-Musik (MP3, WAV, M4A oder WMA) über den WPF-<see cref="MediaPlayer"/> (Media Foundation). Der Player lebt auf einem eigenen
 /// STA-Thread mit <see cref="Dispatcher"/>, der erst beim ersten <see cref="Play"/> entsteht; Aufrufer posten nur per
 /// <c>BeginInvoke</c> und warten nie. Wirft nie: Fehlende Datei, kaputte Datei, fehlendes Media Foundation (Windows N) oder eine
-/// verpasste Öffnungsfrist ergeben nur eine Log-Warnung und Stille. Jeder <see cref="Play"/>/<see cref="Stop"/> erhöht einen
+/// verpasste Öffnungsfrist ergeben nur eine Log-Warnung und Stille. Die Wiedergabe beginnt bei einer wählbaren Startzeit, eine
+/// Wiederholung springt wieder dorthin zurück; <see cref="PositionChanged"/> meldet während des Spielens alle
+/// <see cref="PositionInterval"/> die Position. Jeder <see cref="Play"/>/<see cref="Stop"/> erhöht einen
 /// Generationszähler; Ereignisse und Timer einer älteren Generation (oder eines bereits ersetzten <see cref="MediaPlayer"/>s) werden
 /// verworfen. Das Öffnen ist mit <see cref="OpenTimeout"/> befristet, <see cref="Dispose"/> wartet höchstens <see cref="DisposeWait"/>.
 /// </summary>
@@ -21,6 +23,8 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
     internal static readonly TimeSpan DisposeWait = TimeSpan.FromSeconds(1);
     /// <summary>Schrittweite der Ausblendung.</summary>
     internal static readonly TimeSpan FadeStep = TimeSpan.FromMilliseconds(50);
+    /// <summary>Takt der Positionsmeldung <see cref="PositionChanged"/> (nur auf dem Musik-Thread).</summary>
+    internal static readonly TimeSpan PositionInterval = TimeSpan.FromMilliseconds(250);
 
     private readonly object _gate = new();
     // Aufträge, die vor dem Start des Dispatchers eingehen (Thread entsteht lazy); werden beim Start in die Warteschlange gestellt.
@@ -36,16 +40,22 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
     private MediaPlayer? _player;
     private DispatcherTimer? _openTimer;
     private DispatcherTimer? _fadeTimer;
+    private DispatcherTimer? _positionTimer;
     private bool _opened;
     private bool _fading;
+    // Pfad und (nach dem Öffnen aufgelöste) Startzeit der laufenden Wiedergabe.
+    private string? _currentPath;
+    private TimeSpan _startAt;
 
     public bool IsPlaying => Volatile.Read(ref _isPlaying) != 0;
 
     public event EventHandler? PlaybackChanged;
 
-    public event EventHandler? PlaybackFailed;
+    public event EventHandler<MusicPlaybackFailedEventArgs>? PlaybackFailed;
 
-    public void Play(string? path, int volumePercent, bool loop)
+    public event EventHandler<MusicPositionEventArgs>? PositionChanged;
+
+    public void Play(string? path, int volumePercent, bool loop, TimeSpan startAt = default)
     {
         try
         {
@@ -56,7 +66,8 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
             }
             var generation = Interlocked.Increment(ref _generation);
             var volume = Math.Clamp(volumePercent, 0, 100) / 100.0;
-            Post(() => PlayCore(path, volume, loop, generation));
+            var start = startAt < TimeSpan.Zero ? TimeSpan.Zero : startAt;
+            Post(() => PlayCore(path, volume, loop, start, generation));
         }
         catch (Exception ex)
         {
@@ -212,12 +223,14 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
 
     // ---- Auf dem Musik-Thread ----
 
-    private void PlayCore(string path, double volume, bool loop, int generation)
+    private void PlayCore(string path, double volume, bool loop, TimeSpan startAt, int generation)
     {
         // Ein neuerer Play/Stop hat dieses Starten bereits überholt.
         if (generation != Volatile.Read(ref _generation))
             return;
         StopCore();
+        _currentPath = path;
+        _startAt = TimeSpan.Zero;
 
         string fullPath;
         try
@@ -226,14 +239,14 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
             if (!File.Exists(fullPath))
             {
                 AppLog.Warn($"Musikdatei nicht gefunden: {Path.GetFileName(path)}");
-                RaiseFailed(generation);
+                RaiseFailed(generation, path);
                 return;
             }
         }
         catch (Exception ex)
         {
             AppLog.Warn("Musikpfad ungültig.", ex);
-            RaiseFailed(generation);
+            RaiseFailed(generation, path);
             return;
         }
 
@@ -246,7 +259,7 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         catch (Exception ex)
         {
             AppLog.Warn("Musik nicht verfügbar (Media Foundation fehlt?).", ex);
-            RaiseFailed(generation);
+            RaiseFailed(generation, path);
             return;
         }
 
@@ -254,14 +267,14 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         _opened = false;
         _fading = false;
 
-        player.MediaOpened += (_, _) => Safe(() => OnOpened(player, volume, generation), "MediaOpened der Musik fehlgeschlagen.");
-        player.MediaFailed += (_, e) => Safe(() => OnFailed(player, generation, e.ErrorException), "MediaFailed der Musik fehlgeschlagen.");
+        player.MediaOpened += (_, _) => Safe(() => OnOpened(player, volume, startAt, generation), "MediaOpened der Musik fehlgeschlagen.");
+        player.MediaFailed += (_, e) => Safe(() => OnFailed(player, path, generation, e.ErrorException), "MediaFailed der Musik fehlgeschlagen.");
         player.MediaEnded += (_, _) => Safe(() => OnEnded(player, loop, generation), "MediaEnded der Musik fehlgeschlagen.");
 
         try
         {
             var timer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher.CurrentDispatcher) { Interval = OpenTimeout };
-            timer.Tick += (_, _) => Safe(() => OnOpenTimeout(player, timer, generation), "Öffnungsfrist der Musik fehlgeschlagen.");
+            timer.Tick += (_, _) => Safe(() => OnOpenTimeout(player, timer, path, generation), "Öffnungsfrist der Musik fehlgeschlagen.");
             _openTimer = timer;
             timer.Start();
             player.Open(new Uri(fullPath, UriKind.Absolute));
@@ -269,7 +282,7 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         catch (Exception ex)
         {
             AppLog.Warn("Musikdatei konnte nicht geöffnet werden.", ex);
-            RaiseFailed(generation);
+            RaiseFailed(generation, path);
             StopCore();
         }
     }
@@ -277,23 +290,92 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
     private bool IsCurrent(MediaPlayer player, int generation) =>
         ReferenceEquals(player, _player) && generation == Volatile.Read(ref _generation);
 
-    private void OnOpened(MediaPlayer player, double volume, int generation)
+    private void OnOpened(MediaPlayer player, double volume, TimeSpan startAt, int generation)
     {
         if (!IsCurrent(player, generation))
             return;
         StopTimer(ref _openTimer);
         _opened = true;
+        // Startzeit hinter dem Songende (oder gleich der Länge): ab Anfang spielen. Ohne bekannte Länge gilt die Startzeit unverändert.
+        _startAt = ResolveStart(player, startAt);
+        if (_startAt > TimeSpan.Zero)
+        {
+            try
+            {
+                player.Position = _startAt;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Startzeit der Musik konnte nicht gesetzt werden.", ex);
+                _startAt = TimeSpan.Zero;
+            }
+        }
         player.Volume = volume;
         player.Play();
         SetPlaying(true);
+        StartPositionTimer(player);
     }
 
-    private void OnFailed(MediaPlayer player, int generation, Exception? error)
+    internal static TimeSpan ResolveStart(MediaPlayer player, TimeSpan startAt)
+    {
+        if (startAt <= TimeSpan.Zero)
+            return TimeSpan.Zero;
+        try
+        {
+            if (player.NaturalDuration.HasTimeSpan && startAt >= player.NaturalDuration.TimeSpan)
+                return TimeSpan.Zero;
+        }
+        catch
+        {
+            // Unbekannte Länge: Startzeit unverändert.
+        }
+        return startAt;
+    }
+
+    private void StartPositionTimer(MediaPlayer player)
+    {
+        StopTimer(ref _positionTimer);
+        try
+        {
+            var generation = Volatile.Read(ref _generation);
+            var timer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher.CurrentDispatcher) { Interval = PositionInterval };
+            timer.Tick += (_, _) => Safe(() => OnPositionTick(player, timer, generation), "Positionsmeldung der Musik fehlgeschlagen.");
+            _positionTimer = timer;
+            timer.Start();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Positionsmeldung der Musik konnte nicht gestartet werden.", ex);
+        }
+    }
+
+    private void OnPositionTick(MediaPlayer player, DispatcherTimer timer, int generation)
+    {
+        if (!IsCurrent(player, generation))
+        {
+            timer.Stop();
+            return;
+        }
+        var path = _currentPath;
+        if (path is null)
+            return;
+        TimeSpan? duration = player.NaturalDuration.HasTimeSpan ? player.NaturalDuration.TimeSpan : null;
+        try
+        {
+            PositionChanged?.Invoke(this, new MusicPositionEventArgs(path, player.Position, duration));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("PositionChanged-Handler der Musik ist fehlgeschlagen.", ex);
+        }
+    }
+
+    private void OnFailed(MediaPlayer player, string path, int generation, Exception? error)
     {
         if (!IsCurrent(player, generation))
             return;
         AppLog.Warn("Musikdatei konnte nicht abgespielt werden.", error);
-        RaiseFailed(generation);
+        RaiseFailed(generation, path);
         StopCore();
     }
 
@@ -303,7 +385,8 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
             return;
         if (loop)
         {
-            player.Position = TimeSpan.Zero;
+            // Die Wiederholung beginnt wieder bei der Startzeit, nicht am Anfang des Songs.
+            player.Position = _startAt;
             player.Play();
         }
         else
@@ -312,13 +395,13 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         }
     }
 
-    private void OnOpenTimeout(MediaPlayer player, DispatcherTimer timer, int generation)
+    private void OnOpenTimeout(MediaPlayer player, DispatcherTimer timer, string path, int generation)
     {
         timer.Stop();
         if (!IsCurrent(player, generation) || _opened)
             return;
         AppLog.Warn("Musikdatei wurde nicht rechtzeitig geöffnet.");
-        RaiseFailed(generation);
+        RaiseFailed(generation, path);
         StopCore();
     }
 
@@ -365,6 +448,9 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
     {
         StopTimer(ref _openTimer);
         StopTimer(ref _fadeTimer);
+        StopTimer(ref _positionTimer);
+        _currentPath = null;
+        _startAt = TimeSpan.Zero;
         var player = _player;
         _player = null;
         _opened = false;
@@ -407,13 +493,13 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
 
     // Meldet einen gescheiterten Start oder Abbruch der Wiedergabe (nur für die aktuelle Generation: ein neuerer Play/Stop macht die
     // Meldung gegenstandslos). PlaybackChanged feuert dabei nicht, weil nie gespielt wurde.
-    private void RaiseFailed(int generation)
+    private void RaiseFailed(int generation, string path)
     {
         if (generation != Volatile.Read(ref _generation))
             return;
         try
         {
-            PlaybackFailed?.Invoke(this, EventArgs.Empty);
+            PlaybackFailed?.Invoke(this, new MusicPlaybackFailedEventArgs(path));
         }
         catch (Exception ex)
         {

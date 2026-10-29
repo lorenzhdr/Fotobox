@@ -1,5 +1,6 @@
 using System.Windows;
 using Fotobox.Core;
+using Fotobox.Core.Music;
 using Fotobox.ViewModels.Admin;
 
 namespace Fotobox.Views.Admin;
@@ -18,6 +19,7 @@ public sealed class AdminLauncher : IAdminLauncher
     private readonly IFunSoundPlayer? _sound;
     private readonly IGestureDetectionService? _gestures;
     private readonly IMusicPlayer? _music;
+    private readonly IKisscamMusicLibrary? _library;
     private readonly PinAttemptLimiter _limiter;
 
     /// <summary>Erkennung und Ton für die Fun-Vorschau sind vorhanden (sonst ist die Vorschau inert); für den DI-Test.</summary>
@@ -33,10 +35,11 @@ public sealed class AdminLauncher : IAdminLauncher
     }
 
     // Die Dienste der Zielerfassung und der Peaceerkennung sind für die Live-Vorschauen im Tab „Fun“; ohne sie bleibt die Vorschau inert.
-    // Der Musik-Player dient dem Anhören der Kisscam-Musik; ohne ihn ist „Anhören“ deaktiviert.
+    // Der Musik-Player dient dem Anspielen der Kisscam-Songs, die Bibliothek der Songliste; ohne sie bleibt die Liste leer.
     public AdminLauncher(ISettingsStore settings, IPinService pinService, ICameraService camera, IPrintService print,
         IDisplayService displays, TimeProvider time, IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null,
-        IGestureDetectionService? gestures = null, IMusicPlayer? music = null)
+        IGestureDetectionService? gestures = null, IMusicPlayer? music = null,
+        IKisscamMusicLibrary? library = null)
     {
         _settings = settings;
         _pinService = pinService;
@@ -47,6 +50,7 @@ public sealed class AdminLauncher : IAdminLauncher
         _sound = sound;
         _gestures = gestures;
         _music = music;
+        _library = library;
         // Ein Limiter pro Prozess: Die Sperre überdauert das Schließen des PIN-Dialogs.
         _limiter = new PinAttemptLimiter(time, maxAttempts: 5, lockoutDuration: TimeSpan.FromSeconds(30));
     }
@@ -110,7 +114,7 @@ public sealed class AdminLauncher : IAdminLauncher
 
         var ui = new WpfAdminUi();
         using var viewModel = new AdminViewModel(_settings, _pinService, _camera, _print, ui, displays: _displays,
-            detection: _detection, sound: _sound, gestures: _gestures, music: _music);
+            detection: _detection, sound: _sound, gestures: _gestures, music: _music, library: _library);
         var window = new AdminWindow(viewModel);
         if (owner.IsLoaded)
             window.Owner = owner;

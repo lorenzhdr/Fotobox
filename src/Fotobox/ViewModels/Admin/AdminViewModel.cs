@@ -9,6 +9,7 @@ using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Fotobox.Core;
+using Fotobox.Core.Music;
 using Fotobox.Services.Storage;
 using Fotobox.ViewModels.Booth;
 
@@ -191,7 +192,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     public AdminViewModel(ISettingsStore store, IPinService pin, ICameraService camera, IPrintService print, IAdminUi ui,
         TimeProvider? time = null, IDisplayService? displays = null,
         IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null, IGestureDetectionService? gestures = null,
-        IMusicPlayer? music = null)
+        IMusicPlayer? music = null, IKisscamMusicLibrary? library = null)
     {
         _time = time ?? TimeProvider.System;
         _music = music;
@@ -283,7 +284,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         TestMoustacheCommand = new RelayCommand(StartPeaceTestMoustache);
         TestMiddleFingerCancelCommand = new RelayCommand(StartMiddleFingerCancelTest);
 
-        InitHeart(music);
+        InitHeart(music, library);
         InitCameraControls();
         Camera.StatusChanged += OnCameraStatusChanged;
         UpdateOverlay();
@@ -3118,10 +3119,10 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         RaiseFolder();
         RaiseVideoFolder();
         RaisePrintTimeoutHint();
-        // Der Entwurf hat eine andere Musikdatei bzw. Aktion: Anhören und Kisscam-Test beenden, Datei neu prüfen, Wahlkarten neu lesen.
+        // Der Entwurf hat einen anderen Musikordner bzw. eine andere Aktion: Anspielen und Kisscam-Test beenden, Bibliothek auf den
+        // Ordner des Entwurfs lenken, Wahlkarten neu lesen.
         EndKisscamTest(completed: false);
-        StopKisscamMusicPreview();
-        RefreshKisscamMusicCheck();
+        ApplyKisscamMusicFolderToLibrary();
         RefreshHeartActionOptions();
         // Alle gebundenen Eigenschaften neu lesen (Werte kommen direkt aus dem Entwurf).
         OnPropertyChanged(string.Empty);

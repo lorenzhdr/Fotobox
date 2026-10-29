@@ -101,6 +101,13 @@ public static class AppInfo
         BuildDefaultFolder(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Videos", "Videos");
+    /// <summary>Standardordner der Kisscam-Musik: <c>Musik\Fotobox+\Kisscam</c> (mit denselben Ausweichordnern wie Foto und Video).</summary>
+    public static string DefaultKisscamMusicFolder =>
+        System.IO.Path.Combine(
+            BuildDefaultFolder(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Music", "Musik"),
+            "Kisscam");
 
     /// <summary>
     /// Standardordner immer absolut: Liefert Windows keinen Known Folder (leer, z. B. bei umgebogenem Profil), folgt
