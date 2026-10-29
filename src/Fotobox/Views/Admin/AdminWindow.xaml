@@ -209,6 +209,9 @@
                             <TextBlock Text="{Binding VideoStartKeyHint}" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}"
                                        Visibility="{Binding HasVideoStartKeyHint, Converter={StaticResource BoolToVis}}" />
 
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Speicherort, Dateipräfix und Qualität der Videos stellen Sie im Tab „Speicher“ ein." />
+
                             <!-- Alles Weitere ist bei ausgeschaltetem Videomodus ausgegraut. -->
                             <StackPanel x:Name="VideoSettingsPanel" IsEnabled="{Binding VideoEnabled}">
                                 <StackPanel.Style>
@@ -233,10 +236,6 @@
                                 <local:NumberStepper Value="{Binding VideoMinDurationSeconds}" Minimum="{x:Static core:SettingsLimits.VideoMinDurationMin}" Maximum="{x:Static core:SettingsLimits.VideoMinDurationMax}" Suffix=" s" />
                                 <TextBlock Text="So lange läuft die Aufnahme mindestens; ein früheres „Video beenden“ wird ignoriert. Die Mindestlänge muss kürzer sein als die Höchstdauer."
                                            Style="{StaticResource Hint}" />
-
-                                <TextBlock Text="Videoqualität" Style="{StaticResource FieldLabel}" />
-                                <ComboBox ItemsSource="{Binding VideoQualities}" SelectedItem="{Binding SelectedVideoQuality}"
-                                          DisplayMemberPath="Display" AutomationProperties.Name="Videoqualität" />
 
                                 <!-- Anzeige während der Aufnahme -->
                                 <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="18,14" Margin="0,24,0,0">
@@ -296,29 +295,6 @@
                                            Visibility="{Binding HasMicrophoneHint, Converter={StaticResource BoolToVis}}" />
                                 <TextBlock Style="{StaticResource Hint}"
                                            Text="Fehlt das Mikrofon oder ist der Zugriff in Windows gesperrt, wird ohne Ton aufgenommen. Eine Änderung beim Ton oder Mikrofon wirkt erst nach dem Schließen der Einstellungen (die Kamera startet dabei kurz neu)." />
-
-                                <!-- Speicherort -->
-                                <TextBlock Text="Speicherordner der Videos" Style="{StaticResource FieldLabel}" Margin="0,24,0,6" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox Grid.Column="0" Text="{Binding VideoFolderDisplay, Mode=OneWay}" IsReadOnly="True"
-                                             AutomationProperties.Name="Speicherordner der Videos" />
-                                    <Button Grid.Column="1" Content="Ändern …" Command="{Binding ChooseVideoFolderCommand}" Margin="10,0,0,0" />
-                                </Grid>
-                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                    <Button Content="Ordner öffnen" Command="{Binding OpenVideoFolderCommand}" />
-                                    <Button Content="Standardordner verwenden" Command="{Binding ResetVideoFolderCommand}" Margin="10,0,0,0" />
-                                </StackPanel>
-
-                                <CheckBox Content="Unterordner pro Tag anlegen (JJJJ-MM-TT)" IsChecked="{Binding VideoDateSubfolder}" Margin="0,18,0,0" />
-
-                                <TextBlock Text="Dateipräfix der Videos" Style="{StaticResource FieldLabel}" />
-                                <TextBox Text="{Binding VideoFilePrefix, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.FilePrefixMaxLength}"
-                                         HorizontalAlignment="Left" Width="320" AutomationProperties.Name="Dateipräfix der Videos" />
-                                <TextBlock Text="{Binding VideoFileNameExample}" Style="{StaticResource Hint}" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -952,6 +928,22 @@
                             </UniformGrid>
                             <TextBlock Style="{StaticResource Hint}"
                                        Text="Das Farbschema gilt für die Einstellungen und die PIN-Abfrage, nicht für die Gastansicht. Die Änderung ist sofort sichtbar und wird mit „Übernehmen“ oder „Speichern &amp; schließen“ gespeichert." />
+
+                            <TextBlock Text="Größe der Einstellungen" Style="{StaticResource FieldLabel}" />
+                            <StackPanel Orientation="Horizontal">
+                                <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.AdminZoomMin}, Mode=OneTime}"
+                                        Maximum="{Binding Source={x:Static core:SettingsLimits.AdminZoomMax}, Mode=OneTime}"
+                                        TickFrequency="{Binding Source={x:Static core:SettingsLimits.AdminZoomStep}, Mode=OneTime}"
+                                        SmallChange="{Binding Source={x:Static core:SettingsLimits.AdminZoomStep}, Mode=OneTime}"
+                                        LargeChange="{Binding Source={x:Static core:SettingsLimits.AdminZoomStep}, Mode=OneTime}"
+                                        IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                        Value="{Binding AdminZoomPercent}"
+                                        AutomationProperties.Name="Größe der Einstellungen" />
+                                <TextBlock Text="{Binding AdminZoomText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0"
+                                           VerticalAlignment="Center" MinWidth="60" />
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Verkleinert nur den Inhaltsbereich rechts, damit mehr auf einmal sichtbar ist. Gilt nur für dieses Gerät und wird nicht mit „Einstellungen teilen“ weitergegeben." />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>
@@ -1123,44 +1115,93 @@
             <!-- ============================== Speicher ============================== -->
             <TabItem Header="Speicher" Tag="&#xE8B7;">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <Border Style="{StaticResource Card}">
-                        <StackPanel MaxWidth="680" HorizontalAlignment="Left">
-                            <TextBlock Text="Fotos speichern" Style="{StaticResource SectionTitle}" />
-                            <TextBlock Text="Videos werden im Tab „Video“ eingestellt." Style="{StaticResource Hint}" />
+                    <StackPanel MaxWidth="740" HorizontalAlignment="Left">
+                        <!-- Fotos -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Fotos speichern" Style="{StaticResource SectionTitle}" />
 
-                            <TextBlock Text="Speicherordner der Fotos" Style="{StaticResource FieldLabel}" />
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" Text="{Binding PhotoFolderDisplay, Mode=OneWay}" IsReadOnly="True" />
-                                <Button Grid.Column="1" Content="Ändern …" Command="{Binding ChooseFolderCommand}" Margin="10,0,0,0" />
-                            </Grid>
-                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                <Button Content="Ordner öffnen" Command="{Binding OpenFolderCommand}" />
-                                <Button Content="Standardordner verwenden" Command="{Binding ResetFolderCommand}" Margin="10,0,0,0" />
+                                <TextBlock Text="Speicherordner der Fotos" Style="{StaticResource FieldLabel}" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" Text="{Binding PhotoFolderDisplay, Mode=OneWay}" IsReadOnly="True" />
+                                    <Button Grid.Column="1" Content="Ändern …" Command="{Binding ChooseFolderCommand}" Margin="10,0,0,0" />
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <Button Content="Ordner öffnen" Command="{Binding OpenFolderCommand}" />
+                                    <Button Content="Standardordner verwenden" Command="{Binding ResetFolderCommand}" Margin="10,0,0,0" />
+                                </StackPanel>
+
+                                <CheckBox Content="Unterordner pro Tag anlegen (JJJJ-MM-TT)" IsChecked="{Binding DateSubfolder}" Margin="0,22,0,0" />
+                                <CheckBox Content="Einzelne Originalfotos zusätzlich speichern" IsChecked="{Binding SaveOriginals}" />
+
+                                <TextBlock Text="JPEG-Qualität" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.JpegQualityMin}, Mode=OneTime}"
+                                            Maximum="{Binding Source={x:Static core:SettingsLimits.JpegQualityMax}, Mode=OneTime}" TickFrequency="1" SmallChange="1" LargeChange="5"
+                                            IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                            Value="{Binding JpegQuality}" />
+                                    <TextBlock Text="{Binding JpegQualityText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0"
+                                               VerticalAlignment="Center" MinWidth="60" />
+                                </StackPanel>
+
+                                <TextBlock Text="Dateipräfix der Fotos" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding FilePrefix, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.FilePrefixMaxLength}" MaxWidth="320"
+                                         HorizontalAlignment="Left" Width="320" AutomationProperties.Name="Dateipräfix der Fotos" />
+                                <TextBlock Text="{Binding PhotoFileNameExample}" Style="{StaticResource Hint}" />
                             </StackPanel>
+                        </Border>
 
-                            <CheckBox Content="Unterordner pro Tag anlegen (JJJJ-MM-TT)" IsChecked="{Binding DateSubfolder}" Margin="0,22,0,0" />
-                            <CheckBox Content="Einzelne Originalfotos zusätzlich speichern" IsChecked="{Binding SaveOriginals}" />
+                        <!-- Videos -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Videos speichern" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="Gilt, wenn der Videomodus im Tab „Video“ eingeschaltet ist." Style="{StaticResource Hint}" />
 
-                            <TextBlock Text="JPEG-Qualität" Style="{StaticResource FieldLabel}" />
-                            <StackPanel Orientation="Horizontal">
-                                <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.JpegQualityMin}, Mode=OneTime}"
-                                        Maximum="{Binding Source={x:Static core:SettingsLimits.JpegQualityMax}, Mode=OneTime}" TickFrequency="1" SmallChange="1" LargeChange="5"
-                                        IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
-                                        Value="{Binding JpegQuality}" />
-                                <TextBlock Text="{Binding JpegQualityText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0"
-                                           VerticalAlignment="Center" MinWidth="60" />
+                                <!-- Bei ausgeschaltetem Videomodus ausgegraut (wie im Tab „Video“). -->
+                                <StackPanel x:Name="VideoStoragePanel" IsEnabled="{Binding VideoEnabled}">
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Style.Triggers>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Opacity" Value="0.55" />
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
+
+                                    <TextBlock Text="Speicherordner der Videos" Style="{StaticResource FieldLabel}" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0" Text="{Binding VideoFolderDisplay, Mode=OneWay}" IsReadOnly="True"
+                                                 AutomationProperties.Name="Speicherordner der Videos" />
+                                        <Button Grid.Column="1" Content="Ändern …" Command="{Binding ChooseVideoFolderCommand}" Margin="10,0,0,0" />
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <Button Content="Ordner öffnen" Command="{Binding OpenVideoFolderCommand}" />
+                                        <Button Content="Standardordner verwenden" Command="{Binding ResetVideoFolderCommand}" Margin="10,0,0,0" />
+                                    </StackPanel>
+
+                                    <CheckBox Content="Unterordner pro Tag anlegen (JJJJ-MM-TT)" IsChecked="{Binding VideoDateSubfolder}" Margin="0,22,0,0" />
+
+                                    <TextBlock Text="Videoqualität" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox ItemsSource="{Binding VideoQualities}" SelectedItem="{Binding SelectedVideoQuality}"
+                                              DisplayMemberPath="Display" AutomationProperties.Name="Videoqualität" />
+
+                                    <TextBlock Text="Dateipräfix der Videos" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding VideoFilePrefix, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.FilePrefixMaxLength}"
+                                             HorizontalAlignment="Left" Width="320" AutomationProperties.Name="Dateipräfix der Videos" />
+                                    <TextBlock Text="{Binding VideoFileNameExample}" Style="{StaticResource Hint}" />
+                                </StackPanel>
                             </StackPanel>
-
-                            <TextBlock Text="Dateipräfix der Fotos" Style="{StaticResource FieldLabel}" />
-                            <TextBox Text="{Binding FilePrefix, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.FilePrefixMaxLength}" MaxWidth="320"
-                                     HorizontalAlignment="Left" Width="320" />
-                            <TextBlock Text="Dateien heißen zum Beispiel „Fotobox+_20250101_120000.jpg“." Style="{StaticResource Hint}" />
-                        </StackPanel>
-                    </Border>
+                        </Border>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 

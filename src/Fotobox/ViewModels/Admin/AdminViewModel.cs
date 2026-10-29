@@ -1886,10 +1886,17 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     public string FilePrefix
     {
         get => _draft.Storage.FilePrefix;
-        set => SetProperty(_draft.Storage.FilePrefix, value ?? string.Empty, v => _draft.Storage.FilePrefix = v);
+        set
+        {
+            if (SetProperty(_draft.Storage.FilePrefix, value ?? string.Empty, v => _draft.Storage.FilePrefix = v))
+                OnPropertyChanged(nameof(PhotoFileNameExample));
+        }
     }
 
-    /// <summary>Anzuzeigender Zielordner (Standard: Bilder\Fotobox+).</summary>
+    /// <summary>Beispiel für einen Foto-Dateinamen mit dem aktuellen Präfix (wie beim Speichern bereinigt, leer: Standard).</summary>
+    public string PhotoFileNameExample =>
+        $"Dateien heißen zum Beispiel „{SettingsNormalizer.SanitizePrefix(_draft.Storage.FilePrefix)}_20261028_153000.jpg“.";
+
     /// <summary>Hinweis auf der Layout-Karte „Fotostreifen“.</summary>
     public string StripPhotosHint => $"{SettingsLimits.StripPhotosMin} bis {SettingsLimits.StripPhotosMax} Fotos untereinander.";
 
@@ -1897,6 +1904,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     public string ExpectedPrintHint =>
         $"So lange läuft der Fortschrittsbalken in der Gastansicht. Das Druck-Timeout liegt automatisch mindestens {SettingsLimits.PrintTimeoutReserveSeconds} s darüber.";
 
+    /// <summary>Anzuzeigender Zielordner (Standard: Bilder\Fotobox+).</summary>
     public string PhotoFolderDisplay => EffectivePhotoFolder;
 
     public bool IsDefaultPhotoFolder => string.IsNullOrWhiteSpace(_draft.Storage.PhotoFolder);
@@ -2308,6 +2316,29 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         set => SetAdminTheme(AdminThemeMode.Dark, value);
     }
 
+    /// <summary>
+    /// Zoom des Inhaltsbereichs in Prozent (Entwurf, <see cref="SettingsLimits.AdminZoomMin"/> bis <see cref="SettingsLimits.AdminZoomMax"/>).
+    /// Wirkt sofort live (nur Layout des offenen Fensters); gespeichert wird mit „Übernehmen“. Der Wert löst nie einen Kamera-Neustart aus.
+    /// </summary>
+    public int AdminZoomPercent
+    {
+        get => _draft.Appearance.AdminZoomPercent;
+        set
+        {
+            if (SetProperty(_draft.Appearance.AdminZoomPercent, value, v => _draft.Appearance.AdminZoomPercent = v))
+            {
+                OnPropertyChanged(nameof(AdminZoomText));
+                OnPropertyChanged(nameof(AdminContentScale));
+            }
+        }
+    }
+
+    public string AdminZoomText => $"{_draft.Appearance.AdminZoomPercent} %";
+
+    /// <summary>Skalierungsfaktor des Inhaltsbereichs (Prozent / 100), auf den Bereich der Einstellung begrenzt.</summary>
+    public double AdminContentScale =>
+        Math.Clamp(_draft.Appearance.AdminZoomPercent, SettingsLimits.AdminZoomMin, SettingsLimits.AdminZoomMax) / 100.0;
+
     private void SetAdminTheme(AdminThemeMode mode, bool selected)
     {
         if (!selected || _draft.Appearance.AdminTheme == mode)
@@ -2540,14 +2571,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Beispiel für einen Dateinamen mit dem aktuellen Präfix (leeres Präfix: Standard).</summary>
-    public string VideoFileNameExample
-    {
-        get
-        {
-            var prefix = string.IsNullOrWhiteSpace(_draft.Video.FilePrefix) ? VideoSettings.DefaultFilePrefix : _draft.Video.FilePrefix;
-            return $"Dateien heißen zum Beispiel „{prefix}_20261028_153000.mp4“.";
-        }
-    }
+    public string VideoFileNameExample =>
+        $"Dateien heißen zum Beispiel „{SettingsNormalizer.SanitizePrefix(_draft.Video.FilePrefix, VideoSettings.DefaultFilePrefix)}_20261028_153000.mp4“.";
 
     // ---- Speicherordner der Videos
 

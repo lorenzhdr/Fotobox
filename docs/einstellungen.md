@@ -18,7 +18,7 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Security` | `SecuritySettings` | PIN-Hash, Salt, Iterationen |
 | `Input` | `InputSettings` | Tastenbelegung, Mausklicks, Mausrad |
 | `GuestScreen` | `GuestScreenSettings` | Hinweistexte und -stile der Gastansicht |
-| `Appearance` | `AppearanceSettings` | Farbschema des Admins, Monitor der Gastansicht |
+| `Appearance` | `AppearanceSettings` | Farbschema des Admins, Zoom des Admin-Inhaltsbereichs, Monitor der Gastansicht |
 | `Video` | `VideoSettings` | Videomodus |
 | `Fun` | `FunSettings` | Zielerfassung |
 | `Peace` | `PeaceSettings` | Peaceerkennung (Easter Egg) |
@@ -57,6 +57,7 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `GuestScreen.HintStyle` / `VideoHintStyle` | `Pill` | `Pill, Plain, Banner, Neon, Bubble, Ticker, Glass, Note, Cinema` |
 | `GuestScreen.ShowWheelHint` / `WheelHintStyle` | an / `Matching` | `Matching, SmallPill, Plain, Chip, Arrows` |
 | `Appearance.AdminTheme` | `System` | `System, Light, Dark` |
+| `Appearance.AdminZoomPercent` | 80 | 60–100 in 5er-Schritten (`AdminZoomMin`/`AdminZoomMax`/`AdminZoomStep`/`AdminZoomDefault`); der Normalizer klemmt zuerst und rundet dann auf das nächste Vielfache von 5 (62 → 60, 63 → 65, 83 → 85, 30 → 60, 150 → 100); fehlt das Feld in der Datei, gilt 80 |
 | `Appearance.GuestMonitorId` / `GuestMonitorName` | null (Hauptbildschirm) | Id ≤ 512, Name ≤ 200 |
 | `Video.Enabled` | an | – |
 | `Video.MaxDurationSeconds` | 300 | 10–1800 |
@@ -161,7 +162,7 @@ Umhüllung: `Format` = `FotoboxPlus.Settings`, `FormatVersion` = 1, `AppVersion`
 
 - `SettingsSections.PortableSections`: alle Klassen-Eigenschaften von `AppSettings` außer denen in `SettingsSections.ExcludedProperties` (`Version`, `Security`). Neue Abschnitte sind automatisch dabei.
 - Ein Test erzwingt, dass jedes neue Feld entweder übertragbar ist oder in `SettingsSections.ExcludedProperties` bzw. `DeviceSpecificSettings.Paths` eingeordnet wird.
-- `DeviceSpecificSettings.Paths` (16 Felder) steht nie in der Datei und wird nie importiert: `Camera.DeviceId`, `Camera.ResolutionWidth`, `Camera.ResolutionHeight`, `Camera.ControlsDeviceId`, `Camera.ControlValues`, `Camera.ControlProfiles`, `Printer.PrinterName`, `Printer.PaperSizeName`, `Printer.PaperWidthMm`, `Printer.PaperHeightMm`, `Storage.PhotoFolder`, `Video.MicrophoneId`, `Video.MicrophoneName`, `Video.Folder`, `Appearance.GuestMonitorId`, `Appearance.GuestMonitorName`. Der Zielrechner behält seine Werte (`Clear`/`CopyFrom`); die Kamera wird durch den Import nie neu gestartet. `Camera.Powerline` ist übertragbar (ortsabhängig, nicht gerätespezifisch).
+- `DeviceSpecificSettings.Paths` (17 Felder) steht nie in der Datei und wird nie importiert: `Camera.DeviceId`, `Camera.ResolutionWidth`, `Camera.ResolutionHeight`, `Camera.ControlsDeviceId`, `Camera.ControlValues`, `Camera.ControlProfiles`, `Printer.PrinterName`, `Printer.PaperSizeName`, `Printer.PaperWidthMm`, `Printer.PaperHeightMm`, `Storage.PhotoFolder`, `Video.MicrophoneId`, `Video.MicrophoneName`, `Video.Folder`, `Appearance.GuestMonitorId`, `Appearance.GuestMonitorName`, `Appearance.AdminZoomPercent`. Der Zielrechner behält seine Werte (`Clear`/`CopyFrom`; `Clear` setzt den Zoom auf 80 zurück, der Schlüssel fehlt in der Exportdatei ganz); die Kamera wird durch den Import nie neu gestartet. `Camera.Powerline` ist übertragbar (ortsabhängig, nicht gerätespezifisch).
 - Das Overlay-PNG wird nicht exportiert. Fehlt es (oder ist der Name ein Pfad), entfällt das Overlay samt Gastwahl-Eintrag (Standard-Layout dann erste verbleibende Gastwahl bzw. Einzelfoto) mit Hinweis `OverlayMissingNote` (`ApplyOverlayFallback`).
 - `SettingsSections.CopyPortableSections(from, to)` kopiert tief (`AppSettings.Clone`); „Standardwerte wiederherstellen“ und der Import nutzen sie gemeinsam.
 
@@ -191,4 +192,4 @@ Umhüllung: `Format` = `FotoboxPlus.Settings`, `FormatVersion` = 1, `AppVersion`
 - Die Profile der Kamerasteuerung bleiben erhalten (sie gehören zur Kamera, nicht zu den Einstellungen). Eine noch nicht gespeicherte importierte PIN fällt weg.
 - Das Zurücksetzen gilt wie alles im Admin erst nach „Übernehmen“ bzw. „Speichern & schließen“. Danach werden UI-Zustand (Tasten, Listenauswahl, Schrift, Overlay) neu aufgebaut (`RebuildAfterDraftReplaced(keepDeviceSelections: false)`), Listen neu geladen und die Kamera nur bei geänderten Kameraeinstellungen neu gestartet.
 - Weitere Teilzurücksetzer: „Tasten zurücksetzen“ (behält `InvertMouseWheel`, setzt `GuestScreen` nicht zurück), „Alle zurücksetzen“ der Kamerasteuerung (Treiberwerte).
-- Folgen: `GuestScreen` und `Fun` werden zurückgesetzt, die Monitorwahl wird zu Hauptbildschirm, das Farbschema zu System.
+- Folgen: `GuestScreen` und `Fun` werden zurückgesetzt, die Monitorwahl wird zu Hauptbildschirm, das Farbschema zu System, der Admin-Zoom zu 80 %.

@@ -145,6 +145,8 @@ public static class SettingsLimits
     public const int MiddleFingerHoldMillisecondsMin = 200, MiddleFingerHoldMillisecondsMax = 3000, MiddleFingerHoldMillisecondsStep = 100;
     /// <summary>Mittelfinger: Empfindlichkeit in Prozent.</summary>
     public const int MiddleFingerSensitivityMin = 10, MiddleFingerSensitivityMax = 95;
+    /// <summary>Admin-Ansicht: Zoom des Inhaltsbereichs in Prozent (5er-Schritte, Standard 80); Tab-Leiste und Fußleiste bleiben bei 100 %.</summary>
+    public const int AdminZoomMin = 60, AdminZoomMax = 100, AdminZoomStep = 5, AdminZoomDefault = 80;
 }
 
 /// <summary>
@@ -359,6 +361,12 @@ public sealed class AppearanceSettings
 {
     /// <summary>Gilt für Admin-Fenster und PIN-Dialoge, nicht für die Gastansicht.</summary>
     public AdminThemeMode AdminTheme { get; set; } = AdminThemeMode.System;
+    /// <summary>
+    /// Zoom des Inhaltsbereichs der Admin-Ansicht in Prozent (<see cref="SettingsLimits.AdminZoomMin"/> bis
+    /// <see cref="SettingsLimits.AdminZoomMax"/> in <see cref="SettingsLimits.AdminZoomStep"/>er-Schritten, Standard 80). Gerätespezifisch
+    /// (hängt vom Bildschirm ab): wird nicht exportiert und beim Import nicht überschrieben.
+    /// </summary>
+    public int AdminZoomPercent { get; set; } = SettingsLimits.AdminZoomDefault;
     /// <summary>Monitor der Gastansicht (<see cref="DisplayMonitor.Id"/>); null = Hauptbildschirm. Fehlt er, läuft die Gastansicht auf dem Hauptbildschirm.</summary>
     public string? GuestMonitorId { get; set; }
     /// <summary>Letzter bekannter Anzeigename des gewählten Monitors, nur für den Hinweis „nicht angeschlossen“.</summary>

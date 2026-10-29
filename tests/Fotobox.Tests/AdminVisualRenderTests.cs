@@ -12,8 +12,8 @@ namespace Fotobox.Tests;
 
 /// <summary>
 /// Sichtprüfung per Bilddatei, kein Test im engeren Sinn: Läuft nur, wenn die Umgebungsvariable <c>FOTOBOX_RENDER_DIR</c> auf einen
-/// Ordner zeigt (sonst sofort beendet, auch in der CI). Rendert die Admin-Tabs Drucker (Druck an/aus), Ablauf, Sicherheit &amp; Daten
-/// und Speicher, die Fun-Seiten Mittelfinger und Peace (dazu die Karte mit „Analysen pro Sekunde“) sowie den Tooltip des Info-Symbols
+/// Ordner zeigt (sonst sofort beendet, auch in der CI). Rendert die Admin-Tabs Drucker (Druck an/aus), Ablauf, Video, Sicherheit &amp; Daten
+/// und Speicher (auch bei ausgeschaltetem Videomodus), die Fun-Seiten Mittelfinger und Peace (dazu die Karte mit „Analysen pro Sekunde“) sowie den Tooltip des Info-Symbols
 /// in Hell und Dunkel als PNG, jeweils mit dem ganzen Inhalt des ScrollViewers (nicht nur dem sichtbaren Ausschnitt).
 /// Aufruf: <c>FOTOBOX_RENDER_DIR=C:\pfad\render dotnet test --filter "Category=Visual"</c>.
 /// </summary>
@@ -158,8 +158,13 @@ public class AdminVisualRenderTests
         RenderTab(dir, "Ablauf", "flow", mode);
         RenderTab(dir, "Sicherheit & Daten", "security", mode);
         RenderTab(dir, "Speicher", "storage", mode);
+        RenderTab(dir, "Speicher", "storage_video_off", mode, vm => vm.VideoEnabled = false);
+        RenderTab(dir, "Video", "video", mode);
+        // Darstellung bei Standardzoom 80 % (der Inhalt wird auf Layoutgröße gerendert) und das ganze Fenster mit verkleinertem Inhalt.
+        RenderTab(dir, "Darstellung", "appearance", mode, extra: (rig, _) =>
+            SavePng(rig.Root, 1100, 750, Path.Combine(dir, $"admin_appearance_window80_{ThemeName(mode)}.png"), rig.Background));
 
-        Assert.True(Directory.GetFiles(dir, $"admin_*_{ThemeName(mode)}.png").Length >= 5);
+        Assert.True(Directory.GetFiles(dir, $"admin_*_{ThemeName(mode)}.png").Length >= 6);
     }
 
     [Trait("Category", "Visual")]

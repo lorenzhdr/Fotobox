@@ -1,31 +1,11 @@
 ## Fotobox+ {{VERSION}}
 
-### Neu in 2.5.1
+### Neu in 2.5.2
 
-- **Analysen pro Sekunde auch beim Mittelfinger:** Auf der Admin-Seite „Mittelfinger“ lässt sich die Analyserate jetzt direkt einstellen. Es ist derselbe Wert wie bei der Peaceerkennung, beide Seiten bleiben synchron.
-- **Erklärungen per ⓘ:** Neben jeder Einstellung „Analysen pro Sekunde“ (Zielerfassung, Peace, Mittelfinger) erklärt ein Info-Symbol, was der Wert bewirkt, was höhere und niedrigere Werte bedeuten und was sich empfiehlt.
-- **Admin übersichtlicher:** „Drucken an/aus“ und die erwartete Druckdauer stehen jetzt im Tab „Drucker“, der Rest des Tabs ist bei ausgeschaltetem Druck ausgegraut. Der Tab „Sicherheit“ heißt „Sicherheit & Daten“ und gliedert PIN, Einstellungen teilen und Standardwerte in eigene Karten. Der Tab „Speicher“ ist eindeutig für Fotos beschriftet, einige Hinweistexte wurden korrigiert.
-- **Sicherere PIN:** Ist die Einstellungsdatei beschädigt, wird die gerettete Admin-PIN sofort neu gespeichert – ein Neustart vor dem ersten Speichern führt nicht mehr zum Erststart ohne PIN. Eine nach einem Import per „PIN ändern“ gesetzte PIN hat jetzt Vorrang vor der importierten.
-- **Peace löst nicht doppelt aus:** Bleibt die Hand nach einem Bart-Foto über Aufnahme und Vorschau oben, startet das Peace-Zeichen keinen weiteren Durchgang mehr – die Hand muss wie vorgesehen erst herunter.
-- **Zielerfassung bei niedriger Analyserate:** Bei 1–3 Analysen pro Sekunde rasten Zielmarken wieder zuverlässig ein und reißen bei einem kurzen Aussetzer nicht mehr ab. Beim Standard (5) ändert sich nichts.
-- **Kamera und Ton:** Wird im Admin ein geänderter Ton-/Mikrofonstand verworfen, startet die Kamera danach wieder mit dem gespeicherten Ton (Videos entstehen nicht mehr versehentlich ohne Ton). Schaltet man bei einem Regler die Automatik aus, wird der angezeigte Wert jetzt wirklich übernommen; nach „Alle zurücksetzen“ springen die übrigen Regler beim nächsten Verstellen nicht mehr auf ihre alten Werte.
-- **Kleinigkeiten:** `{Klick}` funktioniert jetzt auch im Video-Hinweis, die Vorschau des Foto-Hinweises entspricht bei ausgeschaltetem Videomodus der Gastansicht, und die Lizenzhinweise nennen alle mitgelieferten Komponenten.
+- **Speichern an einem Ort:** Speicherordner, Tagesunterordner, Dateipräfix und Qualität der Videos stehen jetzt im Admin-Tab „Speicher“ – in einer eigenen Karte „Videos speichern“ direkt unter den Fotos. Die Karte ist ausgegraut, solange der Videomodus aus ist. Der Tab „Video“ enthält nur noch Aufnahme, Anzeige und Ton.
+- **Mehr Überblick im Admin:** Der Inhaltsbereich der Einstellungen ist ab Werk auf 80 % verkleinert, damit mehr auf einmal zu sehen ist. Unten im Tab „Darstellung“ lässt sich die Größe zwischen 60 und 100 % einstellen; sie gilt nur für das jeweilige Gerät und wird nicht mit „Einstellungen teilen“ weitergegeben.
 
-### Neu seit 2.2.1
-
-Alles aus den Testversionen 2.3.0-beta bis 2.5.0-beta ist jetzt Teil der stabilen Version:
-
-- **Kamerasteuerung im Admin:** Im Tab „Kamera“ gibt es die neue Karte „Bildeinstellungen“ mit Schiebereglern für Zoom, Schwenken, Neigen, Helligkeit, Kontrast, Farbton, Belichtungszeit, Belichtungskorrektur, Gegenlichtausgleich, Fokus und Weißabgleich – jeweils mit „Automatisch“, wo die Kamera das anbietet. Die Regler wirken sofort auf das Livebild und damit gleich auf Fotos und Videos; gespeichert wird mit „Übernehmen“, „Schließen“ ohne Speichern stellt den alten Stand wieder her. Welche Regler verfügbar sind, bestimmt die Kamera bzw. ihr Treiber; was sie nicht kann, ist ausgegraut. Dazu Flimmerschutz (50/60 Hz, Standard 50 Hz) gegen Streifen unter LED- und Neonlicht, „Alle zurücksetzen“ und bis zu 10 benannte Profile je Kamera (z. B. „Tag“, „Abend“).
-- **Normales Scrollen mit dem Trackpad im Admin:** Die Einstellungsseiten springen beim Scrollen mit einem Touchpad nicht mehr sofort ans Ende, sondern scrollen so fein wie in anderen Programmen.
-- **Nur noch portable Version:** Es gibt keinen Installer mehr, sondern nur noch die ZIP-Dateien für x64 und ARM. Wer bisher eine Setup-Version nutzt, siehe „Umstieg von einer Setup-Version“ unten – Einstellungen, Fotos und Videos bleiben erhalten.
-- **Easter Egg „Mittelfingererkennung“:** Zeigt ein Gast den Mittelfinger in die Kamera und hält ihn kurz, verschwinden alle Schnurrbärte mit einem kleinen „Plopp“, und ein laufender Selbstzerstörungs-Countdown bricht still ab – wie mit Esc. Andere Countdowns laufen weiter; ein Foto direkt danach entsteht ohne Bart. Die Erkennung wirkt zusammen mit der Peaceerkennung und ist ab Werk eingeschaltet. Im Admin-Tab „Fun“ → „Mittelfinger“ lassen sich Haltedauer und Empfindlichkeit einstellen, eine Live-Vorschau mit „Aufheben testen“ zeigt die Wirkung. Die Gastansicht verrät nichts.
-- **Einstellungen teilen:** Im Admin-Tab *Sicherheit & Daten* lassen sich alle Einstellungen als Datei exportieren und auf einem anderen PC importieren. Kamera, Drucker, Papier, Speicherorte, Mikrofon und Bildschirm bleiben dabei immer die des Ziel-PCs; die Admin-PIN wird nur auf Wunsch mitexportiert und beim Import erst nach Rückfrage übernommen. Der Import gilt erst nach „Übernehmen“ bzw. „Speichern & schließen“. Stammt die Datei aus einer anderen Version, werden nur die Einstellungen übernommen, die es in dieser Version gibt; fehlende bekommen den Standardwert. Das Overlay-Bild ist nicht in der Datei enthalten – fehlt es am Ziel, weist die App darauf hin.
-- **Weniger Rechenlast im Admin:** Die Kameravorschauen im Tab „Fun“ arbeiten nur noch, solange sie zu sehen sind.
-- **Easter Egg „Peaceerkennung“:** Zeigt ein Gast im Livebild ein Peace-Zeichen ✌ und hält es kurz, passiert eine Überraschung: ein roter Selbstzerstörungs-Countdown, bei dem das Foto genau im Moment der Explosion entsteht, ein Foto mit eigenem Countdown oder ein Schnurrbart für alle Gesichter bzw. nur für die zeigende Person, live im Bild und im Foto. Die Gastansicht verrät vorher nichts. Ab Werk ist die Selbstzerstörung aktiv; Foto und Schnurrbart lassen sich im Admin-Tab „Fun“ → „Peace“ dazuschalten, dort gibt es auch eine Live-Vorschau mit Testknöpfen. Jede ausgelöste Aktion macht ein Foto und druckt es wie gewohnt: Wer Papier sparen will, verlängert die Haltedauer, setzt eine Sperrzeit oder schaltet die Erkennung ab.
-- **Realistische Schnurrbärte:** sieben Formen (Zwirbel, Walross, Chevron, Pinsel, Dalí, Fu Manchu, Hufeisen) mit echt wirkendem Haar und Schatten, in sechs zufälligen Haarfarben. Im Admin lässt sich festlegen, welche Formen beim Zufall vorkommen. Der Bart erscheint mit einem kleinen „Plopp“, wippt beim Sprechen mit, folgt dem Gesicht flüssig und passt seine Größe auch beim Näherkommen richtig an. Im Foto trägt jede Person denselben Bart wie im Livebild.
-- **Zielerfassung verbessert:** Dauer (0,5–5 s) und Intensität der Einrast-Animation sind einstellbar, die Intensität regelt Bewegung, Leuchten, Blinken und Lautstärke. Kommt jemand dazu, während der Text läuft, folgt direkt danach eine eigene Meldung. Ein Personentausch löst ebenfalls aus (abschaltbar), und auf Wunsch wiederholt sich die Meldung bei gleicher Gruppe nach einstellbarer Zeit. Kurze Aussetzer der Erkennung lassen den Text stehen, statt ihn abzubrechen.
-- **Livebild mittig:** Haben Kamera und Bildschirm unterschiedliche Seitenverhältnisse, wird das Livebild jetzt gleichmäßig an allen Seiten beschnitten statt nur rechts bzw. unten. Zielmarken und Bärte sitzen dadurch genau.
-- Die Kamerasteuerung ist mit automatischen Tests und einer eingebauten Laptop-Kamera geprüft, mit USB-Webcams noch nicht. Peace- und Mittelfingererkennung sind auf dem Entwicklungsrechner geprüft, aber noch nicht bei echten Veranstaltungen.
+Alle Neuerungen von 2.5.1 und der Testversionen davor stehen unten unter „Ältere Versionen“.
 
 ### Welche Datei passt zu meinem PC?
 
@@ -56,7 +36,19 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer der Fotobox 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
 
 <details>
-<summary>Änderungen der Versionen 0.0.0-beta bis 2.5.0-beta anzeigen</summary>
+<summary>Änderungen der Versionen 0.0.0-beta bis 2.5.1 anzeigen</summary>
+
+#### [Fotobox+ 2.5.1](https://github.com/lorenzhdr/Fotobox/tree/v2.5.1) · 29.10.2026
+
+- **Analysen pro Sekunde auch beim Mittelfinger:** Auf der Admin-Seite „Mittelfinger“ lässt sich die Analyserate jetzt direkt einstellen. Es ist derselbe Wert wie bei der Peaceerkennung, beide Seiten bleiben synchron.
+- **Erklärungen per ⓘ:** Neben jeder Einstellung „Analysen pro Sekunde“ (Zielerfassung, Peace, Mittelfinger) erklärt ein Info-Symbol, was der Wert bewirkt, was höhere und niedrigere Werte bedeuten und was sich empfiehlt.
+- **Admin übersichtlicher:** „Drucken an/aus“ und die erwartete Druckdauer stehen jetzt im Tab „Drucker“, der Rest des Tabs ist bei ausgeschaltetem Druck ausgegraut. Der Tab „Sicherheit“ heißt „Sicherheit & Daten“ und gliedert PIN, Einstellungen teilen und Standardwerte in eigene Karten. Der Tab „Speicher“ ist eindeutig für Fotos beschriftet, einige Hinweistexte wurden korrigiert.
+- **Sicherere PIN:** Ist die Einstellungsdatei beschädigt, wird die gerettete Admin-PIN sofort neu gespeichert – ein Neustart vor dem ersten Speichern führt nicht mehr zum Erststart ohne PIN. Eine nach einem Import per „PIN ändern“ gesetzte PIN hat jetzt Vorrang vor der importierten.
+- **Peace löst nicht doppelt aus:** Bleibt die Hand nach einem Bart-Foto über Aufnahme und Vorschau oben, startet das Peace-Zeichen keinen weiteren Durchgang mehr – die Hand muss wie vorgesehen erst herunter.
+- **Zielerfassung bei niedriger Analyserate:** Bei 1–3 Analysen pro Sekunde rasten Zielmarken wieder zuverlässig ein und reißen bei einem kurzen Aussetzer nicht mehr ab. Beim Standard (5) ändert sich nichts.
+- **Kamera und Ton:** Wird im Admin ein geänderter Ton-/Mikrofonstand verworfen, startet die Kamera danach wieder mit dem gespeicherten Ton (Videos entstehen nicht mehr versehentlich ohne Ton). Schaltet man bei einem Regler die Automatik aus, wird der angezeigte Wert jetzt wirklich übernommen; nach „Alle zurücksetzen“ springen die übrigen Regler beim nächsten Verstellen nicht mehr auf ihre alten Werte.
+- **Kleinigkeiten:** `{Klick}` funktioniert jetzt auch im Video-Hinweis, die Vorschau des Foto-Hinweises entspricht bei ausgeschaltetem Videomodus der Gastansicht, und die Lizenzhinweise nennen alle mitgelieferten Komponenten.
+- **Stabile Version:** Enthält alles aus den Testversionen 2.3.0-beta bis 2.5.0-beta (unten).
 
 #### [Fotobox+ 2.5.0-beta](https://github.com/lorenzhdr/Fotobox/tree/v2.5.0-beta) · 29.10.2026
 
