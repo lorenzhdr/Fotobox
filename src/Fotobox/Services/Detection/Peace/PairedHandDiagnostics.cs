@@ -20,6 +20,8 @@ internal sealed class PairedHandDiagnostics
     public bool FacesAvailable { get; private set; }
     public double MinHandScore { get; private set; }
     public int Tracked { get; set; }
+    /// <summary>Verfolgte Hände, deren Landmark-Lauf im selben Zyklus gelungen ist (nur sie decken einen Suchbereich ab).</summary>
+    public int TrackedConfirmed { get; set; }
     public int RegionRuns { get; set; }
     public int RegionsCovered { get; set; }
     public bool FullImageRun { get; set; }
@@ -36,7 +38,7 @@ internal sealed class PairedHandDiagnostics
         Faces = faces;
         FacesAvailable = facesAvailable;
         MinHandScore = minHandScore;
-        Tracked = RegionRuns = RegionsCovered = PalmHits = PalmRoisKept = NearPalmDropped = RoiDuplicateDropped = RoiCapDropped = 0;
+        Tracked = TrackedConfirmed = RegionRuns =RegionsCovered = PalmHits = PalmRoisKept = NearPalmDropped = RoiDuplicateDropped = RoiCapDropped = 0;
         HandsBefore = HandsAfter = 0;
         FullImageRun = false;
         _nearPalm.Clear();
@@ -85,6 +87,7 @@ internal sealed class PairedHandDiagnostics
         sb.Append("Herz-Diagnose: Pipeline: Gesichter=").Append(Faces.ToString(CultureInfo.InvariantCulture))
             .Append(FacesAvailable ? "" : " (keine Gesichtsstufe)")
             .Append(", verfolgte Hände=").Append(Tracked.ToString(CultureInfo.InvariantCulture))
+            .Append(" (bestätigt ").Append(TrackedConfirmed.ToString(CultureInfo.InvariantCulture)).Append(')')
             .Append(", Palmsuchen: Gesichtsbereiche=").Append(RegionRuns.ToString(CultureInfo.InvariantCulture))
             .Append(" (abgedeckt übersprungen ").Append(RegionsCovered.ToString(CultureInfo.InvariantCulture)).Append(')')
             .Append(", Vollbild=").Append(FullImageRun ? "ja" : "nein")

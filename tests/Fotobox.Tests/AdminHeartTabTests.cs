@@ -499,8 +499,9 @@ public sealed class AdminHeartTabTests : IDisposable
         vm.KisscamColor = KisscamColor.Red;
         vm.Draft.Heart.KisscamMusicPath = CreateMusicFile();
         _ui.ConfirmResult = true;
+        // Ohne Sync-Kontext feuert der nicht abgewartete Seitengrößen-Refresh PropertyChanged auf dem Threadpool nach: Liste sperren.
         var raised = new List<string?>();
-        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => { lock (raised) raised.Add(e.PropertyName); };
 
         await vm.ResetToDefaultsCommand.ExecuteAsync(null);
 
@@ -508,7 +509,8 @@ public sealed class AdminHeartTabTests : IDisposable
         Assert.Equal(new HeartSettings().KisscamSeconds, vm.KisscamSeconds);
         Assert.Equal(KisscamColor.PinkRed, vm.KisscamColor);
         Assert.Equal("An · Kisscam", vm.HeartStatusText);
-        Assert.Contains(string.Empty, raised.Select(r => r ?? string.Empty)); // alle Eigenschaften neu gelesen
+        lock (raised)
+            Assert.Contains(string.Empty, raised.Select(r => r ?? string.Empty)); // alle Eigenschaften neu gelesen
         Assert.True(vm.HeartActionOptions[0].IsSelected);
     }
 

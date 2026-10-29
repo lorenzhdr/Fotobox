@@ -47,12 +47,12 @@ public static class AdminInfoTexts
         "\n" +
         "Tipp: Zeigt die Statuszeile der Vorschau dauerhaft weniger Analysen/s als eingestellt, ist der PC ausgelastet. Senken Sie dann den Wert.";
 
-    // HeartEngine nutzt denselben Wert (PeaceSettings.AnalysesPerSecond) und dieselbe 2,5-Abstände-Regel wie PeaceEngine.Configure.
+    // HeartEngine nutzt denselben Wert (PeaceSettings.AnalysesPerSecond); eigene Aussetzer-Frist max(700 ms, 4 Analyseabstände) (HeartEngine.Timings).
     public const string HeartAnalysesPerSecond =
         "Wie oft pro Sekunde Hände und Gesichter im Livebild ausgewertet werden. Das Livebild bleibt flüssig und hat immer Vorrang.\n" +
         "\n" +
         "Höher: Das Herz wird schneller erkannt und die Haltedauer genauer gemessen, die Analyse kostet aber mehr Rechenleistung (CPU).\n" +
-        "Niedriger: Das spart Leistung, die Erkennung reagiert träger, und kurze Haltedauern werden ungenauer, weil Aussetzer erst nach etwa 2,5 Analyseabständen zählen.\n" +
+        "Niedriger: Das spart Leistung, die Erkennung reagiert träger, und kurze Haltedauern werden ungenauer, weil Aussetzer erst nach etwa 4 Analyseabständen (mindestens 0,7 Sekunden) zählen.\n" +
         "\n" +
         "Der Wert gilt gemeinsam für die Peace-, die Mittelfinger- und die Herzerkennung und ist auf der Peace-Seite ebenfalls einstellbar.\n" +
         "\n" +

@@ -115,6 +115,77 @@ public class HeartPipelineTests
         Assert.Single(updates.Last().Hands);
     }
 
+    // ------------------------------------------------------------ gescheiterte verfolgte Hand
+
+    /// <summary>
+    /// Zwei Hände A/B werden verfolgt (Zyklus 1). In Zyklus 2 scheitert der Landmark-Lauf der verfolgten Hand B einmalig; die Palm-Suche
+    /// liefert weiter beide Hände. Gibt die Aufrufe und Hände von Zyklus 2 zurück.
+    /// </summary>
+    private async Task<(int Palms, int Landmarks, int Hands)> SecondCycleWithFailingTrackedB(bool paired)
+    {
+        var a = PeaceFakes.Hand(0.45, 0.6);
+        var b = PeaceFakes.Hand(0.55, 0.6);
+        await using var service = NewService();
+        _hand.OnPalms = (_, _) => [PalmForHandAt(0.45, 0.6), PalmForHandAt(0.55, 0.6)];
+        var bFailures = 0;
+        _hand.OnLandmarks = roi => Math.Abs(roi.Center.X - 0.55) < 0.03 ? (Interlocked.Decrement(ref bFailures) >= 0 ? null : b) : a;
+        var (request, updates) = await Start(service, paired);
+        using var _ = request;
+
+        await Cycle(updates, 1);
+        Assert.Equal(2, updates.Last().Hands.Count);
+        var palmsBefore = _hand.PalmCalls;
+        var landmarksBefore = _hand.LandmarkCalls;
+
+        Volatile.Write(ref bFailures, 1);
+        await Cycle(updates, 2);
+        return (_hand.PalmCalls - palmsBefore, _hand.LandmarkCalls - landmarksBefore, updates.Last().Hands.Count);
+    }
+
+    [Fact]
+    public async Task Paired_TrackedHandFails_PalmSearchRunsInTheSameCycle_AndFindsIt()
+    {
+        var (palms, landmarks, hands) = await SecondCycleWithFailingTrackedB(paired: true);
+
+        Assert.Equal(1, palms); // die gescheiterte verfolgte Hand deckt den Suchbereich nicht ab
+        Assert.Equal(3, landmarks); // A, B (gescheitert), B aus der Palm-Suche; A's Palm-ROI wurde von der bestätigten A absorbiert
+        Assert.Equal(2, hands);
+    }
+
+    [Fact]
+    public async Task NotPaired_TrackedHandFails_StillSkipsPalmSearch_AsBefore()
+    {
+        var (palms, landmarks, hands) = await SecondCycleWithFailingTrackedB(paired: false);
+
+        Assert.Equal(0, palms);
+        Assert.Equal(2, landmarks);
+        Assert.Equal(1, hands);
+    }
+
+    [Fact]
+    public async Task Paired_TrackedHandsFail_StayWithinPalmAndLandmarkLimits()
+    {
+        await using var service = NewService();
+        double[] xs = [0.2, 0.4, 0.6, 0.8];
+        _hand.OnPalms = (_, _) => xs.Select(x => PalmForHandAt(x, 0.6)).ToArray();
+        var failures = 0;
+        _hand.OnLandmarks = roi => Interlocked.Decrement(ref failures) >= 0 ? null : PeaceFakes.Hand(roi.Center.X, 0.6);
+        var (request, updates) = await Start(service, paired: true);
+        using var _ = request;
+
+        await Cycle(updates, 1);
+        Assert.Equal(4, updates.Last().Hands.Count);
+        var palmsBefore = _hand.PalmCalls;
+        var landmarksBefore = _hand.LandmarkCalls;
+
+        Volatile.Write(ref failures, 3); // drei der vier verfolgten Hände scheitern: nur eine bestätigt, die Palm-Suche läuft
+        await Cycle(updates, 2);
+
+        Assert.InRange(_hand.PalmCalls - palmsBefore, 1, PeaceDetectionService.MaxPalmRuns);
+        Assert.Equal(PeaceDetectionService.MaxLandmarkRuns, _hand.LandmarkCalls - landmarksBefore); // 4 verfolgte Läufe verbrauchen alles
+        Assert.Single(updates.Last().Hands);
+    }
+
     // ------------------------------------------------------------ Schluss-Dedupe
 
     /// <summary>Zwei Ergebnisse aus zwei weit auseinander liegenden Palm-ROIs; die Landmarks kommen der Reihe nach aus <paramref name="hands"/>.</summary>

@@ -9,7 +9,7 @@ namespace Fotobox.Tests;
 
 public sealed class HeartEngineTests
 {
-    // Handrate 10/s: Aussetzer-Toleranz 250 ms, Wiederscharf-Ruhe 400 ms (die Mindestwerte).
+    // Handrate 10/s: Aussetzer-Toleranz 700 ms (HeartEngine.MinGapTolerance), Wiederscharf-Ruhe 800 ms (Toleranz + 1 Analyseabstand).
     private const int Rate = 10;
 
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
@@ -146,10 +146,10 @@ public sealed class HeartEngineTests
         Step(engine, 0, Heart);
         Assert.True(engine.DetectedNow);
 
-        Step(engine, 200, Nothing);
-        Assert.True(engine.DetectedNow); // innerhalb der Toleranz
+        Step(engine, 600, Nothing);
+        Assert.True(engine.DetectedNow); // innerhalb der Toleranz (700 ms)
 
-        _time.Advance(TimeSpan.FromMilliseconds(100));
+        _time.Advance(TimeSpan.FromMilliseconds(200));
         engine.Tick();
         Assert.False(engine.DetectedNow);
         Assert.Null(engine.DetectedShape);
@@ -162,9 +162,24 @@ public sealed class HeartEngineTests
         var engine = Create();
         Step(engine, 0, Heart);
         Hold(engine, 500, Heart);
-        Step(engine, 100, Nothing); // ein verpasstes Bild: Lücke zwischen zwei Treffern 200 ms < 250 ms
+        Step(engine, 100, Nothing); // ein verpasstes Bild: Lücke zwischen zwei Treffern 200 ms < 700 ms
         Hold(engine, 500, Heart);
         Assert.Single(_triggers);
+    }
+
+    [Theory]
+    [InlineData(600, true)]  // Lücke zwischen zwei Treffern 600 ms: unter der Toleranz (700 ms), das Halten läuft weiter
+    [InlineData(700, true)]  // genau die Toleranz: noch kein Abbruch
+    [InlineData(800, false)] // darüber: das Halten beginnt von vorn
+    public void Dropout_IsToleratedUpToTheGapTolerance(int gapMs, bool keepsHold)
+    {
+        var engine = Create();
+        Step(engine, 0, Heart);
+        Hold(engine, 500, Heart);
+        Step(engine, gapMs, Heart); // Treffer nach der Lücke (ohne Update dazwischen)
+
+        Hold(engine, 400, Heart); // 500 + gap + 400 ms seit dem ersten Treffer, nach einem Abbruch aber nur 400 ms
+        Assert.Equal(keepsHold ? 1 : 0, _triggers.Count);
     }
 
     [Fact]
@@ -173,7 +188,7 @@ public sealed class HeartEngineTests
         var engine = Create();
         Step(engine, 0, Heart);
         Hold(engine, 700, Heart);
-        Step(engine, 400, Nothing); // länger als die Toleranz
+        Step(engine, 800, Nothing); // länger als die Toleranz
         Hold(engine, 700, Heart);
         Assert.Empty(_triggers);
 
@@ -184,13 +199,25 @@ public sealed class HeartEngineTests
     [Fact]
     public void Tolerance_FollowsTheAnalysisRate()
     {
+        // Toleranz = max(700 ms, 4 Analyseabstände); Ruhefrist = max(400 ms, 2,5 Analyseabstände, Toleranz + 1 Analyseabstand).
         var engine = Create(rate: 10);
-        Assert.Equal(TimeSpan.FromMilliseconds(250), engine.GapTolerance);
-        Assert.Equal(TimeSpan.FromMilliseconds(400), engine.RearmQuietTime);
+        Assert.Equal(TimeSpan.FromMilliseconds(700), engine.GapTolerance);
+        Assert.Equal(TimeSpan.FromMilliseconds(800), engine.RearmQuietTime);
+
+        var typical = Create(rate: 5);
+        Assert.Equal(TimeSpan.FromMilliseconds(800), typical.GapTolerance);
+        Assert.Equal(TimeSpan.FromMilliseconds(1000), typical.RearmQuietTime);
 
         var slow = Create(rate: 2);
-        Assert.Equal(TimeSpan.FromSeconds(1.25), slow.GapTolerance);
-        Assert.Equal(TimeSpan.FromSeconds(1.25), slow.RearmQuietTime);
+        Assert.Equal(TimeSpan.FromSeconds(2), slow.GapTolerance);
+        Assert.Equal(TimeSpan.FromSeconds(2.5), slow.RearmQuietTime);
+
+        foreach (var rate in new[] { 1, 2, 3, 5, 10, 20, 30 })
+        {
+            var e = Create(rate: rate);
+            Assert.True(e.RearmQuietTime >= e.GapTolerance + TimeSpan.FromSeconds(1.0 / rate));
+            Assert.True(e.RearmQuietTime >= PeaceEngine.MinRearmQuietTime);
+        }
     }
 
     [Fact]
@@ -332,18 +359,57 @@ public sealed class HeartEngineTests
         Hold(engine, 1500, Heart);
         Assert.Single(_triggers);
 
-        // Zu kurze Ruhe (300 ms < 400 ms), dann steht das Herz wieder: nicht scharf, kein zweites Auslösen.
-        Hold(engine, 300, Nothing);
+        // Zu kurze Ruhe (700 ms < 800 ms, selbst innerhalb der Aussetzer-Toleranz), dann steht das Herz wieder: nicht scharf, kein zweites Auslösen.
+        Hold(engine, 700, Nothing);
         Hold(engine, 5000, Heart);
         Assert.Single(_triggers);
         Assert.False(engine.IsArmed);
 
         // Ruhe lang genug: scharf, nächstes Halten löst erneut aus.
-        Hold(engine, 600, Nothing);
+        Hold(engine, 1000, Nothing);
         Assert.True(engine.IsArmed);
         Assert.True(engine.Snapshot.Armed);
         Hold(engine, 1500, Heart);
         Assert.Equal(2, _triggers.Count);
+    }
+
+    [Fact]
+    public void FlickeringHeart_AfterTheTrigger_NeverTriggersASecondTime()
+    {
+        var engine = Create();
+        Hold(engine, 1500, Heart);
+        Assert.Single(_triggers);
+
+        // Das Herz steht weiter, wird aber nur flackernd erkannt: 300 ms Treffer, dann 500 ms nichts (Lücken unter der Toleranz).
+        for (var i = 0; i < 30; i++)
+        {
+            Hold(engine, 300, Heart);
+            Hold(engine, 500, Nothing);
+        }
+
+        Assert.Single(_triggers);
+        Assert.False(engine.IsArmed);
+    }
+
+    [Fact]
+    public void Rearm_RequiresQuietLongerThanTheGapTolerance()
+    {
+        var engine = Create();
+        Hold(engine, 1500, Heart);
+        Assert.Single(_triggers);
+
+        Hold(engine, (int)engine.GapTolerance.TotalMilliseconds, Nothing); // genau die Toleranz: ein weitergehaltenes Herz zählt noch nicht als Ruhe
+        Assert.False(engine.IsArmed);
+        Hold(engine, 100, Nothing);
+        Assert.True(engine.IsArmed); // 800 ms beobachtete Ruhe
+    }
+
+    [Fact]
+    public void LongRun_WithStatisticsWindows_StillTriggersOnce()
+    {
+        var engine = Create();
+        Hold(engine, 100_000, Heart); // mehrere 30-s-Fenster der Diagnose-Statistik
+        Assert.Single(_triggers);
     }
 
     [Fact]
@@ -361,12 +427,12 @@ public sealed class HeartEngineTests
         }
         Assert.False(engine.IsArmed);
 
-        // Erst beobachtete Ruhe macht wieder scharf: ein Update ohne Herz startet sie, 400 ms später ist die Frist erfüllt.
+        // Erst beobachtete Ruhe macht wieder scharf: ein Update ohne Herz startet sie, 800 ms später ist die Frist erfüllt.
         Step(engine, 100, Nothing);
         Assert.False(engine.IsArmed);
-        Hold(engine, 300, Nothing);
+        Hold(engine, 700, Nothing);
         Assert.False(engine.IsArmed);
-        Hold(engine, 200, Nothing);
+        Hold(engine, 100, Nothing);
         Assert.True(engine.IsArmed);
     }
 
@@ -399,7 +465,7 @@ public sealed class HeartEngineTests
         Hold(engine, 5000, Heart); // das Herz steht weiter: bleibt gesperrt
         Assert.Single(_triggers);
 
-        Hold(engine, 600, Nothing);
+        Hold(engine, 900, Nothing);
         Assert.True(engine.IsArmed);
         Hold(engine, 1500, Heart);
         Assert.Equal(2, _triggers.Count);

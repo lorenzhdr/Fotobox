@@ -30,17 +30,53 @@ public sealed class HeartEngine
     // kann das Herz unbemerkt stehen geblieben sein, die reine Uhrzeit genügt dann nicht (wie bei der Peaceerkennung).
     private DateTimeOffset _lastHandUpdateAt = DateTimeOffset.MinValue;
     private DateTimeOffset? _observedQuietSince;
-    private TimeSpan _gapTolerance = PeaceEngine.MinGapTolerance;
-    private TimeSpan _rearmQuietTime = PeaceEngine.MinRearmQuietTime;
+    private TimeSpan _gapTolerance;
+    private TimeSpan _rearmQuietTime;
     private HeartSnapshot _snapshot = new([], true);
     // Diagnose (nur Log, ohne Einfluss auf die Auslösung): Drosselung über die Engine-Zeit.
     private static readonly TimeSpan DiagnosisInterval = TimeSpan.FromSeconds(1);
     private DateTimeOffset _lastDiagnosisAt = DateTimeOffset.MinValue;
+    // Diagnose: Sammelstatistik je Fenster (Engine-Zeit); nur Zähler, ohne Einfluss auf die Auslösung.
+    private static readonly TimeSpan StatsWindow = TimeSpan.FromSeconds(30);
+    private DateTimeOffset _statsWindowStart = DateTimeOffset.MinValue;
+    private int _statAnalyses, _statWithHand, _statWithTwoHands, _statHeartHits, _statLongestStreak, _statStreak, _statHoldAborts, _statTriggers;
+
+    /// <summary>
+    /// Untergrenze der Aussetzer-Toleranz. Herzen werden mit zwei sich berührenden Händen geformt und flackern in der Erkennung
+    /// (die Hand-Pipeline verliert eine der Hände zeitweise); die Peace-Frist (<see cref="PeaceEngine.MinGapTolerance"/>) war dafür zu knapp,
+    /// die Haltezeit kam kaum zustande.
+    /// </summary>
+    public static readonly TimeSpan MinGapTolerance = TimeSpan.FromMilliseconds(700);
+
+    /// <summary>Aussetzer-Toleranz in Analyseabständen (gilt, wenn größer als <see cref="MinGapTolerance"/>).</summary>
+    public const double GapToleranceIntervals = 4;
+
+    /// <summary>Analyserate, für die eine noch nicht konfigurierte Engine ihre Fristen vorbelegt (Empfehlung der Peaceerkennung).</summary>
+    private const int DefaultAnalysesPerSecond = 5;
 
     public HeartEngine(TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(time);
         _time = time;
+        (_gapTolerance, _rearmQuietTime) = Timings(DefaultAnalysesPerSecond);
+    }
+
+    /// <summary>
+    /// Aussetzer-Toleranz = max(<see cref="MinGapTolerance"/>, <see cref="GapToleranceIntervals"/> Analyseabstände); Ruhefrist fürs
+    /// Wiederscharfwerden = max(bisheriger Peace-Wert, Toleranz + 1 Analyseabstand). Die Ruhefrist muss länger als die Toleranz sein:
+    /// Sonst gilt ein im Flackern weitergehaltenes Herz als „beobachtete Ruhe“, und die Engine löst (z. B. eine zweite Kisscam) erneut aus.
+    /// </summary>
+    internal static (TimeSpan GapTolerance, TimeSpan RearmQuietTime) Timings(int analysesPerSecond)
+    {
+        var intervalSeconds = 1.0 / Math.Max(1, analysesPerSecond);
+        var gap = TimeSpan.FromSeconds(GapToleranceIntervals * intervalSeconds);
+        if (gap < MinGapTolerance)
+            gap = MinGapTolerance;
+        var peaceRearm = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor * intervalSeconds);
+        if (peaceRearm < PeaceEngine.MinRearmQuietTime)
+            peaceRearm = PeaceEngine.MinRearmQuietTime;
+        var rearm = gap + TimeSpan.FromSeconds(intervalSeconds);
+        return (gap, rearm > peaceRearm ? rearm : peaceRearm);
     }
 
     /// <summary>Ein Herz wurde lange genug gehalten (die Engine ist danach bis zum Wiederscharfwerden gesperrt).</summary>
@@ -88,14 +124,12 @@ public sealed class HeartEngine
     /// aktualisiert): Der Aufrufer konfiguriert mitten in <c>SetMode</c>, und ein Auslösen würde dort synchron einen Durchgang starten
     /// und die Betriebsart verschachtelt umschalten. Ausgelöst wird nur aus <see cref="OnUpdate"/> und <see cref="Tick"/>.
     /// </summary>
-    /// <param name="analysesPerSecond">Analyserate der Handstufe; bestimmt Aussetzer-Toleranz und Ruhefrist (mindestens 2,5 Analyseabstände).</param>
+    /// <param name="analysesPerSecond">Analyserate der Handstufe; bestimmt Aussetzer-Toleranz und Ruhefrist (siehe <see cref="Timings"/>).</param>
     public void Configure(HeartSettings settings, int analysesPerSecond)
     {
         ArgumentNullException.ThrowIfNull(settings);
         _settings = settings.Clone();
-        var interval = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor / Math.Max(1, analysesPerSecond));
-        _gapTolerance = interval > PeaceEngine.MinGapTolerance ? interval : PeaceEngine.MinGapTolerance;
-        _rearmQuietTime = interval > PeaceEngine.MinRearmQuietTime ? interval : PeaceEngine.MinRearmQuietTime;
+        (_gapTolerance, _rearmQuietTime) = Timings(analysesPerSecond);
         if (!CanDetect)
         {
             // Ausgeschaltet bzw. ohne Form: Halten und Anzeige verwerfen; die Entwaffnung bleibt erhalten.
@@ -134,12 +168,14 @@ public sealed class HeartEngine
             if (_holdStart is null && _armed && _gesturesEnabled)
                 _holdStart = now;
             if (heartBegins)
-                LogHeartBegins(_best, hands.Count);
+                LogHeartBegins(_best, hands);
         }
         else if (CanDetect && hands.Count > 0)
         {
             LogNoHeartDiagnosis(hands, aspect, now);
         }
+        if (CanDetect)
+            RecordStats(now, hands.Count, anyHeart);
 
         // Ausgeschaltet bzw. ohne Form wird nichts beobachtet; die Ruhe zählt erst wieder ab dem ersten Update nach dem Einschalten.
         if (CanDetect)
@@ -249,6 +285,7 @@ public sealed class HeartEngine
         if (_holdStart is not { } start)
             return;
         _holdStart = null;
+        _statHoldAborts++;
         try
         {
             var gap = now - _lastHeartAt;
@@ -266,15 +303,71 @@ public sealed class HeartEngine
         }
     }
 
-    private void LogHeartBegins(HeartMatch best, int handCount)
+    // Hängt die rohen Landmarks der beteiligten Hände an (Paar: beide, Fingerherz: eine), damit sich der Treffer offline nachrechnen lässt.
+    private void LogHeartBegins(HeartMatch best, IReadOnlyList<HandLandmarks> hands)
     {
         try
         {
-            AppLog.Info(string.Create(CultureInfo.InvariantCulture,
+            var sb = new StringBuilder(1024);
+            sb.Append(string.Create(CultureInfo.InvariantCulture,
                 $"Herz-Diagnose: Herz-Treffer beginnt (Form {best.Shape}, Güte {HeartDiagnosisFormat.Num(best.Score)}, "
-                + $"Hände im Bild {handCount}, scharf {(_armed ? "ja" : "nein")}, Gesten erlaubt {(_gesturesEnabled ? "ja" : "nein")}, "
+                + $"Hände im Bild {hands.Count}, scharf {(_armed ? "ja" : "nein")}, Gesten erlaubt {(_gesturesEnabled ? "ja" : "nein")}, "
                 + $"Halten {(_holdStart is not null ? "läuft" : "läuft nicht")}, GapTolerance {_gapTolerance.TotalMilliseconds:0} ms, "
-                + $"Haltedauer {_settings.HoldMilliseconds} ms)."));
+                + $"Haltedauer {_settings.HoldMilliseconds} ms)"));
+            var first = true;
+            foreach (var index in new[] { best.HandA, best.HandB })
+            {
+                if (index < 0 || index >= hands.Count)
+                    continue;
+                sb.Append(first ? " | " : " ").Append("Hand").Append(HeartDiagnosisFormat.Int(index)).Append(" [")
+                  .Append(HeartDiagnosisFormat.Points(hands[index])).Append(']');
+                first = false;
+            }
+            sb.Append('.');
+            AppLog.Info(sb.ToString());
+        }
+        catch
+        {
+            // Diagnose darf die Erkennung nie beeinträchtigen.
+        }
+    }
+
+    // Zählt die Analysen des Fensters und schreibt nach StatsWindow (Engine-Zeit) eine Sammelzeile, falls Hände zu sehen waren.
+    private void RecordStats(DateTimeOffset now, int handCount, bool anyHeart)
+    {
+        try
+        {
+            if (_statsWindowStart == DateTimeOffset.MinValue)
+                _statsWindowStart = now;
+            else if (now - _statsWindowStart >= StatsWindow)
+            {
+                if (_statWithHand > 0)
+                {
+                    AppLog.Info(string.Create(CultureInfo.InvariantCulture,
+                        $"Herz-Diagnose: Statistik {StatsWindow.TotalSeconds:0} s: Analysen {_statAnalyses}, mit ≥1 Hand {_statWithHand}, "
+                        + $"mit ≥2 Händen {_statWithTwoHands}, Herz-Treffer {_statHeartHits}, längste Trefferserie {_statLongestStreak} Analysen, "
+                        + $"Halteabbrüche {_statHoldAborts}, Auslösungen {_statTriggers}."));
+                }
+                _statsWindowStart = now;
+                _statAnalyses = _statWithHand = _statWithTwoHands = _statHeartHits = _statLongestStreak = _statStreak = _statHoldAborts = _statTriggers = 0;
+            }
+
+            _statAnalyses++;
+            if (handCount >= 1)
+                _statWithHand++;
+            if (handCount >= 2)
+                _statWithTwoHands++;
+            if (anyHeart)
+            {
+                _statHeartHits++;
+                _statStreak++;
+                if (_statStreak > _statLongestStreak)
+                    _statLongestStreak = _statStreak;
+            }
+            else
+            {
+                _statStreak = 0;
+            }
         }
         catch
         {
@@ -340,6 +433,7 @@ public sealed class HeartEngine
         _lastAnyHeartAt = now;
         _observedQuietSince = null;
         _holdStart = null;
+        _statTriggers++;
 
         var hands = best.Shape == HeartShape.FingerHeart ? "1 Hand" : "2 Hände";
         AppLog.Info($"Herzerkennung: Herz erkannt (Form {best.Shape}, {hands}), Aktion {_settings.Action}.");
