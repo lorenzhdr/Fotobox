@@ -12,4 +12,12 @@ namespace Fotobox.Tests;
 public sealed class WpfCollection
 {
     public const string Name = "Wpf";
+
+    /// <summary>
+    /// Registriert das pack://-Schema (statischer Konstruktor von <see cref="System.Windows.Application"/>), ohne eine
+    /// Application anzulegen. Sonst schlägt ein Pack-URI mit „The URI prefix is not recognized“ fehl, wenn der Test
+    /// allein läuft und noch kein anderer Test WPF initialisiert hat.
+    /// </summary>
+    public static void EnsurePackUris() =>
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(System.Windows.Application).TypeHandle);
 }

@@ -210,6 +210,7 @@ public class AdminViewTests
     [StaFact]
     public void AdminTheme_PaletteFiles_DefineTheSameKeys()
     {
+        WpfCollection.EnsurePackUris();
         var light = new System.Windows.ResourceDictionary
         {
             Source = new Uri("/Fotobox;component/Views/Admin/AdminColors.Light.xaml", UriKind.Relative)

@@ -225,6 +225,7 @@ public class ProportionalWheelScrollTests
     [StaFact]
     public void AdminTheme_EnablesProportionalScrollingForScrollViewers()
     {
+        WpfCollection.EnsurePackUris();
         var theme = new ResourceDictionary { Source = new Uri("/Fotobox;component/Views/Admin/AdminTheme.xaml", UriKind.Relative) };
         var style = Assert.IsType<Style>(theme[typeof(ScrollViewer)]);
         var viewer = new ScrollViewer { Style = style };

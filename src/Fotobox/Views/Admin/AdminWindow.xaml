@@ -48,7 +48,7 @@
                                 <TextBlock Text="Auflösung" Style="{StaticResource FieldLabel}" />
                                 <ComboBox ItemsSource="{Binding Resolutions}" SelectedItem="{Binding SelectedResolution}"
                                           DisplayMemberPath="Display" />
-                                <TextBlock Text="Bei „Automatisch“ wählt die Fotobox die höchste verfügbare Auflösung."
+                                <TextBlock Text="Bei „Automatisch“ wählt die Fotobox die höchste flüssige Auflösung bis 1920 × 1080. Höhere Auflösungen wählen Sie bitte ausdrücklich aus."
                                            Style="{StaticResource Hint}" />
                                 <TextBlock Text="Spiegeln" Style="{StaticResource FieldLabel}" />
                                 <CheckBox Content="Live-Vorschau spiegeln" IsChecked="{Binding MirrorPreview}" />
@@ -443,7 +443,7 @@
                             <StackPanel Visibility="{Binding ShowStripOptions, Converter={StaticResource BoolToVis}}">
                                 <TextBlock Text="Anzahl der Fotos im Streifen" Style="{StaticResource FieldLabel}" />
                                 <local:NumberStepper Value="{Binding StripPhotoCount}" Minimum="{x:Static core:SettingsLimits.StripPhotosMin}" Maximum="{x:Static core:SettingsLimits.StripPhotosMax}" Suffix=" Fotos" />
-                                <TextBlock Text="Fotostreifen werden immer im Hochformat gedruckt." Style="{StaticResource Hint}" />
+                                <TextBlock Text="Bei der Druckausrichtung „Automatisch“ (Tab Drucker) werden Fotostreifen im Hochformat gedruckt." Style="{StaticResource Hint}" />
                             </StackPanel>
 
                             <StackPanel Visibility="{Binding IsStripLayout, Converter={StaticResource BoolToVis}}">
@@ -751,7 +751,7 @@
                                     <TextBox Text="{Binding VideoHintText, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.HintTextMaxLength}"
                                              Width="620" HorizontalAlignment="Left" AutomationProperties.Name="Video-Hinweistext" />
                                     <TextBlock Style="{StaticResource Hint}"
-                                               Text="Leer lassen für den automatischen Text. Platzhalter: {Videotaste_1}, {Videotaste_2} … (einzelne Videotaste), {Videotasten} (alle Tasten für „Video starten“), dazu {Fototaste_N}, {Fototasten} und {Klick} wie beim Foto-Hinweis. Ohne Taste für „Video starten“ entfällt die Zeile." />
+                                               Text="Leer lassen für den automatischen Text. Platzhalter: {Videotaste_1}, {Videotaste_2} … (einzelne Videotaste), {Videotasten} (alle Tasten für „Video starten“), dazu {Fototaste_N}, {Fototasten} und {Klick} wie beim Foto-Hinweis. Ohne Taste für „Video starten“ entfällt der automatische Text." />
                                     <TextBlock Text="{Binding VideoHintProblemsText}" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}"
                                                Visibility="{Binding HasVideoHintProblems, Converter={StaticResource BoolToVis}}" />
 
@@ -1145,7 +1145,7 @@
                             <TextBlock Text="Dateipräfix" Style="{StaticResource FieldLabel}" />
                             <TextBox Text="{Binding FilePrefix, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.FilePrefixMaxLength}" MaxWidth="320"
                                      HorizontalAlignment="Left" Width="320" />
-                            <TextBlock Text="Dateien heißen zum Beispiel „Fotobox_20250101_120000.jpg“." Style="{StaticResource Hint}" />
+                            <TextBlock Text="Dateien heißen zum Beispiel „Fotobox+_20250101_120000.jpg“." Style="{StaticResource Hint}" />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>
