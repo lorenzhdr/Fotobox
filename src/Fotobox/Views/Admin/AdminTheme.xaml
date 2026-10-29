@@ -465,8 +465,25 @@
                                 Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
                             <StackPanel IsItemsHost="True" Width="190" />
                         </Border>
-                        <ContentPresenter x:Name="PART_SelectedContentHost" Grid.Column="1" ContentSource="SelectedContent" />
+                        <!-- Zoom nur für den Inhaltsbereich (Tab-Leiste bleibt 100 %): LayoutTransform, damit der Inhalt den verkleinerten
+                             Platz belegt und Scrollbereich/Umbrüche stimmen (RenderTransform würde nur zeichnen). Der Faktor kommt aus dem
+                             Ansichtsmodell des Admin-Fensters (AdminContentScale), ohne dieses 1. Das Windows-"Display"-Textformat wird
+                             skaliert unscharf: bei Zoom ≠ 100 % "Ideal", bei 100 % wie im übrigen Fenster "Display". -->
+                        <ContentPresenter x:Name="PART_SelectedContentHost" Grid.Column="1" ContentSource="SelectedContent"
+                                          TextOptions.TextFormattingMode="Ideal">
+                            <ContentPresenter.LayoutTransform>
+                                <ScaleTransform ScaleX="{Binding DataContext.AdminContentScale, RelativeSource={RelativeSource TemplatedParent}, FallbackValue=1}"
+                                                ScaleY="{Binding DataContext.AdminContentScale, RelativeSource={RelativeSource TemplatedParent}, FallbackValue=1}" />
+                            </ContentPresenter.LayoutTransform>
+                        </ContentPresenter>
                     </Grid>
+                    <ControlTemplate.Triggers>
+                        <!-- Trigger-Bindungen laufen gegen das TabControl selbst (dessen DataContext), deshalb hier ohne RelativeSource und ohne
+                             FallbackValue (sonst wäre der Trigger bei fehlender Bindung fälschlich aktiv). -->
+                        <DataTrigger Binding="{Binding AdminContentScale}" Value="1">
+                            <Setter TargetName="PART_SelectedContentHost" Property="TextOptions.TextFormattingMode" Value="Display" />
+                        </DataTrigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

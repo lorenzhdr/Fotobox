@@ -809,6 +809,61 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(AdminThemeMode.System, store.Current.Appearance.AdminTheme);
     }
 
+    // ---- Darstellung (Zoom der Admin-Ansicht)
+
+    [Fact]
+    public void AdminZoom_DefaultsTo80_AndMissingFieldOrSectionGivesDefault()
+    {
+        Assert.Equal(80, SettingsLimits.AdminZoomDefault);
+        Assert.Equal(80, new AppSettings().Appearance.AdminZoomPercent);
+
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, "{ \"Appearance\": { \"AdminTheme\": \"Dark\" } }");
+        Assert.Equal(80, new JsonSettingsStore(_dir).Current.Appearance.AdminZoomPercent);
+
+        File.WriteAllText(SettingsPath, "{ \"Flow\": { \"CountdownSeconds\": 3 } }");
+        Assert.Equal(80, new JsonSettingsStore(_dir).Current.Appearance.AdminZoomPercent);
+
+        File.WriteAllText(SettingsPath, "{ \"Appearance\": null }");
+        Assert.Equal(80, new JsonSettingsStore(_dir).Current.Appearance.AdminZoomPercent);
+    }
+
+    [Theory]
+    [InlineData(30, 60)]
+    [InlineData(-5, 60)]
+    [InlineData(0, 60)]
+    [InlineData(59, 60)]
+    [InlineData(60, 60)]
+    [InlineData(62, 60)]
+    [InlineData(63, 65)]
+    [InlineData(80, 80)]
+    [InlineData(82, 80)]
+    [InlineData(83, 85)]
+    [InlineData(98, 100)]
+    [InlineData(100, 100)]
+    [InlineData(150, 100)]
+    [InlineData(int.MaxValue, 100)]
+    [InlineData(int.MinValue, 60)]
+    public void AdminZoom_IsClampedAndRoundedToFiveSteps(int input, int expected)
+    {
+        var store = new JsonSettingsStore(_dir);
+        var s = new AppSettings();
+        s.Appearance.AdminZoomPercent = input;
+        store.Save(s);
+
+        Assert.Equal(expected, store.Current.Appearance.AdminZoomPercent);
+        Assert.Equal(expected, new JsonSettingsStore(_dir).Current.Appearance.AdminZoomPercent);
+        Assert.Equal(expected, Fotobox.Services.Storage.SettingsNormalizer.NormalizeAdminZoom(input));
+    }
+
+    [Fact]
+    public void AdminZoom_FromFile_IsNormalized()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, "{ \"Appearance\": { \"AdminZoomPercent\": 33 } }");
+        Assert.Equal(60, new JsonSettingsStore(_dir).Current.Appearance.AdminZoomPercent);
+    }
+
     // ---- Darstellung (Monitor der Gastansicht)
 
     [Fact]

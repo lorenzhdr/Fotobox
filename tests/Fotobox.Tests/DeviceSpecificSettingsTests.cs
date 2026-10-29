@@ -159,12 +159,12 @@ public sealed class DeviceSpecificSettingsTests
     }
 
     [Fact]
-    public void Paths_AreTheSixteenAgreedDeviceFields()
+    public void Paths_AreTheSeventeenAgreedDeviceFields()
     {
         Assert.Equal(
             new[]
             {
-                "Appearance.GuestMonitorId", "Appearance.GuestMonitorName",
+                "Appearance.AdminZoomPercent", "Appearance.GuestMonitorId", "Appearance.GuestMonitorName",
                 "Camera.ControlProfiles", "Camera.ControlValues", "Camera.ControlsDeviceId",
                 "Camera.DeviceId", "Camera.ResolutionHeight", "Camera.ResolutionWidth",
                 "Printer.PaperHeightMm", "Printer.PaperSizeName", "Printer.PaperWidthMm", "Printer.PrinterName",
@@ -242,8 +242,27 @@ public sealed class DeviceSpecificSettingsTests
 
         DeviceSpecificSettings.CopyFrom(new AppSettings(), target);
 
+        // Leer bzw. Standard (der Admin-Zoom ist eine Zahl mit Standard 80, nicht null).
+        var fresh = new AppSettings();
         foreach (var path in DeviceSpecificSettings.Paths)
-            Assert.True(IsNullOrEmpty(Get(target, path)), $"{path} ist nicht leer.");
+            Assert.True(IsNullOrEmpty(Get(target, path)) || Equals(Get(fresh, path), Get(target, path)), $"{path} ist nicht leer.");
+    }
+
+    [Fact]
+    public void AdminZoom_IsDeviceSpecific_ClearedToDefault_AndCopied()
+    {
+        Assert.Contains("Appearance.AdminZoomPercent", DeviceSpecificSettings.Paths);
+
+        var s = new AppSettings();
+        s.Appearance.AdminZoomPercent = 65;
+        DeviceSpecificSettings.Clear(s);
+        Assert.Equal(SettingsLimits.AdminZoomDefault, s.Appearance.AdminZoomPercent);
+
+        var source = new AppSettings();
+        source.Appearance.AdminZoomPercent = 65;
+        var target = new AppSettings();
+        DeviceSpecificSettings.CopyFrom(source, target);
+        Assert.Equal(65, target.Appearance.AdminZoomPercent);
     }
 
     /// <summary>Alle Blattfelder (öffentlich les-/schreibbar) der übertragbaren Abschnitte; verschachtelte Objekte werden durchlaufen, Texte und Listen sind Blätter.</summary>

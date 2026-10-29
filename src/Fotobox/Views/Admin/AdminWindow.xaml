@@ -928,6 +928,22 @@
                             </UniformGrid>
                             <TextBlock Style="{StaticResource Hint}"
                                        Text="Das Farbschema gilt für die Einstellungen und die PIN-Abfrage, nicht für die Gastansicht. Die Änderung ist sofort sichtbar und wird mit „Übernehmen“ oder „Speichern &amp; schließen“ gespeichert." />
+
+                            <TextBlock Text="Größe der Einstellungen" Style="{StaticResource FieldLabel}" />
+                            <StackPanel Orientation="Horizontal">
+                                <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.AdminZoomMin}, Mode=OneTime}"
+                                        Maximum="{Binding Source={x:Static core:SettingsLimits.AdminZoomMax}, Mode=OneTime}"
+                                        TickFrequency="{Binding Source={x:Static core:SettingsLimits.AdminZoomStep}, Mode=OneTime}"
+                                        SmallChange="{Binding Source={x:Static core:SettingsLimits.AdminZoomStep}, Mode=OneTime}"
+                                        LargeChange="{Binding Source={x:Static core:SettingsLimits.AdminZoomStep}, Mode=OneTime}"
+                                        IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                        Value="{Binding AdminZoomPercent}"
+                                        AutomationProperties.Name="Größe der Einstellungen" />
+                                <TextBlock Text="{Binding AdminZoomText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0"
+                                           VerticalAlignment="Center" MinWidth="60" />
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Verkleinert nur den Inhaltsbereich rechts, damit mehr auf einmal sichtbar ist. Gilt nur für dieses Gerät und wird nicht mit „Einstellungen teilen“ weitergegeben." />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>

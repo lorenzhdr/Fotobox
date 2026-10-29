@@ -160,8 +160,11 @@ public class AdminVisualRenderTests
         RenderTab(dir, "Speicher", "storage", mode);
         RenderTab(dir, "Speicher", "storage_video_off", mode, vm => vm.VideoEnabled = false);
         RenderTab(dir, "Video", "video", mode);
+        // Darstellung bei Standardzoom 80 % (der Inhalt wird auf Layoutgröße gerendert) und das ganze Fenster mit verkleinertem Inhalt.
+        RenderTab(dir, "Darstellung", "appearance", mode, extra: (rig, _) =>
+            SavePng(rig.Root, 1100, 750, Path.Combine(dir, $"admin_appearance_window80_{ThemeName(mode)}.png"), rig.Background));
 
-        Assert.True(Directory.GetFiles(dir, $"admin_*_{ThemeName(mode)}.png").Length >= 5);
+        Assert.True(Directory.GetFiles(dir, $"admin_*_{ThemeName(mode)}.png").Length >= 6);
     }
 
     [Trait("Category", "Visual")]

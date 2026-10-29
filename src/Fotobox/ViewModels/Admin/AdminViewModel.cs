@@ -2316,6 +2316,29 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         set => SetAdminTheme(AdminThemeMode.Dark, value);
     }
 
+    /// <summary>
+    /// Zoom des Inhaltsbereichs in Prozent (Entwurf, <see cref="SettingsLimits.AdminZoomMin"/> bis <see cref="SettingsLimits.AdminZoomMax"/>).
+    /// Wirkt sofort live (nur Layout des offenen Fensters); gespeichert wird mit „Übernehmen“. Der Wert löst nie einen Kamera-Neustart aus.
+    /// </summary>
+    public int AdminZoomPercent
+    {
+        get => _draft.Appearance.AdminZoomPercent;
+        set
+        {
+            if (SetProperty(_draft.Appearance.AdminZoomPercent, value, v => _draft.Appearance.AdminZoomPercent = v))
+            {
+                OnPropertyChanged(nameof(AdminZoomText));
+                OnPropertyChanged(nameof(AdminContentScale));
+            }
+        }
+    }
+
+    public string AdminZoomText => $"{_draft.Appearance.AdminZoomPercent} %";
+
+    /// <summary>Skalierungsfaktor des Inhaltsbereichs (Prozent / 100), auf den Bereich der Einstellung begrenzt.</summary>
+    public double AdminContentScale =>
+        Math.Clamp(_draft.Appearance.AdminZoomPercent, SettingsLimits.AdminZoomMin, SettingsLimits.AdminZoomMax) / 100.0;
+
     private void SetAdminTheme(AdminThemeMode mode, bool selected)
     {
         if (!selected || _draft.Appearance.AdminTheme == mode)
