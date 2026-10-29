@@ -1,5 +1,12 @@
 ## Fotobox+ {{VERSION}}
 
+### Neu in 2.4.0-beta
+
+- **Easter Egg „Mittelfingererkennung“:** Zeigt ein Gast den Mittelfinger in die Kamera und hält ihn kurz, verschwinden alle Schnurrbärte mit einem kleinen „Plopp“, und ein laufender Selbstzerstörungs-Countdown bricht still ab – wie mit Esc. Andere Countdowns laufen weiter; ein Foto direkt danach entsteht ohne Bart. Die Erkennung wirkt zusammen mit der Peaceerkennung und ist ab Werk eingeschaltet. Im Admin-Tab „Fun“ → „Mittelfinger“ lassen sich Haltedauer und Empfindlichkeit einstellen, eine Live-Vorschau mit „Aufheben testen“ zeigt die Wirkung. Die Gastansicht verrät nichts.
+- **Einstellungen teilen:** Im Admin-Tab *Sicherheit* lassen sich alle Einstellungen als Datei exportieren und auf einem anderen PC importieren. Kamera, Drucker, Papier, Speicherorte, Mikrofon und Bildschirm bleiben dabei immer die des Ziel-PCs; die Admin-PIN wird nur auf Wunsch mitexportiert und beim Import erst nach Rückfrage übernommen. Der Import gilt erst nach „Übernehmen“ bzw. „Speichern & schließen“. Stammt die Datei aus einer anderen Version, werden nur die Einstellungen übernommen, die es in dieser Version gibt; fehlende bekommen den Standardwert. Das Overlay-Bild ist nicht in der Datei enthalten – fehlt es am Ziel, weist die App darauf hin.
+- **Weniger Rechenlast im Admin:** Die Kameravorschauen im Tab „Fun“ arbeiten nur noch, solange sie zu sehen sind.
+- **Beta:** Die neuen Funktionen sind mit automatischen Tests geprüft, aber noch nicht im Praxistest.
+
 ### Neu in 2.3.0-beta
 
 - **Easter Egg „Peaceerkennung“:** Zeigt ein Gast im Livebild ein Peace-Zeichen ✌ und hält es kurz, passiert eine Überraschung: ein roter Selbstzerstörungs-Countdown, bei dem das Foto genau im Moment der Explosion entsteht, ein Foto mit eigenem Countdown oder ein Schnurrbart für alle Gesichter bzw. nur für die zeigende Person, live im Bild und im Foto. Die Gastansicht verrät vorher nichts. Ab Werk ist die Selbstzerstörung aktiv; Foto und Schnurrbart lassen sich im Admin-Tab „Fun“ → „Peace“ dazuschalten, dort gibt es auch eine Live-Vorschau mit Testknöpfen. Jede ausgelöste Aktion macht ein Foto und druckt es wie gewohnt: Wer Papier sparen will, verlängert die Haltedauer, setzt eine Sperrzeit oder schaltet die Erkennung ab.
