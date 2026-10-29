@@ -74,7 +74,7 @@ public sealed class MiddleFingerSettingsTests
     [Fact]
     public void NoAction_FallsBackToCancelPeace()
     {
-        var m = Normalized(s => s.MiddleFinger.ActionCancelPeace = false).MiddleFinger;
+        var m = Normalized(s => { s.MiddleFinger.ActionCancelPeace = false; s.MiddleFinger.ActionCancelKisscam = false; }).MiddleFinger;
 
         Assert.True(m.ActionCancelPeace);
         Assert.True(m.HasAnyAction);

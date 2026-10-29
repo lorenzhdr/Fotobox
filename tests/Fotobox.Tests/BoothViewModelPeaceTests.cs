@@ -811,10 +811,12 @@ public partial class BoothViewModelTests
         Assert.False(rig.ViewModel.OnMiddleFinger());
         rig.H.Settings.Current.MiddleFinger.Enabled = true;
         rig.H.Settings.Current.MiddleFinger.ActionCancelPeace = false;
+        rig.H.Settings.Current.MiddleFinger.ActionCancelKisscam = false;
         Assert.False(rig.ViewModel.OnMiddleFinger());
         Assert.Equal(BoothState.Countdown, rig.H.Controller.State);
 
         rig.H.Settings.Current.MiddleFinger.ActionCancelPeace = true;
+        rig.H.Settings.Current.MiddleFinger.ActionCancelKisscam = true;
         Assert.True(rig.ViewModel.OnMiddleFinger());
         rig.WaitForIdle();
         Assert.Equal(BoothState.Idle, rig.H.Controller.State);

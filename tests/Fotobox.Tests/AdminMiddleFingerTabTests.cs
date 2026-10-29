@@ -178,6 +178,7 @@ public sealed class AdminMiddleFingerTabTests : IDisposable
 
         bool? closed = null;
         vm.CloseRequested += save => closed = save;
+        vm.Draft.MiddleFinger.ActionCancelKisscam = false; // (die Kisscam-Aktion gibt es in der Ansicht noch nicht)
         vm.MiddleFingerActionCancelPeace = false; // (nur programmatisch möglich, die Ansicht sperrt den Haken)
         Assert.True(vm.MiddleFingerActionCancelPeaceEnabled);
         Assert.True(vm.MiddleFingerHasNoAction);

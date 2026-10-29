@@ -127,8 +127,27 @@ public sealed class DeviceSpecificSettingsTests
         // MiddleFinger
         "MiddleFinger.Enabled",
         "MiddleFinger.ActionCancelPeace",
+        "MiddleFinger.ActionCancelKisscam",
         "MiddleFinger.HoldMilliseconds",
         "MiddleFinger.SensitivityPercent",
+        // Heart (KisscamMusicPath ist gerätespezifisch)
+        "Heart.Enabled",
+        "Heart.ShapeClassic",
+        "Heart.ShapeRoof",
+        "Heart.ShapeInverted",
+        "Heart.ShapeFingerHeart",
+        "Heart.HoldMilliseconds",
+        "Heart.SensitivityPercent",
+        "Heart.ShowHoldFeedback",
+        "Heart.Action",
+        "Heart.KisscamSeconds",
+        "Heart.KisscamText",
+        "Heart.KisscamBannerText",
+        "Heart.KisscamColor",
+        "Heart.KisscamZoomEnabled",
+        "Heart.KisscamZoomPercent",
+        "Heart.KisscamFilePrefix",
+        "Heart.KisscamMusicVolumePercent",
     ];
 
     [Fact]
@@ -159,7 +178,7 @@ public sealed class DeviceSpecificSettingsTests
     }
 
     [Fact]
-    public void Paths_AreTheSeventeenAgreedDeviceFields()
+    public void Paths_AreTheEighteenAgreedDeviceFields()
     {
         Assert.Equal(
             new[]
@@ -167,6 +186,7 @@ public sealed class DeviceSpecificSettingsTests
                 "Appearance.AdminZoomPercent", "Appearance.GuestMonitorId", "Appearance.GuestMonitorName",
                 "Camera.ControlProfiles", "Camera.ControlValues", "Camera.ControlsDeviceId",
                 "Camera.DeviceId", "Camera.ResolutionHeight", "Camera.ResolutionWidth",
+                "Heart.KisscamMusicPath",
                 "Printer.PaperHeightMm", "Printer.PaperSizeName", "Printer.PaperWidthMm", "Printer.PrinterName",
                 "Storage.PhotoFolder",
                 "Video.Folder", "Video.MicrophoneId", "Video.MicrophoneName",

@@ -37,6 +37,7 @@ internal static class SettingsNormalizer
         s.Fun ??= new FunSettings();
         s.Peace ??= new PeaceSettings();
         s.MiddleFinger ??= new MiddleFingerSettings();
+        s.Heart ??= new HeartSettings();
 
         NormalizeCamera(s.Camera);
 

@@ -128,6 +128,13 @@ public sealed class SettingsTransferTests : IDisposable
         s.MiddleFinger.Enabled = false;
         s.MiddleFinger.HoldMilliseconds = 900;
         s.MiddleFinger.SensitivityPercent = 75;
+        s.MiddleFinger.ActionCancelKisscam = false;
+        s.Heart.Enabled = false;
+        s.Heart.ShapeInverted = true;
+        s.Heart.HoldMilliseconds = 1400;
+        s.Heart.KisscamSeconds = 20;
+        s.Heart.KisscamColor = KisscamColor.Gold;
+        s.Heart.KisscamFilePrefix = "Kuss";
 
         FillDevices(s);
         return s;
@@ -498,7 +505,7 @@ public sealed class SettingsTransferTests : IDisposable
 
         Assert.Equal(9, result.Sections.Flow.CountdownSeconds);
         var defaults = new AppSettings();
-        foreach (var name in new[] { "Camera", "Layout", "Printer", "Storage", "Input", "GuestScreen", "Appearance", "Video", "Fun", "Peace", "MiddleFinger" })
+        foreach (var name in new[] { "Camera", "Layout", "Printer", "Storage", "Input", "GuestScreen", "Appearance", "Video", "Fun", "Peace", "MiddleFinger", "Heart" })
             Assert.Equal(SectionJson(defaults, name), SectionJson(result.Sections, name));
         Assert.False(result.FromNewerVersion);
         Assert.Empty(result.Notes);

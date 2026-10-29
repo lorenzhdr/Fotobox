@@ -51,6 +51,12 @@ public enum MoustacheStyle { Random, Twirl, Walrus, Chevron, Brush, Handlebar, F
 public enum MoustacheTargets { Everyone, PeaceShower }
 /// <summary>Peaceerkennung, Aktion Schnurrbart: wie lange der Bart sichtbar bleibt. Nur hinten erweitern.</summary>
 public enum MoustacheVisibility { UntilPhotoOrGone, FixedDuration }
+/// <summary>Herzerkennung: erkennbare Herzformen (Classic = Daumen und Zeigefinger beider Hände, Roof = Fingerspitzen oben zusammen, Inverted = auf den Kopf gestellt, FingerHeart = Fingerherz einer Hand). Nur hinten erweitern.</summary>
+public enum HeartShape { Classic, Roof, Inverted, FingerHeart }
+/// <summary>Herzerkennung: Aktion, die eine Herzgeste auslöst. Nur hinten erweitern.</summary>
+public enum HeartAction { Kisscam }
+/// <summary>Kisscam: Farbschema des Jumbotron-Rahmens. Nur hinten erweitern.</summary>
+public enum KisscamColor { PinkRed, Red, Gold, Purple, BlackWhite }
 
 /// <summary>Gemeinsame Wertebereiche für Admin-UI, Validierung und Normalisierung.</summary>
 public static class SettingsLimits
@@ -145,6 +151,22 @@ public static class SettingsLimits
     public const int MiddleFingerHoldMillisecondsMin = 200, MiddleFingerHoldMillisecondsMax = 3000, MiddleFingerHoldMillisecondsStep = 100;
     /// <summary>Mittelfinger: Empfindlichkeit in Prozent.</summary>
     public const int MiddleFingerSensitivityMin = 10, MiddleFingerSensitivityMax = 95;
+    /// <summary>Herz: Haltedauer der Geste in Millisekunden (100er-Schritte).</summary>
+    public const int HeartHoldMillisecondsMin = 300, HeartHoldMillisecondsMax = 3000, HeartHoldMillisecondsStep = 100;
+    /// <summary>Herz: Empfindlichkeit in Prozent.</summary>
+    public const int HeartSensitivityMin = 10, HeartSensitivityMax = 95;
+    /// <summary>Kisscam: Dauer des Countdowns in Sekunden.</summary>
+    public const int KisscamSecondsMin = 3, KisscamSecondsMax = 60;
+    /// <summary>Kisscam: Digitalzoom in Prozent (10er-Schritte, 100 = kein Zoom).</summary>
+    public const int KisscamZoomPercentMin = 110, KisscamZoomPercentMax = 200, KisscamZoomPercentStep = 10;
+    /// <summary>Kisscam: Lautstärke der Musik in Prozent (5er-Schritte).</summary>
+    public const int KisscamMusicVolumeMin = 0, KisscamMusicVolumeMax = 100, KisscamMusicVolumeStep = 5;
+    /// <summary>Kisscam: längster Banner-Text (z. B. „KISS CAM“); längere Werte aus der settings.json werden beim Laden gekürzt.</summary>
+    public const int KisscamBannerMaxLength = 30;
+    /// <summary>Kisscam: In den letzten so vielen Sekunden des Countdowns erscheinen große Ziffern.</summary>
+    public const int KisscamFinalDigitsSeconds = 3;
+    /// <summary>Kisscam: längster gespeicherter Pfad der Musikdatei; längere Werte aus der settings.json werden verworfen (gekürzt passte der Pfad nie).</summary>
+    public const int KisscamMusicPathMaxLength = 1024;
     /// <summary>Admin-Ansicht: Zoom des Inhaltsbereichs in Prozent (5er-Schritte, Standard 80); Tab-Leiste und Fußleiste bleiben bei 100 %.</summary>
     public const int AdminZoomMin = 60, AdminZoomMax = 100, AdminZoomStep = 5, AdminZoomDefault = 80;
 }
@@ -236,6 +258,7 @@ public sealed class AppSettings
     public FunSettings Fun { get; set; } = new();
     public PeaceSettings Peace { get; set; } = new();
     public MiddleFingerSettings MiddleFinger { get; set; } = new();
+    public HeartSettings Heart { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -554,24 +577,26 @@ public sealed class PeaceSettings
 /// Was der Mittelfinger gerade aufheben könnte (Bitmaske, aktuell sichtbare Peace-Effekte). Künftige Aktionen hängen weitere Flags an.
 /// </summary>
 [Flags]
-public enum MiddleFingerTargets { None = 0, Moustache = 1, SelfDestruct = 2 }
+public enum MiddleFingerTargets { None = 0, Moustache = 1, SelfDestruct = 2, Kisscam = 4 }
 
 /// <summary>
 /// Fun „Mittelfingererkennung“ (verstecktes Extra): Zeigt ein Gast den Mittelfinger und hält ihn, läuft eine der gewählten Aktionen
-/// (aktuell: Peace-Effekte aufheben). Nur Werttypen.
+/// (aktuell: Peace-Effekte aufheben, Kisscam abbrechen). Nur Werttypen.
 /// </summary>
 public sealed class MiddleFingerSettings
 {
     public bool Enabled { get; set; } = true;
     /// <summary>Aktion „Peace-Effekte aufheben“ (Bart entfernen, Selbstzerstörung abbrechen). Künftige Aktionen als weitere Bools hinten anfügen.</summary>
     public bool ActionCancelPeace { get; set; } = true;
+    /// <summary>Aktion „Kisscam abbrechen“ (der Mittelfinger beendet den laufenden Kisscam-Countdown ohne Foto).</summary>
+    public bool ActionCancelKisscam { get; set; } = true;
     /// <summary>So lange muss das Zeichen gehalten werden (Millisekunden).</summary>
     public int HoldMilliseconds { get; set; } = 500;
     public int SensitivityPercent { get; set; } = 50;
 
     /// <summary>Mindestens eine Aktion gewählt?</summary>
     [JsonIgnore]
-    public bool HasAnyAction => ActionCancelPeace;
+    public bool HasAnyAction => ActionCancelPeace || ActionCancelKisscam;
 
     /// <summary>Mindestscore einer Handerkennung (0,55 … 0,9) linear aus der Empfindlichkeit (10 → 0,9, 95 → 0,55).</summary>
     [JsonIgnore]
@@ -590,11 +615,77 @@ public sealed class MiddleFingerSettings
 
     /// <summary>Gibt es etwas, das der Mittelfinger bei den aktuellen Einstellungen aufheben würde?</summary>
     public bool Wants(MiddleFingerTargets present) =>
-        Enabled && ActionCancelPeace
-        && (present & (MiddleFingerTargets.Moustache | MiddleFingerTargets.SelfDestruct)) != 0;
+        Enabled
+        && ((ActionCancelPeace && (present & (MiddleFingerTargets.Moustache | MiddleFingerTargets.SelfDestruct)) != 0)
+            || (ActionCancelKisscam && present.HasFlag(MiddleFingerTargets.Kisscam)));
 
     /// <summary>Tiefe Kopie.</summary>
     public MiddleFingerSettings Clone() => (MiddleFingerSettings)MemberwiseClone();
+}
+
+/// <summary>
+/// Fun „Herzerkennung“ (verstecktes Extra): Formen zwei Gäste (oder einer als Fingerherz) ein Herz und halten es, startet die Aktion
+/// <see cref="HeartAction.Kisscam"/> (langer Countdown mit Jumbotron-Rahmen, dann Einzelfoto mit Rahmen). Nur Werttypen und Strings.
+/// </summary>
+public sealed class HeartSettings
+{
+    public bool Enabled { get; set; } = true;
+    /// <summary>Klassisches Herz (Daumen und Zeigefinger beider Hände bilden ein Herz).</summary>
+    public bool ShapeClassic { get; set; } = true;
+    /// <summary>Dach-Herz (Fingerspitzen beider Hände oben zusammen).</summary>
+    public bool ShapeRoof { get; set; } = true;
+    /// <summary>Auf den Kopf gestelltes Herz (beider Hände).</summary>
+    public bool ShapeInverted { get; set; }
+    /// <summary>Fingerherz (Daumen und Zeigefinger einer Hand).</summary>
+    public bool ShapeFingerHeart { get; set; }
+    /// <summary>So lange muss die Geste gehalten werden (Millisekunden).</summary>
+    public int HoldMilliseconds { get; set; } = 1000;
+    /// <summary>Empfindlichkeit in Prozent (wie bei Peace; Standard 50).</summary>
+    public int SensitivityPercent { get; set; } = 50;
+    /// <summary>Fortschrittsanzeige am Herz während des Haltens.</summary>
+    public bool ShowHoldFeedback { get; set; } = true;
+    public HeartAction Action { get; set; } = HeartAction.Kisscam;
+
+    /// <summary>Dauer des Kisscam-Countdowns in Sekunden.</summary>
+    public int KisscamSeconds { get; set; } = 10;
+    /// <summary>Hinweistext während des Countdowns (Platzhalter <c>{Sekunden}</c>); null = <see cref="DefaultKisscamText"/>.</summary>
+    public string? KisscamText { get; set; }
+    /// <summary>Banner-Text im Rahmen; null = <see cref="DefaultKisscamBannerText"/>.</summary>
+    public string? KisscamBannerText { get; set; }
+    public KisscamColor KisscamColor { get; set; } = KisscamColor.PinkRed;
+    /// <summary>Digitalzoom auf die Herz-Gäste während des Countdowns.</summary>
+    public bool KisscamZoomEnabled { get; set; }
+    public int KisscamZoomPercent { get; set; } = 140;
+    /// <summary>Dateiname-Präfix des Kisscam-Fotos.</summary>
+    public string KisscamFilePrefix { get; set; } = DefaultKisscamFilePrefix;
+    /// <summary>Musikdatei (WAV/MP3) während der Kisscam; null = keine Musik. Gerätespezifisch (wird nicht geteilt).</summary>
+    public string? KisscamMusicPath { get; set; }
+    public int KisscamMusicVolumePercent { get; set; } = 80;
+
+    public const string DefaultKisscamText = "Du hast {Sekunden} Sekunden Zeit, dir jemanden zum Küssen zu suchen!";
+    public const string DefaultKisscamBannerText = "KISS CAM";
+    public const string DefaultKisscamFilePrefix = "Kisscam";
+
+    /// <summary>Mindestens eine Herzform gewählt?</summary>
+    [JsonIgnore]
+    public bool HasAnyShape => ShapeClassic || ShapeRoof || ShapeInverted || ShapeFingerHeart;
+
+    /// <summary>Ist die Herzform <paramref name="shape"/> eingeschaltet?</summary>
+    public bool IsShapeEnabled(HeartShape shape) => shape switch
+    {
+        HeartShape.Classic => ShapeClassic,
+        HeartShape.Roof => ShapeRoof,
+        HeartShape.Inverted => ShapeInverted,
+        HeartShape.FingerHeart => ShapeFingerHeart,
+        _ => false,
+    };
+
+    /// <summary>Mindestscore einer Handerkennung (0,55 … 0,9) aus der Empfindlichkeit; gemeinsame Abbildung <see cref="MiddleFingerSettings.MinHandScoreFor"/>.</summary>
+    [JsonIgnore]
+    public double MinHandScore => MiddleFingerSettings.MinHandScoreFor(SensitivityPercent);
+
+    /// <summary>Tiefe Kopie.</summary>
+    public HeartSettings Clone() => (HeartSettings)MemberwiseClone();
 }
 
 public sealed class SecuritySettings
