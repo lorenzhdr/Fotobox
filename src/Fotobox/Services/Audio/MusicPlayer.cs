@@ -297,7 +297,7 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         StopTimer(ref _openTimer);
         _opened = true;
         // Startzeit hinter dem Songende (oder gleich der Länge): ab Anfang spielen. Ohne bekannte Länge gilt die Startzeit unverändert.
-        _startAt = ResolveStart(player, startAt);
+        _startAt = ResolveStart(startAt, TryGetDuration(player));
         if (_startAt > TimeSpan.Zero)
         {
             try
@@ -316,20 +316,29 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         StartPositionTimer(player);
     }
 
-    internal static TimeSpan ResolveStart(MediaPlayer player, TimeSpan startAt)
+    /// <summary>
+    /// Die tatsächliche Startzeit: negativ oder hinter (bzw. auf) dem Songende ergibt 0:00; ohne bekannte Länge gilt die Startzeit
+    /// unverändert.
+    /// </summary>
+    internal static TimeSpan ResolveStart(TimeSpan startAt, TimeSpan? duration)
     {
         if (startAt <= TimeSpan.Zero)
             return TimeSpan.Zero;
+        if (duration is { } d && d > TimeSpan.Zero && startAt >= d)
+            return TimeSpan.Zero;
+        return startAt;
+    }
+
+    private static TimeSpan? TryGetDuration(MediaPlayer player)
+    {
         try
         {
-            if (player.NaturalDuration.HasTimeSpan && startAt >= player.NaturalDuration.TimeSpan)
-                return TimeSpan.Zero;
+            return player.NaturalDuration.HasTimeSpan ? player.NaturalDuration.TimeSpan : null;
         }
         catch
         {
-            // Unbekannte Länge: Startzeit unverändert.
+            return null;
         }
-        return startAt;
     }
 
     private void StartPositionTimer(MediaPlayer player)
@@ -359,10 +368,9 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         var path = _currentPath;
         if (path is null)
             return;
-        TimeSpan? duration = player.NaturalDuration.HasTimeSpan ? player.NaturalDuration.TimeSpan : null;
         try
         {
-            PositionChanged?.Invoke(this, new MusicPositionEventArgs(path, player.Position, duration));
+            PositionChanged?.Invoke(this, new MusicPositionEventArgs(path, player.Position, TryGetDuration(player)));
         }
         catch (Exception ex)
         {

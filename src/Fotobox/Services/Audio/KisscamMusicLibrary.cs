@@ -488,9 +488,10 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
                     _unplayable.Remove(key);
             }
 
-            PublishLocked(_configBroken ? KisscamLibraryStatus.ConfigBroken : KisscamLibraryStatus.Ready);
+            // Erst vormerken, dann veröffentlichen: Wer „Ready“ sieht, findet eine anstehende Bereinigung bereits geplant.
             if (_dirtyVersion != _savedVersion && !_configUnreliable)
                 ScheduleSaveLocked();
+            PublishLocked(_configBroken ? KisscamLibraryStatus.ConfigBroken : KisscamLibraryStatus.Ready);
         }
 
         if (logBroken)
@@ -558,7 +559,8 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
                 if (_disposed || epoch != _epoch)
                     return;
                 _durations[entry.FullPath] = (entry.LastWriteUtc, entry.Length, duration);
-                if (++sinceLastPublish >= DurationPublishBatch)
+                // Veröffentlicht wird nur, wenn sich für die Anzeige etwas ändert (eine unbekannte Länge ändert nichts).
+                if (duration is not null && ++sinceLastPublish >= DurationPublishBatch)
                 {
                     sinceLastPublish = 0;
                     PublishLocked();
@@ -637,7 +639,7 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
         {
             lock (_gate)
             {
-                if (_disposed || epoch != _epoch)
+                if (_disposed || epoch != _epoch || _watcherFailed)
                     return;
                 _watchTimer?.Dispose();
                 _watchTimer = _time.CreateTimer(_ => OnWatchTimer(epoch), null, WatcherDebounce, Timeout.InfiniteTimeSpan);

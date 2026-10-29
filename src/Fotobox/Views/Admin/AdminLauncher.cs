@@ -28,6 +28,9 @@ public sealed class AdminLauncher : IAdminLauncher
     /// <summary>Gestendienst und Ton für die Peace-Vorschau sind vorhanden (sonst ist sie inert); für den DI-Test.</summary>
     internal bool HasPeaceServices => _gestures is not null && _sound is not null;
 
+    /// <summary>Die Musikbibliothek für die Songliste der Kisscam ist vorhanden (sonst bleibt die Liste leer); für den DI-Test.</summary>
+    internal bool HasMusicLibrary => _library is not null;
+
     public AdminLauncher(ISettingsStore settings, IPinService pinService, ICameraService camera, IPrintService print,
         IDisplayService displays)
         : this(settings, pinService, camera, print, displays, TimeProvider.System)

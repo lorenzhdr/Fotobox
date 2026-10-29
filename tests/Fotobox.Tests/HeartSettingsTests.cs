@@ -36,7 +36,7 @@ public sealed class HeartSettingsTests
         Assert.False(h.KisscamZoomEnabled);
         Assert.Equal(140, h.KisscamZoomPercent);
         Assert.Equal(HeartSettings.DefaultKisscamFilePrefix, h.KisscamFilePrefix);
-        Assert.Null(h.KisscamMusicPath);
+        Assert.Null(h.KisscamMusicFolder);
         Assert.Equal(80, h.KisscamMusicVolumePercent);
         Assert.True(h.HasAnyShape);
     }
@@ -247,37 +247,67 @@ public sealed class HeartSettingsTests
     }
 
     [Fact]
-    public void KisscamMusicPath_IsTrimmed_AndNotCheckedForExistence()
+    public void KisscamMusicFolder_IsTrimmed_AndNotCheckedForExistence()
     {
-        const string path = @"Z:\gibt\es\nicht\Lied.mp3";
-        var h = Normalized(s => s.Heart.KisscamMusicPath = "  " + path + "  ").Heart;
-        Assert.Equal(path, h.KisscamMusicPath);
+        const string path = @"Z:\gibt\es\nicht\Musik";
+        var h = Normalized(s => s.Heart.KisscamMusicFolder = "  " + path + "  ").Heart;
+        Assert.Equal(path, h.KisscamMusicFolder);
     }
 
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
     [InlineData(null)]
-    [InlineData("C:\\Musik\\Lied\n.mp3")]
-    [InlineData("C:\\Musik\\Lied\0.mp3")]
-    [InlineData("C:\\Musik\\\tLied.mp3")]
-    public void KisscamMusicPath_EmptyOrWithControlCharacters_BecomesNull(string? input)
+    [InlineData("C:\\Musik\\Ord\nner")]
+    [InlineData("C:\\Musik\\Ord\0ner")]
+    [InlineData("C:\\Musik\\\tOrdner")]
+    public void KisscamMusicFolder_EmptyOrWithControlCharacters_BecomesNull(string? input)
     {
-        var h = Normalized(s => s.Heart.KisscamMusicPath = input).Heart;
-        Assert.Null(h.KisscamMusicPath);
+        var h = Normalized(s => s.Heart.KisscamMusicFolder = input).Heart;
+        Assert.Null(h.KisscamMusicFolder);
     }
 
     [Fact]
-    public void KisscamMusicPath_TooLong_BecomesNull_AtLimitIsKept()
+    public void KisscamMusicFolder_TooLong_BecomesNull_AtLimitIsKept()
     {
-        var atLimit = @"C:\" + new string('m', SettingsLimits.KisscamMusicPathMaxLength - 3);
-        Assert.Equal(SettingsLimits.KisscamMusicPathMaxLength, atLimit.Length);
+        var atLimit = @"C:\" + new string('m', SettingsLimits.KisscamMusicFolderMaxLength - 3);
+        Assert.Equal(SettingsLimits.KisscamMusicFolderMaxLength, atLimit.Length);
 
-        var kept = Normalized(s => s.Heart.KisscamMusicPath = atLimit).Heart;
-        Assert.Equal(atLimit, kept.KisscamMusicPath);
+        var kept = Normalized(s => s.Heart.KisscamMusicFolder = atLimit).Heart;
+        Assert.Equal(atLimit, kept.KisscamMusicFolder);
 
-        var dropped = Normalized(s => s.Heart.KisscamMusicPath = atLimit + "x").Heart;
-        Assert.Null(dropped.KisscamMusicPath);
+        var dropped = Normalized(s => s.Heart.KisscamMusicFolder = atLimit + "x").Heart;
+        Assert.Null(dropped.KisscamMusicFolder);
+    }
+
+    [Fact]
+    public void OldKisscamMusicPath_IsIgnored_AndGoneAfterSaving()
+    {
+        // Die frühere Einzeldatei entfällt ersatzlos (keine Übernahme): Das Feld ist unbekannt und wird beim Laden ignoriert.
+        var json = """{ "Heart": { "Enabled": true, "KisscamMusicPath": "D:\\Alt\\Lied.mp3", "KisscamMusicVolumePercent": 40 } }""";
+        var loaded = SettingsNormalizer.Normalize(JsonSerializer.Deserialize<AppSettings>(json, AppSettings.JsonOptions)!);
+
+        Assert.Null(loaded.Heart.KisscamMusicFolder);
+        Assert.Equal(40, loaded.Heart.KisscamMusicVolumePercent);
+
+        var saved = JsonSerializer.Serialize(loaded, AppSettings.JsonOptions);
+        Assert.DoesNotContain("KisscamMusicPath", saved);
+        Assert.DoesNotContain("Lied.mp3", saved);
+        Assert.Contains("KisscamMusicFolder", saved);
+    }
+
+    [Fact]
+    public void KisscamSongLimits_AreConsistent()
+    {
+        Assert.Equal(0, SettingsLimits.KisscamSongStartSecondsMin);
+        Assert.Equal(3599, SettingsLimits.KisscamSongStartSecondsMax);
+        Assert.Equal(1, SettingsLimits.KisscamSongStartSecondsStep);
+        Assert.Equal(10, SettingsLimits.KisscamSongVolumeMin);
+        Assert.Equal(100, SettingsLimits.KisscamSongVolumeMax);
+        Assert.Equal(5, SettingsLimits.KisscamSongVolumeStep);
+        Assert.Equal(100, SettingsLimits.KisscamSongVolumeDefault);
+        Assert.Equal(500, SettingsLimits.KisscamMusicMaxSongs);
+        Assert.Equal(1024, SettingsLimits.KisscamMusicFolderMaxLength);
     }
 
     [Fact]
@@ -325,7 +355,7 @@ public sealed class HeartSettingsTests
         original.Heart.KisscamZoomEnabled = true;
         original.Heart.KisscamZoomPercent = 170;
         original.Heart.KisscamFilePrefix = "Kuss";
-        original.Heart.KisscamMusicPath = @"D:\Musik\Lied.mp3";
+        original.Heart.KisscamMusicFolder = @"D:\Musik\Kisscam";
         original.Heart.KisscamMusicVolumePercent = 45;
 
         var json = JsonSerializer.Serialize(original, AppSettings.JsonOptions);
@@ -347,7 +377,7 @@ public sealed class HeartSettingsTests
         Assert.True(loaded.KisscamZoomEnabled);
         Assert.Equal(170, loaded.KisscamZoomPercent);
         Assert.Equal("Kuss", loaded.KisscamFilePrefix);
-        Assert.Equal(@"D:\Musik\Lied.mp3", loaded.KisscamMusicPath);
+        Assert.Equal(@"D:\Musik\Kisscam", loaded.KisscamMusicFolder);
         Assert.Equal(45, loaded.KisscamMusicVolumePercent);
     }
 
@@ -360,19 +390,19 @@ public sealed class HeartSettingsTests
             HoldMilliseconds = 900,
             SensitivityPercent = 70,
             KisscamText = "Original",
-            KisscamMusicPath = @"D:\a.mp3",
+            KisscamMusicFolder = @"D:\a",
         };
 
         var clone = original.Clone();
         clone.Enabled = true;
         clone.HoldMilliseconds = 300;
         clone.KisscamText = "Kopie";
-        clone.KisscamMusicPath = null;
+        clone.KisscamMusicFolder = null;
 
         Assert.False(original.Enabled);
         Assert.Equal(900, original.HoldMilliseconds);
         Assert.Equal("Original", original.KisscamText);
-        Assert.Equal(@"D:\a.mp3", original.KisscamMusicPath);
+        Assert.Equal(@"D:\a", original.KisscamMusicFolder);
         Assert.Equal(70, clone.SensitivityPercent);
         Assert.NotSame(original, clone);
     }

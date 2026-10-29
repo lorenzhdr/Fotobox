@@ -138,6 +138,27 @@ public class AppServicesTests
         Assert.True(provider.GetRequiredService<Fotobox.ViewModels.Booth.BoothViewModel>().HasMusic);
     }
 
+    [Fact]
+    public async Task KisscamMusicLibrary_IsRegisteredAsSingleton_AndInjectedIntoGuestViewAndAdminLauncher()
+    {
+        var services = new ServiceCollection();
+        App.RegisterServices(services);
+        services.AddSingleton<ISettingsStore>(new TestSettingsStore());
+        services.AddSingleton<ICameraService>(new DetectionFakeCamera());
+        services.AddSingleton<IPrintService, NoPrinting>();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var library = provider.GetRequiredService<Fotobox.Core.Music.IKisscamMusicLibrary>();
+        Assert.IsType<Fotobox.Services.Audio.KisscamMusicLibrary>(library);
+        Assert.Same(library, provider.GetRequiredService<Fotobox.Core.Music.IKisscamMusicLibrary>());
+        // Ohne gesetzten Ordner liegt noch nichts im Dateisystem; der Start (App.xaml.cs) ruft SetFolder auf.
+        Assert.Equal(Fotobox.Core.Music.KisscamLibraryStatus.Loading, library.Current.Status);
+        // Die optionalen Konstruktorparameter dürfen nicht still auf null zurückfallen.
+        Assert.True(provider.GetRequiredService<Fotobox.ViewModels.Booth.BoothViewModel>().HasMusicLibrary);
+        Assert.True(Assert.IsType<Fotobox.Views.Admin.AdminLauncher>(provider.GetRequiredService<IAdminLauncher>()).HasMusicLibrary);
+    }
+
     private sealed class TestSettingsStore : ISettingsStore
     {
         public string ConfigDirectory => Path.GetTempPath();

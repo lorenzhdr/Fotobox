@@ -3,6 +3,7 @@ using System.Windows.Threading;
 using Fotobox.Core;
 using Fotobox.Core.Fun;
 using Fotobox.Core.Heart;
+using Fotobox.Core.Music;
 using Fotobox.Core.Peace;
 using Fotobox.ViewModels.Booth;
 using Fotobox.Views.Booth;
@@ -13,17 +14,18 @@ namespace Fotobox.Tests;
 /// <summary>Musikspieler-Attrappe: zeichnet Aufrufe auf.</summary>
 internal sealed class FakeMusicPlayer : IMusicPlayer
 {
-    public List<(string? Path, int Volume, bool Loop)> Played { get; } = [];
+    public List<(string? Path, int Volume, bool Loop, TimeSpan StartAt)> Played { get; } = [];
     public List<TimeSpan> FadeOuts { get; } = [];
     public int Stops { get; private set; }
     public bool IsPlaying { get; private set; }
 
     public event EventHandler? PlaybackChanged { add { } remove { } }
-    public event EventHandler? PlaybackFailed { add { } remove { } }
+    public event EventHandler<MusicPlaybackFailedEventArgs>? PlaybackFailed { add { } remove { } }
+    public event EventHandler<MusicPositionEventArgs>? PositionChanged { add { } remove { } }
 
-    public void Play(string? path, int volumePercent, bool loop)
+    public void Play(string? path, int volumePercent, bool loop, TimeSpan startAt = default)
     {
-        Played.Add((path, volumePercent, loop));
+        Played.Add((path, volumePercent, loop, startAt));
         IsPlaying = true;
     }
 
@@ -46,12 +48,17 @@ public partial class BoothViewModelTests
         public FakeSoundPlayer Sound { get; } = new();
         public TrackingTimeProvider PeaceTime { get; } = new();
         public FakeMusicPlayer Music { get; } = new();
+        public FakeMusicLibrary Library { get; } = new();
         public PeaceOverlayViewModel Peace { get; }
         public BoothViewModel ViewModel { get; }
         public HeartSettings Heart => H.Settings.Current.Heart;
 
-        public KisscamRig(bool peaceEnabled = true, bool heartEnabled = true, Action<HeartSettings>? configure = null, int photoSize = 1)
+        /// <param name="music">Die Bibliothek enthält einen angehakten Song „musik.mp3“.</param>
+        public KisscamRig(bool peaceEnabled = true, bool heartEnabled = true, Action<HeartSettings>? configure = null, int photoSize = 1,
+            bool music = false)
         {
+            if (music)
+                Library.Set(FakeMusicLibrary.Song("musik.mp3", enabled: true));
             H.Settings.Current.Peace = new PeaceSettings { Enabled = peaceEnabled, HoldMilliseconds = 1000, AnalysesPerSecond = 5 };
             H.Settings.Current.Heart = new HeartSettings { Enabled = heartEnabled, HoldMilliseconds = 1000, KisscamSeconds = 10 };
             configure?.Invoke(H.Settings.Current.Heart);
@@ -63,7 +70,7 @@ public partial class BoothViewModelTests
 
             SynchronizationContext.SetSynchronizationContext(null);
             Peace = new PeaceOverlayViewModel(Gestures, PeaceTime, Sound, new GuestMoustacheState(), _ => 0);
-            ViewModel = new BoothViewModel(H.Controller, H.Camera, H.Settings, null, Peace, Music);
+            ViewModel = new BoothViewModel(H.Controller, H.Camera, H.Settings, null, Peace, Music, Library);
             H.Settings.RaiseSettingsChanged();
         }
 
@@ -131,9 +138,9 @@ public partial class BoothViewModelTests
             h.KisscamBannerText = "  ";
             h.KisscamColor = KisscamColor.Gold;
             h.KisscamFilePrefix = "Kiss-Party";
-            h.KisscamMusicPath = "musik.mp3";
             h.KisscamMusicVolumePercent = 55;
-        });
+        }, music: true);
+        rig.Library.Set(FakeMusicLibrary.Song("musik.mp3", enabled: true, start: 12, volume: 50));
         rig.H.Settings.Current.Layout.GuestChoices = [GuestLayout.StripDouble, GuestLayout.Single];
         rig.H.Settings.RaiseSettingsChanged();
 
@@ -146,7 +153,7 @@ public partial class BoothViewModelTests
         Assert.Equal(12, c.CountdownValue);
         Assert.Equal(new PhotoFrame(PhotoFrameKind.Kisscam, HeartSettings.DefaultKisscamBannerText, KisscamColor.Gold), vm.KisscamFrame);
         Assert.Null(vm.KisscamZoomRegion); // Zoom aus
-        Assert.Equal(("musik.mp3", 55, true), Assert.Single(rig.Music.Played));
+        Assert.Equal((@"C:\Musik\musik.mp3", 28, true, TimeSpan.FromSeconds(12)), Assert.Single(rig.Music.Played)); // 55 % × 50 % = 27,5 → 28
         // Einzelfoto trotz gewähltem Streifen.
         Assert.Equal(LayoutKind.SingleBorderless, rig.H.Composer.RequestedLayout!.Kind);
 
@@ -169,13 +176,91 @@ public partial class BoothViewModelTests
     }
 
     [Fact]
-    public void Kisscam_WithoutMusicPath_DoesNotPlay()
+    public void Kisscam_WithoutAnEnabledSong_DoesNotPlay()
     {
-        var rig = new KisscamRig(configure: h => h.KisscamMusicPath = "  ");
+        var rig = new KisscamRig();
+        rig.Library.Set(FakeMusicLibrary.Song("musik.mp3"), FakeMusicLibrary.Song("zwei.mp3", enabled: true, playable: false));
 
         Assert.True(rig.Do());
 
         Assert.Empty(rig.Music.Played);
+    }
+
+    [Fact]
+    public void Kisscam_PicksRandomlyAmongTheEnabledPlayableSongs_AndRepetitionIsAllowed()
+    {
+        var rig = new KisscamRig(configure: h => h.KisscamMusicVolumePercent = 80);
+        rig.Library.Set(
+            FakeMusicLibrary.Song("a.mp3", enabled: true, start: 5),
+            FakeMusicLibrary.Song("b.mp3", enabled: false),
+            FakeMusicLibrary.Song("c.mp3", enabled: true, start: 20, volume: 50),
+            FakeMusicLibrary.Song("d.mp3", enabled: true, playable: false));
+        rig.ViewModel.MusicRandom = new FixedRandom(1); // zweiter Kandidat: c.mp3
+
+        Assert.True(rig.Do());
+        Assert.Equal((@"C:\Musik\c.mp3", 40, true, TimeSpan.FromSeconds(20)), Assert.Single(rig.Music.Played)); // 80 % × 50 %
+
+        Assert.True(rig.ViewModel.TryCancel());
+        rig.WaitForIdle();
+        rig.ViewModel.MusicRandom = new FixedRandom(1);
+        Assert.True(rig.Do()); // derselbe Song noch einmal
+        Assert.Equal(@"C:\Musik\c.mp3", rig.Music.Played[1].Path);
+
+        Assert.True(rig.ViewModel.TryCancel());
+        rig.WaitForIdle();
+        rig.ViewModel.MusicRandom = new FixedRandom(0);
+        Assert.True(rig.Do());
+        Assert.Equal((@"C:\Musik\a.mp3", 80, true, TimeSpan.FromSeconds(5)), rig.Music.Played[2]);
+    }
+
+    [Fact]
+    public void Kisscam_StartBeyondTheSongEnd_PlaysFromZero()
+    {
+        var rig = new KisscamRig();
+        rig.Library.Set(FakeMusicLibrary.Song("kurz.mp3", enabled: true, start: 100, duration: TimeSpan.FromSeconds(30)));
+
+        Assert.True(rig.Do());
+
+        Assert.Equal(TimeSpan.Zero, Assert.Single(rig.Music.Played).StartAt);
+    }
+
+    [Theory]
+    [InlineData(KisscamLibraryStatus.ConfigBroken)]
+    [InlineData(KisscamLibraryStatus.FolderUnavailable)]
+    [InlineData(KisscamLibraryStatus.Loading)]
+    public void Kisscam_RunsSilent_WhenTheLibraryIsNotReady(KisscamLibraryStatus status)
+    {
+        var rig = new KisscamRig();
+        rig.Library.Set(status, false, FakeMusicLibrary.Song("a.mp3")); // nichts angehakt (defekte Config) bzw. noch nichts bekannt
+
+        Assert.True(rig.Do()); // die Kisscam selbst läuft
+
+        Assert.Equal(BoothState.Countdown, rig.H.Controller.State);
+        Assert.Empty(rig.Music.Played);
+    }
+
+    [Fact]
+    public void Kisscam_WithoutALibrary_RunsSilent()
+    {
+        var rig = new KisscamRig(music: true);
+        var viewModel = new BoothViewModel(rig.H.Controller, rig.H.Camera, rig.H.Settings, null, rig.Peace, rig.Music, null);
+
+        Assert.False(viewModel.HasMusicLibrary);
+        Assert.True(viewModel.OnHeartAction(KisscamRig.Trigger()));
+
+        Assert.Empty(rig.Music.Played);
+    }
+
+    [Fact]
+    public void Kisscam_ReadsOnlyTheSnapshot_NeverBlocksOnTheFileSystem()
+    {
+        var rig = new KisscamRig(music: true);
+
+        Assert.True(rig.Do());
+
+        // Der Start liest ausschließlich Current (die Attrappe kennt kein Dateisystem) – und blockiert nicht.
+        Assert.Single(rig.Music.Played);
+        Assert.Empty(rig.Library.Folders);
     }
 
     [Fact]
@@ -254,7 +339,7 @@ public partial class BoothViewModelTests
     [Fact]
     public void HeartAction_AfterShutdown_DoesNothing()
     {
-        var rig = new KisscamRig(configure: h => h.KisscamMusicPath = "musik.mp3");
+        var rig = new KisscamRig(music: true);
 
         rig.ViewModel.Shutdown();
 
@@ -266,7 +351,7 @@ public partial class BoothViewModelTests
     [Fact]
     public void HeartAction_FailedStart_LeavesNoFrameBehind()
     {
-        var rig = new KisscamRig(configure: h => h.KisscamMusicPath = "musik.mp3");
+        var rig = new KisscamRig(music: true);
         rig.H.Camera.Status = CameraStatus.Starting;
 
         Assert.False(rig.Do());
@@ -280,7 +365,7 @@ public partial class BoothViewModelTests
     [Fact]
     public void Music_FadesOutAtTheFlash_AndIsNotStopped()
     {
-        var rig = new KisscamRig(configure: h => { h.KisscamSeconds = 3; h.KisscamMusicPath = "musik.mp3"; });
+        var rig = new KisscamRig(configure: h => h.KisscamSeconds = 3, music: true);
         var flashes = 0;
         rig.ViewModel.FlashRequested += (_, _) => flashes++;
         Assert.True(rig.Do());
@@ -298,7 +383,7 @@ public partial class BoothViewModelTests
     [Fact]
     public void Music_StopsWhenTheCountdownIsCancelledWithEsc()
     {
-        var rig = new KisscamRig(configure: h => h.KisscamMusicPath = "musik.mp3");
+        var rig = new KisscamRig(music: true);
         Assert.True(rig.Do());
         rig.Seconds(2);
         Assert.Equal(0, rig.Music.Stops);
@@ -318,7 +403,7 @@ public partial class BoothViewModelTests
     [Fact]
     public void MiddleFinger_CancelsTheKisscam_WhenConfigured()
     {
-        var rig = new KisscamRig(configure: h => h.KisscamMusicPath = "musik.mp3");
+        var rig = new KisscamRig(music: true);
         Assert.True(rig.Do());
 
         Assert.True(rig.ViewModel.OnMiddleFinger());
