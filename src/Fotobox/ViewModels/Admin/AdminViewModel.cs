@@ -1985,6 +1985,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         try
         {
             _pin.SetPin(_newPin);
+            // Die gerade gesetzte PIN gilt im Store sofort und schlägt eine zuvor importierte (sonst würde diese beim Speichern gewinnen).
+            _pendingImportedSecurity = null;
             NewPin = string.Empty;
             RepeatPin = string.Empty;
             PinFieldsCleared?.Invoke();
