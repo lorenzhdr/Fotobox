@@ -44,21 +44,20 @@
 
 | Datei | Für welchen PC? |
 | --- | --- |
-| `FotoboxPlus-Setup-{{VERSION}}-x64.exe` | Installer für Windows-PCs mit **Intel- oder AMD-Prozessor** (x64) |
-| `FotoboxPlus-Setup-{{VERSION}}-arm64.exe` | Installer für Windows-PCs mit **Snapdragon/ARM-Prozessor** (z. B. Copilot+ PCs) |
-| `FotoboxPlus-{{VERSION}}-x64-portable.zip` | Portable Version ohne Installation, Intel/AMD (x64) |
-| `FotoboxPlus-{{VERSION}}-arm64-portable.zip` | Portable Version ohne Installation, Snapdragon/ARM |
+| `FotoboxPlus-{{VERSION}}-x64-portable.zip` | Windows-PCs mit **Intel- oder AMD-Prozessor** (x64) |
+| `FotoboxPlus-{{VERSION}}-arm64-portable.zip` | Windows-PCs mit **Snapdragon/ARM-Prozessor** (z. B. Copilot+ PCs) |
 
 Unsicher? Unter *Einstellungen → System → Info* steht bei „Systemtyp“, ob es ein x64- oder ein ARM-basierter Prozessor ist.
 
 ### Hinweis zu Windows SmartScreen
 
-Die Dateien sind nicht digital signiert. Windows zeigt deshalb beim ersten Start möglicherweise die Meldung „Der Computer wurde durch Windows geschützt“ an.
+Die Programmdatei `Fotobox.exe` ist nicht digital signiert. Windows zeigt deshalb beim ersten Start möglicherweise die Meldung „Der Computer wurde durch Windows geschützt“ an.
 Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 
 ### Hinweise
 
-- Die Installation erfolgt standardmäßig nur für den aktuellen Benutzer und benötigt keine Administratorrechte.
-- Einstellungen und Protokolle liegen in `%LOCALAPPDATA%\Fotobox`, Fotos standardmäßig unter `Bilder\Fotobox+`, Videos unter `Videos\Fotobox+`. Alles bleibt bei einer Deinstallation erhalten.
+- Es gibt keine Installation: ZIP entpacken (z. B. in „Dokumente“) und `Fotobox.exe` starten. Der Ordner kann später einfach gelöscht werden.
+- Einstellungen und Protokolle liegen in `%LOCALAPPDATA%\Fotobox`, Fotos standardmäßig unter `Bilder\Fotobox+`, Videos unter `Videos\Fotobox+`. Alles bleibt erhalten, wenn der Programmordner gelöscht wird.
+- **Umstieg von der Setup-Version (bis 2.2.1):** Einstellungen (`%LOCALAPPDATA%\Fotobox`), Fotos und Videos bleiben erhalten und werden von der portablen Version automatisch weiterverwendet. Die alte Installation kann über Windows „Apps“ deinstalliert werden, das löscht keine Daten.
 - Beim ersten Start wird eine Admin-PIN festgelegt.
 - Standardtasten: **Leertaste** löst das Foto aus, **Eingabetaste** startet und beendet ein Video, **Esc** bricht den Countdown oder einen laufenden Druck ab, **Strg + Alt + A** öffnet die Admin-Ansicht. Alle Tasten lassen sich im Admin unter **Tasten** ändern.

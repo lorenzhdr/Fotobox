@@ -33,7 +33,7 @@ jobs:
 
       - name: Publish x64 (mit VC++-Runtime und Abhängigkeitsprüfung)
         shell: pwsh
-        run: ./build/publish.ps1 -Arch x64 -SkipInstaller -RequireVcRuntime
+        run: ./build/publish.ps1 -Arch x64 -RequireVcRuntime
 
       - name: Smoke-Test x64
         shell: pwsh

@@ -51,22 +51,9 @@ jobs:
       - name: Tests (ohne Hardware)
         run: dotnet test Fotobox.sln -c Release --filter "Category!=Hardware" --blame-hang-timeout 5m --blame-hang-dump-type none
 
-      - name: Inno Setup sicherstellen
+      - name: Publish und ZIPs erstellen
         shell: pwsh
-        run: |
-          $candidates = @(
-            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
-          )
-          $found = (Get-Command ISCC.exe -ErrorAction SilentlyContinue) -or ($candidates | Where-Object { Test-Path $_ })
-          if (-not $found) {
-            choco install innosetup -y --no-progress
-            if ($LASTEXITCODE -ne 0) { throw "choco install innosetup fehlgeschlagen ($LASTEXITCODE)." }
-          }
-
-      - name: Publish, ZIPs und Installer erstellen
-        shell: pwsh
-        run: ./build/publish.ps1 -Version '${{ steps.ver.outputs.version }}' -RequireInstaller -RequireVcRuntime
+        run: ./build/publish.ps1 -Version '${{ steps.ver.outputs.version }}' -RequireVcRuntime
 
       - name: Smoke-Test x64
         shell: pwsh
@@ -76,9 +63,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: fotobox-${{ steps.ver.outputs.version }}
-          path: |
-            artifacts/*.exe
-            artifacts/*.zip
+          path: artifacts/*.zip
           if-no-files-found: error
 
       - name: Release-Notes erzeugen
@@ -104,6 +89,6 @@ jobs:
             '--verify-tag'
           )
           if (($env:VERSION -split '\+', 2)[0] -match '-') { $ghArgs += '--prerelease' }
-          $files = @(Get-ChildItem artifacts -File | Where-Object { $_.Extension -in '.exe', '.zip' } | ForEach-Object { $_.FullName })
+          $files = @(Get-ChildItem artifacts -File | Where-Object { $_.Extension -eq '.zip' } | ForEach-Object { $_.FullName })
           gh @ghArgs @files
           if ($LASTEXITCODE -ne 0) { throw "gh release create fehlgeschlagen ($LASTEXITCODE)." }

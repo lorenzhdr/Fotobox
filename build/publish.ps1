@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Erstellt self-contained Publish-Ordner, portable ZIPs und (optional) Inno-Setup-Installer von Fotobox+.
+    Erstellt self-contained Publish-Ordner und portable ZIPs von Fotobox+.
 
 .DESCRIPTION
     Je Architektur (x64, arm64):
@@ -9,7 +9,6 @@
          Publish-Ordner, weil onnxruntime.dll sie braucht und self-contained .NET sie nicht mitliefert
       3. Statische Prüfung: Architektur nativer Dateien und Auflösbarkeit ihrer Import-Abhängigkeiten
       4. ZIP:       artifacts/FotoboxPlus-<Version>-<arch>-portable.zip
-      5. Installer: artifacts/FotoboxPlus-Setup-<Version>-<arch>.exe (nur wenn ISCC.exe gefunden wird)
 
     Kompatibel mit PowerShell 7 und Windows PowerShell 5.1. Exit-Code ungleich 0 bei Fehlern.
 
@@ -19,12 +18,6 @@
 .PARAMETER Arch
     Zielarchitekturen: x64, arm64. Standard: beide.
 
-.PARAMETER SkipInstaller
-    Installer nicht bauen (nur Publish + ZIP).
-
-.PARAMETER RequireInstaller
-    Fehlt ISCC.exe, wird mit Fehler abgebrochen (statt nur zu warnen).
-
 .PARAMETER RequireVcRuntime
     Die VC++-Runtime muss gefunden werden (Visual Studio mit vswhere, Ordner VC\Redist\MSVC\<Version>\<arch>) und neu
     genug sein (msvcp140.dll mindestens 14.40 und mindestens die Linker-Version von onnxruntime.dll). Sonst Abbruch
@@ -32,15 +25,13 @@
     (ONNX Runtime) startet auf PCs ohne installierte VC++ Redistributable nicht.
 
 .EXAMPLE
-    pwsh build/publish.ps1 -Version 0.0.1 -SkipInstaller
+    pwsh build/publish.ps1 -Version 0.0.1
 #>
 [CmdletBinding()]
 param(
     [string]$Version,
     [ValidateSet('x64', 'arm64')]
     [string[]]$Arch = @('x64', 'arm64'),
-    [switch]$SkipInstaller,
-    [switch]$RequireInstaller,
     [switch]$RequireVcRuntime
 )
 
@@ -49,7 +40,6 @@ Set-StrictMode -Version 2.0
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repoRoot 'src\Fotobox\Fotobox.csproj'
-$issFile = Join-Path $repoRoot 'installer\Fotobox.iss'
 $artifacts = Join-Path $repoRoot 'artifacts'
 
 function Get-DefaultVersion {
@@ -59,20 +49,6 @@ function Get-DefaultVersion {
         if ($match) { return $match.Matches[0].Groups[1].Value }
     }
     return '1.0.0'
-}
-
-function Find-Iscc {
-    $cmd = Get-Command 'ISCC.exe' -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-
-    $candidates = @()
-    if (${env:ProgramFiles(x86)}) { $candidates += (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe') }
-    if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe') }
-    if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe') }
-    foreach ($candidate in $candidates) {
-        if (Test-Path -LiteralPath $candidate) { return $candidate }
-    }
-    return $null
 }
 
 function Invoke-Native {
@@ -341,20 +317,6 @@ try {
     }
     $Arch = @($Arch | Select-Object -Unique)
 
-    $iscc = $null
-    if (-not $SkipInstaller) {
-        $iscc = Find-Iscc
-        if (-not $iscc) {
-            if ($RequireInstaller) {
-                throw 'ISCC.exe (Inno Setup 6) wurde nicht gefunden, aber -RequireInstaller ist gesetzt.'
-            }
-            Write-Warning 'ISCC.exe (Inno Setup 6) nicht gefunden - es werden nur Publish-Ordner und ZIPs erstellt.'
-        }
-        else {
-            Write-Host "Inno Setup: $iscc"
-        }
-    }
-
     New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
 
     foreach ($a in $Arch) {
@@ -385,22 +347,12 @@ try {
 
         New-PortableZip -SourceDir $publishDir -ZipPath $zipPath
         Write-Host "ZIP: $zipPath"
-
-        if ($iscc) {
-            Invoke-Native $iscc @(
-                "/DAppVersion=$Version",
-                "/DArch=$a",
-                "/DSourceDir=$publishDir",
-                "/O$artifacts",
-                $issFile
-            )
-        }
     }
 
     Write-Host ''
     Write-Host 'Fertig. Artefakte:' -ForegroundColor Green
     Get-ChildItem -LiteralPath $artifacts -File |
-        Where-Object { $_.Extension -in '.zip', '.exe' } |
+        Where-Object { $_.Extension -eq '.zip' } |
         ForEach-Object { Write-Host ('  {0}  ({1:N1} MB)' -f $_.Name, ($_.Length / 1MB)) }
 }
 catch {

@@ -14,22 +14,24 @@ Die aktuelle Version steht unter **GitHub → Releases**:
 
 | Datei | Für welchen PC? |
 | --- | --- |
-| `FotoboxPlus-Setup-<Version>-x64.exe` | Installer für Windows-PCs mit Intel- oder AMD-Prozessor (x64) |
-| `FotoboxPlus-Setup-<Version>-arm64.exe` | Installer für Windows-on-ARM-PCs (ARM64) |
-| `FotoboxPlus-<Version>-x64-portable.zip` / `-arm64-portable.zip` | Portable Version ohne Installation: entpacken und `Fotobox.exe` starten |
+| `FotoboxPlus-<Version>-x64-portable.zip` | Windows-PCs mit Intel- oder AMD-Prozessor (x64) |
+| `FotoboxPlus-<Version>-arm64-portable.zip` | Windows-on-ARM-PCs (ARM64) |
+
+Es gibt keine Installation: ZIP entpacken (z. B. in „Dokumente“) und `Fotobox.exe` starten. Der Ordner kann später einfach gelöscht werden.
 
 Welcher Typ der eigene PC ist, steht unter *Einstellungen → System → Info* bei „Systemtyp“.
 
-**SmartScreen-Warnung:** Der Installer ist nicht digital signiert. Windows zeigt deshalb eventuell „Der Computer wurde durch Windows geschützt“. Klicke auf **Weitere Informationen → Trotzdem ausführen**.
+**SmartScreen-Warnung:** Die Programmdatei `Fotobox.exe` ist nicht digital signiert. Windows zeigt deshalb eventuell „Der Computer wurde durch Windows geschützt“. Klicke auf **Weitere Informationen → Trotzdem ausführen**.
 
 Systemvoraussetzungen:
 
 - Windows 10 Version 2004 (Build 19041) oder neuer, Windows 11 eingeschlossen
 - Die App ist self-contained, eine separate .NET-Installation ist nicht nötig
 - Eine Webcam und ein Windows-Drucker (für den Druck)
-- Der Installer installiert standardmäßig nur für den aktuellen Benutzer und braucht keine Administratorrechte (im Dialog auf „für alle Benutzer“ umschaltbar)
 
-Bei der Deinstallation bleiben Einstellungen, Logs und Fotos erhalten.
+Einstellungen, Logs, Fotos und Videos liegen außerhalb des Programmordners und bleiben erhalten, wenn er gelöscht wird.
+
+**Umstieg von der Setup-Version (bis 2.2.1):** Einstellungen (`%LOCALAPPDATA%\Fotobox`), Fotos und Videos werden von der portablen Version automatisch weiterverwendet. Die alte Installation kann über Windows „Apps“ deinstalliert werden, das löscht keine Daten.
 
 ## Erster Start
 
@@ -111,6 +113,6 @@ dotnet test --filter "Category!=Hardware"
 
 Tests mit Kamera- oder Drucker-Hardware tragen `[Trait("Category", "Hardware")]` und laufen in CI nicht.
 
-Installer und portable ZIPs für x64 und ARM64 erzeugt `build/publish.ps1` (z. B. `pwsh build/publish.ps1 -Version 1.0.0`, Optionen `-Arch`, `-SkipInstaller`, `-RequireInstaller`). Der Installer wird mit [Inno Setup](https://jrsoftware.org/isinfo.php) 6 aus `installer/Fotobox.iss` gebaut. Ohne Inno Setup entstehen nur Publish-Ordner und ZIPs. Die Ergebnisse liegen in `artifacts/`.
+Die portablen ZIPs für x64 und ARM64 erzeugt `build/publish.ps1` (z. B. `pwsh build/publish.ps1 -Version 1.0.0`, Optionen `-Arch`, `-RequireVcRuntime`). Die Ergebnisse (Publish-Ordner und ZIPs) liegen in `artifacts/`.
 
-Ein Release entsteht über GitHub Actions: Ein Tag `v*` (z. B. `v1.2.3`) startet den Workflow `release.yml` (Tests, Publish, GitHub-Release mit Installern und ZIPs). Der Workflow `build.yml` baut und testet jeden Push und Pull Request.
+Ein Release entsteht über GitHub Actions: Ein Tag `v*` (z. B. `v1.2.3`) startet den Workflow `release.yml` (Tests, Publish, GitHub-Release mit den portablen ZIPs). Der Workflow `build.yml` baut und testet jeden Push und Pull Request.
