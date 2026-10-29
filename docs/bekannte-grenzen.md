@@ -66,8 +66,21 @@ Stand: 2.5.1. Nichts davon blockiert den Betrieb. Die Einträge sind thematisch 
 - **Wippen nur über die Mundwinkel.** YuNet liefert keine Lippenpunkte.
 - **Große Bärte (über ca. 900 px)** wirken leicht borstig.
 - **Handstufe im Selbstzerstörungs-/Bart-Countdown.** Mit Mittelfinger (Standard an) läuft dort die Handerkennung (sonst nur Gesichter); CPU-Last auf schwachen Geräten ungemessen.
-- **Mittelfinger nur zusammen mit Peace wirksam.** Bei ausgeschalteter Peaceerkennung passiert nichts (der Admin warnt).
+- **Mittelfinger nur mit Peace oder Herz wirksam.** Sind beide Erkennungen ausgeschaltet, passiert nichts (der Admin warnt nur in diesem Fall).
 - **Überzählige Palm-Läufe (neu in der 2.5.1-Prüfung).** Belegen verfolgte Hände schon alle Landmark-Plätze, macht die Handerkennung trotzdem Palm-Läufe, deren Ergebnis nicht mehr verwendet wird – eine kleine CPU-Verschwendung ohne Funktionsfolge; bewusst nicht geändert.
+
+## Fun: Herzerkennung und Kisscam
+
+- **Schwellen nur synthetisch kalibriert.** Die Herzregeln (`HeartGestureClassifier`) sind nur mit synthetischen Händen (`HeartHandFixtures`) abgestimmt, nicht mit echten Händen aus verschiedenen Winkeln, Abständen und Lichtverhältnissen; Fehl- und Nichterkennungen auf echten Veranstaltungen sind ungeprüft. Gegenmittel: Haltedauer, Empfindlichkeit, einzelne Formen abwählen.
+- **Fingerherz experimentell.** Es wird öfter fälschlich erkannt (daher standardmäßig aus); der Admin weist darauf hin.
+- **Klassisch = „nicht Dach“.** Die Form „Klassisch“ prüft die übrigen Finger nicht (der Admin-Text „eingerollt“ beschreibt die Absicht); sie gilt für jede aufrechte Herzgeste, die kein Dach ist.
+- **Höchstens vier Hände je Analyse.** `MaxLandmarkRuns` = 4 (und `MaxPalmRuns` = 3 je Zyklus) begrenzen die Handstufe; bei großen Gruppen kann ein Herz einen Zyklus später erkannt werden (der Klassifikator selbst prüft bis zu 8 Hände). Mit eingeschalteter Herzerkennung läuft die Handstufe öfter länger (zweite Hand wird gesucht, Duplikatprüfung rechnet), die CPU-Last auf schwachen Geräten ist ungemessen.
+- **Kein Personenbezug.** Zwei beliebige Hände genügen; bei dichtem Gedränge kann ein Herz aus Händen verschiedener Gäste „zufällig“ entstehen (der Zoom nimmt dann deren Gesichter).
+- **Zoom kostet Auflösung.** Digital: Das Foto wird zugeschnitten (Zoom 110–200 %), im Druck sinkt die Schärfe entsprechend. Live-Ausschnitt (füllend in der Ansicht) und Foto (crop-to-fill auf die Seite) sind bei abweichendem Seitenverhältnis minimal verschieden.
+- **Rahmen bis zum Seitenrand.** Das Kisscam-Foto füllt die ganze Seite; bei randlosem Druck mit Beschnitt kann der äußere Rahmen dünner wirken (die 5-mm-Sicherheitszone gilt nur für Text der übrigen Layouts).
+- **Musik braucht Media Foundation.** Der `MusicPlayer` nutzt den WPF-`MediaPlayer`; auf Windows N ohne Media Feature Pack oder mit unbekanntem Codec bleibt die Kisscam stumm (nur Logwarnung). Nur WAV/MP3 sind im Admin wählbar; Wiedergabe auf echter Hardware nur lokal geprüft (`Hardware`-Test).
+- **Kurzer Timer ohne Gasttext.** Bei `KisscamSeconds` = 3 ist der Countdown von Anfang an in der Ziffernphase (die letzten 3 s zeigen die Ziffern), der Gasttext wird nie sichtbar.
+- **Beschnittene Originale.** Mit Zoom sind auch die gespeicherten Originalfotos zugeschnitten.
 
 ## Admin und Einstellungen
 

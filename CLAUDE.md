@@ -1,6 +1,6 @@
 # Fotobox+ – Hinweise für KI-Assistenten und Entwickler
 
-WPF-App „Fotobox+“ (bis 1.4.1 „Fotobox“; sichtbarer Name `AppInfo.DisplayName` in `Core/Models.cs`, Exe, Namespace und `%LOCALAPPDATA%\Fotobox` heißen weiter „Fotobox“), .NET 10 (`net10.0-windows10.0.19041.0`), x64 + ARM64, self-contained. Webcam-Livebild im Vollbild, Auslösetaste (Standard Leertaste) → Countdown → Foto(s) → Speichern → Druck; Videomodus (Standard Enter) mit Ton, nur Speichern; Fun-Funktionen Zielerfassung, Peace- und Mittelfingererkennung; PIN-geschützte Admin-Ansicht (Standard Strg+Alt+A) mit Kamerasteuerung und „Einstellungen teilen“.
+WPF-App „Fotobox+“ (bis 1.4.1 „Fotobox“; sichtbarer Name `AppInfo.DisplayName` in `Core/Models.cs`, Exe, Namespace und `%LOCALAPPDATA%\Fotobox` heißen weiter „Fotobox“), .NET 10 (`net10.0-windows10.0.19041.0`), x64 + ARM64, self-contained. Webcam-Livebild im Vollbild, Auslösetaste (Standard Leertaste) → Countdown → Foto(s) → Speichern → Druck; Videomodus (Standard Enter) mit Ton, nur Speichern; Fun-Funktionen Zielerfassung, Peace- und Mittelfingererkennung sowie Herzerkennung (Kisscam); PIN-geschützte Admin-Ansicht (Standard Strg+Alt+A) mit Kamerasteuerung und „Einstellungen teilen“.
 
 **Öffentliches Repo:** keine persönlichen oder gerätespezifischen Daten (Benutzernamen, lokale Pfade, Hostnamen, Mailadressen, Drucker-/Kameramodelle, Portnamen) in Code, Tests, Docs oder Commits. Commits nur mit der GitHub-noreply-Adresse (repo-lokale `user.email`).
 
@@ -19,6 +19,7 @@ Die ausführliche Doku steht in [`docs/`](docs/README.md) und ist die Detailquel
 | Videomodus | `docs/video.md` |
 | Zielerfassung | `docs/fun-zielerfassung.md` |
 | Peace- und Mittelfingererkennung, Bärte | `docs/fun-peace-mittelfinger.md` |
+| Herzerkennung, Kisscam | `docs/fun-herz-kisscam.md` |
 | Publish, VC++-Runtime, CI, Release | `docs/build-release.md` |
 | Tests | `docs/tests.md` |
 | Bekannte Grenzen, offene Punkte, bewusst nicht Geändertes | `docs/bekannte-grenzen.md` |
@@ -31,7 +32,9 @@ Die ausführliche Doku steht in [`docs/`](docs/README.md) und ist die Detailquel
 - Neue `AppSettings`-Eigenschaften in `SettingsSections.ExcludedProperties` oder `DeviceSpecificSettings.Paths` einordnen (ein Test erzwingt das). Enums nur hinten erweitern.
 - Kamera: Auf-/Abbau einer `MediaCapture`-Session nur auf dem Threadpool (MTA), WinRT-Ereignisse (`Failed`, `FrameArrived`) nie mit `-=` abmelden (CsWinRT: OutOfMemory/0xC0000005), veraltete Ereignisse per `ReferenceEquals` verwerfen. Kamera-Regler lösen nie einen Kamera-Neustart aus; „nur Verstelltes setzen“.
 - Native ONNX-Sessions nie während eines `Run` freigeben (`DeferredReleaseGate`). Töne liegen bewusst in nie freigegebenem nativem Speicher.
-- Zielmarken nie im Foto/Video; nur der Schnurrbart wird ins Foto gezeichnet.
+- Zielmarken nie im Foto/Video; nur der Schnurrbart (und beim Kisscam-Foto der Rahmen) wird ins Foto gezeichnet.
+- Herzerkennung: Die `HeartEngine` sitzt im `PeaceOverlayViewModel` (der Gestendienst bedient nur die oberste Anforderung; kein eigenes Herz-ViewModel mit eigener Anforderung). Wiederscharf nur nach in Hand-Updates beobachteter Ruhe. Neue Herz-Aktionen: Enum hinten, `HeartActions`-Katalog, `switch` in `BoothViewModel.OnHeartAction`.
+- `MusicPlayer` (Kisscam-Musik): eigener STA-Thread, Aufrufer posten nur und warten nie synchron (schon gar nicht auf dem UI-Thread); fehlende Datei, kaputtes Media Foundation oder Fehler führen nur zu Stille und Logwarnung, nie zu einem Hänger. Der Musikpfad ist gerätespezifisch.
 - `BoothController` ist UI-frei, Zeit über `TimeProvider`; Compose auf dem UI-Thread.
 - Admin-Farben nur in `AdminColors.Light.xaml`/`AdminColors.Dark.xaml` (gleiche Schlüssel, Test prüft das), Bezug nur per `DynamicResource`; neue Farben in beiden Paletten anlegen.
 - Jede neue WPF-Testklasse trägt `[Collection(WpfCollection.Name)]` (sonst BAML-Deadlock); Pack-URIs in Tests vorher `WpfCollection.EnsurePackUris()`.

@@ -19,7 +19,7 @@ Alle Abhängigkeiten sind Interfaces in `src/Fotobox/Core/Interfaces.cs`. Dadurc
 
 | Lebensdauer | Dienste |
 |---|---|
-| Singleton | `TimeProvider.System`, `ISettingsStore` (`JsonSettingsStore`), `IPinService`, `ICameraService` (`WinRtCameraService`), `ILayoutComposer`, `IPrintService`, `IPhotoStorage`, `IVideoStorage`, `IDisplayService`, `IPersonDetectionService`, `IFunSoundPlayer`, `IGestureDetectionService`, `GuestMoustacheState`, `IPhotoDecorator` (`MoustachePhotoDecorator`), `IAdminLauncher`, `BoothController`, `BoothViewModel`, `BoothWindow` |
+| Singleton | `TimeProvider.System`, `ISettingsStore` (`JsonSettingsStore`), `IPinService`, `ICameraService` (`WinRtCameraService`), `ILayoutComposer`, `IPrintService`, `IPhotoStorage`, `IVideoStorage`, `IDisplayService`, `IPersonDetectionService`, `IFunSoundPlayer`, `IMusicPlayer` (`MusicPlayer`, Kisscam-Musik), `IGestureDetectionService`, `GuestMoustacheState`, `IPhotoDecorator` (`MoustachePhotoDecorator`), `IAdminLauncher`, `BoothController`, `BoothViewModel`, `BoothWindow` |
 | Transient | `FunOverlayViewModel`, `PeaceOverlayViewModel` (Gastansicht und Admin-Vorschau brauchen je eine eigene Instanz; nur die Gastansicht bekommt `GuestMoustacheState`) |
 
 Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale Konstruktorparameter.
@@ -45,6 +45,7 @@ Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale 
 - Zeit läuft über `TimeProvider` (Tests mit `FakeTimeProvider`). Wanduhr (`GetUtcNow`) nutzen `FunEngine`, `TargetTracker`, die Peace-Tracker und der Druckfortschritt; ein Rücksprung der Systemuhr kann sie anhalten. Der `PinAttemptLimiter` misst dagegen monoton.
 - Kamera: Auf- und Abbau einer Session läuft immer auf dem Threadpool (MTA), nie im UI-Thread. WinRT-Ereignisse (`Failed`, `FrameArrived`) werden nie mit `-=` abgemeldet (siehe `kamera.md`).
 - Native ONNX-Sessions werden nie während eines `Run` freigegeben (`DeferredReleaseGate`).
+- Musik (`MusicPlayer`): eigener STA-Thread mit `Dispatcher`; Aufrufer auf dem UI-Thread posten nur (`BeginInvoke`) und warten nie synchron (`fun-herz-kisscam.md`).
 - Blockierende Systemaufrufe (Drucker, Datei, Win32-Monitoraufzählung) laufen per `Task.Run` mit Frist.
 
 ## Zustandsmaschine des `BoothController`
@@ -90,8 +91,9 @@ Regeln:
 - Nach jedem Durchgang – auch bei Fehlern, Abbruch und Ausnahmen – landet der Controller wieder in `Idle` und gibt das Gate frei. Fehler zeigen `ErrorMessage` für `Flow.ErrorDisplaySeconds` im Zustand `Error`.
 - Ist `Flow.PrintingEnabled` aus, geht es nach der Vorschau direkt zu `Idle` (kein Druck, kein `Printed`).
 - Bei Druckfehler bleibt das Foto gespeichert; die Meldung lautet „Das Foto wurde gespeichert, aber der Druck ist fehlgeschlagen: …“.
-- `TryTrigger(TriggerOptions)` (`Layout`, `SingleShotOnly`, `CountdownSeconds` 0–30, `Style`): Weicht etwas von den gespeicherten Einstellungen ab, arbeitet der Durchgang auf einer Kopie (`AppSettings.Clone`); die gespeicherten Einstellungen werden nie verändert. `CountdownStyle` (Normal/Peace/SelfDestruct) gilt bis zum Durchgangsende.
-- Pro Foto: `PhotoDecorateTimeout` 3 s für den Foto-Verzierer (Bart), danach Spiegeln (wenn `Camera.MirrorPhoto`), Komposition, Speichern (30 s), Druck.
+- `TryTrigger(TriggerOptions)` (`Layout`, `SingleShotOnly`, `CountdownSeconds` 0–30, `Style`): Weicht etwas von den gespeicherten Einstellungen ab, arbeitet der Durchgang auf einer Kopie (`AppSettings.Clone`); die gespeicherten Einstellungen werden nie verändert. `CountdownStyle` (Normal/Peace/SelfDestruct/Kisscam) gilt bis zum Durchgangsende (nach dem Blitz).
+- Weitere `TriggerOptions`: `CropRegion` (normierter Ausschnitt des ungespiegelten Rohfotos), `FilePrefix` (Dateipräfix des Durchgangs, bereits bereinigt) und `Frame` (`PhotoFrame`, Kisscam-Rahmen; erzwingt das Einzelfoto, Layout ohne Bildunterschrift/Overlay). Die **Klemmung der Countdown-Dauer hängt vom Stil ab**: 0–30 s (`PeacePhotoCountdown*`) bzw. bei `CountdownStyle.Kisscam` 3–60 s (`KisscamSeconds*`). Alle Abweichungen gelten nur für die Kopie des Durchgangs.
+- Pro Foto: Aufnahme → `PhotoDecorateTimeout` 3 s für den Foto-Verzierer (Bart) → Zuschnitt (`CropPhoto`, nur mit `CropRegion`; nach dem Verzieren, weil der Bartplaner mit den Koordinaten des ganzen Bildes rechnet) → Spiegeln (wenn `Camera.MirrorPhoto`; der Ausschnitt gilt für das ungespiegelte Foto, daher vorher) → Komposition, Speichern (30 s), Druck. Details: `fun-herz-kisscam.md`.
 
 ### Abbrechen
 
@@ -194,6 +196,9 @@ Alles, was blockieren kann, hat ein Timeout und einen definierten Fehlerpfad zur
 | Peace: Analyse | 2 s | `PeaceDetectionService.AnalysisTimeout` |
 | Peace: Dienst-Dispose | höchstens 1,5 s | `PeaceDetectionService.DisposeWait` |
 | Bart im Foto | Texturbudget 1,0 s, insgesamt 2,2 s | `MoustachePhotoDecorator.TextureBudget`/`OverallBudget` |
+| Kisscam-Musik: Datei öffnen | 3 s (danach still aufgegeben) | `MusicPlayer.OpenTimeout` |
+| Kisscam-Musik: Dispose | höchstens 1 s Warten auf den Musik-Thread | `MusicPlayer.DisposeWait` |
+| Kisscam-Musik: Ausblenden beim Blitz | 800 ms in 50-ms-Schritten | `BoothViewModel.EndKisscamMusic`, `MusicPlayer.FadeStep` |
 | Einstellungen exportieren/importieren | Datei lesen/schreiben je 10 s | `SettingsTransfer.IoTimeout` |
 | Admin: Schreibtest/Existenzprüfung des Speicherordners | 10 s | `AdminViewModel.FolderProbeTimeout` |
 | Admin: Ordnerwahl-Dialog (Startordner suchen) | 3 s | `WpfAdminUi` über `FolderProbe.FindExistingFolderOrParent` |

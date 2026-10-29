@@ -23,6 +23,7 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Fun` | `FunSettings` | Zielerfassung |
 | `Peace` | `PeaceSettings` | Peaceerkennung (Easter Egg) |
 | `MiddleFinger` | `MiddleFingerSettings` | Mittelfingererkennung (Easter Egg) |
+| `Heart` | `HeartSettings` | Herzerkennung und Kisscam (Easter Egg, `fun-herz-kisscam.md`) |
 
 ### Wichtige Felder mit Standard und Bereich
 
@@ -94,13 +95,27 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Peace.MoustacheDurationSeconds` | 15 | 3–120 |
 | `Peace.MoustacheAutoPhotoCountdownSeconds` | 3 | 0–30 |
 | `Peace.RandomStyles` | alle sieben Formen | Normalizer verwirft `Random`, Unbekanntes, Duplikate, sortiert; leer = alle |
-| `MiddleFinger.Enabled` / `ActionCancelPeace` | an / an | mindestens eine Aktion |
+| `MiddleFinger.Enabled` / `ActionCancelPeace` / `ActionCancelKisscam` | an / an / an | mindestens eine Aktion (Normalizer setzt sonst `ActionCancelPeace`) |
 | `MiddleFinger.HoldMilliseconds` | 500 | 200–3000 (100er) |
 | `MiddleFinger.SensitivityPercent` | 50 | 10–95 |
+| `Heart.Enabled` | an | – |
+| `Heart.ShapeClassic` / `ShapeRoof` / `ShapeInverted` / `ShapeFingerHeart` | an / an / aus / aus | mindestens eine (Normalizer erzwingt Klassisch) |
+| `Heart.HoldMilliseconds` | 1000 | 300–3000 (100er, `HeartHoldMilliseconds*`) |
+| `Heart.SensitivityPercent` | 50 | 10–95 (`HeartSensitivity*`) |
+| `Heart.ShowHoldFeedback` | an | – |
+| `Heart.Action` | `Kisscam` | Enum `HeartAction` |
+| `Heart.KisscamSeconds` | 10 | 3–60 |
+| `Heart.KisscamText` | null (Standardtext) | ≤ `HintTextMaxLength` 100, Platzhalter `{Sekunden}` |
+| `Heart.KisscamBannerText` | null („KISS CAM“) | ≤ `KisscamBannerMaxLength` 30 |
+| `Heart.KisscamColor` | `PinkRed` | `PinkRed, Red, Gold, Purple, BlackWhite` |
+| `Heart.KisscamZoomEnabled` / `KisscamZoomPercent` | aus / 140 | 110–200 in 10er-Schritten |
+| `Heart.KisscamFilePrefix` | `Kisscam` | ≤ 40 Zeichen, nie leer |
+| `Heart.KisscamMusicPath` | null (keine Musik) | ≤ `KisscamMusicPathMaxLength` 1024, gerätespezifisch |
+| `Heart.KisscamMusicVolumePercent` | 80 | 0–100 in 5er-Schritten |
 
 Die Bedeutung der Fun-, Video-, Kamera- und Druckfelder erklären die jeweiligen Detaildateien. `Tasten`-Felder: `architektur.md`.
 
-Enums werden in Dateien als Namen geschrieben. Neue Enum-Werte nur hinten anfügen (`HintStyle`, `TargetBoxStyle`, `TargetColor`, `MoustacheStyle`, `CameraControlKind`, `FunPage` …).
+Enums werden in Dateien als Namen geschrieben. Neue Enum-Werte nur hinten anfügen (`HintStyle`, `TargetBoxStyle`, `TargetColor`, `MoustacheStyle`, `CameraControlKind`, `FunPage`, `HeartShape`, `HeartAction`, `KisscamColor` …). `MiddleFingerTargets` ist ein Flags-Enum (`None`, `Moustache`, `SelfDestruct`, `Kisscam`).
 
 ## `JsonSettingsStore` (`src/Fotobox/Services/Storage/JsonSettingsStore.cs`)
 
@@ -137,6 +152,7 @@ Die übrigen Einstellungen müssen nach einer defekten Datei neu gesetzt werden 
 - Kamera: unbekannter Flimmerschutz → 50 Hz; Reglerwerte ohne unbekannte/doppelte/leere Einträge, NaN → null; leere oder zu lange `ControlsDeviceId` leert die Werte; Profile je Kamera mit eindeutigen Namen (ohne Beachtung der Groß-/Kleinschreibung), Geräte-Ids werden ohne Beachtung der Groß-/Kleinschreibung verglichen.
 - Monitor-, Mikrofon- und Kamera-Ids werden nie gekürzt (gekürzt passten sie nie), zu lange werden verworfen; zugehörige Namen werden nur gekürzt.
 - Peace/Mittelfinger: Haltedauer auf 100er-Schritte gerundet; ohne gewählte Aktion gilt Selbstzerstörung bzw. „Peace-Effekte aufheben“.
+- Herz (`NormalizeHeart`): Haltedauer auf 100er-Schritte, Zoom auf 10er-, Lautstärke auf 5er-Schritte gerundet, Empfindlichkeit und `KisscamSeconds` geklemmt; ohne gewählte Form gilt Klassisch; undefinierte `Action`/`KisscamColor` → Standard; `KisscamText` wie die Hinweistexte bereinigt (leer → null); Banner-Text einzeilig auf 30 Zeichen gekürzt (leer → null); Präfix über `SanitizePrefix` (leer/ungültig → „Kisscam“). Der Musikpfad wird getrimmt und **verworfen** (nicht gekürzt, gekürzt passte er nie), wenn er leer, länger als 1024 Zeichen ist oder Steuerzeichen enthält.
 - **Migration** über `AppSettings.Version` (aktuell 2): Ist die geladene Version < 2, wird der alte Standardpräfix exakt „Fotobox“ zu „Fotobox+“ (eigene Präfixe bleiben). Danach steht `Version` auf dem aktuellen Stand; eine neuere Version wird nie herabgesetzt. Fehlt `Version` in der Datei, gilt der aktuelle Standard (keine Migration). Die Migration läuft im Speicher und wird beim nächsten Speichern festgeschrieben; sie ist idempotent.
 
 ## PIN
@@ -162,7 +178,7 @@ Umhüllung: `Format` = `FotoboxPlus.Settings`, `FormatVersion` = 1, `AppVersion`
 
 - `SettingsSections.PortableSections`: alle Klassen-Eigenschaften von `AppSettings` außer denen in `SettingsSections.ExcludedProperties` (`Version`, `Security`). Neue Abschnitte sind automatisch dabei.
 - Ein Test erzwingt, dass jedes neue Feld entweder übertragbar ist oder in `SettingsSections.ExcludedProperties` bzw. `DeviceSpecificSettings.Paths` eingeordnet wird.
-- `DeviceSpecificSettings.Paths` (17 Felder) steht nie in der Datei und wird nie importiert: `Camera.DeviceId`, `Camera.ResolutionWidth`, `Camera.ResolutionHeight`, `Camera.ControlsDeviceId`, `Camera.ControlValues`, `Camera.ControlProfiles`, `Printer.PrinterName`, `Printer.PaperSizeName`, `Printer.PaperWidthMm`, `Printer.PaperHeightMm`, `Storage.PhotoFolder`, `Video.MicrophoneId`, `Video.MicrophoneName`, `Video.Folder`, `Appearance.GuestMonitorId`, `Appearance.GuestMonitorName`, `Appearance.AdminZoomPercent`. Der Zielrechner behält seine Werte (`Clear`/`CopyFrom`; `Clear` setzt den Zoom auf 80 zurück, der Schlüssel fehlt in der Exportdatei ganz); die Kamera wird durch den Import nie neu gestartet. `Camera.Powerline` ist übertragbar (ortsabhängig, nicht gerätespezifisch).
+- `DeviceSpecificSettings.Paths` (18 Felder) steht nie in der Datei und wird nie importiert: `Camera.DeviceId`, `Camera.ResolutionWidth`, `Camera.ResolutionHeight`, `Camera.ControlsDeviceId`, `Camera.ControlValues`, `Camera.ControlProfiles`, `Printer.PrinterName`, `Printer.PaperSizeName`, `Printer.PaperWidthMm`, `Printer.PaperHeightMm`, `Storage.PhotoFolder`, `Video.MicrophoneId`, `Video.MicrophoneName`, `Video.Folder`, `Appearance.GuestMonitorId`, `Appearance.GuestMonitorName`, `Appearance.AdminZoomPercent`, `Heart.KisscamMusicPath`. Der Zielrechner behält seine Werte (`Clear`/`CopyFrom`; `Clear` setzt den Zoom auf 80 und den Musikpfad auf null zurück, die Schlüssel fehlen in der Exportdatei ganz); die Kamera wird durch den Import nie neu gestartet. `Camera.Powerline` ist übertragbar (ortsabhängig, nicht gerätespezifisch).
 - Das Overlay-PNG wird nicht exportiert. Fehlt es (oder ist der Name ein Pfad), entfällt das Overlay samt Gastwahl-Eintrag (Standard-Layout dann erste verbleibende Gastwahl bzw. Einzelfoto) mit Hinweis `OverlayMissingNote` (`ApplyOverlayFallback`).
 - `SettingsSections.CopyPortableSections(from, to)` kopiert tief (`AppSettings.Clone`); „Standardwerte wiederherstellen“ und der Import nutzen sie gemeinsam.
 

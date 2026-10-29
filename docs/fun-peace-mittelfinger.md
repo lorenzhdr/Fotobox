@@ -1,6 +1,6 @@
 # Fun „Peaceerkennung“ und „Mittelfingererkennung“
 
-Stand: 2.5.1. Beide Funktionen sind versteckte Extras („Easter Eggs“): Die Gastansicht verrät nichts davon (kein Hinweistext). Sie teilen sich Dienst, Modelle, Analyserate und Vorschau. Pfade sind relativ zum Repo-Root.
+Stand: 2.5.1 (ergänzt um die Herzerkennung, siehe [fun-herz-kisscam.md](fun-herz-kisscam.md)). Beide Funktionen sind versteckte Extras („Easter Eggs“): Die Gastansicht verrät nichts davon (kein Hinweistext). Sie teilen sich Dienst, Modelle, Analyserate und Vorschau (auch mit der Herzerkennung). Pfade sind relativ zum Repo-Root.
 
 | Schicht | Dateien |
 |---|---|
@@ -263,7 +263,9 @@ sequenceDiagram
 
 ## `PeaceOverlayViewModel`
 
-Je Gastansicht und Admin-Vorschau eine Instanz; nur die Gastansicht bekommt `GuestMoustacheState` (damit ein Admin-Test nie in ein echtes Foto gerät). Hält Anforderung, `PeaceEngine`, `MiddleFingerEngine`, `FaceTracker`, `MoustacheTracker`, 100-ms-Tick und Töne.
+Je Gastansicht und Admin-Vorschau eine Instanz; nur die Gastansicht bekommt `GuestMoustacheState` (damit ein Admin-Test nie in ein echtes Foto gerät). Hält Anforderung, `PeaceEngine`, `MiddleFingerEngine`, `FaceTracker`, `MoustacheTracker`, 100-ms-Tick und Töne – und seit der Kisscam zusätzlich die `HeartEngine` (partial `PeaceOverlayViewModel.Heart.cs`): Der Gestendienst bedient nur die oberste Anforderung, die Herzerkennung teilt sich daher Anforderung, Hände und Analyserate mit Peace (Details und die Pipeline-Option `PairedHands`: `fun-herz-kisscam.md`).
+
+`SetMode(mode, settings, mirror, middleFinger, external, heart, peaceGestures)`: Mit `peaceGestures` = false (Peace ausgeschaltet, Herz an) werden die Peace-Gesten nicht ausgewertet; Bärte und Mittelfinger bleiben davon unberührt. `BoothViewModel.UpdatePeace` läuft, sobald Peace **oder** Herz eingeschaltet ist; der Mindest-Handscore der Anforderung ist das Minimum der aktiven Funktionen.
 
 | `PeaceMode` | Bedeutung | Anforderung |
 |---|---|---|
@@ -285,7 +287,7 @@ Ein Wechsel zwischen `Watching` und `FollowMoustache` ändert nur die Anforderun
 | `Photo` | `PhotoCountdownSeconds` | `Peace` |
 | `Moustache` | `Peace.StartMoustache`; mit `MoustacheAutoPhoto` danach Foto mit `MoustacheAutoPhotoCountdownSeconds` | `Peace` |
 
-`BoothController.CountdownStyle` (`Normal`/`Peace`/`SelfDestruct`) gilt bis zum Durchgangsende.
+`BoothController.CountdownStyle` (`Normal`/`Peace`/`SelfDestruct`/`Kisscam`) gilt bis zum Durchgangsende.
 
 ### Selbstzerstörung: Explosion statt Blitz, Töne
 
@@ -299,7 +301,7 @@ Ein Wechsel zwischen `Watching` und `FollowMoustache` ändert nur die Anforderun
 
 ## Funktion und Einstellungen
 
-Zeigt ein Gast den Mittelfinger und hält ihn, hebt das **Peace-Effekte auf**: Schnurrbärte verschwinden (0,3-s-Animation), eine laufende Selbstzerstörung wird still abgebrochen. Wirksam **nur zusammen mit eingeschalteter Peaceerkennung** (nutzt deren Dienst, Hände und `PeaceOverlayViewModel`); bei ausgeschalteter Peaceerkennung passiert nichts (der Admin warnt).
+Zeigt ein Gast den Mittelfinger und hält ihn, hebt das **Peace-Effekte auf**: Schnurrbärte verschwinden (0,3-s-Animation), eine laufende Selbstzerstörung wird still abgebrochen. Außerdem bricht er eine laufende **Kisscam** ab (Aktion „Kisscam abbrechen“, `fun-herz-kisscam.md`). Wirksam, solange die Peace- **oder** die Herzerkennung eingeschaltet ist (er nutzt deren Dienst, Hände und `PeaceOverlayViewModel`); sind beide aus, passiert nichts (der Admin warnt).
 
 `AppSettings.MiddleFinger` (`MiddleFingerSettings`, eigener flacher Abschnitt, nur Werttypen):
 
@@ -307,12 +309,13 @@ Zeigt ein Gast den Mittelfinger und hält ihn, hebt das **Peace-Effekte auf**: S
 |---|---|---|---|
 | `Enabled` | an | | Mittelfingererkennung |
 | `ActionCancelPeace` | an | | Aktion „Peace-Effekte aufheben“ (weitere Aktionen als Bools hinten anfügen; der Normalizer erzwingt mindestens eine, `HasAnyAction`; im Admin blockiert eine fehlende Aktion das Speichern, die letzte gesetzte Aktion ist gesperrt) |
+| `ActionCancelKisscam` | an | | Aktion „Kisscam abbrechen“: der Mittelfinger beendet den laufenden Kisscam-Countdown ohne Foto (wie die Abbrechen-Taste) |
 | `HoldMilliseconds` | 500 | 200–3000 ms, Schritt 100 | Haltedauer |
 | `SensitivityPercent` | 50 | 10–95 | Empfindlichkeit |
 
 Die **Analysenrate** (`AnalysesPerSecond`) ist kein eigenes Feld: Neu in 2.5.1 ist „Analysen pro Sekunde“ auch auf der Mittelfinger-Seite einstellbar – es ist **derselbe Wert wie bei Peace** (`PeaceSettings.AnalysesPerSecond`, `NumberStepper` bindet an `PeaceAnalysesPerSecond`; Bereich `SettingsLimits.PeaceAnalysesPerSecond*` 1–10). Die Seite verweist darauf („Gilt gemeinsam für Peace- und Mittelfingererkennung“), und ein ⓘ-Tooltip (`AdminInfoTexts.MiddleFingerAnalysesPerSecond`) erklärt es.
 
-`MiddleFingerTargets` ([Flags]: `None`, `Moustache` = 1, `SelfDestruct` = 2) sagt, was gerade aufhebbar ist. `MiddleFingerSettings.Wants(present)` = `Enabled` + `ActionCancelPeace` + mindestens ein Ziel. `MinHandScore` linear aus der Empfindlichkeit (`MinHandScoreFor`: 10 → 0,9, 95 → 0,55; einzige Quelle, auch vom Klassifikator genutzt).
+`MiddleFingerTargets` ([Flags]: `None`, `Moustache` = 1, `SelfDestruct` = 2, `Kisscam` = 4) sagt, was gerade aufhebbar ist. `MiddleFingerSettings.Wants(present)` = `Enabled` + (`ActionCancelPeace` mit Ziel `Moustache`/`SelfDestruct` **oder** `ActionCancelKisscam` mit Ziel `Kisscam`). Die Peace-Zweige von `OnMiddleFinger` (Selbstzerstörung abbrechen, Bart entfernen) sind an `ActionCancelPeace` gebunden, der Kisscam-Zweig an `ActionCancelKisscam`; `BoothViewModel.UpdatePeace` meldet im Kisscam-Countdown `external = Kisscam`. `MinHandScore` linear aus der Empfindlichkeit (`MinHandScoreFor`: 10 → 0,9, 95 → 0,55; einzige Quelle, auch vom Klassifikator genutzt).
 
 ## Klassifikator (`MiddleFingerGestureClassifier`)
 
@@ -333,7 +336,7 @@ Regel auf den 21 Punkten: **Mittelfinger gestreckt**, **Zeige-, Ring- und kleine
 - Der Mittelfinger wird nur im `Idle` und im `Countdown` beobachtet; in Aufnahme, Vorschau und Druck übergibt `UpdatePeace` keine Mittelfinger-Settings (dort nur Gesichter). Im Selbstzerstörungs-Countdown und solange ein Bart (auch seine Verschwinden-Animation, `HasMoustacheVisuals`) zu sehen ist, bleibt die Erkennung im Countdown an (`FollowMoustache`). Ohne das Feature bleibt alles wie zuvor.
 - Auswertung in jeder Betriebsart außer `Off`; `MiddleFingerTriggered` (UI-Thread) – das Ansichtsmodell hebt nichts selbst auf, der Abonnent entscheidet. Weitere Mitglieder: `VanishMoustaches()` (ruft `MoustacheTracker.Dismiss`), `HasMoustacheVisuals`, `MiddleFingerDetectedNow`, `StartTestMoustache(int seconds)`.
 - `MoustacheTracker.Dismiss()` friert die Bärte ein (`MoustacheView.Vanishing` = true, Wippen in Ruhe) und beendet die Sitzung sofort (`IsActive` false, `ExportPlanInput` = null: ein Foto danach bekommt keinen Bart); `IsVanishing`/`Views` liefern den eingefrorenen Stand 0,3 s lang; `EndSession` lässt ein laufendes Verschwinden unberührt, `StartSession` beendet es; beim Ausschalten (`Deactivate`) endet es mit (`ClearVanishing`), sonst käme ein Geisterbart.
-- **`BoothViewModel.OnMiddleFinger`** (nur ohne Shutdown/offenen Admin und mit `Enabled` + `HasAnyAction`): bricht eine Selbstzerstörung nur per `BoothController.TryCancelCountdown()` still ab (nie `TryCancel`, also nie Video oder Druck; ist schon die Aufnahme gestartet, läuft das Foto weiter), lässt Bärte per `VanishMoustaches()` verschwinden; andere Countdowns (normal, Peace-Foto, Auto-Foto zum Bart) laufen weiter. Jede Auslösung steht im Log („Selbstzerstörung abgebrochen“, „Bart entfernt“ oder „nichts aufzuheben“), Fehler werden geloggt.
+- **`BoothViewModel.OnMiddleFinger`** (nur ohne Shutdown/offenen Admin und mit `Enabled` + `HasAnyAction`): bricht eine Selbstzerstörung nur per `BoothController.TryCancelCountdown()` still ab (nie `TryCancel`, also nie Video oder Druck; ist schon die Aufnahme gestartet, läuft das Foto weiter), lässt Bärte per `VanishMoustaches()` verschwinden (beides nur mit `ActionCancelPeace`); mit `ActionCancelKisscam` bricht er einen Kisscam-Countdown ebenfalls per `TryCancelCountdown()` ab; andere Countdowns (normal, Peace-Foto, Auto-Foto zum Bart) laufen weiter. Jede Auslösung steht im Log („Kisscam abgebrochen“, „Selbstzerstörung abgebrochen“, „Bart entfernt“ oder „nichts aufzuheben“), Fehler werden geloggt.
 
 ---
 
@@ -352,9 +355,9 @@ Beide Seiten liegen im Tab „Fun“ (Kacheln mit Status „An“/„Aus“, „
 
 ## Seite „Mittelfinger“ (`MiddleFingerSettingsView`, `AdminViewModel.MiddleFinger.cs`)
 
-- Schalter „Mittelfingererkennung aktiv“; Warnung bei ausgeschalteter Peaceerkennung („… ohne sie gibt es nichts aufzuheben“) bzw. fehlender Gesichtserkennung.
+- Schalter „Mittelfingererkennung aktiv“; Warnung nur, wenn Peace- **und** Herzerkennung ausgeschaltet sind (`HasMiddleFingerPeaceDisabledWarning`; „… ohne sie gibt es nichts aufzuheben“) bzw. bei fehlender Gesichtserkennung.
 - Knopf **„Aufheben testen“**: Test-Bart ohne Foto für 20 s (`MiddleFingerTestMoustacheSeconds`) mit Hinweis „Zeigen Sie jetzt den Mittelfinger, um den Bart zu entfernen.“; ein sichtbarer Selbstzerstörungs-Test zählt als aufhebbares Ziel (`external`). Auf dieser Seite löst ein zufälliges Peace in der Vorschau nichts aus (kein überraschender Selbstzerstörungs-Test).
-- Karte „Erkennung“: Haltedauer, Empfindlichkeit, **Analysen pro Sekunde** (derselbe Wert wie bei Peace, ⓘ `AdminInfoTexts.MiddleFingerAnalysesPerSecond`), Karte „Aktionen“ (Peace-Effekte aufheben).
+- Karte „Erkennung“: Haltedauer, Empfindlichkeit, **Analysen pro Sekunde** (derselbe Wert wie bei Peace, ⓘ `AdminInfoTexts.MiddleFingerAnalysesPerSecond`), Karte „Aktionen“ (Peace-Effekte aufheben, Kisscam abbrechen; die letzte gesetzte Aktion ist gesperrt).
 - `PeacePreviewStatusFormatter.Format(…, middleFingerNow)` ergänzt „Mittelfinger erkannt“; Abzeichen „Mittelfinger erkannt“ im Bild.
 
 „Standardwerte wiederherstellen“ setzt beide Abschnitte zurück.
