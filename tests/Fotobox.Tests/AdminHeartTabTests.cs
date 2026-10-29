@@ -107,7 +107,7 @@ public sealed class AdminHeartTabTests : IDisposable
             _changed?.Invoke(this, EventArgs.Empty);
         }
 
-        public void RaiseFailed(string path) => PlaybackFailed?.Invoke(this, new MusicPlaybackFailedEventArgs(path));
+        public void RaiseFailed(string path, bool timedOut = false) => PlaybackFailed?.Invoke(this, new MusicPlaybackFailedEventArgs(path, timedOut));
 
         public void RaisePosition(string path, TimeSpan position) =>
             PositionChanged?.Invoke(this, new MusicPositionEventArgs(path, position, null));
@@ -667,6 +667,20 @@ public sealed class AdminHeartTabTests : IDisposable
     }
 
     // ------------------------------------------------------------------ Musik: Songliste
+
+    [Fact]
+    public void SongRows_WithNamesThatDifferOnlyInCase_DoNotThrow_AndShowTheFirst()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("Lied.mp3"), Song("lied.mp3"), Song("zweites.mp3"));
+
+        Assert.Equal(["Lied.mp3", "zweites.mp3"], vm.KisscamSongs.Select(r => r.FileName));
+
+        _library.Set(Song("Lied.mp3"), Song("LIED.MP3"), Song("zweites.mp3", enabled: true));
+
+        Assert.Equal(["Lied.mp3", "zweites.mp3"], vm.KisscamSongs.Select(r => r.FileName));
+        Assert.True(vm.KisscamSongs[1].Enabled);
+    }
 
     [Fact]
     public void SongRows_FollowTheLibrary_ByFileName_WithoutRecreatingRows()

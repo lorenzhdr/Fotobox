@@ -134,13 +134,19 @@ public class MusicPlayerTests : IDisposable
     {
         using var player = new MusicPlayer();
         string? failedPath = null;
-        player.PlaybackFailed += (_, e) => failedPath = e.Path;
+        var timedOut = true;
+        player.PlaybackFailed += (_, e) =>
+        {
+            timedOut = e.TimedOut;
+            failedPath = e.Path;
+        };
         var path = TempFile(".mp3");
 
         player.Play(path, 50, loop: false, TimeSpan.FromSeconds(12));
 
         Assert.True(await WaitUntil(() => failedPath is not null, TimeSpan.FromSeconds(5)), "Kein PlaybackFailed.");
         Assert.Equal(path, failedPath);
+        Assert.False(timedOut); // eine fehlende Datei ist ein echter Fehler, keine verpasste Öffnungsfrist
     }
 
     [Theory]

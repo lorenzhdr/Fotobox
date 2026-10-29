@@ -409,7 +409,7 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         if (!IsCurrent(player, generation) || _opened)
             return;
         AppLog.Warn("Musikdatei wurde nicht rechtzeitig geöffnet.");
-        RaiseFailed(generation, path);
+        RaiseFailed(generation, path, timedOut: true);
         StopCore();
     }
 
@@ -501,13 +501,13 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
 
     // Meldet einen gescheiterten Start oder Abbruch der Wiedergabe (nur für die aktuelle Generation: ein neuerer Play/Stop macht die
     // Meldung gegenstandslos). PlaybackChanged feuert dabei nicht, weil nie gespielt wurde.
-    private void RaiseFailed(int generation, string path)
+    private void RaiseFailed(int generation, string path, bool timedOut = false)
     {
         if (generation != Volatile.Read(ref _generation))
             return;
         try
         {
-            PlaybackFailed?.Invoke(this, new MusicPlaybackFailedEventArgs(path));
+            PlaybackFailed?.Invoke(this, new MusicPlaybackFailedEventArgs(path, timedOut));
         }
         catch (Exception ex)
         {

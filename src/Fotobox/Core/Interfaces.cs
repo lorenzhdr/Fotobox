@@ -120,9 +120,14 @@ public interface ILayoutComposer
 }
 
 /// <summary>Die Wiedergabe von <see cref="Path"/> konnte nicht beginnen oder brach ab.</summary>
-public sealed class MusicPlaybackFailedEventArgs(string path) : EventArgs
+public sealed class MusicPlaybackFailedEventArgs(string path, bool timedOut = false) : EventArgs
 {
     public string Path { get; } = path;
+    /// <summary>
+    /// Nur die Öffnungsfrist wurde verpasst (langsame Platte oder Netzlaufwerk), es gab keinen Fehler der Datei: Sie ist nicht als
+    /// defekt zu betrachten.
+    /// </summary>
+    public bool TimedOut { get; } = timedOut;
 }
 
 /// <summary>Aktuelle Wiedergabeposition von <see cref="Path"/>; <see cref="Duration"/> ist null, solange die Länge unbekannt ist.</summary>

@@ -201,7 +201,7 @@ Alles, was blockieren kann, hat ein Timeout und einen definierten Fehlerpfad zur
 | Kisscam-Musikordner: anlegen oder prüfen, Watcher anlegen | 3 s | `KisscamMusicLibrary.EnsureFolderTimeout` |
 | Kisscam-Musikordner: auflisten | 3 s | `KisscamMusicLibrary.ListTimeout` |
 | Kisscam-Musikconfig: lesen / schreiben (auch Verschieben nach `.defekt`) | 2 s / 3 s | `ReadConfigTimeout` / `WriteConfigTimeout` |
-| Kisscam-Musik: Songlänge pro Datei | 2 s | `KisscamMusicLibrary.DurationTimeout` |
+| Kisscam-Musik: Songlänge pro Datei (eigener Auftrag, blockiert Speichern/Neulesen nicht) | 2 s | `KisscamMusicLibrary.DurationTimeout` |
 | Kisscam-Musikordner: Entprellung Watcher / Speichern | 500 ms / 300 ms | `WatcherDebounce` / `SaveDebounce` |
 | Kisscam-Musik: Positionsmeldung | alle 250 ms | `MusicPlayer.PositionInterval` |
 | Kisscam-Musikbibliothek: Dispose | höchstens 1 s (letztes Speichern) | `KisscamMusicLibrary.DisposeWait` |

@@ -70,6 +70,12 @@ internal sealed class FakeMusicFileSystem : IKisscamMusicFileSystem
         }
     }
 
+    public void SetText(string path, string text)
+    {
+        lock (_gate)
+            _texts[path] = text;
+    }
+
     public string? ConfigText(string folder)
     {
         lock (_gate)
@@ -123,8 +129,10 @@ internal sealed class FakeMusicFileSystem : IKisscamMusicFileSystem
         BeforeMove?.Invoke(path);
         lock (_gate)
         {
-            if (_texts.Remove(path, out var text))
-                _texts[brokenPath] = text;
+            // Wie File.Move: Ohne Quelldatei wirft es, eine vorhandene Zieldatei wird ersetzt.
+            if (!_texts.Remove(path, out var text))
+                throw new FileNotFoundException("Quelle fehlt.", path);
+            _texts[brokenPath] = text;
             _moves.Add((path, brokenPath));
         }
     }
@@ -212,7 +220,7 @@ internal sealed class FailingMusicPlayer : IMusicPlayer
     {
     }
 
-    public void Fail(string path) => _failed?.Invoke(this, new MusicPlaybackFailedEventArgs(path));
+    public void Fail(string path, bool timedOut = false) => _failed?.Invoke(this, new MusicPlaybackFailedEventArgs(path, timedOut));
 }
 
 // Bewusst ohne [Collection(WpfCollection.Name)]: Die Bibliothek nutzt weder WPF noch einen Dispatcher.
@@ -706,6 +714,100 @@ public sealed class KisscamMusicLibraryTests : IDisposable
         Assert.True(library.Current.Songs[0].Enabled);
     }
 
+    [Fact]
+    public async Task HangingWrite_IsSavedAgain_OnceTheHangEnds()
+    {
+        var library = await StartedAsync("a.mp3");
+        var gate = NewGate();
+        _fs.BeforeWrite = gate.Pass;
+
+        library.UpdateSong("a.mp3", enabled: true);
+        _time.Advance(KisscamMusicLibrary.SaveDebounce);
+        await WaitUntil(() => gate.IsEntered, "Schreiben hängt");
+        await AdvanceUntil(() => library.Current.SaveFailed, "Frist des Schreibens");
+        Assert.True(library.Current.Songs[0].Enabled);
+
+        // Ohne neue Änderung: Das Ende des Hängers allein stößt das Speichern wieder an und nimmt die Meldung zurück.
+        gate.Release();
+        await AdvanceUntil(() => !library.Current.SaveFailed && _fs.Writes.Count >= 2, "erneut gespeichert");
+        Assert.True(KisscamMusicConfigCodec.TryParse(_fs.ConfigText(Folder), out var config));
+        Assert.True(config.Songs.Single().Enabled);
+    }
+
+    [Fact]
+    public async Task SaveBlockedByAnEarlierHang_IsRetried_OnceTheHangEnds()
+    {
+        var library = await StartedAsync("a.mp3");
+        var gate = NewGate();
+        _fs.BeforeList = gate.Pass; // ein späteres Auflisten hängt und hält den Dateizugriff besetzt
+
+        library.Refresh();
+        await WaitUntil(() => gate.IsEntered, "Auflisten hängt");
+        await AdvanceUntil(() => library.Current.Status == KisscamLibraryStatus.FolderUnavailable, "Frist des Auflistens");
+
+        library.UpdateSong("a.mp3", enabled: true);
+        _time.Advance(KisscamMusicLibrary.SaveDebounce);
+        await WaitUntil(() => library.Current.SaveFailed, "Speichern gemeldet (früherer Zugriff hängt)");
+        Assert.Empty(_fs.Writes);
+
+        gate.Release();
+        await AdvanceUntil(() => _fs.Writes.Count == 1 && !library.Current.SaveFailed, "nach dem Hänger gespeichert");
+        await WaitReady(library);
+    }
+
+    [Fact]
+    public async Task BrokenConfig_WhenWritingFailsAfterTheMove_TheNextTrySucceeds_WithoutMovingAgain()
+    {
+        const string broken = "{ kaputt";
+        _fs.SetConfigText(Folder, broken);
+        _fs.SetSongs(Folder, "a.mp3");
+        var failing = true;
+        _fs.BeforeWrite = _ =>
+        {
+            if (failing)
+                throw new IOException("Platte voll");
+        };
+        var library = Create();
+        library.SetFolder(Folder);
+        await WaitUntil(() => library.Current.Status == KisscamLibraryStatus.ConfigBroken, "Status ConfigBroken");
+
+        library.UpdateSong("a.mp3", enabled: true);
+        _time.Advance(KisscamMusicLibrary.SaveDebounce);
+        await WaitUntil(() => library.Current.SaveFailed, "Schreiben gescheitert");
+        Assert.Single(_fs.Moves); // die defekte Datei liegt jetzt in .defekt
+        Assert.Null(_fs.ConfigText(Folder));
+
+        failing = false;
+        library.UpdateSong("a.mp3", startSeconds: 7);
+        _time.Advance(KisscamMusicLibrary.SaveDebounce);
+        await WaitUntil(() => _fs.Writes.Count == 1, "zweiter Versuch geschrieben");
+        await WaitUntil(() => !library.Current.SaveFailed && library.Current.Status == KisscamLibraryStatus.Ready, "Meldung zurückgenommen");
+
+        Assert.Single(_fs.Moves);
+        Assert.Equal(broken, _fs.TextOf(Path.Combine(Folder, "kisscam-musik.json.defekt"))); // die alte Datei bleibt erhalten
+        Assert.True(KisscamMusicConfigCodec.TryParse(_fs.ConfigText(Folder), out var config));
+        Assert.Equal(7, config.Songs.Single().StartSeconds);
+    }
+
+    [Fact]
+    public async Task BrokenConfig_AnOlderBrokenCopy_IsReplacedByTheNewerOne()
+    {
+        const string broken = "{ neuer defekt";
+        var brokenPath = Path.Combine(Folder, "kisscam-musik.json.defekt");
+        _fs.SetConfigText(Folder, broken);
+        _fs.SetText(brokenPath, "{ alter defekt");
+        _fs.SetSongs(Folder, "a.mp3");
+        var library = Create();
+        library.SetFolder(Folder);
+        await WaitUntil(() => library.Current.Status == KisscamLibraryStatus.ConfigBroken, "Status ConfigBroken");
+
+        library.UpdateSong("a.mp3", enabled: true);
+        _time.Advance(KisscamMusicLibrary.SaveDebounce);
+        await WaitUntil(() => _fs.Writes.Count == 1, "geschrieben");
+
+        Assert.Equal(broken, _fs.TextOf(brokenPath)); // es bleibt die zuletzt defekte Datei erhalten
+    }
+
     // ------------------------------------------------------------------ Hänger und Fristen
 
     [Fact]
@@ -1063,6 +1165,41 @@ public sealed class KisscamMusicLibraryTests : IDisposable
         await WaitUntil(() => library.Current.Songs.Any(s => s.Duration is not null), "Länge angezeigt");
     }
 
+    [Fact]
+    public async Task HangingDuration_DoesNotDelayASave_NorARefresh()
+    {
+        var gate = NewGate();
+        _fs.OnDuration = () => gate.Pass(string.Empty);
+        _fs.DurationOf = _ => TimeSpan.FromSeconds(60);
+        var library = await StartedAsync("a.mp3", "b.mp3");
+        await WaitUntil(() => gate.IsEntered, "Länge hängt");
+
+        // Die Testuhr bleibt unter der Frist der Länge: Gespeichert und neu gelesen wird trotzdem sofort.
+        library.UpdateSong("a.mp3", enabled: true);
+        _time.Advance(KisscamMusicLibrary.SaveDebounce);
+        await WaitUntil(() => _fs.Writes.Count == 1, "gespeichert, obwohl eine Länge noch gelesen wird");
+        library.Refresh();
+        await WaitUntil(() => _fs.ListCalls == 2, "neu gelesen, obwohl eine Länge noch gelesen wird");
+        Assert.Equal(1, _fs.DurationCalls);
+    }
+
+    [Fact]
+    public async Task Durations_ContinueWithTheNewerListing_AfterARefresh()
+    {
+        var gate = NewGate();
+        _fs.OnDuration = () => gate.Pass(string.Empty);
+        _fs.DurationOf = _ => TimeSpan.FromSeconds(60);
+        var library = await StartedAsync("a.mp3", "b.mp3");
+        await WaitUntil(() => gate.IsEntered, "Länge hängt");
+
+        _fs.AddSong(Folder, "c.mp3");
+        library.Refresh();
+        await WaitUntil(() => _fs.ListCalls == 2, "neu gelesen");
+        gate.Release();
+
+        await WaitUntil(() => library.Current.Songs.Count == 3 && library.Current.Songs.All(s => s.Duration is not null), "alle Längen gelesen");
+    }
+
     // ------------------------------------------------------------------ Nicht abspielbar
 
     [Fact]
@@ -1102,6 +1239,37 @@ public sealed class KisscamMusicLibraryTests : IDisposable
         Assert.False(library.Current.Songs[0].Playable);
         library.Refresh();
         await WaitUntil(() => library.Current.Songs[0].Playable, "Aktualisieren hebt auf");
+    }
+
+    [Fact]
+    public async Task PlaybackFailed_ByTheOpenTimeoutAlone_DoesNotMarkTheSong()
+    {
+        var player = new FailingMusicPlayer();
+        _fs.SetSongs(Folder, "a.mp3");
+        var library = Create(player);
+        library.SetFolder(Folder);
+        await WaitReady(library);
+        var changed = 0;
+        library.Changed += (_, _) => Interlocked.Increment(ref changed);
+
+        player.Fail(Path.Combine(Folder, "a.mp3"), timedOut: true);
+
+        Assert.True(library.Current.Songs[0].Playable);
+        Assert.Equal(0, Volatile.Read(ref changed));
+
+        player.Fail(Path.Combine(Folder, "a.mp3")); // ein echter Fehler markiert weiterhin
+        Assert.False(library.Current.Songs[0].Playable);
+    }
+
+    [Fact]
+    public async Task FilesThatDifferOnlyInCase_AppearOnce()
+    {
+        _fs.SetSongs(Folder, "Lied.mp3", "lied.mp3", "zweites.mp3");
+        var library = Create();
+        library.SetFolder(Folder);
+        await WaitReady(library);
+
+        Assert.Equal(["Lied.mp3", "zweites.mp3"], library.Current.Songs.Select(s => s.FileName));
     }
 
     [Fact]

@@ -537,8 +537,11 @@ public sealed partial class AdminViewModel
     private void ReconcileKisscamSongs()
     {
         var snapshot = _library?.Current ?? KisscamLibrarySnapshot.Empty;
-        var wanted = snapshot.Songs;
-        var byName = KisscamSongs.ToDictionary(r => r.FileName, StringComparer.OrdinalIgnoreCase);
+        // Namen, die sich nur in der Groß-/Kleinschreibung unterscheiden (case-sensitive Ordner), erscheinen einmal: der erste gewinnt.
+        var wanted = snapshot.Songs.DistinctBy(s => s.FileName, StringComparer.OrdinalIgnoreCase).ToList();
+        var byName = new Dictionary<string, KisscamSongRowViewModel>(StringComparer.OrdinalIgnoreCase);
+        foreach (var existing in KisscamSongs)
+            byName.TryAdd(existing.FileName, existing);
 
         for (var i = 0; i < wanted.Count; i++)
         {

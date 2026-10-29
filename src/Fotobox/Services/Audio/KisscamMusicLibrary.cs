@@ -9,6 +9,8 @@ namespace Fotobox.Services.Audio;
 /// <c>kisscam-musik.json</c> und meldet Änderungen. <see cref="Current"/> ist ein unveränderlicher Stand und blockiert nie. Alle
 /// Dateizugriffe laufen nacheinander auf einem Hintergrund-Worker, jeder als <c>Task.Run(...).WaitAsync(Frist)</c>; hängt ein alter
 /// Zugriff noch, startet kein neuer (der Stand wird <see cref="KisscamLibraryStatus.FolderUnavailable"/>). Keine Methode wirft.
+/// Die Songlängen werden danach als eigener nachrangiger Auftrag (außerhalb des Workers) gelesen und blockieren weder Speichern noch
+/// Neulesen.
 /// <para>
 /// Bereinigt wird die Config (Einträge zu fehlenden Dateien) nur nach vollständig erfolgreicher Auflistung und gelesener Config. Eine
 /// unlesbare Config (<see cref="KisscamLibraryStatus.ConfigBroken"/>) wird nie überschrieben: Erst die nächste Änderung im Admin
@@ -65,6 +67,8 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
     private bool _watcherStarting;
     private Task? _hungTask;
     private Task? _hungDurationTask;
+    private (int Epoch, IReadOnlyList<KisscamFileEntry> Entries)? _durationRequest;
+    private bool _durationLoopRunning;
 
     // Serieller Worker.
     private readonly Queue<Func<Task>> _queue = new();
@@ -386,8 +390,12 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
         {
             lock (_gate)
             {
-                if (_disposed || !ReferenceEquals(_hungTask, ended) || _folder is null || _loadQueued
-                    || _snapshot.Status != KisscamLibraryStatus.FolderUnavailable)
+                if (_disposed || !ReferenceEquals(_hungTask, ended) || _folder is null)
+                    return;
+                // Ein Speichern, das am Hänger scheiterte (Frist oder „früherer Zugriff hängt“), wird jetzt nachgeholt.
+                if (_dirtyVersion != _savedVersion && !_configUnreliable)
+                    ScheduleSaveLocked();
+                if (_loadQueued || _snapshot.Status != KisscamLibraryStatus.FolderUnavailable)
                     return;
                 _loadQueued = true;
                 var epoch = _epoch;
@@ -454,9 +462,12 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
             AppLog.Warn("Die Kisscam-Musikconfig konnte nicht gelesen werden.", ex);
         }
 
+        // Auf einem Ordner mit Groß-/Kleinschreibung (case-sensitive) können zwei Dateien nur so auseinanderliegen; die Config und die
+        // Songliste kennen Namen nur ohne Unterschied: die erste (nach Ordinal-Reihenfolge) gewinnt.
         var sorted = entries
             .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(e => e.Name, StringComparer.Ordinal)
+            .DistinctBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
             .Take(SettingsLimits.KisscamMusicMaxSongs)
             .ToList();
         var logBroken = false;
@@ -522,7 +533,7 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
         RaiseChanged();
 
         await StartWatcherAsync(epoch, folder).ConfigureAwait(false);
-        await LoadDurationsAsync(epoch, sorted).ConfigureAwait(false);
+        StartDurations(epoch, sorted);
     }
 
     private void Unavailable(int epoch, string what, Exception ex)
@@ -548,6 +559,51 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
         RaiseChanged();
     }
 
+    // Die Längen laufen als eigener, nachrangiger Auftrag außerhalb des seriellen Workers (bis zu 500 Songs mit je bis zu
+    // DurationTimeout würden sonst Speichern und Neulesen aufhalten). Es läuft höchstens eine Schleife; ein neuerer Stand der Liste
+    // (anderer Ordner oder neu gelesen) löst sie ab: Die laufende hört vor der nächsten Datei auf, die neue übernimmt.
+    private void StartDurations(int epoch, IReadOnlyList<KisscamFileEntry> entries)
+    {
+        lock (_gate)
+        {
+            if (_disposed || epoch != _epoch)
+                return;
+            _durationRequest = (epoch, entries);
+            if (_durationLoopRunning)
+                return;
+            _durationLoopRunning = true;
+        }
+        _ = Task.Run(RunDurationLoopAsync);
+    }
+
+    private async Task RunDurationLoopAsync()
+    {
+        while (true)
+        {
+            (int Epoch, IReadOnlyList<KisscamFileEntry> Entries) request;
+            lock (_gate)
+            {
+                if (_disposed || _durationRequest is not { } next)
+                {
+                    _durationRequest = null;
+                    _durationLoopRunning = false;
+                    return;
+                }
+                request = next;
+                _durationRequest = null;
+            }
+
+            try
+            {
+                await LoadDurationsAsync(request.Epoch, request.Entries).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Die Songlängen der Kisscam-Musikbibliothek konnten nicht gelesen werden.", ex);
+            }
+        }
+    }
+
     private async Task LoadDurationsAsync(int epoch, IReadOnlyList<KisscamFileEntry> entries)
     {
         var sinceLastPublish = 0;
@@ -557,6 +613,8 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
             {
                 if (_disposed || epoch != _epoch)
                     return;
+                if (_durationRequest is not null)
+                    break; // eine neuere Liste wartet: diese hier abbrechen (Bekanntes bleibt im Cache)
                 if (_durations.TryGetValue(entry.FullPath, out var known) && known.LastWrite == entry.LastWriteUtc && known.Length == entry.Length)
                     continue;
                 if (_hungDurationTask is { IsCompleted: false })
@@ -792,10 +850,12 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
         RaiseChanged();
     }
 
-    // Schreibt die Config; eine unlesbare alte Datei wird vorher nach .defekt verschoben (scheitert das, bleibt sie unberührt).
+    // Schreibt die Config; eine unlesbare alte Datei wird vorher nach .defekt verschoben (scheitert das, bleibt sie unberührt). Verschoben
+    // wird nur, wenn die Datei noch da ist: Scheitert das Schreiben nach dem Verschieben, soll der nächste Versuch nicht am fehlenden
+    // Original scheitern. Eine vorhandene .defekt wird ersetzt (es bleibt die zuletzt defekte Datei erhalten).
     private void WriteJob(SaveJob job)
     {
-        if (job.Broken)
+        if (job.Broken && _fs.ReadConfig(job.ConfigPath) is not null)
             _fs.MoveBroken(job.ConfigPath, Path.Combine(Path.GetDirectoryName(job.ConfigPath)!, KisscamMusicFiles.BrokenConfigFileName));
         _fs.WriteConfigAtomic(job.ConfigPath, KisscamMusicConfigCodec.Write(job.Config));
     }
@@ -852,7 +912,16 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
         }
     }
 
-    private void OnPlaybackFailed(object? sender, MusicPlaybackFailedEventArgs e) => MarkUnplayable(e.Path);
+    // Eine verpasste Öffnungsfrist (langsame Platte, Netzlaufwerk) sagt nichts über die Datei: nur ein echter Fehler markiert den Song.
+    private void OnPlaybackFailed(object? sender, MusicPlaybackFailedEventArgs e)
+    {
+        if (e.TimedOut)
+        {
+            AppLog.Warn($"Kisscam-Song nicht rechtzeitig geöffnet (nicht als unabspielbar markiert): {Path.GetFileName(e.Path)}");
+            return;
+        }
+        MarkUnplayable(e.Path);
+    }
 
     private static bool Same(KisscamSongConfig a, KisscamSongConfig b) =>
         a.Enabled == b.Enabled && a.StartSeconds == b.StartSeconds && a.VolumePercent == b.VolumePercent;
