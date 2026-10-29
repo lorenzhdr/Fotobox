@@ -2324,7 +2324,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     /// belegten Auslöse-Tasten und die Maus-Einstellung.
     /// </summary>
     public string HintPreviewText =>
-        HintTextFormatter.Format(_draft.GuestScreen.HintText, TriggerChords(), TriggerOnLeftClick || TriggerOnRightClick, VideoStartChords());
+        HintTextFormatter.Format(_draft.GuestScreen.HintText, TriggerChords(), TriggerOnLeftClick || TriggerOnRightClick,
+            _draft.Video.Enabled ? VideoStartChords() : []);
 
     /// <summary>Zusatzzeile der Vorschau mit dem Namen des Standard-Layouts (sichtbar bei <see cref="HasGuestOrder"/>).</summary>
     public string HintPreviewLayoutText =>
@@ -2332,7 +2333,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
     /// <summary>Hinweise zu den Platzhaltern im Hinweistext (leer = alles in Ordnung).</summary>
     public IReadOnlyList<string> HintProblems =>
-        HintTextFormatter.FindProblems(_draft.GuestScreen.HintText, Editor(KeyAction.Trigger).Keys.Count, Editor(KeyAction.VideoStart).Keys.Count);
+        HintTextFormatter.FindProblems(_draft.GuestScreen.HintText, Editor(KeyAction.Trigger).Keys.Count,
+            _draft.Video.Enabled ? Editor(KeyAction.VideoStart).Keys.Count : 0);
 
     public string HintProblemsText => string.Join(Environment.NewLine, HintProblems);
 
@@ -2365,7 +2367,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
     /// <summary>Die Video-Hinweiszeile, wie die Gastansicht sie mit dem aktuellen Entwurf zeigt (leer ohne Video-Starttaste).</summary>
     public string VideoHintPreviewText =>
-        HintTextFormatter.FormatVideo(_draft.GuestScreen.VideoHintText, VideoStartChords(), click: false, TriggerChords());
+        HintTextFormatter.FormatVideo(_draft.GuestScreen.VideoHintText, VideoStartChords(), TriggerOnLeftClick || TriggerOnRightClick, TriggerChords());
 
     /// <summary>Die Vorschau zeigt die Video-Zeile: Videomodus aktiv und Text nicht leer (ohne Starttaste entfällt die Zeile).</summary>
     public bool ShowVideoHintPreview => _draft.Video.Enabled && VideoHintPreviewText.Length > 0;
@@ -3195,7 +3197,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         {
             var pinError = PinRules.GetError(_newPin, _repeatPin);
             if (pinError is not null)
-                errors.Add("Sicherheit: " + pinError);
+                errors.Add("PIN: " + pinError);
         }
 
         return errors;

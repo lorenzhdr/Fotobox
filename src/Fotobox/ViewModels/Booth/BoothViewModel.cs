@@ -308,7 +308,7 @@ public sealed class BoothViewModel : ObservableObject
                 return "";
             var map = GetKeyMap();
             return HintTextFormatter.FormatVideo(Settings.Current.GuestScreen?.VideoHintText, map.VideoStart,
-                click: false, photoKeys: map.Trigger);
+                click: TriggersOnClick, photoKeys: map.Trigger);
         }
     }
 

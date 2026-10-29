@@ -335,6 +335,22 @@ public partial class BoothViewModelTests
     }
 
     [Fact]
+    public void VideoHint_ClickPlaceholder_FollowsMouseTrigger_LikePhotoHint()
+    {
+        var h = new Harness();
+        h.Settings.Current.GuestScreen.HintText = "Foto: {Fototaste_1} {Klick}";
+        h.Settings.Current.GuestScreen.VideoHintText = "Video mit {Videotaste_1} {Klick}";
+
+        Assert.Equal($"Video mit {Enter.DisplayName} oder klicke", h.ViewModel.VideoHintText);
+        Assert.Equal($"Foto: {Space.DisplayName} oder klicke", h.ViewModel.HintText);
+
+        h.Settings.Current.Input.TriggerOnLeftClick = false;
+        h.Settings.Current.Input.TriggerOnRightClick = false;
+        Assert.Equal($"Video mit {Enter.DisplayName}", h.ViewModel.VideoHintText);
+        Assert.Equal($"Foto: {Space.DisplayName}", h.ViewModel.HintText);
+    }
+
+    [Fact]
     public void VideoHint_FollowsSameConditionsAsPhotoHint()
     {
         var h = new Harness();

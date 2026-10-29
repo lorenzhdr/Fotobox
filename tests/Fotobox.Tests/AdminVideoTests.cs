@@ -861,6 +861,49 @@ public sealed class AdminVideoTests : IDisposable
         Assert.Equal("Foto Leertaste, Video", vm.HintPreviewText);
     }
 
+    [Fact]
+    public void PhotoHint_Preview_IgnoresVideoKeys_WhenVideoIsOff_AndFollowsToggle()
+    {
+        var vm = CreateViewModel();
+        vm.HintText = "Foto {Fototaste_1}, Video {Videotaste_1}";
+        Assert.Equal("Foto Leertaste, Video Eingabetaste", vm.HintPreviewText);
+        Assert.False(vm.HasHintProblems);
+
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        vm.VideoEnabled = false;
+
+        Assert.Equal("Foto Leertaste, Video", vm.HintPreviewText);
+        Assert.True(vm.HasHintProblems);
+        Assert.Contains(vm.HintProblems, p => p.StartsWith("{Videotaste_1} ist nicht belegt"));
+        Assert.Contains(nameof(AdminViewModel.HintPreviewText), raised);
+        Assert.Contains(nameof(AdminViewModel.HintProblemsText), raised);
+
+        vm.VideoEnabled = true;
+        Assert.Equal("Foto Leertaste, Video Eingabetaste", vm.HintPreviewText);
+        Assert.False(vm.HasHintProblems);
+    }
+
+    [Fact]
+    public void VideoHint_Preview_ClickPlaceholder_FollowsMouseCheckboxes()
+    {
+        var vm = CreateViewModel();
+        vm.VideoHintText = "Video {Videotasten} {Klick}";
+        Assert.Equal("Video Eingabetaste oder klicke", vm.VideoHintPreviewText);
+
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        vm.TriggerOnLeftClick = false;
+        Assert.Equal("Video Eingabetaste oder klicke", vm.VideoHintPreviewText);   // rechts löst noch aus
+        Assert.Contains(nameof(AdminViewModel.VideoHintPreviewText), raised);
+
+        vm.TriggerOnRightClick = false;
+        Assert.Equal("Video Eingabetaste", vm.VideoHintPreviewText);
+
+        vm.TriggerOnLeftClick = true;
+        Assert.Equal("Video Eingabetaste oder klicke", vm.VideoHintPreviewText);
+    }
+
     // ------------------------------------------------------------------ Standardwerte wiederherstellen
 
     [Fact]
