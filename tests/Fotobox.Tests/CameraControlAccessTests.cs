@@ -509,6 +509,179 @@ public sealed class CameraControlAccessTests
         Assert.Equal(-1, CameraControlMapping.ZeroClamped(-3, -1));
     }
 
+    // ---------- Nur Abweichendes schreiben (ControlStateCache) ----------
+
+    private static CameraControlValue Val(CameraControlKind kind, double? value = null, bool? auto = null) =>
+        new() { Kind = kind, Value = value, Auto = auto };
+
+    [Fact]
+    public void Cache_SecondApplyOfTheSameState_WritesNothing()
+    {
+        var t = Target();
+        var cache = new ControlStateCache();
+        CameraControlValue[] all =
+        [
+            Val(CameraControlKind.Brightness, 70),
+            Val(CameraControlKind.Exposure, -3, auto: false),
+        ];
+
+        CameraControlAccess.Apply(t, all, CameraPowerline.Hz50, live: true, cache);
+        Assert.Equal(["value:Brightness=70", "auto:Exposure=False", "value:Exposure=-3", "powerline=Hz50"], t.Calls);
+
+        t.Calls.Clear();
+        CameraControlAccess.Apply(t, all, CameraPowerline.Hz50, live: true, cache);
+        Assert.Empty(t.Calls);
+    }
+
+    [Fact]
+    public void Cache_OnlyTheChangedControlIsWritten()
+    {
+        var t = Target();
+        var cache = new ControlStateCache();
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Brightness, 70), Val(CameraControlKind.Exposure, -3, auto: false)],
+            CameraPowerline.Hz50, live: true, cache);
+        t.Calls.Clear();
+
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Brightness, 75), Val(CameraControlKind.Exposure, -3, auto: false)],
+            CameraPowerline.Hz50, live: true, cache);
+
+        Assert.Equal(["value:Brightness=75"], t.Calls);
+    }
+
+    [Fact]
+    public void Cache_ValueWithinHalfAStep_CountsAsEqual()
+    {
+        var t = Target(); // Helligkeit: Schritt 5
+        var cache = new ControlStateCache();
+        cache.Set(CameraControlKind.Brightness, 70, null);
+
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Brightness, 72.4)], CameraPowerline.Unchanged, live: true, cache);
+        Assert.Empty(t.Calls); // rastet auf 70 ein
+
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Brightness, 73)], CameraPowerline.Unchanged, live: true, cache);
+        Assert.Equal(["value:Brightness=75"], t.Calls);
+    }
+
+    [Fact]
+    public void Cache_AutoOn_IsNotRepeated_AndSwitchingOffWritesAgain()
+    {
+        var t = Target();
+        var cache = new ControlStateCache();
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Exposure, -3, auto: true)], CameraPowerline.Unchanged, live: true, cache);
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Exposure, -3, auto: true)], CameraPowerline.Unchanged, live: true, cache);
+        Assert.Equal(["auto:Exposure=True"], t.Calls);
+
+        t.Calls.Clear();
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Exposure, -3, auto: false)], CameraPowerline.Unchanged, live: true, cache);
+        Assert.Equal(["auto:Exposure=False", "value:Exposure=-3"], t.Calls);
+    }
+
+    [Fact]
+    public void Cache_SeedFromRead_SkipsWhatTheDriverAlreadyHas()
+    {
+        var t = Target();
+        var cache = new ControlStateCache();
+        cache.Seed(CameraControlAccess.Read(t, "cam", writable: true));
+
+        // Treiberstand: Helligkeit 50, Belichtung -5 in Automatik, Flimmerschutz 60 Hz.
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Brightness, 50), Val(CameraControlKind.Exposure, null, auto: true)],
+            CameraPowerline.Hz60, live: true, cache);
+
+        Assert.Empty(t.Calls);
+    }
+
+    [Fact]
+    public void Cache_AfterARejectedWrite_TheEntryIsForgotten_AndRetried()
+    {
+        var t = Target();
+        var cache = new ControlStateCache();
+        t.RejectValue.Add(CameraControlKind.Brightness);
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Brightness, 70)], CameraPowerline.Unchanged, live: true, cache);
+
+        t.RejectValue.Clear();
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Brightness, 70)], CameraPowerline.Unchanged, live: true, cache);
+
+        Assert.Equal(["value:Brightness=70", "value:Brightness=70"], t.Calls);
+        Assert.Equal(70, t.Values[CameraControlKind.Brightness]);
+    }
+
+    [Fact]
+    public void Cache_RejectedPowerline_IsRetried()
+    {
+        var t = Target();
+        var cache = new ControlStateCache();
+        t.PowerlineRejects = true;
+        CameraControlAccess.Apply(t, [], CameraPowerline.Hz50, live: true, cache);
+        t.PowerlineRejects = false;
+        CameraControlAccess.Apply(t, [], CameraPowerline.Hz50, live: true, cache);
+        CameraControlAccess.Apply(t, [], CameraPowerline.Hz50, live: true, cache);
+
+        Assert.Equal(["powerline=Hz50", "powerline=Hz50"], t.Calls);
+    }
+
+    [Fact]
+    public void Cache_ValueAfterAuto_IsWrittenEvenIfEqualToTheOldValue()
+    {
+        var t = Target();
+        var cache = new ControlStateCache();
+        cache.Set(CameraControlKind.Exposure, -3, false);
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Exposure, null, auto: true)], CameraPowerline.Unchanged, live: true, cache);
+        t.Calls.Clear();
+
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Exposure, -3, auto: false)], CameraPowerline.Unchanged, live: true, cache);
+
+        Assert.Equal(["auto:Exposure=False", "value:Exposure=-3"], t.Calls);
+    }
+
+    [Fact]
+    public void Cache_CountPending_ReflectsWhatWouldBeWritten()
+    {
+        var cache = new ControlStateCache();
+        cache.Set(CameraControlKind.Brightness, 70, null);
+        cache.Set(CameraControlKind.Exposure, null, true);
+        cache.Powerline = CameraPowerline.Hz50;
+
+        Assert.Equal(0, cache.CountPending(
+            [Val(CameraControlKind.Brightness, 70), Val(CameraControlKind.Exposure, -3, auto: true)], CameraPowerline.Hz50));
+        Assert.Equal(1, cache.CountPending([Val(CameraControlKind.Brightness, 71)], CameraPowerline.Unchanged));
+        Assert.Equal(2, cache.CountPending([Val(CameraControlKind.Contrast, 5)], CameraPowerline.Hz60));
+        Assert.Equal(0, cache.CountPending([], CameraPowerline.Unchanged));
+    }
+
+    [Fact]
+    public void ControlsTimeout_GrowsWithTheNumberOfWrites_AndIsCapped()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(5 + 6), WinRtCameraService.ControlsTimeout(1));
+        Assert.True(WinRtCameraService.ControlsTimeout(3) > WinRtCameraService.ControlsTimeout(1));
+        Assert.Equal(TimeSpan.FromSeconds(30), WinRtCameraService.ControlsTimeout(50));
+    }
+
+    [Fact]
+    public async Task CombinePending_KeepsOnlyRunningTasks()
+    {
+        var done = Task.CompletedTask;
+        var gate1 = new TaskCompletionSource();
+        var gate2 = new TaskCompletionSource();
+
+        Assert.Null(WinRtCameraService.CombinePending(null, done));
+        Assert.Null(WinRtCameraService.CombinePending(done, null));
+        Assert.Same(gate1.Task, WinRtCameraService.CombinePending(null, gate1.Task));
+        Assert.Same(gate1.Task, WinRtCameraService.CombinePending(gate1.Task, done));
+
+        var both = WinRtCameraService.CombinePending(gate1.Task, gate2.Task)!;
+        gate1.SetResult();
+        Assert.False(both.IsCompleted);
+        gate2.SetResult();
+        await both.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void ValuesFor_DeviceIdsDifferingOnlyInCase_AreTheSameDevice()
+    {
+        IReadOnlyList<CameraControlValue> saved = [Val(CameraControlKind.Zoom, 2)];
+        Assert.Single(CameraControlAccess.ValuesFor(@"\\?\USB#VID_1234", saved, @"\\?\usb#vid_1234"));
+    }
+
     [Fact]
     public async Task WinRtService_WithoutSession_ControlsAreEmptyAndLiveIsNoOp()
     {

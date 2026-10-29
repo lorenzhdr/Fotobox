@@ -76,7 +76,7 @@ public static class DeviceSpecificSettings
         target.Camera.ResolutionHeight = source.Camera.ResolutionHeight;
         target.Camera.ControlsDeviceId = source.Camera.ControlsDeviceId;
         target.Camera.ControlValues = CameraSettings.CloneValues(source.Camera.ControlValues);
-        target.Camera.ControlProfiles = source.Camera.ControlProfiles is null ? [] : source.Camera.ControlProfiles.Select(p => p?.Clone()!).ToList();
+        target.Camera.ControlProfiles = CameraSettings.CloneProfiles(source.Camera.ControlProfiles);
 
         target.Printer.PrinterName = source.Printer.PrinterName;
         target.Printer.PaperSizeName = source.Printer.PaperSizeName;

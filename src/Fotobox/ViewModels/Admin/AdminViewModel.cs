@@ -611,7 +611,6 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             return;
 
         var version = Interlocked.Increment(ref _cameraRestartVersion);
-        var started = false;
         await _cameraGate.WaitAsync();
         try
         {
@@ -626,7 +625,6 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             // Der Ton gilt ab dem nächsten Sessionstart: für die Vorschau der Stand des Entwurfs.
             Camera.ConfigureAudio(CameraServiceExtensions.AudioFor(_draft.Video));
             await Camera.StartAsync(settings);
-            started = true;
         }
         catch (Exception ex)
         {
@@ -638,9 +636,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             RaiseCameraStatus();
         }
 
-        // Nach dem Neustart die Regler der (neuen) Session lesen; was live verstellt war, geht erneut an die Kamera.
-        if (started)
-            await Guard(RefreshControlsAsync(), "Kamera-Regler");
+        // Die Regler der neuen Session liest OnCameraStatusChangedForControls beim Wechsel auf „läuft“ (ein Vordergrundstart meldet
+        // immer erst „Starting“ und dann „Running“); was live verstellt war, geht dann erneut an die Kamera. Kein zweites Lesen hier.
     }
 
     /// <summary>
@@ -3012,7 +3009,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         if (cameraBefore.RequiresRestartComparedTo(_draft.Camera))
         {
             // Andere Kamera: die bisher live verstellte vorher zurücknehmen (danach ist sie nicht mehr erreichbar).
-            if (!string.Equals(cameraBefore.DeviceId, _draft.Camera.DeviceId, StringComparison.Ordinal))
+            if (!string.Equals(cameraBefore.DeviceId, _draft.Camera.DeviceId, StringComparison.OrdinalIgnoreCase))
                 await RevertCameraControlsAsync();
             await RestartCameraAsync();
         }
@@ -3055,6 +3052,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         RaisePrintTimeoutHint();
         // Alle gebundenen Eigenschaften neu lesen (Werte kommen direkt aus dem Entwurf).
         OnPropertyChanged(string.Empty);
+        // Ein ersetzter Flimmerschutz (Import) wirkt sofort wie eine Auswahl in der ComboBox.
+        SyncPowerlineLive();
     }
 
     // ---------------------------------------------------------------- Validierung / Speichern

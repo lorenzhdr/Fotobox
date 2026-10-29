@@ -102,6 +102,89 @@ internal sealed class VideoDeviceControllerTarget(VideoDeviceController controll
         CameraPowerlineMap.ToWinRt(value) is { } raw && controller.TrySetPowerlineFrequency(raw);
 }
 
+/// <summary>
+/// Zuletzt erfolgreich angewendeter bzw. gelesener Stand der Regler EINER Session (je Art Wert und Automatik, dazu der
+/// Flimmerschutz). <see cref="CameraControlAccess.Apply"/> schreibt nur Abweichendes, damit nicht bei jeder Reglerbewegung alle
+/// Regler neu geschrieben werden (der Fokus fokussierte sonst bei jedem Tick neu, der Weißabgleich setzte sein Preset neu). Gilt
+/// nur für die Session, zu der er gehört (neue Session = neuer Cache); ein Eintrag (null = unbekannt) wird nach einem
+/// fehlgeschlagenen Schreiben verworfen. Threadsicher.
+/// </summary>
+internal sealed class ControlStateCache
+{
+    private readonly object _lock = new();
+    private readonly Dictionary<CameraControlKind, (double? Value, bool? Auto)> _state = [];
+    private CameraPowerline? _powerline;
+
+    /// <summary>Ersetzt den Stand durch den gelesenen (der Treiber ist die Wahrheit).</summary>
+    public void Seed(CameraControlsSnapshot snapshot)
+    {
+        lock (_lock)
+        {
+            _state.Clear();
+            foreach (var c in snapshot.Controls)
+            {
+                if (c.Supported && c.Writable)
+                    _state[c.Kind] = (c.Value, c.Auto);
+            }
+            _powerline = snapshot.PowerlineSupported ? snapshot.Powerline : null;
+        }
+    }
+
+    public (double? Value, bool? Auto) Get(CameraControlKind kind)
+    {
+        lock (_lock)
+            return _state.TryGetValue(kind, out var s) ? s : (null, null);
+    }
+
+    public void Set(CameraControlKind kind, double? value, bool? auto)
+    {
+        lock (_lock)
+            _state[kind] = (value, auto);
+    }
+
+    public void Forget(CameraControlKind kind)
+    {
+        lock (_lock)
+            _state.Remove(kind);
+    }
+
+    public CameraPowerline? Powerline
+    {
+        get { lock (_lock) return _powerline; }
+        set { lock (_lock) _powerline = value; }
+    }
+
+    /// <summary>
+    /// Obergrenze der Zahl der Regler, die <see cref="CameraControlAccess.Apply"/> schreiben muss (ohne den Treiber zu fragen):
+    /// Einträge, die der Cache nicht schon exakt kennt, plus der Flimmerschutz, falls abweichend. Dient nur der Fristberechnung.
+    /// </summary>
+    public int CountPending(IReadOnlyList<CameraControlValue> values, CameraPowerline powerline)
+    {
+        lock (_lock)
+        {
+            var n = 0;
+            foreach (var v in values)
+            {
+                if (v is null)
+                    continue;
+                if (!_state.TryGetValue(v.Kind, out var s))
+                {
+                    n++;
+                    continue;
+                }
+                var same = v.Auto == true
+                    ? s.Auto == true
+                    : (v.Auto is null || s.Auto == v.Auto) && (v.Value is not { } d || (s.Value is { } c && Math.Abs(c - d) <= 1e-9));
+                if (!same)
+                    n++;
+            }
+            if (powerline != CameraPowerline.Unchanged && _powerline != powerline)
+                n++;
+            return n;
+        }
+    }
+}
+
 /// <summary>Auslesen und Anwenden der Kamerareglerwerte (UI- und WinRT-frei über <see cref="ICameraControlTarget"/>). Wirft nie.</summary>
 internal static class CameraControlAccess
 {
@@ -165,9 +248,12 @@ internal static class CameraControlAccess
     /// Wendet Werte an: nur unterstützte Regler; Automatik an (wenn der Regler eine hat) ersetzt den Wert, sonst Automatik aus
     /// (bei <c>Auto == false</c>) und der Wert, auf den Bereich geklemmt und eingerastet. Danach der Flimmerschutz (außer
     /// <see cref="CameraPowerline.Unchanged"/>, nur wenn unterstützt). Lehnt der Treiber etwas ab oder wirft er, wird geloggt
-    /// und mit dem nächsten Regler weitergemacht. <paramref name="live"/> nur für den Text im Log.
+    /// und mit dem nächsten Regler weitergemacht. <paramref name="live"/> nur für den Text im Log. Mit <paramref name="cache"/>
+    /// (Stand der Session) werden nur Abweichungen geschrieben (ein Wert innerhalb eines halben Schritts gilt als gleich) und
+    /// erfolgreiche Schreibvorgänge eingetragen; ohne Cache wird alles geschrieben.
     /// </summary>
-    public static void Apply(ICameraControlTarget target, IReadOnlyList<CameraControlValue> values, CameraPowerline powerline, bool live)
+    public static void Apply(ICameraControlTarget target, IReadOnlyList<CameraControlValue> values, CameraPowerline powerline, bool live,
+        ControlStateCache? cache = null)
     {
         foreach (var v in values)
         {
@@ -178,44 +264,93 @@ internal static class CameraControlAccess
                 var caps = target.GetCaps(v.Kind);
                 if (!caps.Supported)
                     continue;
-
-                if (v.Auto == true && caps.AutoSupported)
-                {
-                    if (!target.TrySetAuto(v.Kind, true))
-                        AppLog.Warn($"Kameraregler {v.Kind}: Automatik wurde vom Treiber abgelehnt.");
-                    continue;
-                }
-
-                if (v.Auto == false && caps.AutoSupported && !target.TrySetAuto(v.Kind, false))
-                    AppLog.Warn($"Kameraregler {v.Kind}: Automatik ausschalten wurde vom Treiber abgelehnt.");
-
-                if (v.Value is { } raw && double.IsFinite(raw))
-                {
-                    var value = CameraControlMath.ClampAndSnap(raw, caps.Min, caps.Max, caps.Step);
-                    if (!target.TrySetValue(v.Kind, value))
-                        AppLog.Warn($"Kameraregler {v.Kind}: Wert {value.ToString("0.###", CultureInfo.InvariantCulture)} wurde vom Treiber abgelehnt.");
-                }
+                ApplyOne(target, v, caps, cache);
             }
             catch (Exception ex)
             {
+                cache?.Forget(v.Kind); // Stand unbekannt (ggf. halb geschrieben)
                 AppLog.Warn($"Kameraregler {v.Kind} konnte nicht gesetzt werden.", ex);
             }
         }
 
-        if (powerline == CameraPowerline.Unchanged)
+        if (powerline == CameraPowerline.Unchanged || cache?.Powerline == powerline)
             return;
         try
         {
             if (!target.TryGetPowerline(out _))
+            {
                 AppLog.Info("Flimmerschutz: Die Kamera bietet ihn nicht an, er wird nicht gesetzt.");
-            else if (!target.TrySetPowerline(powerline))
+            }
+            else if (target.TrySetPowerline(powerline))
+            {
+                if (cache is not null)
+                    cache.Powerline = powerline;
+            }
+            else
+            {
+                if (cache is not null)
+                    cache.Powerline = null;
                 AppLog.Warn(live
                     ? $"Flimmerschutz {powerline} wurde vom Treiber abgelehnt (wirkt ggf. erst nach einem Neustart der Kamera)."
                     : $"Flimmerschutz {powerline} wurde vom Treiber abgelehnt.");
+            }
         }
         catch (Exception ex)
         {
+            if (cache is not null)
+                cache.Powerline = null;
             AppLog.Warn("Flimmerschutz der Kamera konnte nicht gesetzt werden.", ex);
+        }
+    }
+
+    private static void ApplyOne(ICameraControlTarget target, CameraControlValue v, ControlCaps caps, ControlStateCache? cache)
+    {
+        if (v.Auto == true && caps.AutoSupported)
+        {
+            if (cache?.Get(v.Kind).Auto == true)
+                return; // Läuft schon in Automatik.
+            if (target.TrySetAuto(v.Kind, true))
+            {
+                cache?.Set(v.Kind, null, true); // Der Treiber führt den Wert nach: unbekannt.
+            }
+            else
+            {
+                cache?.Forget(v.Kind);
+                AppLog.Warn($"Kameraregler {v.Kind}: Automatik wurde vom Treiber abgelehnt.");
+            }
+            return;
+        }
+
+        if (v.Auto == false && caps.AutoSupported && cache?.Get(v.Kind).Auto != false)
+        {
+            if (target.TrySetAuto(v.Kind, false))
+            {
+                cache?.Set(v.Kind, cache.Get(v.Kind).Value, false);
+            }
+            else
+            {
+                cache?.Forget(v.Kind);
+                AppLog.Warn($"Kameraregler {v.Kind}: Automatik ausschalten wurde vom Treiber abgelehnt.");
+            }
+        }
+
+        if (v.Value is not { } raw || !double.IsFinite(raw))
+            return;
+
+        var value = CameraControlMath.ClampAndSnap(raw, caps.Min, caps.Max, caps.Step);
+        var tolerance = caps.Step > 0 ? caps.Step / 2 : 1e-9;
+        if (cache?.Get(v.Kind).Value is { } current && Math.Abs(current - value) <= tolerance)
+            return; // Steht schon dort.
+
+        if (target.TrySetValue(v.Kind, value))
+        {
+            // Ein Wert ohne ausdrückliches „Automatik aus“ lässt die Automatik offen (je Treiber): unbekannt.
+            cache?.Set(v.Kind, value, caps.AutoSupported && v.Auto == false ? false : null);
+        }
+        else
+        {
+            cache?.Forget(v.Kind);
+            AppLog.Warn($"Kameraregler {v.Kind}: Wert {value.ToString("0.###", CultureInfo.InvariantCulture)} wurde vom Treiber abgelehnt.");
         }
     }
 

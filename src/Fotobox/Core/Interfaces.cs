@@ -54,7 +54,9 @@ public interface ICameraService : IAsyncDisposable
     Task<CameraControlsSnapshot> GetControlsAsync() => Task.FromResult(CameraControlsSnapshot.Empty);
     /// <summary>
     /// Übernimmt die GESPEICHERTEN Reglerwerte (<see cref="CameraSettings.ControlsDeviceId"/>, <see cref="CameraSettings.ControlValues"/>,
-    /// <see cref="CameraSettings.Powerline"/>) für alle späteren Starts und Wiederverbindungen, ohne Neustart.
+    /// <see cref="CameraSettings.Powerline"/>) für alle späteren Starts und Wiederverbindungen, ohne Neustart. Einziger Weg:
+    /// <see cref="StartAsync"/> ändert den gespeicherten Reglerstand nie (der Admin startet mit Entwurfswerten); wer die Kamera mit
+    /// gespeicherten Einstellungen startet, ruft vorher dies auf (<see cref="CameraServiceExtensions.StartWithAudioAsync"/>).
     /// </summary>
     void ConfigureControls(CameraSettings saved) { }
     /// <summary>Wendet Werte vorübergehend live an (Admin-Vorschau); ändert die für Starts gespeicherten Werte nie.</summary>

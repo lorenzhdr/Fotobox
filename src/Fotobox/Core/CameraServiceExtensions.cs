@@ -11,12 +11,15 @@ public static class CameraServiceExtensions
         video is { UsesAudio: true } ? new CameraAudio(video.MicrophoneId) : null;
 
     /// <summary>
-    /// Setzt den Ton nach <paramref name="settings"/> (<see cref="AppSettings.Video"/>) und startet die Kamera mit
-    /// <see cref="AppSettings.Camera"/>. Immer diesen Weg nehmen, damit der Ton nie vergessen wird.
+    /// Setzt den Ton nach <paramref name="settings"/> (<see cref="AppSettings.Video"/>) und den gespeicherten Reglerstand
+    /// (<see cref="ICameraService.ConfigureControls"/>, <see cref="AppSettings.Camera"/>) und startet die Kamera mit
+    /// <see cref="AppSettings.Camera"/>. Immer diesen Weg für gespeicherte Einstellungen nehmen, damit Ton und Regler nie vergessen
+    /// werden (<see cref="ICameraService.StartAsync"/> allein ändert den Reglerstand nicht).
     /// </summary>
     public static Task StartWithAudioAsync(this ICameraService camera, AppSettings settings, CancellationToken ct = default)
     {
         camera.ConfigureAudio(AudioFor(settings.Video));
+        camera.ConfigureControls(settings.Camera);
         return camera.StartAsync(settings.Camera, ct);
     }
 }

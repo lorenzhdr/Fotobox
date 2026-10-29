@@ -166,8 +166,8 @@ public sealed partial class WinRtCameraService : ICameraService
                 return;
             if (Volatile.Read(ref _disposed) != 0)
                 return;
-            _lastSettings = CopyOf(settings);
-            _controlState = ControlState.From(settings);
+            // Der gespeicherte Reglerstand bleibt unberührt (nur ConfigureControls ändert ihn): Der Admin startet mit dem Entwurf.
+            _lastSettings = settings.Clone();
 
             // Direkt nach einem Kamerawechsel meldet Media Foundation oft kurz einen Ressourcenfehler, solange die
             // alte Session noch freigegeben wird. Solche Fehler zuerst still (Status bleibt „Starting“) wiederholen.
@@ -431,6 +431,7 @@ public sealed partial class WinRtCameraService : ICameraService
 
         CancelReconnect();
         _liveWorker?.Close(); // Wartende Live-Reglerwerte verwerfen; ein laufender Schreibvorgang blockiert den Abbau nicht.
+        try { _lifetime.Cancel(); } catch (ObjectDisposedException) { } // beendet das Warten auf hängende Reglerschreibvorgänge
         Interlocked.Increment(ref _generation);
         return new ValueTask(Task.Run(() => StopSerializedAsync(null)));
     }
@@ -460,6 +461,7 @@ public sealed partial class WinRtCameraService : ICameraService
 
         MediaCapture? capture = null;
         MediaFrameReader? reader = null;
+        ControlStateCache? controlCache = null;
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -491,7 +493,8 @@ public sealed partial class WinRtCameraService : ICameraService
             ct.ThrowIfCancellationRequested();
 
             // Gespeicherte Reglerwerte und Flimmerschutz vor dem ersten Bild (jeder Start, auch Wiederverbindung); scheitert nie.
-            await ApplySavedControlsAsync(capture, init.Mode, device.Id).ConfigureAwait(false);
+            controlCache = new ControlStateCache();
+            await ApplySavedControlsAsync(capture, init.Mode, device.Id, controlCache).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
 
             reader = await CreateReaderAsync(capture, source).ConfigureAwait(false);
@@ -499,6 +502,7 @@ public sealed partial class WinRtCameraService : ICameraService
             // Erst eintragen, dann anmelden: Die Handler verwerfen Ereignisse fremder (alter) Objekte per ReferenceEquals.
             // Abgemeldet wird bewusst nie (siehe DisposeSessionObjectsAsync).
             var watchdog = new FrameWatchdog(_time);
+            _controlCache = controlCache; // vor _capture: wer _capture sieht, findet auch den Cache
             _capture = capture;
             _reader = reader;
             _source = source;
@@ -590,9 +594,17 @@ public sealed partial class WinRtCameraService : ICameraService
     {
         // Bereits in _capture/_reader eingetragene Objekte räumt StopCoreAsync auf; nur noch nicht eingetragene separat.
         var registered = ReferenceEquals(_capture, capture) && ReferenceEquals(_reader, reader);
-        await StopCoreAsync(pending).ConfigureAwait(false);
-        if (!registered)
-            await DisposeSessionObjectsAsync(capture, reader, pending).ConfigureAwait(false);
+        if (registered)
+        {
+            // StopCoreAsync fügt die vorgemerkten hängenden Reglerschreibvorgänge der Session hinzu.
+            await StopCoreAsync(pending).ConfigureAwait(false);
+            return;
+        }
+
+        // Noch nicht eingetragen: die beim Aufbau vorgemerkte hängende Aufgabe (Regler) gehört zu diesen Objekten, nicht zu StopCoreAsync.
+        pending = CombinePending(pending, await TakeSessionPendingAsync().ConfigureAwait(false));
+        await StopCoreAsync().ConfigureAwait(false);
+        await DisposeSessionObjectsAsync(capture, reader, pending).ConfigureAwait(false);
     }
 
     // Ergebnis des Session-Aufbaus: Zugriffsmodus und ob ein Mikrofon geöffnet wurde.
@@ -749,11 +761,11 @@ public sealed partial class WinRtCameraService : ICameraService
         }
     }
 
-    private async Task AwaitStepAsync(Task task, string step)
+    private async Task AwaitStepAsync(Task task, string step, TimeSpan? timeout = null)
     {
         try
         {
-            await task.WaitAsync(StepTimeout).ConfigureAwait(false);
+            await task.WaitAsync(timeout ?? StepTimeout).ConfigureAwait(false);
         }
         catch (TimeoutException) when (!task.IsCompleted)
         {
@@ -871,6 +883,7 @@ public sealed partial class WinRtCameraService : ICameraService
         _audioAvailable = false;
         var capture = _capture;
         var reader = _reader;
+        _controlCache = null;
         _capture = null;
         _reader = null;
         _source = null;
@@ -893,6 +906,8 @@ public sealed partial class WinRtCameraService : ICameraService
         lock (_stateLock)
             _activeResolution = null;
 
+        // Hängende Reglerschreibvorgänge dieser Session: das MediaCapture erst nach deren Abschluss freigeben.
+        pending = CombinePending(pending, await TakeSessionPendingAsync().ConfigureAwait(false));
         await DisposeSessionObjectsAsync(capture, reader, pending).ConfigureAwait(false);
     }
 
@@ -1252,17 +1267,4 @@ public sealed partial class WinRtCameraService : ICameraService
             AppLog.Warn("StatusChanged-Handler hat eine Ausnahme ausgelöst.", ex);
         }
     }
-
-    private static CameraSettings CopyOf(CameraSettings s) => new()
-    {
-        DeviceId = s.DeviceId,
-        ResolutionWidth = s.ResolutionWidth,
-        ResolutionHeight = s.ResolutionHeight,
-        MirrorPreview = s.MirrorPreview,
-        MirrorPhoto = s.MirrorPhoto,
-        ControlsDeviceId = s.ControlsDeviceId,
-        ControlValues = CameraSettings.CloneValues(s.ControlValues),
-        ControlProfiles = s.ControlProfiles is null ? [] : s.ControlProfiles.Select(p => p?.Clone()!).ToList(),
-        Powerline = s.Powerline,
-    };
 }

@@ -465,6 +465,85 @@ public sealed class CameraControlsTests : IDisposable
     }
 
     [Fact]
+    public void Normalizer_Profiles_DeviceIdsDifferingOnlyInCase_AreOneCamera()
+    {
+        var profiles = new List<CameraControlProfile>();
+        for (var i = 0; i < SettingsLimits.CameraProfilesMax; i++)
+            profiles.Add(Profile("P" + i, @"\\?\USB#CAM", V(CameraControlKind.Hue, i)));
+        profiles.Add(Profile("P0", @"\\?\usb#cam"));
+        profiles.Add(Profile("Zusätzlich", @"\\?\Usb#Cam")); // über dem Limit derselben Kamera
+
+        var s = Normalized(c => c.ControlProfiles = profiles);
+
+        Assert.Equal(SettingsLimits.CameraProfilesMax, s.Camera.ControlProfiles.Count);
+    }
+
+    [Fact]
+    public void CloneProfiles_DeepCopy_DropsNullEntries()
+    {
+        var source = new List<CameraControlProfile?>
+        {
+            null,
+            new() { Name = "A", DeviceId = "x", Values = [V(CameraControlKind.Hue, 1)] },
+        };
+
+        var copy = CameraSettings.CloneProfiles(source);
+        source[1]!.Values[0].Value = 99;
+
+        Assert.Equal("A", Assert.Single(copy).Name);
+        Assert.Equal(1, copy[0].Values[0].Value);
+        Assert.Empty(CameraSettings.CloneProfiles(null));
+    }
+
+    [Fact]
+    public async Task StartWithAudio_ConfiguresAudioAndControls_BeforeStarting()
+    {
+        var camera = new RecordingCamera();
+        var settings = new AppSettings();
+        settings.Camera.Powerline = CameraPowerline.Hz60;
+        settings.Camera.ControlsDeviceId = "cam";
+        settings.Camera.ControlValues = [V(CameraControlKind.Zoom, 3)];
+
+        await camera.StartWithAudioAsync(settings);
+
+        Assert.Equal(["audio", "controls", "start"], camera.Order);
+        Assert.Equal(CameraPowerline.Hz60, camera.ConfiguredControls!.Powerline);
+        Assert.Equal("cam", camera.ConfiguredControls.ControlsDeviceId);
+        Assert.Single(camera.ConfiguredControls.ControlValues);
+    }
+
+    private sealed class RecordingCamera : ICameraService
+    {
+        public List<string> Order { get; } = [];
+        public CameraSettings? ConfiguredControls { get; private set; }
+        public CameraStatus Status => CameraStatus.Stopped;
+        public string? StatusMessage => null;
+        public CameraResolution? ActiveResolution => null;
+        public event EventHandler? StatusChanged { add { } remove { } }
+        public event EventHandler<CameraFrame>? FrameArrived { add { } remove { } }
+        public Task<IReadOnlyList<CameraDevice>> GetDevicesAsync() => Task.FromResult<IReadOnlyList<CameraDevice>>([]);
+        public Task<IReadOnlyList<CameraResolution>> GetResolutionsAsync(string deviceId) => Task.FromResult<IReadOnlyList<CameraResolution>>([]);
+
+        public Task StartAsync(CameraSettings settings, CancellationToken ct = default)
+        {
+            Order.Add("start");
+            return Task.CompletedTask;
+        }
+
+        public void ConfigureAudio(CameraAudio? audio) => Order.Add("audio");
+
+        public void ConfigureControls(CameraSettings saved)
+        {
+            Order.Add("controls");
+            ConfiguredControls = saved.Clone();
+        }
+
+        public Task StopAsync() => Task.CompletedTask;
+        public Task<System.Windows.Media.Imaging.BitmapSource> CapturePhotoAsync(CancellationToken ct = default) => throw new NotSupportedException();
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    [Fact]
     public void Normalizer_Profiles_NamesAreUniquePerDevice_IgnoringCase_FirstWins()
     {
         var s = Normalized(c => c.ControlProfiles =

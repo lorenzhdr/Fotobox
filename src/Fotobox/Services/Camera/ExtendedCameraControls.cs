@@ -90,7 +90,7 @@ internal sealed class FallbackControlTarget(ICameraControlTarget primary, ICamer
 /// </summary>
 internal sealed class ExtendedControlTarget(VideoDeviceController controller) : ICameraControlTarget
 {
-    private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(3);
+    internal static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(3);
 
     private static void Wait(IAsyncAction operation)
     {

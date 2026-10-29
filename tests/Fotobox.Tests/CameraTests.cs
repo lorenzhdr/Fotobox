@@ -206,6 +206,8 @@ public sealed class CameraHardwareTests(Xunit.Abstractions.ITestOutputHelper out
     {
         for (var i = 0; i < devices.Count; i++)
         {
+            // StartAsync ändert den gespeicherten Reglerstand nicht: Flimmerschutz „unverändert“ gilt nur über ConfigureControls.
+            camera.ConfigureControls(new CameraSettings { Powerline = CameraPowerline.Unchanged });
             await camera.StartAsync(new CameraSettings { DeviceId = devices[i].Id, Powerline = CameraPowerline.Unchanged }).WaitAsync(TimeSpan.FromSeconds(60));
             if (camera.Status != CameraStatus.Running)
             {
@@ -316,6 +318,8 @@ public sealed class CameraHardwareTests(Xunit.Abstractions.ITestOutputHelper out
 
         for (var i = 0; i < devices.Count; i++)
         {
+            // StartAsync ändert den gespeicherten Reglerstand nicht: Flimmerschutz „unverändert“ gilt nur über ConfigureControls.
+            camera.ConfigureControls(new CameraSettings { Powerline = CameraPowerline.Unchanged });
             await camera.StartAsync(new CameraSettings { DeviceId = devices[i].Id, Powerline = CameraPowerline.Unchanged }).WaitAsync(TimeSpan.FromSeconds(60));
             var snap = await camera.GetControlsAsync();
             if (camera.Status != CameraStatus.Running || !snap.PowerlineSupported)
@@ -326,7 +330,8 @@ public sealed class CameraHardwareTests(Xunit.Abstractions.ITestOutputHelper out
             var settings = new CameraSettings { DeviceId = devices[i].Id, Powerline = CameraPowerline.Hz50 };
             try
             {
-                // Beim Start (jeder Start setzt den Flimmerschutz).
+                // Beim Start (jeder Start setzt den gespeicherten Flimmerschutz).
+                camera.ConfigureControls(settings);
                 await camera.StartAsync(settings).WaitAsync(TimeSpan.FromSeconds(60));
                 var atStart = (await camera.GetControlsAsync()).Powerline;
                 output.WriteLine($"Nach Start mit Hz50: {atStart}");
@@ -343,6 +348,46 @@ public sealed class CameraHardwareTests(Xunit.Abstractions.ITestOutputHelper out
                 // Ausgangswert wiederherstellen (manche Treiber behalten ihn über Sitzungen hinweg).
                 await camera.ApplyControlsLiveAsync([], original).WaitAsync(TimeSpan.FromSeconds(30));
                 output.WriteLine($"Wiederhergestellt: {(await camera.GetControlsAsync()).Powerline}");
+            }
+
+            return;
+        }
+
+        output.WriteLine("HINWEIS: Keine Kamera mit Flimmerschutz gefunden, Test übersprungen.");
+    }
+
+    [Fact]
+    [Trait("Category", "Hardware")]
+    public async Task Start_WithDraftSettings_DoesNotChangeTheSavedPowerline()
+    {
+        await using var camera = new WinRtCameraService();
+        var devices = await camera.GetDevicesAsync();
+        if (devices.Count == 0)
+            return; // Keine Kamera angeschlossen: nichts zu prüfen.
+
+        for (var i = 0; i < devices.Count; i++)
+        {
+            camera.ConfigureControls(new CameraSettings { Powerline = CameraPowerline.Unchanged });
+            await camera.StartAsync(new CameraSettings { DeviceId = devices[i].Id }).WaitAsync(TimeSpan.FromSeconds(60));
+            var snap = await camera.GetControlsAsync();
+            if (camera.Status != CameraStatus.Running || !snap.PowerlineSupported)
+                continue;
+
+            var original = snap.Powerline ?? CameraPowerline.Auto;
+            try
+            {
+                // Gespeichert: 60 Hz. Ein Start mit Entwurfswerten (Admin) darf daran nichts ändern.
+                camera.ConfigureControls(new CameraSettings { Powerline = CameraPowerline.Hz60 });
+                await camera.StartAsync(new CameraSettings { DeviceId = devices[i].Id, Powerline = CameraPowerline.Hz50 })
+                    .WaitAsync(TimeSpan.FromSeconds(60));
+                var atStart = (await camera.GetControlsAsync()).Powerline;
+                output.WriteLine($"Gespeichert Hz60, Start mit Entwurf Hz50: {atStart}");
+                Assert.Equal(CameraPowerline.Hz60, atStart);
+            }
+            finally
+            {
+                camera.ConfigureControls(new CameraSettings { Powerline = CameraPowerline.Unchanged });
+                await camera.ApplyControlsLiveAsync([], original).WaitAsync(TimeSpan.FromSeconds(30));
             }
 
             return;
@@ -402,6 +447,7 @@ public sealed class CameraHardwareTests(Xunit.Abstractions.ITestOutputHelper out
         finally
         {
             // Gerätewert zurücksetzen (manche Treiber behalten ihn über Sitzungen hinweg).
+            camera.ConfigureControls(plain);
             await camera.StartAsync(plain).WaitAsync(TimeSpan.FromSeconds(60));
             await camera.ApplyControlsLiveAsync([new CameraControlValue { Kind = control.Kind, Value = original }], CameraPowerline.Unchanged)
                 .WaitAsync(TimeSpan.FromSeconds(30));

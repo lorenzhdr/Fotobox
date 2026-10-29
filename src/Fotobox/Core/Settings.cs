@@ -279,7 +279,7 @@ public sealed class CameraSettings
         MirrorPhoto = MirrorPhoto,
         ControlsDeviceId = ControlsDeviceId,
         ControlValues = CloneValues(ControlValues),
-        ControlProfiles = ControlProfiles is null ? [] : ControlProfiles.Select(p => p?.Clone()!).ToList(),
+        ControlProfiles = CloneProfiles(ControlProfiles),
         Powerline = Powerline,
     };
 
@@ -287,10 +287,14 @@ public sealed class CameraSettings
     internal static List<CameraControlValue> CloneValues(IEnumerable<CameraControlValue>? values) =>
         values is null ? [] : values.Select(v => v?.Clone()!).ToList();
 
+    /// <summary>Tiefe Kopie einer Profilliste (null → leer, null-Einträge entfallen).</summary>
+    internal static List<CameraControlProfile> CloneProfiles(IEnumerable<CameraControlProfile?>? profiles) =>
+        profiles is null ? [] : profiles.Where(p => p is not null).Select(p => p!.Clone()).ToList();
+
     /// <summary>
     /// Muss die Kamera neu gestartet werden, damit <paramref name="other"/> gilt? Nur bei anderem Gerät oder anderer Auflösung;
     /// Spiegeln wirkt ohne Neustart (Vorschau live per Bindung, Foto liest der Controller je Durchgang). Reglerwerte, Profile und
-    /// Flimmerschutz lösen keinen Neustart aus (sie gelten live bzw. über <c>ICameraService.ConfigureControls</c>).
+    /// Flimmerschutz lösen keinen Neustart aus (sie gelten live bzw. über <c>ICameraService.ConfigureControls</c>; <c>StartAsync</c> ändert den gespeicherten Reglerstand nicht).
     /// </summary>
     public bool RequiresRestartComparedTo(CameraSettings other) =>
         DeviceId != other.DeviceId

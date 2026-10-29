@@ -29,12 +29,14 @@ public sealed partial class AdminViewModel
     private IReadOnlyList<CameraControlGroupItem> _controlGroups = [];
 
     // Treiber-Schnappschuss je Gerät beim ersten Lesen (nur beschreibbare Regler) bzw. nach dem Speichern der dann wirksame Stand.
-    private readonly Dictionary<string, IReadOnlyList<CameraControlValue>> _controlBaselines = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyList<CameraControlValue>> _controlBaselines = new(StringComparer.OrdinalIgnoreCase);
 
     // Seit dem letzten Speichern wurde etwas live angewendet; _lastLive ist der zuletzt gesendete Stand.
     private bool _controlsLiveDirty;
     private string? _liveDirtyDeviceId;
     private IReadOnlyList<CameraControlValue> _lastLive = [];
+    private bool _restoringAfterClose;               // das Schließen ohne Speichern läuft: keine Entwurfswerte mehr live senden
+    private CameraPowerline _lastLivePowerline;   // Flimmerschutz des zuletzt gesendeten Stands (gilt nur bei _controlsLiveDirty)
 
     // Zuletzt gespeicherter Stand (Grundlage der Grundwerte beim Zurücknehmen).
     private string? _savedControlsDeviceId;
@@ -165,7 +167,7 @@ public sealed partial class AdminViewModel
 
         // Wechsel auf „läuft“ (Neustart, Wiederverbindung) oder anderes Gerät: neu lesen.
         var active = Camera.ActiveDeviceId;
-        var deviceChanged = _controlsValid && active is not null && !string.Equals(active, _controlsKey, StringComparison.Ordinal);
+        var deviceChanged = _controlsValid && active is not null && !string.Equals(active, _controlsKey, StringComparison.OrdinalIgnoreCase);
         if (!_controlsLastRunning || !_controlsValid || deviceChanged)
         {
             _controlsLastRunning = true;
@@ -179,7 +181,7 @@ public sealed partial class AdminViewModel
         _controlsSnapshot = valid ? snapshot : CameraControlsSnapshot.Empty;
         _controlsValid = valid;
         var key = CurrentControlsKey();
-        var keyChanged = !string.Equals(key, _controlsKey, StringComparison.Ordinal);
+        var keyChanged = !string.Equals(key, _controlsKey, StringComparison.OrdinalIgnoreCase);
         _controlsKey = key;
 
         // Grundwerte: Treiberstand beim ersten Lesen je Gerät (nur beschreibbare Regler).
@@ -190,10 +192,14 @@ public sealed partial class AdminViewModel
 
         // Nach einer Wiederverbindung kennt die Kamera nur den gespeicherten Stand: Was live verstellt war, erneut senden.
         if (valid && _controlsSnapshot.Writable && _controlsLiveDirty && key is not null
-            && string.Equals(key, _liveDirtyDeviceId, StringComparison.Ordinal))
+            && string.Equals(key, _liveDirtyDeviceId, StringComparison.OrdinalIgnoreCase))
         {
             ApplyValuesToItems(_lastLive);
             Forget(SafeApplyLiveAsync(_lastLive, _draft.Camera.Powerline));
+        }
+        else if (valid)
+        {
+            SyncPowerlineLive();
         }
 
         RebuildControlProfileOptions(resetSelection: keyChanged);
@@ -257,7 +263,7 @@ public sealed partial class AdminViewModel
 
         var camera = _draft.Camera;
         // Werte gehören immer zu genau einer Kamera.
-        if (camera.ControlsDeviceId is not null && !string.Equals(camera.ControlsDeviceId, key, StringComparison.Ordinal))
+        if (camera.ControlsDeviceId is not null && !string.Equals(camera.ControlsDeviceId, key, StringComparison.OrdinalIgnoreCase))
             camera.ControlValues = [];
         camera.ControlsDeviceId = key;
 
@@ -274,7 +280,7 @@ public sealed partial class AdminViewModel
     private IReadOnlyList<CameraControlValue> BuildLiveValues(string key)
     {
         var camera = _draft.Camera;
-        var draftValues = string.Equals(camera.ControlsDeviceId, key, StringComparison.Ordinal) ? camera.ControlValues : [];
+        var draftValues = string.Equals(camera.ControlsDeviceId, key, StringComparison.OrdinalIgnoreCase) ? camera.ControlValues : [];
         var writable = _controlItems.Where(i => i.Writable).Select(i => i.Kind).ToHashSet();
         return CameraControlMath.Merge(draftValues, GetControlBaseline(key)).Where(v => writable.Contains(v.Kind)).ToList();
     }
@@ -283,7 +289,7 @@ public sealed partial class AdminViewModel
     private IReadOnlyList<CameraControlValue> GetControlBaseline(string key)
     {
         _controlBaselines.TryGetValue(key, out var snapshotValues);
-        var saved = string.Equals(_savedControlsDeviceId, key, StringComparison.Ordinal) ? _savedControlValues : [];
+        var saved = string.Equals(_savedControlsDeviceId, key, StringComparison.OrdinalIgnoreCase) ? _savedControlValues : [];
         return CameraControlMath.Merge(saved, snapshotValues ?? []);
     }
 
@@ -293,9 +299,26 @@ public sealed partial class AdminViewModel
         if (key is null)
             return;
         _lastLive = values.Select(v => v.Clone()).ToList();
+        _lastLivePowerline = _draft.Camera.Powerline;
         _controlsLiveDirty = true;
         _liveDirtyDeviceId = key;
         Forget(SafeApplyLiveAsync(_lastLive, _draft.Camera.Powerline));
+    }
+
+    /// <summary>
+    /// Sendet den Flimmerschutz des Entwurfs live, wenn er vom wirksamen Stand abweicht (zuletzt live gesendet, sonst gespeichert):
+    /// nach dem Ersetzen des Entwurfs (Import, Zurücksetzen) und beim Lesen einer neuen Session. Gleicher Weg wie die Auswahl in der
+    /// ComboBox, daher nimmt „Schließen“ ohne Speichern ihn ebenfalls zurück.
+    /// </summary>
+    private void SyncPowerlineLive()
+    {
+        // Nach dem Beginn des Schließens nichts Ungespeichertes mehr an die Kamera schicken (ein spätes Lesen der neuen Session
+        // träfe sonst nach dem Zurücknehmen ein).
+        if (_disposed || _restoringAfterClose || !PowerlineEnabled)
+            return;
+        var applied = _controlsLiveDirty ? _lastLivePowerline : _savedPowerline;
+        if (_draft.Camera.Powerline != applied)
+            SendControlsLive(_lastLive);
     }
 
     private Task SafeApplyLiveAsync(IReadOnlyList<CameraControlValue> values, CameraPowerline powerline)
@@ -338,7 +361,7 @@ public sealed partial class AdminViewModel
         try
         {
             var active = Camera.ActiveDeviceId;
-            if (!string.Equals(active, deviceId, StringComparison.Ordinal))
+            if (!string.Equals(active, deviceId, StringComparison.OrdinalIgnoreCase))
                 return;   // eine andere Kamera läuft: die verstellte lässt sich nicht mehr erreichen
 
             await Camera.ApplyControlsLiveAsync(GetControlBaseline(deviceId).Select(v => v.Clone()).ToList(), _savedPowerline)
@@ -356,13 +379,14 @@ public sealed partial class AdminViewModel
     /// </summary>
     public async Task RestoreAfterCloseAsync(AppSettings saved, bool restoreCamera)
     {
+        _restoringAfterClose = true;
         try
         {
             if (restoreCamera)
             {
                 // Wechselt die Wiederherstellung die Kamera, ist die verstellte danach nicht mehr erreichbar: vorher zurücknehmen.
                 var running = LastAppliedCamera?.DeviceId;
-                if (_controlsLiveDirty && !string.Equals(running, saved.Camera.DeviceId, StringComparison.Ordinal))
+                if (_controlsLiveDirty && !string.Equals(running, saved.Camera.DeviceId, StringComparison.OrdinalIgnoreCase))
                     await RevertCameraControlsAsync();
                 await RestoreCameraAsync(saved);
             }

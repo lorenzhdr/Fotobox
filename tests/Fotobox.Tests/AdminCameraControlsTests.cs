@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Fotobox.Core;
+using Fotobox.Services.Storage;
 using Fotobox.Views.Admin;
 using Fotobox.ViewModels.Admin;
 using Xunit;
@@ -474,7 +475,8 @@ public sealed class AdminCameraControlsTests : IDisposable
         Assert.Empty(_camera.LiveCalls);   // wartet auf den Abschluss des Neustarts
         gate.SetResult();
         await task;
-        Assert.Single(_camera.LiveCalls);
+        // Das „Running“ der neuen Session sendet den verstellten Stand noch einmal; zuletzt kommen die Grundwerte zurück.
+        Assert.Equal(60, Find(_camera.LiveCalls.Last().Values, CameraControlKind.Brightness).Value);
     }
 
     [Fact]
@@ -517,12 +519,13 @@ public sealed class AdminCameraControlsTests : IDisposable
         Assert.Equal("cam2", _camera.StartCalls.Last().DeviceId);
         // Die bisherige Kamera bekam ihre Grundwerte zurück.
         Assert.Equal(60, Find(Assert.Single(_camera.LiveCalls).Values, CameraControlKind.Brightness).Value);
-        // Die neue Kamera wurde gelesen; das Profil gehört zur ersten und erscheint hier nicht.
-        Assert.Equal(2, _camera.GetControlsCalls);
+        // Die neue Kamera wurde gelesen (über den Statuswechsel, evtl. erst nach dem Dispatcher-Post); das Profil gehört zur ersten
+        // und erscheint hier nicht.
+        await WaitUntil(() => _camera.GetControlsCalls == 2);
         Assert.Empty(vm.ControlProfileOptions);
 
         await vm.SelectDeviceAsync(vm.Devices[0]);
-        Assert.Equal(["Hell"], vm.ControlProfileOptions.Select(o => o.Name));
+        await WaitUntil(() => vm.ControlProfileOptions.Select(o => o.Name).SequenceEqual(["Hell"]));
     }
 
     [Fact]
@@ -539,6 +542,91 @@ public sealed class AdminCameraControlsTests : IDisposable
         // Nach dem Neustart gehen die Entwurfswerte erneut an die Kamera.
         await WaitUntil(() => _camera.LiveCalls.Count == 2);
         Assert.Equal(70, Find(_camera.LiveCalls[1].Values, CameraControlKind.Brightness).Value);
+    }
+
+    [Fact]
+    public async Task Restart_ReadsTheControlsOnce_ViaTheStatusChange()
+    {
+        var vm = await OpenAsync();
+        Assert.Equal(1, _camera.GetControlsCalls);
+
+        await vm.RestartCameraAsync();
+        await WaitUntil(() => _camera.GetControlsCalls >= 2);
+        await Task.Delay(100);   // ein zweites Lesen hätte hier Zeit, sich zu zeigen
+
+        Assert.Equal(2, _camera.GetControlsCalls);
+    }
+
+    [Fact]
+    public async Task Import_WithAnotherPowerline_SendsItLive_AndRevertRestoresTheSavedOne()
+    {
+        var vm = await OpenAsync();
+        _camera.LiveCalls.Clear();
+        var imported = new AppSettings();
+        imported.Camera.Powerline = CameraPowerline.Hz60;
+        var file = Path.Combine(_dir, "import.json");
+        File.WriteAllText(file, SettingsTransfer.Serialize(imported, null, "9.9.9", DateTimeOffset.UtcNow));
+        _ui.ImportFileToPick = file;
+        _ui.ConfirmResult = true;
+
+        await vm.ImportSettingsCommand.ExecuteAsync(null);
+
+        Assert.Equal(CameraPowerline.Hz60, _camera.LiveCalls.Last().Powerline);
+        Assert.Empty(_camera.StartCalls);
+
+        _camera.LiveCalls.Clear();
+        await vm.RevertCameraControlsAsync();
+        Assert.Equal(CameraPowerline.Hz50, Assert.Single(_camera.LiveCalls).Powerline);
+    }
+
+    [Fact]
+    public async Task Import_WhileTheCameraIsStopped_NeverSendsTheUnsavedPowerline_AfterClosingWithoutSaving()
+    {
+        var vm = await OpenAsync();
+        _camera.SetStatus(CameraStatus.Stopped);
+        var imported = new AppSettings();
+        imported.Camera.Powerline = CameraPowerline.Hz60;
+        var file = Path.Combine(_dir, "import.json");
+        File.WriteAllText(file, SettingsTransfer.Serialize(imported, null, "9.9.9", DateTimeOffset.UtcNow));
+        _ui.ImportFileToPick = file;
+        _ui.ConfirmResult = true;
+        await vm.ImportSettingsCommand.ExecuteAsync(null);
+        _camera.LiveCalls.Clear();
+
+        // „Schließen“ ohne Speichern: Die Kamera startet mit den gespeicherten Einstellungen neu und wird gelesen.
+        await vm.RestoreAfterCloseAsync(_store.Current.Clone(), restoreCamera: true);
+        await Task.Delay(100);
+
+        Assert.DoesNotContain(_camera.LiveCalls, c => c.Powerline == CameraPowerline.Hz60);
+    }
+
+    [Fact]
+    public async Task Import_WithTheSamePowerline_SendsNothing()
+    {
+        var vm = await OpenAsync();
+        _camera.LiveCalls.Clear();
+        var file = Path.Combine(_dir, "import.json");
+        File.WriteAllText(file, SettingsTransfer.Serialize(new AppSettings(), null, "9.9.9", DateTimeOffset.UtcNow));
+        _ui.ImportFileToPick = file;
+        _ui.ConfirmResult = true;
+
+        await vm.ImportSettingsCommand.ExecuteAsync(null);
+
+        Assert.Empty(_camera.LiveCalls);
+    }
+
+    [Fact]
+    public async Task ControlDeviceIds_DifferingOnlyInCase_AreTheSameCamera()
+    {
+        _store.Current.Camera.ControlsDeviceId = "CAM1";
+        _store.Current.Camera.ControlValues = [Entry(CameraControlKind.Brightness, 70)];
+        var vm = await OpenAsync();   // läuft als "cam1"
+
+        vm.GetControl(CameraControlKind.Contrast)!.Value = 10;
+
+        // Die gespeicherten Werte der Kamera „CAM1“ bleiben im Entwurf (andere Schreibweise derselben Id).
+        Assert.Equal(2, vm.Draft.Camera.ControlValues.Count);
+        Assert.Contains(vm.Draft.Camera.ControlValues, v => v.Kind == CameraControlKind.Brightness);
     }
 
     // ------------------------------------------------------------------ Zurücksetzen

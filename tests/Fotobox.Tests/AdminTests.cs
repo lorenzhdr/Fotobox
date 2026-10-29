@@ -3676,9 +3676,11 @@ public sealed class AdminViewModelTests : IDisposable
             });
             AudioAtStart.Add(ConfiguredAudio);
             ActiveDeviceId = settings.DeviceId ?? ActiveDeviceId;
-            Status = CameraStatus.Running;
+            // Wie der echte Dienst: ein Vordergrundstart meldet erst „Starting“, dann „Running“ (der Admin liest darauf die Regler neu).
+            SetStatus(CameraStatus.Starting);
             if (StartGate is not null)
                 await StartGate(settings);
+            SetStatus(CameraStatus.Running);
         }
 
         /// <summary>Ton, wie ihn <see cref="ConfigureAudio"/> zuletzt gesetzt hat, und der Stand bei jedem Start.</summary>

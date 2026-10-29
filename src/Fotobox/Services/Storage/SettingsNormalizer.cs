@@ -216,13 +216,9 @@ internal static class SettingsNormalizer
     }
 
     /// <summary>
-    /// Mittelfinger-Einstellungen: Zahlen auf <see cref="SettingsLimits"/> klemmen, Haltedauer auf 100er-Schritte runden;
-    /// ohne gewählte Aktion gilt „Peace-Effekte aufheben“.
-    /// </summary>
-    /// <summary>
     /// Kamerasteuerung: Listen nie null; unbekannter Flimmerschutz → 50 Hz. Reglerwerte siehe <see cref="NormalizeControlValues"/>.
     /// Eine leere oder zu lange <c>ControlsDeviceId</c> wird null und leert <c>ControlValues</c> (die Werte gehören zu keiner Kamera).
-    /// Profile: Name getrimmt und auf <see cref="SettingsLimits.CameraProfileNameMaxLength"/> gekürzt, ohne Namen oder Kamera-Id
+    /// Profile: Kamera-Ids ohne Beachtung der Groß-/Kleinschreibung (Windows-Gerätepfade), Name getrimmt und auf <see cref="SettingsLimits.CameraProfileNameMaxLength"/> gekürzt, ohne Namen oder Kamera-Id
     /// verworfen, je Kamera eindeutige Namen (ohne Beachtung der Groß-/Kleinschreibung, der erste gewinnt) und höchstens
     /// <see cref="SettingsLimits.CameraProfilesMax"/> Profile je Kamera (Reihenfolge bleibt).
     /// </summary>
@@ -239,7 +235,7 @@ internal static class SettingsNormalizer
         }
 
         var profiles = new List<CameraControlProfile>();
-        var perDevice = new Dictionary<string, (int Count, HashSet<string> Names)>(StringComparer.Ordinal);
+        var perDevice = new Dictionary<string, (int Count, HashSet<string> Names)>(StringComparer.OrdinalIgnoreCase);
         foreach (var profile in c.ControlProfiles ?? [])
         {
             if (profile is null)
@@ -288,6 +284,10 @@ internal static class SettingsNormalizer
         return map.Values.OrderBy(v => v.Kind).ToList();
     }
 
+    /// <summary>
+    /// Mittelfinger-Einstellungen: Zahlen auf <see cref="SettingsLimits"/> klemmen, Haltedauer auf 100er-Schritte runden;
+    /// ohne gewählte Aktion gilt „Peace-Effekte aufheben“.
+    /// </summary>
     private static void NormalizeMiddleFinger(MiddleFingerSettings m)
     {
         var step = SettingsLimits.MiddleFingerHoldMillisecondsStep;
