@@ -727,13 +727,39 @@ public sealed class KisscamMusicLibraryTests : IDisposable
         Assert.Equal(1, _fs.EnsureCalls);
         Assert.Equal(KisscamLibraryStatus.FolderUnavailable, library.Current.Status);
 
-        // Nach dem Ende des Hängers funktioniert der nächste Versuch wieder.
+        // Endet der Hänger, liest die Bibliothek den Ordner von selbst neu (ohne „Aktualisieren“ und ohne neuen Admin).
+        _fs.SetSongs(Folder, "a.mp3");
         gate.Release();
-        await Task.Delay(100);
-        _fs.BeforeEnsure = null;
-        library.Refresh();
         await WaitReady(library);
         Assert.Equal(2, _fs.EnsureCalls);
+        Assert.Equal(["a.mp3"], library.Current.Songs.Select(s => s.FileName));
+    }
+
+    [Fact]
+    public async Task AfterAnAdminAbort_WhileTheDraftFolderHangs_TheSavedFolderComesBack_OnceTheHangEnds()
+    {
+        _fs.SetSongs(OtherFolder, "x.mp3");
+        var library = await StartedAsync("a.mp3");
+        var gate = NewGate();
+        _fs.BeforeEnsure = folder =>
+        {
+            if (folder == OtherFolder)
+                gate.Pass(folder);
+        };
+
+        library.SetFolder(OtherFolder); // der Entwurfsordner hängt (Netzlaufwerk) …
+        await WaitUntil(() => gate.IsEntered, "Entwurfsordner hängt");
+        await AdvanceUntil(() => library.Current.Status == KisscamLibraryStatus.FolderUnavailable, "Frist");
+        library.SetFolder(Folder); // … der Admin wird abgebrochen: Der gespeicherte Ordner kann wegen des Hängers noch nicht gelesen werden
+        await WaitUntil(() => library.Current.Folder == Folder && library.Current.Status == KisscamLibraryStatus.FolderUnavailable,
+            "gespeicherter Ordner vorerst nicht lesbar");
+        Assert.Empty(library.Current.Songs);
+
+        gate.Release();
+
+        await WaitReady(library);
+        Assert.Equal(Folder, library.Current.Folder);
+        Assert.Equal(["a.mp3"], library.Current.Songs.Select(s => s.FileName));
     }
 
     [Fact]
@@ -914,6 +940,7 @@ public sealed class KisscamMusicLibraryTests : IDisposable
         _fs.SetConfigText(Folder, ConfigJson(("a.mp3", true, 4, 100), ("b.mp3", true, 8, 100)));
         var library = await StartedAsync("a.mp3", "b.mp3");
 
+        await WaitUntil(() => _fs.WatchersStarted == 1, "Beobachtung läuft");
         _fs.SetSongs(Folder, "a.mp3");
         _fs.WatchChanged!();
         _time.Advance(KisscamMusicLibrary.WatcherDebounce);

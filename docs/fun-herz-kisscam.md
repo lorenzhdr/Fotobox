@@ -205,6 +205,7 @@ Singleton für Gastansicht und Admin (`App.RegisterServices`; im Konstruktor von
 - **Beobachtung:** `FileSystemWatcher` mit den vier Endungen als Filter (das eigene Schreiben der Config löst keine Schleife aus), Neulesen 500 ms entprellt. Bei `Error` wird der Watcher abgeschaltet; dann bleibt der Knopf „Aktualisieren“.
 - **Songlänge:** WinRT `StorageFile.GetFileFromPathAsync` und `Properties.GetMusicPropertiesAsync().Duration` (Frist 2 s je Datei; Cache je Pfad, Änderungszeit und Größe). Hängt eine Abfrage, werden bis zu ihrem Ende keine weiteren gestartet, der Status bleibt `Ready`.
 - **Nicht abspielbar:** Die Bibliothek abonniert `IMusicPlayer.PlaybackFailed` (mit Pfad) und markiert den Song (`Playable = false`) bis zur Änderung der Datei (Größe/Zeit) oder zum Knopf „Aktualisieren“; die Markierung wird nicht gespeichert.
+- **Erholung:** Endet ein hängender Zugriff nach der Frist, liest die Bibliothek den Ordner von selbst neu (`OnHangEnded`), sonst bliebe sie auf „nicht erreichbar“ stehen. Speichert während einer Admin-Sitzung etwas anderes den Store (z. B. die PIN-Änderung), lenkt der Admin die Bibliothek danach wieder auf den Ordner seines Entwurfs.
 - **Dispose** (Beenden der App, im 5-s-Container-Dispose): Timer und Watcher beenden, eine ausstehende Änderung höchstens 1 s lang speichern.
 
 ### Wiedergabe (`MusicPlayer`, `IMusicPlayer`)
@@ -225,7 +226,7 @@ Singleton für Gastansicht und Admin (`App.RegisterServices`; im Konstruktor von
 | `PositionInterval` | 250 ms | Takt von `PositionChanged` |
 
 - **Fehlschlag melden:** Scheitert ein Start (Datei fehlt, Pfad ungültig, kein Media Foundation, `MediaFailed`, verpasste Öffnungsfrist), feuert `PlaybackFailed` mit dem Pfad (nur für die aktuelle Generation, Handler dürfen werfen), weil `PlaybackChanged` dann nie kommt. Die Bibliothek markiert den Song als nicht abspielbar, der Admin setzt das Anspielen zurück (Knopf wieder „Anspielen“); der Kisscam-Test läuft ohne Ton weiter. Die Gastansicht reagiert nicht selbst darauf (Warnung im Log, die Kisscam läuft stumm; der nächste Start wählt unter den übrigen Songs).
-- **Stumm ohne Song:** Kein angehakter oder abspielbarer Song, defekte Config, nicht erreichbarer Ordner, fehlende/kaputte Datei, fehlendes Media Foundation (Windows N ohne Media Feature Pack) oder verpasste Öffnungsfrist ergeben nur eine Logzeile bzw. -warnung und Stille – nie einen Fehlerzustand und nie einen Hänger der Kisscam.
+- **Stumm ohne Song:** Kein angehakter oder abspielbarer Song, defekte Config, noch nie gelesener Ordner, fehlende/kaputte Datei (nach einem Aussetzer des Ordners spielt die Kisscam mit dem letzten bekannten Stand der Songs weiter), fehlendes Media Foundation (Windows N ohne Media Feature Pack) oder verpasste Öffnungsfrist ergeben nur eine Logzeile bzw. -warnung und Stille – nie einen Fehlerzustand und nie einen Hänger der Kisscam.
 - **Gerätespezifisch:** `Heart.KisscamMusicFolder` steht in `DeviceSpecificSettings.Paths` (wird beim Teilen nicht übertragen, beim Import behält der Zielrechner seinen Ordner), der Normalizer verwirft zu lange Pfade (> 1024 Zeichen) und Pfade mit Steuerzeichen (→ Standardordner).
 - Der Admin zeigt die Songliste und spielt Songs über denselben Player an (siehe `docs/admin.md`).
 

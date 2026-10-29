@@ -373,7 +373,30 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
         {
             lock (_gate)
                 _hungTask = task;
+            // Endet der Hänger später, wird der Ordner automatisch neu gelesen (sonst bliebe die Bibliothek bis zum nächsten Admin oder
+            // App-Start auf „nicht erreichbar“ stehen).
+            _ = task.ContinueWith(_ => OnHangEnded(task), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             throw;
+        }
+    }
+
+    private void OnHangEnded(Task ended)
+    {
+        try
+        {
+            lock (_gate)
+            {
+                if (_disposed || !ReferenceEquals(_hungTask, ended) || _folder is null || _loadQueued
+                    || _snapshot.Status != KisscamLibraryStatus.FolderUnavailable)
+                    return;
+                _loadQueued = true;
+                var epoch = _epoch;
+                EnqueueLocked(() => LoadAsync(epoch));
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Der Kisscam-Musikordner konnte nach einem Hänger nicht neu gelesen werden.", ex);
         }
     }
 
@@ -515,6 +538,12 @@ public sealed class KisscamMusicLibrary : IKisscamMusicLibrary, IDisposable
                 return;
             // Der letzte bekannte Stand der Songs bleibt erhalten (Cache), der Status zeigt die Störung.
             PublishLocked(KisscamLibraryStatus.FolderUnavailable);
+            // Ist der Hänger inzwischen zu Ende (er endete, bevor der Status stand), gleich noch einmal versuchen.
+            if (ex is TimeoutException or HungException && _hungTask is { IsCompleted: true } && !_loadQueued)
+            {
+                _loadQueued = true;
+                EnqueueLocked(() => LoadAsync(epoch));
+            }
         }
         RaiseChanged();
     }

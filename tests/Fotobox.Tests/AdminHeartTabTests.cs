@@ -600,6 +600,27 @@ public sealed class AdminHeartTabTests : IDisposable
     }
 
     [Fact]
+    public void SavingSomethingElse_DuringTheSession_KeepsTheLibraryOnTheDraftFolder()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+        _ui.FolderToPick = Path.Combine(_dir, "Entwurf");
+        vm.ChooseKisscamMusicFolderCommand.Execute(null);
+
+        // Z. B. die PIN-Änderung speichert den Store: Die Anwendung lenkt die Bibliothek auf den gespeicherten Ordner …
+        _library.SetFolder(_store.Current.Heart.KisscamMusicFolder);
+        _store.Save(_store.Current);
+
+        // … der Admin danach wieder auf den Ordner seines Entwurfs.
+        Assert.Equal(_ui.FolderToPick, _library.Folders[^1]);
+        vm.Dispose();
+        var count = _library.Folders.Count;
+        Assert.Null(_library.Folders[^1]); // beim Schließen wieder der gespeicherte Ordner
+        _store.Save(_store.Current);
+        Assert.Equal(count, _library.Folders.Count); // abgemeldet
+    }
+
+    [Fact]
     public async Task OpenFolder_OpensOnlyAnExistingFolder()
     {
         NoContext();
@@ -1630,6 +1651,10 @@ public sealed class AdminHeartTabTests : IDisposable
     [InlineData(nameof(AdminViewModel.HeartPreviewWarningText))]
     [InlineData(nameof(AdminViewModel.HasHeartPreviewWarning))]
     [InlineData(nameof(AdminViewModel.HeartPreviewBadgeText))]
+    [InlineData(nameof(AdminViewModel.KisscamMusicStatus))]
+    [InlineData(nameof(AdminViewModel.KisscamMusicHints))]
+    [InlineData(nameof(AdminViewModel.KisscamMusicHintsText))]
+    [InlineData(nameof(AdminViewModel.HasKisscamMusicHints))]
     public void TestAndPreviewProperties_AreViewState_NotSettings(string name)
     {
         var method = typeof(AdminViewModel).GetMethod("IsHeartViewStateProperty",

@@ -425,10 +425,19 @@ public sealed partial class AdminViewModel
         if (_library is not null)
         {
             _library.Changed += OnKisscamLibraryChanged;
+            // Speichert etwas anderes den Store (z. B. die PIN-Änderung), setzt die Anwendung die Bibliothek auf den gespeicherten Ordner;
+            // dieser Handler (später angemeldet) lenkt sie danach wieder auf den Ordner des Entwurfs.
+            _store.SettingsChanged += OnStoreSettingsChanged;
             // Der Admin arbeitet auf dem Ordner des Entwurfs; beim Schließen geht die Bibliothek zurück auf den gespeicherten Ordner.
             _library.SetFolder(_draft.Heart.KisscamMusicFolder);
             ReconcileKisscamSongs();
         }
+    }
+
+    private void OnStoreSettingsChanged(object? sender, EventArgs e)
+    {
+        if (!_disposed)
+            _library?.SetFolder(_draft.Heart.KisscamMusicFolder);
     }
 
     /// <summary>Wendet den Ordner des Entwurfs auf die Bibliothek an (nach Wahl, Zurücksetzen oder Ersetzen des Entwurfs).</summary>
@@ -777,6 +786,7 @@ public sealed partial class AdminViewModel
         if (_library is not null)
         {
             _library.Changed -= OnKisscamLibraryChanged;
+            _store.SettingsChanged -= OnStoreSettingsChanged;
             // Die Bibliothek wieder auf den gespeicherten Ordner zurücksetzen (auch beim Abbrechen: ein ungespeicherter Entwurfsordner gilt nicht).
             _library.SetFolder(_store.Current.Heart.KisscamMusicFolder);
         }
