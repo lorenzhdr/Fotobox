@@ -165,6 +165,56 @@ public class HeartViewsTests
         Assert.True(PixelAt(bitmap, 5, 540).A > 200);  // Rahmenband links
     }
 
+    // Zählt helle (weiße) Bildpunkte im Textband unten zwischen den Eckherzen (Rahmen, Eckherzen und Lichterkette liegen außerhalb).
+    private static int CountTextPixels(BitmapSource bitmap)
+    {
+        var width = bitmap.PixelWidth;
+        var height = bitmap.PixelHeight;
+        var x0 = (int)(width * 0.22);
+        var y0 = (int)(height * 0.70);
+        var w = (int)(width * 0.56);
+        var h = (int)(height * 0.20);
+        var stride = w * 4;
+        var pixels = new byte[stride * h];
+        bitmap.CopyPixels(new Int32Rect(x0, y0, w, h), pixels, stride, 0);
+        var count = 0;
+        for (var i = 0; i < pixels.Length; i += 4)
+        {
+            if (pixels[i] > 200 && pixels[i + 1] > 200 && pixels[i + 2] > 200)
+                count++;
+        }
+        return count;
+    }
+
+    // Die Admin-Vorschau erbt vom Fenster TextFormattingMode=Display; in diesem Modus zeichnete der große Gasttext (und andere
+    // große Texte) im gerenderten Bild gar nichts. Das Overlay erzwingt deshalb Ideal für seinen Teilbaum.
+    [StaTheory]
+    [InlineData(TextFormattingMode.Ideal)]
+    [InlineData(TextFormattingMode.Display)]
+    public void KisscamOverlay_DrawsTheGuestText_EvenUnderAnInheritedTextFormattingMode(TextFormattingMode inherited)
+    {
+        WpfCollection.EnsurePackUris();
+        var overlay = new KisscamOverlay { Frame = Frame, Text = "Du hast 10 Sekunden Zeit, dir jemanden zum Küssen zu suchen!", ShowText = true };
+        var host = new Grid { Width = 1920, Height = 1080 };
+        TextOptions.SetTextFormattingMode(host, inherited); // wie AdminWindow (Display)
+        host.Children.Add(overlay);
+        Layout(host);
+
+        var bitmap = Render(overlay);
+
+        Assert.True(CountTextPixels(bitmap) > 2000, $"Kein Gasttext im Textband ({CountTextPixels(bitmap)} helle Pixel).");
+    }
+
+    [StaFact]
+    public void KisscamOverlay_WithoutText_HasNoBrightPixelsInTheBand()
+    {
+        WpfCollection.EnsurePackUris();
+        var overlay = new KisscamOverlay { Frame = Frame, Text = "Hallo", ShowText = false };
+        Layout(overlay);
+
+        Assert.Equal(0, CountTextPixels(Render(overlay)));
+    }
+
     [StaFact]
     public void KisscamOverlay_HidesTheText_WhenTurnedOffOrEmpty_AndKeepsTheFrame()
     {

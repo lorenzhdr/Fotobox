@@ -94,6 +94,72 @@ public class MusicPlayerTests : IDisposable
         Assert.False(player.IsPlaying);
     }
 
+    [Fact]
+    public async Task MissingFile_RaisesPlaybackFailed_WithoutPlaybackChanged()
+    {
+        using var player = new MusicPlayer();
+        var failed = 0;
+        var changed = 0;
+        player.PlaybackFailed += (_, _) => Interlocked.Increment(ref failed);
+        player.PlaybackChanged += (_, _) => Interlocked.Increment(ref changed);
+
+        player.Play(TempFile(".mp3"), 50, loop: true);
+
+        Assert.True(await WaitUntil(() => Volatile.Read(ref failed) > 0, TimeSpan.FromSeconds(5)), "Kein PlaybackFailed.");
+        Assert.Equal(1, Volatile.Read(ref failed));
+        Assert.Equal(0, Volatile.Read(ref changed));
+        Assert.False(player.IsPlaying);
+    }
+
+    [Fact]
+    public async Task GarbageFile_RaisesPlaybackFailed_WithinTheOpenTimeout()
+    {
+        var path = TempFile(".mp3");
+        File.WriteAllBytes(path, Encoding.ASCII.GetBytes("Das ist keine Musik, nur Text."));
+        using var player = new MusicPlayer();
+        var failed = 0;
+        player.PlaybackFailed += (_, _) => Interlocked.Increment(ref failed);
+
+        player.Play(path, 50, loop: false);
+
+        // MediaFailed oder spätestens die Öffnungsfrist melden den Fehlschlag.
+        Assert.True(await WaitUntil(() => Volatile.Read(ref failed) > 0, MusicPlayer.OpenTimeout + TimeSpan.FromSeconds(3)),
+            "Kein PlaybackFailed.");
+        Assert.False(player.IsPlaying);
+    }
+
+    [Fact]
+    public async Task SupersededPlay_DoesNotRaiseAStalePlaybackFailed()
+    {
+        using var player = new MusicPlayer();
+        var failed = 0;
+        player.PlaybackFailed += (_, _) => Interlocked.Increment(ref failed);
+
+        player.Play(TempFile(".mp3"), 50, loop: true);
+        player.Stop(); // überholt den Start, bevor er auf dem Musik-Thread läuft
+
+        await Task.Delay(500);
+        Assert.Equal(0, Volatile.Read(ref failed));
+    }
+
+    [Fact]
+    public async Task ThrowingPlaybackFailedHandler_DoesNotBreakThePlayer()
+    {
+        using var player = new MusicPlayer();
+        var failed = 0;
+        player.PlaybackFailed += (_, _) =>
+        {
+            Interlocked.Increment(ref failed);
+            throw new InvalidOperationException("Testfehler");
+        };
+
+        player.Play(TempFile(".wav"), 50, loop: false);
+
+        Assert.True(await WaitUntil(() => Volatile.Read(ref failed) > 0, TimeSpan.FromSeconds(5)));
+        player.Play(TempFile(".wav"), 50, loop: false); // der Player lebt weiter
+        Assert.True(await WaitUntil(() => Volatile.Read(ref failed) > 1, TimeSpan.FromSeconds(5)));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

@@ -19,6 +19,7 @@ internal sealed class FakeMusicPlayer : IMusicPlayer
     public bool IsPlaying { get; private set; }
 
     public event EventHandler? PlaybackChanged { add { } remove { } }
+    public event EventHandler? PlaybackFailed { add { } remove { } }
 
     public void Play(string? path, int volumePercent, bool loop)
     {

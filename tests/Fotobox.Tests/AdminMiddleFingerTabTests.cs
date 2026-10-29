@@ -240,8 +240,9 @@ public sealed class AdminMiddleFingerTabTests : IDisposable
         vm.MiddleFingerHoldMilliseconds = 2000;
         vm.MiddleFingerSensitivityPercent = 90;
         _ui.ConfirmResult = true;
-        var raised = new List<string?>();
-        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        // Threadsicher: InitializeAsync kann noch Änderungen aus anderen Threads melden.
+        var raised = new System.Collections.Concurrent.ConcurrentQueue<string?>();
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Enqueue(e.PropertyName);
 
         await vm.ResetToDefaultsCommand.ExecuteAsync(null);
 
@@ -250,7 +251,7 @@ public sealed class AdminMiddleFingerTabTests : IDisposable
         Assert.Equal(defaults.HoldMilliseconds, vm.MiddleFingerHoldMilliseconds);
         Assert.Equal(defaults.SensitivityPercent, vm.MiddleFingerSensitivityPercent);
         Assert.Equal("An", vm.MiddleFingerStatusText);
-        Assert.Contains(string.Empty, raised.Select(r => r ?? string.Empty)); // alle Eigenschaften neu gelesen
+        Assert.Contains(string.Empty, raised.ToArray().Select(r => r ?? string.Empty)); // alle Eigenschaften neu gelesen
     }
 
     // ------------------------------------------------------------------ Gemeinsame Vorschau

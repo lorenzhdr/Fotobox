@@ -94,12 +94,24 @@ public sealed class AdminHeartTabTests : IDisposable
             }
         }
 
+        public event EventHandler? PlaybackFailed;
+
+        /// <summary>Jeder Start scheitert (Datei defekt, Öffnungsfrist verpasst …): kein PlaybackChanged, nur PlaybackFailed.</summary>
+        public bool FailPlays { get; set; }
+
         public void Play(string? path, int volumePercent, bool loop)
         {
             Plays.Add((path, volumePercent, loop));
+            if (FailPlays)
+            {
+                PlaybackFailed?.Invoke(this, EventArgs.Empty);
+                return;
+            }
             IsPlaying = true;
             _changed?.Invoke(this, EventArgs.Empty);
         }
+
+        public void RaiseFailed() => PlaybackFailed?.Invoke(this, EventArgs.Empty);
 
         public List<TimeSpan> FadeOuts { get; } = [];
 
@@ -670,6 +682,136 @@ public sealed class AdminHeartTabTests : IDisposable
         vm.ToggleKisscamMusicPreviewCommand.Execute(null);
         Assert.False(vm.KisscamMusicPreviewPlaying);
         Assert.Empty(_music.Plays);
+    }
+
+    [Fact]
+    public async Task Preview_FailedStart_ResetsTheButton_AndShowsAHint()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+        _ui.AudioFileToPick = CreateMusicFile();
+        vm.PickKisscamMusicCommand.Execute(null);
+        await vm.KisscamMusicCheck;
+        _music.FailPlays = true;
+        var raised = new List<string?>();
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        var unsavedBefore = vm.HasUnsavedChanges; // die gewählte Datei ist eine Einstellung, der Hinweis nicht
+
+        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
+
+        Assert.False(vm.KisscamMusicPreviewPlaying);
+        Assert.Equal("Anhören", vm.KisscamMusicPreviewButtonText);
+        Assert.True(vm.KisscamMusicPlayFailed);
+        Assert.Equal("Die Datei konnte nicht abgespielt werden.", AdminViewModel.KisscamMusicPlayFailedText);
+        Assert.True(vm.ToggleKisscamMusicPreviewCommand.CanExecute(null));
+        Assert.Contains(nameof(AdminViewModel.KisscamMusicPlayFailed), raised);
+        Assert.Equal(unsavedBefore, vm.HasUnsavedChanges);
+
+        // Ein erneuter, diesmal erfolgreicher Versuch räumt den Hinweis ab.
+        _music.FailPlays = false;
+        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
+        Assert.True(vm.KisscamMusicPreviewPlaying);
+        Assert.False(vm.KisscamMusicPlayFailed);
+    }
+
+    [Fact]
+    public void Preview_FailureAfterTheAsyncPost_ResetsTheButton()
+    {
+        var context = new RecordingContext();
+        SynchronizationContext.SetSynchronizationContext(context);
+        var vm = CreateViewModel();
+        _ui.AudioFileToPick = CreateMusicFile();
+        vm.PickKisscamMusicCommand.Execute(null);
+        Assert.True(SpinWait.SpinUntil(() =>
+        {
+            context.RunAll();
+            return vm.KisscamMusicCheck.IsCompleted;
+        }, TimeSpan.FromSeconds(10)));
+        context.RunAll();
+        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
+        Assert.True(vm.KisscamMusicPreviewPlaying); // der Player meldet den Fehlschlag erst später (Musik-Thread)
+
+        // Kein „await“: Es würde den aufzeichnenden Kontext des Tests erfassen und dort nie fortgesetzt.
+        var raise = Task.Run(() => _music.RaiseFailed());
+        Assert.True(SpinWait.SpinUntil(() => raise.IsCompleted, TimeSpan.FromSeconds(10)));
+        Assert.True(vm.KisscamMusicPreviewPlaying); // wartet auf den UI-Kontext
+        context.RunAll();
+
+        Assert.False(vm.KisscamMusicPreviewPlaying);
+        Assert.True(vm.KisscamMusicPlayFailed);
+    }
+
+    [Fact]
+    public void PlaybackFailed_WhenThisViewDidNotStartTheMusic_IsIgnored()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+
+        _music.RaiseFailed(); // der Player gehört auch der Gastansicht
+
+        Assert.False(vm.KisscamMusicPlayFailed);
+        Assert.False(vm.KisscamMusicPreviewPlaying);
+    }
+
+    [Fact]
+    public async Task Preview_FailureHint_IsClearedByStoppingOrLeavingThePage()
+    {
+        NoContext();
+        var vm = await OpenHeartPageWithMusicAsync();
+        _music.FailPlays = true;
+        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
+        Assert.True(vm.KisscamMusicPlayFailed);
+
+        vm.FunPage = FunPage.Start;
+
+        Assert.False(vm.KisscamMusicPlayFailed);
+    }
+
+    [Fact]
+    public async Task Test_FailedMusic_ShowsTheHint_AndTheTestKeepsRunning()
+    {
+        NoContext();
+        var vm = await OpenHeartPageWithMusicAsync();
+        _music.FailPlays = true;
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.True(vm.KisscamTestRunning);
+        Assert.True(vm.KisscamMusicPlayFailed);
+        vm.ToggleKisscamTestCommand.Execute(null);
+        Assert.Equal(0, _music.StopCalls); // der Test hat keine Musik mehr zu stoppen
+    }
+
+    [Fact]
+    public void TimerHint_AppearsOnlyForThreeSecondsOrLess_AndIsNoSettingsChange()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+        Assert.False(vm.HasKisscamOnlyCountdownHint);
+        Assert.Equal("Bei 3 Sekunden erscheint nur der Countdown 3 – 2 – 1, kein Text.", AdminViewModel.KisscamOnlyCountdownHintText);
+        var raised = new List<string?>();
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.KisscamSeconds = SettingsLimits.KisscamFinalDigitsSeconds;
+        Assert.True(vm.HasKisscamOnlyCountdownHint);
+        Assert.Contains(nameof(AdminViewModel.HasKisscamOnlyCountdownHint), raised);
+
+        vm.KisscamSeconds = SettingsLimits.KisscamFinalDigitsSeconds + 1;
+        Assert.False(vm.HasKisscamOnlyCountdownHint);
+
+        vm.KisscamSeconds = SettingsLimits.KisscamSecondsMin;
+        vm.KisscamSeconds = new HeartSettings().KisscamSeconds;
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Theory]
+    [InlineData(nameof(AdminViewModel.HasKisscamOnlyCountdownHint))]
+    [InlineData(nameof(AdminViewModel.KisscamMusicPlayFailed))]
+    public void HintProperties_AreViewState_NotSettings(string name)
+    {
+        var method = typeof(AdminViewModel).GetMethod("IsHeartViewStateProperty",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        Assert.True((bool)method.Invoke(null, [name])!);
     }
 
     private async Task<AdminViewModel> StartPreviewAsync()
@@ -1668,6 +1810,71 @@ public sealed class AdminHeartTabTests : IDisposable
             Assert.Equal("Kisscam testen", button.Content);
             Assert.Equal(Visibility.Collapsed, overlay.Visibility);
             Assert.Equal(Visibility.Collapsed, photoBadge.Visibility);
+        });
+    }
+
+    // Zählt helle (weiße) Bildpunkte im Textband-Bereich unten zwischen den Eckherzen (Frame und Lichterkette liegen außerhalb).
+    private static int CountBrightPixelsInTextBand(BitmapSource bitmap)
+    {
+        var width = bitmap.PixelWidth;
+        var height = bitmap.PixelHeight;
+        var x0 = (int)(width * 0.22);
+        var x1 = (int)(width * 0.78);
+        var y0 = (int)(height * 0.70);
+        var y1 = (int)(height * 0.90);
+        var stride = (x1 - x0) * 4;
+        var pixels = new byte[stride * (y1 - y0)];
+        bitmap.CopyPixels(new Int32Rect(x0, y0, x1 - x0, y1 - y0), pixels, stride, 0);
+        var bright = 0;
+        for (var i = 0; i < pixels.Length; i += 4)
+        {
+            if (pixels[i] > 200 && pixels[i + 1] > 200 && pixels[i + 2] > 200)
+                bright++;
+        }
+        return bright;
+    }
+
+    // Rendert die Vorschau (Maßstab 1:3 der Gastansicht, 640 × 360) bzw. verkleinert (~510 × 285, wie bei 80 % Admin-Zoom).
+    private static BitmapSource RenderPreviewHost(FrameworkElement host, int width, int height)
+    {
+        host.UpdateLayout();
+        var scaleX = width / host.ActualWidth;
+        var scaleY = height / host.ActualHeight;
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            dc.PushTransform(new ScaleTransform(scaleX, scaleY));
+            dc.DrawRectangle(new VisualBrush(host) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top },
+                null, new Rect(0, 0, host.ActualWidth, host.ActualHeight));
+            dc.Pop();
+        }
+        bitmap.Render(visual);
+        return bitmap;
+    }
+
+    [StaFact]
+    public void Page_KisscamTest_RendersTheGuestText_InThePreviewBand()
+    {
+        NoContext();
+        WithWindow((window, vm) =>
+        {
+            vm.FunPage = FunPage.Heart;
+            ShowFunTab(window);
+            var view = HeartView(window);
+            var host = InView<Border>(view, "HeartPreviewHost");
+            vm.KisscamSeconds = 10;
+            var before = CountBrightPixelsInTextBand(RenderPreviewHost(host, 640, 360));
+
+            InView<Button>(view, "KisscamTestButton").Command.Execute(null);
+            ((FrameworkElement)window.Content).UpdateLayout();
+            Assert.True(vm.KisscamTestShowText);
+
+            // Die Vorschau zeigt den Text in voller Größe (640 × 360) und verkleinert (~510 × 285) als helle Pixel im Textband.
+            var full = CountBrightPixelsInTextBand(RenderPreviewHost(host, 640, 360));
+            var small = CountBrightPixelsInTextBand(RenderPreviewHost(host, 510, 285));
+            Assert.True(full > before + 100, $"Kein Gasttext im Textband (vorher {before}, danach {full}).");
+            Assert.True(small > before + 60, $"Kein Gasttext in der verkleinerten Vorschau (vorher {before}, danach {small}).");
         });
     }
 

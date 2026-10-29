@@ -1,4 +1,5 @@
 using Fotobox.Core;
+using Fotobox.Core.Fun;
 using Fotobox.Core.Heart;
 using Fotobox.Core.Peace;
 using Xunit;
@@ -446,5 +447,73 @@ public sealed class HeartGestureClassifierTests
         var ok = HeartGestureClassifier.ClassifyFingerHeart(HeartHandFixtures.FingerHeart(FingerHeartPose.Crossed), Settings());
         Assert.True(ok.IsHeart);
         Assert.Null(ok.RejectReason);
+    }
+
+    // ---- Nicht endliche Werte
+
+    private static HandLandmarks WithPoint(HandLandmarks hand, int index, double x, double y, double z)
+    {
+        var points = hand.Points.ToList();
+        points[index] = new HandPoint(x, y, z);
+        return hand with { Points = points };
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void PairWithNonFinitePoint_IsRejected_AndNeverThrows(double bad)
+    {
+        var pair = HeartHandFixtures.Classic();
+        Assert.Single(Find(pair)); // Gegenprobe: ohne kaputten Punkt ist es ein Herz
+
+        for (var index = 0; index < 21; index++)
+        {
+            var broken = new[] { WithPoint(pair[0], index, bad, pair[0].Points[index].Y, pair[0].Points[index].Z), pair[1] };
+            var brokenY = new[] { pair[0], WithPoint(pair[1], index, pair[1].Points[index].X, bad, pair[1].Points[index].Z) };
+            var brokenZ = new[] { WithPoint(pair[0], index, pair[0].Points[index].X, pair[0].Points[index].Y, bad), pair[1] };
+            Assert.Empty(Find(broken));
+            Assert.Empty(Find(brokenY));
+            Assert.Empty(Find(brokenZ));
+            var verdict = HeartGestureClassifier.ClassifyPair(broken[0], broken[1], Settings());
+            Assert.False(verdict.IsHeart);
+            Assert.False(string.IsNullOrWhiteSpace(verdict.RejectReason));
+        }
+    }
+
+    [Fact]
+    public void HandWithNaNScoreOrBox_IsRejected()
+    {
+        var pair = HeartHandFixtures.Classic();
+        Assert.Empty(Find([pair[0] with { Score = double.NaN }, pair[1]]));
+        Assert.Empty(Find([pair[0] with { Box = new NormRect(double.NaN, 0.1, 0.2, 0.2) }, pair[1]]));
+    }
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(95)]
+    public void FingerHeartWithNonFinitePoint_IsRejected_AndNeverThrows(int sensitivity)
+    {
+        var hand = HeartHandFixtures.FingerHeart(FingerHeartPose.Crossed);
+        Assert.Single(FindFinger(hand, sensitivity));
+
+        for (var index = 0; index < 21; index++)
+        {
+            var broken = WithPoint(hand, index, double.NaN, hand.Points[index].Y, hand.Points[index].Z);
+            Assert.Empty(FindFinger(broken, sensitivity));
+            var verdict = HeartGestureClassifier.ClassifyFingerHeart(broken, Settings(sensitivity));
+            Assert.False(verdict.IsHeart);
+        }
+    }
+
+    [Fact]
+    public void BrokenHandNextToAHealthyPair_DoesNotSpoilTheHeart()
+    {
+        var pair = HeartHandFixtures.Classic(cx: 0.3, cy: 0.5, scale: 0.8);
+        var broken = WithPoint(HeartHandFixtures.FingerHeart(FingerHeartPose.Crossed, cx: 0.8), 8, double.NaN, double.NaN, double.NaN);
+
+        var matches = Find([pair[0], pair[1], broken]);
+
+        var match = Assert.Single(matches);
+        Assert.Equal(HeartShape.Classic, match.Shape);
     }
 }

@@ -43,6 +43,8 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
 
     public event EventHandler? PlaybackChanged;
 
+    public event EventHandler? PlaybackFailed;
+
     public void Play(string? path, int volumePercent, bool loop)
     {
         try
@@ -224,12 +226,14 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
             if (!File.Exists(fullPath))
             {
                 AppLog.Warn($"Musikdatei nicht gefunden: {Path.GetFileName(path)}");
+                RaiseFailed(generation);
                 return;
             }
         }
         catch (Exception ex)
         {
             AppLog.Warn("Musikpfad ungültig.", ex);
+            RaiseFailed(generation);
             return;
         }
 
@@ -242,6 +246,7 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         catch (Exception ex)
         {
             AppLog.Warn("Musik nicht verfügbar (Media Foundation fehlt?).", ex);
+            RaiseFailed(generation);
             return;
         }
 
@@ -264,6 +269,7 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         catch (Exception ex)
         {
             AppLog.Warn("Musikdatei konnte nicht geöffnet werden.", ex);
+            RaiseFailed(generation);
             StopCore();
         }
     }
@@ -287,6 +293,7 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         if (!IsCurrent(player, generation))
             return;
         AppLog.Warn("Musikdatei konnte nicht abgespielt werden.", error);
+        RaiseFailed(generation);
         StopCore();
     }
 
@@ -311,6 +318,7 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         if (!IsCurrent(player, generation) || _opened)
             return;
         AppLog.Warn("Musikdatei wurde nicht rechtzeitig geöffnet.");
+        RaiseFailed(generation);
         StopCore();
     }
 
@@ -394,6 +402,22 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         catch
         {
             // Timer-Stopp darf nie werfen.
+        }
+    }
+
+    // Meldet einen gescheiterten Start oder Abbruch der Wiedergabe (nur für die aktuelle Generation: ein neuerer Play/Stop macht die
+    // Meldung gegenstandslos). PlaybackChanged feuert dabei nicht, weil nie gespielt wurde.
+    private void RaiseFailed(int generation)
+    {
+        if (generation != Volatile.Read(ref _generation))
+            return;
+        try
+        {
+            PlaybackFailed?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("PlaybackFailed-Handler der Musik ist fehlgeschlagen.", ex);
         }
     }
 

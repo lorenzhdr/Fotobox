@@ -81,6 +81,17 @@ public sealed class PeacePreviewStatusFormatterTests
     }
 
     [Fact]
+    public void IdenticalReasons_AreShownOnlyOnce()
+    {
+        // Der „inerte“ Dienst (keine Erkennung verfügbar) meldet für Hand- und Gesichtsstufe denselben Grund.
+        var lines = PeacePreviewStatusFormatter.Format(
+            Ready(faces: false, hands: false, faceReason: "Nicht verfügbar.", handReason: "Nicht verfügbar."), 0, 0, false, true);
+
+        Assert.Equal(PeacePreviewStatusFormatter.NotAvailable, lines.Text);
+        Assert.Equal("Nicht verfügbar.", lines.Warning);
+    }
+
+    [Fact]
     public void NoCamera_AddsAWarning()
     {
         var lines = PeacePreviewStatusFormatter.Format(Ready(), 0, 0, false, cameraRunning: false);

@@ -78,6 +78,11 @@ public sealed class HeartEngine
         }
     }
 
+    /// <summary>
+    /// Übernimmt Einstellungen und Analyserate. Löst nie <see cref="Triggered"/> aus (nur Snapshot und <see cref="Changed"/> werden
+    /// aktualisiert): Der Aufrufer konfiguriert mitten in <c>SetMode</c>, und ein Auslösen würde dort synchron einen Durchgang starten
+    /// und die Betriebsart verschachtelt umschalten. Ausgelöst wird nur aus <see cref="OnUpdate"/> und <see cref="Tick"/>.
+    /// </summary>
     /// <param name="analysesPerSecond">Analyserate der Handstufe; bestimmt Aussetzer-Toleranz und Ruhefrist (mindestens 2,5 Analyseabstände).</param>
     public void Configure(HeartSettings settings, int analysesPerSecond)
     {
@@ -94,7 +99,7 @@ public sealed class HeartEngine
             _bestFaces = [];
             _lastHeartAt = DateTimeOffset.MinValue;
         }
-        Evaluate(_time.GetUtcNow(), force: true);
+        Evaluate(_time.GetUtcNow(), force: true, allowTrigger: false);
     }
 
     /// <summary>
@@ -173,7 +178,7 @@ public sealed class HeartEngine
         _lastHandUpdateAt = now;
     }
 
-    private void Evaluate(DateTimeOffset now, bool force)
+    private void Evaluate(DateTimeOffset now, bool force, bool allowTrigger = true)
     {
         var changed = force;
 
@@ -204,7 +209,7 @@ public sealed class HeartEngine
 
         HeartTrigger? trigger = null;
         var hold = TimeSpan.FromMilliseconds(Math.Max(1, _settings.HoldMilliseconds));
-        if (_armed && _gesturesEnabled && CanDetect && _best is not null && _holdStart is { } start && now - start >= hold)
+        if (allowTrigger && _armed && _gesturesEnabled && CanDetect && _best is not null && _holdStart is { } start && now - start >= hold)
         {
             trigger = Fire(now);
             changed = true;

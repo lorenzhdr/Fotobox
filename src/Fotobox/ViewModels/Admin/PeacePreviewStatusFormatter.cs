@@ -81,5 +81,7 @@ public static class PeacePreviewStatusFormatter
         return new PeacePreviewStatusLines(string.Join(" · ", parts), Join(warnings));
     }
 
-    private static string? Join(List<string> warnings) => warnings.Count == 0 ? null : string.Join("\n", warnings);
+    // Gleiche Meldungen nur einmal (Hand- und Gesichtserkennung nennen bei einem Totalausfall oft denselben Grund).
+    private static string? Join(List<string> warnings) =>
+        warnings.Count == 0 ? null : string.Join("\n", warnings.Distinct(StringComparer.Ordinal));
 }

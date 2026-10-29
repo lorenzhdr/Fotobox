@@ -135,6 +135,8 @@ public static class HeartGestureClassifier
         ArgumentNullException.ThrowIfNull(s);
         if (a.Points is not { Count: >= PointCount } || b.Points is not { Count: >= PointCount })
             return HeartVerdict.Reject("Unvollständige Handpunkte.");
+        if (!IsFinite(a) || !IsFinite(b))
+            return HeartVerdict.Reject("Ungültige Handpunkte.");
         if (!(aspect > 0))
             aspect = 1;
 
@@ -217,6 +219,8 @@ public static class HeartGestureClassifier
         ArgumentNullException.ThrowIfNull(s);
         if (hand.Points is not { Count: >= PointCount })
             return HeartVerdict.Reject("Unvollständige Handpunkte.");
+        if (!IsFinite(hand))
+            return HeartVerdict.Reject("Ungültige Handpunkte.");
         if (!(aspect > 0))
             aspect = 1;
 
@@ -262,6 +266,23 @@ public static class HeartGestureClassifier
     }
 
     // ---- intern
+
+    // Eine Hand mit nicht endlichen Werten (NaN/Unendlich aus einem kaputten Modellergebnis) wird verworfen: Math.Sign wirft bei NaN
+    // eine ArithmeticException, und Vergleiche mit NaN sind stets falsch (die Schwellen würden sonst fälschlich bestanden).
+    private static bool IsFinite(HandLandmarks hand)
+    {
+        if (!double.IsFinite(hand.Score)
+            || !double.IsFinite(hand.Box.X) || !double.IsFinite(hand.Box.Y)
+            || !double.IsFinite(hand.Box.Right) || !double.IsFinite(hand.Box.Bottom))
+            return false;
+        for (var i = 0; i < PointCount; i++)
+        {
+            var point = hand.Points[i];
+            if (!double.IsFinite(point.X) || !double.IsFinite(point.Y) || !double.IsFinite(point.Z))
+                return false;
+        }
+        return true;
+    }
 
     // Dach: Mindestens zwei der Finger Mittel/Ring/klein sind gestreckt und zeigen grob nach oben.
     private static bool IsRoofHand(V3[] p, Thresholds th)

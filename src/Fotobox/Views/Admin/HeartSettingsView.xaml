@@ -57,12 +57,14 @@
                         <TextBlock Text="Vorschau" Style="{DynamicResource SectionTitle}" />
                         <TextBlock Style="{DynamicResource Hint}" Margin="0,2,0,0"
                                    Text="Formen Sie zu zweit mit den Händen ein Herz (oder zeigen Sie allein ein Fingerherz) und halten Sie es: Die erkannten Handpunkte erscheinen im Bild, und nach der Haltedauer startet die Kisscam als Test. Mit „Kisscam testen“ starten Sie den Test auch ohne Herz. Die Vorschau zeigt die Erkennung auch bei ausgeschalteter Herzerkennung, nutzt die aktuellen (noch nicht gespeicherten) Einstellungen und löst nie ein echtes Foto oder einen Druck aus. Der Zoom wird in der Vorschau nicht gezeigt." />
-                        <!-- Gastansicht im Maßstab 1:3 (1920 × 1080). Fest eingefärbt wie die Gastansicht (bewusst nicht themenabhängig). -->
+                        <!-- Gastansicht im Maßstab 1:3 (1920 × 1080). Fest eingefärbt wie die Gastansicht (bewusst nicht themenabhängig).
+                             TextFormattingMode=Ideal: Die großen Schriften der Gastansicht (Ziffern, Abzeichen, Hinweise) zeichnen im vom Fenster
+                             geerbten Modus „Display“ im gerenderten Bild nichts. -->
                         <Border x:Name="HeartPreviewHost" Width="640" Height="360" HorizontalAlignment="Left" Margin="0,12,0,0"
                                 Background="#14171D" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                                 CornerRadius="10" ClipToBounds="True" AutomationProperties.Name="Vorschau der Herzerkennung">
                             <Viewbox Stretch="Uniform">
-                                <Grid Width="1920" Height="1080" ClipToBounds="True" Background="#14171D">
+                                <Grid Width="1920" Height="1080" ClipToBounds="True" Background="#14171D" TextOptions.TextFormattingMode="Ideal">
                                     <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}"
                                                             Stretch="Uniform" ShowStatusOverlay="False" />
                                     <TextBlock x:Name="HeartPreviewNoCameraText" Foreground="#A3ADBC" FontSize="48" TextAlignment="Center"
@@ -129,12 +131,12 @@
                                       IsChecked="{Binding HeartShapeClassic}" IsEnabled="{Binding HeartShapeClassicEnabled}"
                                       AutomationProperties.Name="Herzform: Klassisch" />
                             <TextBlock Style="{DynamicResource Hint}" Margin="26,0,0,0"
-                                       Text="Zeigefinger oben, Daumen unten, übrige Finger eingerollt." />
+                                       Text="Zeigefinger oben, Daumen unten, übrige Finger eingerollt oder locker gekrümmt." />
                             <CheckBox x:Name="HeartShapeRoofCheck" Content="Dach" FontWeight="SemiBold" Margin="0,12,0,0"
                                       IsChecked="{Binding HeartShapeRoof}" IsEnabled="{Binding HeartShapeRoofEnabled}"
                                       AutomationProperties.Name="Herzform: Dach" />
                             <TextBlock Style="{DynamicResource Hint}" Margin="26,0,0,0"
-                                       Text="Übrige Finger gestreckt nach oben." />
+                                       Text="Mindestens zwei der übrigen Finger gestreckt nach oben." />
                             <CheckBox x:Name="HeartShapeInvertedCheck" Content="Umgedreht" FontWeight="SemiBold" Margin="0,12,0,0"
                                       IsChecked="{Binding HeartShapeInverted}" IsEnabled="{Binding HeartShapeInvertedEnabled}"
                                       AutomationProperties.Name="Herzform: Umgedreht" />
@@ -215,6 +217,9 @@
                             <local:NumberStepper x:Name="KisscamSecondsStepper" Value="{Binding KisscamSeconds}" Minimum="{x:Static core:SettingsLimits.KisscamSecondsMin}" Maximum="{x:Static core:SettingsLimits.KisscamSecondsMax}" Suffix=" s" />
                             <TextBlock Style="{DynamicResource Hint}"
                                        Text="So lange haben die Gäste Zeit. In den letzten Sekunden erscheint ein großer Countdown 3 – 2 – 1." />
+                            <TextBlock x:Name="KisscamOnlyCountdownHint" Text="{x:Static vm:AdminViewModel.KisscamOnlyCountdownHintText}"
+                                       Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
+                                       Visibility="{Binding HasKisscamOnlyCountdownHint, Converter={StaticResource BoolToVis}}" />
 
                             <TextBlock Text="Text für die Gäste" Style="{DynamicResource FieldLabel}" />
                             <Grid Width="620" HorizontalAlignment="Left">
@@ -343,6 +348,9 @@
                             <TextBlock x:Name="KisscamMusicMissingWarning" Text="{x:Static vm:AdminViewModel.KisscamMusicMissingText}"
                                        Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
                                        Visibility="{Binding KisscamMusicMissing, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock x:Name="KisscamMusicPlayFailedWarning" Text="{x:Static vm:AdminViewModel.KisscamMusicPlayFailedText}"
+                                       Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
+                                       Visibility="{Binding KisscamMusicPlayFailed, Converter={StaticResource BoolToVis}}" />
                             <TextBlock Style="{DynamicResource Hint}"
                                        Text="Ohne Datei läuft die Kisscam ohne Ton. Erlaubt sind WAV- und MP3-Dateien. Der Dateipfad gilt nur für diesen Rechner und wird beim Teilen der Einstellungen nicht übertragen." />
 

@@ -135,6 +135,8 @@ public interface IMusicPlayer
     bool IsPlaying { get; }
     /// <summary>Beginn oder Ende der Wiedergabe; kann auf einem beliebigen Thread kommen.</summary>
     event EventHandler? PlaybackChanged;
+    /// <summary>Die Wiedergabe konnte nicht beginnen oder brach ab (Datei fehlt, nicht lesbar, Öffnungsfrist verpasst); kann auf einem beliebigen Thread kommen. <see cref="PlaybackChanged"/> feuert dabei nicht zwingend.</summary>
+    event EventHandler? PlaybackFailed;
 }
 
 public interface IPrintService

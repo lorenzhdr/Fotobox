@@ -57,6 +57,12 @@ public sealed partial class AdminViewModel
     public const string KisscamMusicMissingText =
         "Die Musikdatei wurde nicht gefunden oder ist nicht erreichbar. Die Kisscam läuft dann ohne Ton.";
 
+    /// <summary>Hinweis, wenn die Musik beim Anhören oder im Kisscam-Test nicht abgespielt werden konnte.</summary>
+    public const string KisscamMusicPlayFailedText = "Die Datei konnte nicht abgespielt werden.";
+
+    /// <summary>Hinweis unter dem Timer, wenn die Kisscam nur die letzten Sekunden dauert (kein Gasttext).</summary>
+    public const string KisscamOnlyCountdownHintText = "Bei 3 Sekunden erscheint nur der Countdown 3 – 2 – 1, kein Text.";
+
     /// <summary>Text der Anzeige, solange keine Musikdatei gewählt ist.</summary>
     public const string KisscamNoMusicText = "Keine Datei gewählt";
 
@@ -67,6 +73,7 @@ public sealed partial class AdminViewModel
     // Der Player hat die Wiedergabe tatsächlich begonnen (danach bedeutet „läuft nicht mehr“ = Ende).
     private bool _kisscamPreviewSawPlaying;
     private bool _kisscamMusicMissing;
+    private bool _kisscamMusicPlayFailed;
     private int _kisscamMusicCheckVersion;
 
     /// <summary>
@@ -239,10 +246,20 @@ public sealed partial class AdminViewModel
     public int KisscamSeconds
     {
         get => _draft.Heart.KisscamSeconds;
-        set => SetProperty(_draft.Heart.KisscamSeconds,
-            Math.Clamp(value, SettingsLimits.KisscamSecondsMin, SettingsLimits.KisscamSecondsMax),
-            v => _draft.Heart.KisscamSeconds = v);
+        set
+        {
+            if (SetProperty(_draft.Heart.KisscamSeconds,
+                    Math.Clamp(value, SettingsLimits.KisscamSecondsMin, SettingsLimits.KisscamSecondsMax),
+                    v => _draft.Heart.KisscamSeconds = v))
+                OnPropertyChanged(nameof(HasKisscamOnlyCountdownHint));
+        }
     }
+
+    /// <summary>
+    /// Bei höchstens <see cref="SettingsLimits.KisscamFinalDigitsSeconds"/> Sekunden zeigt die Gastansicht von Anfang an nur die großen
+    /// Ziffern, nie den Gasttext (Hinweis unter dem Timer).
+    /// </summary>
+    public bool HasKisscamOnlyCountdownHint => _draft.Heart.KisscamSeconds <= SettingsLimits.KisscamFinalDigitsSeconds;
 
     /// <summary>Hinweistext des Gastes mit Platzhalter <c>{Sekunden}</c>; leer = <see cref="KisscamTextPlaceholder"/>.</summary>
     public string KisscamText
@@ -373,6 +390,13 @@ public sealed partial class AdminViewModel
         }
     }
 
+    /// <summary>Die Musik konnte beim letzten Anhören bzw. Kisscam-Test nicht gespielt werden (Hinweis; Zustand, keine Einstellung).</summary>
+    public bool KisscamMusicPlayFailed
+    {
+        get => _kisscamMusicPlayFailed;
+        private set => SetProperty(ref _kisscamMusicPlayFailed, value);
+    }
+
     /// <summary>Die Musik wird gerade zum Anhören gespielt (Zustand, keine Einstellung).</summary>
     public bool KisscamMusicPreviewPlaying => _kisscamPreviewStarted;
 
@@ -396,7 +420,10 @@ public sealed partial class AdminViewModel
         ToggleKisscamMusicPreviewCommand = new RelayCommand(ToggleKisscamMusicPreview, CanToggleKisscamMusicPreview);
         ToggleKisscamTestCommand = new RelayCommand(ToggleKisscamTest, () => !_disposed);
         if (music is not null)
+        {
             music.PlaybackChanged += OnMusicPlaybackChanged;
+            music.PlaybackFailed += OnMusicPlaybackFailed;
+        }
         RefreshKisscamMusicCheck();
     }
 
@@ -496,6 +523,7 @@ public sealed partial class AdminViewModel
         var path = _draft.Heart.KisscamMusicPath;
         if (string.IsNullOrWhiteSpace(path))
             return;
+        KisscamMusicPlayFailed = false;
         SetKisscamPreviewStarted(true);
         try
         {
@@ -514,6 +542,8 @@ public sealed partial class AdminViewModel
     /// </summary>
     internal void StopKisscamMusicPreview()
     {
+        // Seiten-/Tabwechsel, Dateiwechsel usw. räumen auch einen alten Fehlerhinweis ab.
+        KisscamMusicPlayFailed = false;
         if (!_kisscamPreviewStarted)
             return;
         SetKisscamPreviewStarted(false);
@@ -549,6 +579,38 @@ public sealed partial class AdminViewModel
             _sync.Post(_ => HandleMusicPlaybackChanged(), null);
     }
 
+    // Der Player meldet einen gescheiterten Start (Datei fehlt/kaputt, Öffnungsfrist verpasst): kein PlaybackChanged, weil nie gespielt
+    // wurde – ohne diese Meldung bliebe der Knopf auf „Stopp“ stehen. Kann auf jedem Thread kommen.
+    private void OnMusicPlaybackFailed(object? sender, EventArgs e)
+    {
+        if (_disposed)
+            return;
+        if (_sync is null)
+            HandleMusicPlaybackFailed();
+        else
+            _sync.Post(_ => HandleMusicPlaybackFailed(), null);
+    }
+
+    private void HandleMusicPlaybackFailed()
+    {
+        if (_disposed)
+            return;
+        // Der Player gehört auch der Gastansicht: nur reagieren, wenn diese Ansicht die Musik gestartet hat.
+        var ours = false;
+        if (_kisscamPreviewStarted)
+        {
+            SetKisscamPreviewStarted(false);
+            ours = true;
+        }
+        if (_kisscamTestMusic)
+        {
+            _kisscamTestMusic = false;
+            ours = true;
+        }
+        if (ours)
+            KisscamMusicPlayFailed = true;
+    }
+
     private void HandleMusicPlaybackChanged()
     {
         if (_disposed || !_kisscamPreviewStarted || _music is null)
@@ -562,7 +624,10 @@ public sealed partial class AdminViewModel
     private void DisposeHeart()
     {
         if (_music is not null)
+        {
             _music.PlaybackChanged -= OnMusicPlaybackChanged;
+            _music.PlaybackFailed -= OnMusicPlaybackFailed;
+        }
         EndKisscamTest(completed: false);
         StopKisscamMusicPreview();
     }
@@ -639,13 +704,15 @@ public sealed partial class AdminViewModel
         var path = _draft.Heart.KisscamMusicPath;
         if (_music is null || string.IsNullOrWhiteSpace(path) || _kisscamMusicMissing)
             return;
+        // Vor dem Play setzen: Ein Fehlschlag kann schon während des Aufrufs gemeldet werden.
+        _kisscamTestMusic = true;
         try
         {
             _music.Play(path, _draft.Heart.KisscamMusicVolumePercent, loop: true);
-            _kisscamTestMusic = true;
         }
         catch (Exception ex)
         {
+            _kisscamTestMusic = false;
             AppLog.Warn("Kisscam-Musik konnte im Test nicht gestartet werden.", ex);
         }
     }
@@ -782,7 +849,7 @@ public sealed partial class AdminViewModel
         propertyName is nameof(HeartStatusText) or nameof(HeartHasNoShape) or nameof(IsKisscamActionSelected)
             or nameof(KisscamMusicPreviewPlaying) or nameof(KisscamMusicPreviewButtonText) or nameof(KisscamMusicMissing)
             or nameof(KisscamTextProblems) or nameof(KisscamTextProblemsText) or nameof(HasKisscamTextProblems)
-            or nameof(KisscamFileNameExample)
+            or nameof(KisscamFileNameExample) or nameof(KisscamMusicPlayFailed) or nameof(HasKisscamOnlyCountdownHint)
         || (propertyName is not null && propertyName.StartsWith("HeartShape", StringComparison.Ordinal)
             && propertyName.EndsWith("Enabled", StringComparison.Ordinal))
         // Live-Vorschau und Kisscam-Test: reiner Zustand, keine Einstellung

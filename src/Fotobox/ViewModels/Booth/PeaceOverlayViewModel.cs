@@ -278,6 +278,11 @@ public sealed partial class PeaceOverlayViewModel : ObservableObject, IDisposabl
         ConfigureHeart(mode);
         UpdateMiddleFingerWatching();
 
+        // Ein Ereignis während des Konfigurierens kann SetMode verschachtelt aufgerufen haben (Betriebsart oder Entsorgung geändert):
+        // Dann hat der innere Aufruf alles erledigt, dieser veraltete darf Anforderung und Betriebsart nicht mehr überschreiben.
+        if (_disposed || _mode != mode)
+            return;
+
         var options = BuildOptions();
         _faceTracker.LostAfter = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor / Math.Max(1, options.AnalysesPerSecond));
 

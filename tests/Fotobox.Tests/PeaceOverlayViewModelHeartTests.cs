@@ -72,6 +72,49 @@ public sealed class PeaceOverlayViewModelHeartTests
     }
 
     [Fact]
+    public void SetMode_NeverFiresTheHeart_EvenWhenTheNewHoldTimeIsAlreadyReached()
+    {
+        using var vm = Create();
+        var triggers = new List<HeartTrigger>();
+        vm.HeartTriggered += (_, t) => triggers.Add(t);
+        vm.SetMode(PeaceMode.Watching, PeaceConfig(), false, heart: HeartConfig());
+        Run(0.7, HeartHands);
+        Assert.Empty(triggers);
+
+        // Kürzere Haltedauer, die schon erreicht ist: Das Umstellen löst nie synchron einen Durchgang aus (der Aufrufer wäre mitten
+        // in SetMode), erst das nächste Update.
+        vm.SetMode(PeaceMode.Watching, PeaceConfig(), false, heart: HeartConfig(h => h.HoldMilliseconds = 300));
+
+        Assert.Empty(triggers);
+        Run(0.1, HeartHands);
+        Assert.Single(triggers);
+    }
+
+    [Fact]
+    public void SetMode_ReentrantOffDuringConfigure_IsNotOverwrittenByTheOuterCall()
+    {
+        using var vm = Create();
+        vm.SetMode(PeaceMode.Watching, PeaceConfig(), false, heart: HeartConfig());
+        Run(0.3, HeartHands);
+        Assert.NotNull(vm.Heart);
+        var nested = false;
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(PeaceOverlayViewModel.Heart) || nested)
+                return;
+            nested = true;
+            vm.SetMode(PeaceMode.Off, PeaceConfig(), false);
+        };
+
+        // Das Ausschalten der Herzerkennung leert das Herz schon beim Konfigurieren: Ein Beobachter schaltet verschachtelt ab.
+        vm.SetMode(PeaceMode.Watching, PeaceConfig(), false, heart: HeartConfig(h => h.Enabled = false));
+
+        Assert.True(nested);
+        Assert.Equal(PeaceMode.Off, vm.Mode);
+        Assert.True(_service.Last.IsDisposed); // der veraltete äußere Aufruf hat die Anforderung nicht wieder geöffnet
+    }
+
+    [Fact]
     public void Heart_DoesNotFire_InFollowMoustache_OrWhenDisabled_OrWithoutShapes()
     {
         var triggers = new List<HeartTrigger>();

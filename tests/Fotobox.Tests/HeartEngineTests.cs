@@ -269,6 +269,60 @@ public sealed class HeartEngineTests
         Assert.Single(_triggers);
     }
 
+    [Fact]
+    public void Configure_NeverTriggers_EvenWhenTheHoldIsAlreadyComplete()
+    {
+        var engine = Create();
+        Step(engine, 0, Heart);
+        Hold(engine, 900, Heart);
+        _time.Advance(TimeSpan.FromMilliseconds(100)); // Haltedauer erreicht, aber noch kein Update/Tick danach
+        var changesBefore = _changes;
+
+        engine.Configure(Settings(), Rate);
+
+        Assert.Empty(_triggers);
+        Assert.True(engine.IsArmed);
+        Assert.True(_changes > changesBefore); // Snapshot/Changed werden trotzdem aktualisiert
+
+        engine.Tick(); // erst die zeitgesteuerte Auswertung löst aus
+        Assert.Single(_triggers);
+    }
+
+    [Fact]
+    public void Configure_WithShorterHold_DoesNotTriggerImmediately_ButOnTheNextTick()
+    {
+        var engine = Create();
+        Step(engine, 0, Heart);
+        Hold(engine, 500, Heart);
+        Assert.Empty(_triggers);
+
+        engine.Configure(Settings(s => s.HoldMilliseconds = 300), Rate);
+        Assert.Empty(_triggers);
+
+        Step(engine, 100, Heart);
+        Assert.Single(_triggers);
+    }
+
+    [Fact]
+    public void Configure_InsideATriggeredHandler_IsNotRecursive()
+    {
+        var engine = Create();
+        var depth = 0;
+        var maxDepth = 0;
+        engine.Triggered += (_, _) =>
+        {
+            depth++;
+            maxDepth = Math.Max(maxDepth, depth);
+            engine.Configure(Settings(), Rate); // wie ConfigureHeart aus einem verschachtelten SetMode
+            depth--;
+        };
+
+        Hold(engine, 1500, Heart);
+
+        Assert.Single(_triggers);
+        Assert.Equal(1, maxDepth);
+    }
+
     // ---- Wiederscharf
 
     [Fact]

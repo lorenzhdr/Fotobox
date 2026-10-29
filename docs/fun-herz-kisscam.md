@@ -20,7 +20,7 @@ Stand: nach 2.5.2 (Branch `feature/herz-kisscam`, noch nicht veröffentlicht). D
 Formen zwei Gäste im `Idle` mit ihren Händen ein Herz (oder ein Gast mit beiden Händen; optional ein Fingerherz mit einer Hand) und halten es (Standard 1 s), startet die Aktion Kisscam:
 
 1. Ein Jumbotron-Rahmen (Lichterkette, Banner „KISS CAM“, vier Eckherzen) erscheint über dem Livebild, ein Hinweistext fordert die Gäste auf, sich einen Kusspartner zu suchen. Der Timer läuft (Standard 10 s, 3–60 s).
-2. In den letzten drei Sekunden ersetzen die großen Ziffern 3 – 2 – 1 den Text. Optional zoomt das Livebild auf die Herz-Gäste, optional läuft Musik.
+2. In den letzten drei Sekunden ersetzen die großen Ziffern 3 – 2 – 1 den Text. Bei einem Timer von höchstens 3 s erscheinen von Anfang an nur die Ziffern, nie der Gasttext (der Admin weist unter dem Timer darauf hin: „Bei 3 Sekunden erscheint nur der Countdown 3 – 2 – 1, kein Text.“). Optional zoomt das Livebild auf die Herz-Gäste, optional läuft Musik.
 3. Am Ende folgt der Blitz und ein **Einzelfoto** mit dem Rahmen. Es wird wie jedes andere Foto gespeichert (eigener Dateipräfix) und nach dem Druckschalter im Tab „Drucker“ gedruckt.
 
 Die Kisscam lässt sich mit den Abbrechen-Tasten (Standard Esc) oder per Mittelfinger (Aktion „Kisscam abbrechen“) beenden; es entsteht dann kein Foto. Das Fortschrittsherz (`ShowHoldFeedback`) zeigt dem Gast beim Halten, wie lange er noch durchhalten muss; es ist die einzige sichtbare Spur der Funktion im `Idle`.
@@ -72,7 +72,7 @@ Alle Bedingungen müssen gelten, sonst wird das Paar mit einem kurzen deutschen 
 
 - **Umgedreht** (`Inverted`): Die Herzachse zeigt nach unten (Zeigefingerspitzen unter den Daumenspitzen innerhalb der Neigungsgrenze).
 - **Dach** (`Roof`): aufrecht, und bei beiden Händen sind mindestens zwei der Finger Mittel/Ring/klein gestreckt (`ExtensionFactor` 1,25 → 1,05, PIP-Winkel ≥ 165° → 140°) und zeigen höchstens 60° von der Senkrechten ab.
-- **Klassisch** (`Classic`): aufrecht und nicht Dach – es gibt keine eigene Prüfung der übrigen Finger (der Admin-Text „übrige Finger eingerollt“ ist die Absicht, nicht eine Bedingung im Code).
+- **Klassisch** (`Classic`): aufrecht und nicht Dach – es gibt keine eigene Prüfung der übrigen Finger (der Admin-Text nennt sie „eingerollt oder locker gekrümmt“; das ist die Absicht, keine Bedingung im Code). Der Admin-Text zu Dach lautet „Mindestens zwei der übrigen Finger gestreckt nach oben“.
 
 Die Güte (`Score`) fällt linear mit dem Spitzenabstand; die Kosten (`Cost`, Spitzenabstände / S) entscheiden über die Paarwahl.
 
@@ -82,6 +82,7 @@ Eine Hand: Daumenspitze am Zeigefinger (Spitze oder DIP) ≤ 0,30 → 0,45 S; Ze
 
 ### Paarbildung (`FindHearts`)
 
+- **Nicht endliche Werte:** Eine Hand mit NaN/Unendlich in Punkten, Score oder Box (kaputtes Modellergebnis) wird früh verworfen (`IsFinite` in `ClassifyPair`/`ClassifyFingerHeart`, Grund „Ungültige Handpunkte.“); sonst würde `Math.Sign` auf NaN eine `ArithmeticException` werfen, und Vergleiche mit NaN bestünden die Schwellen fälschlich.
 - Bis `MaxHands` = 8 Hände werden paarweise geprüft; Treffer werden gierig nach Kosten vergeben, **jede Hand höchstens einmal**. Eine Hand eines nicht aktivierten Zwei-Hände-Herzens gilt trotzdem als vergeben (sonst würde daraus ein Fingerherz).
 - Danach prüft das Fingerherz die übrigen Hände (nur mit `ShapeFingerHeart`).
 - Ergebnis: Treffer nach Güte absteigend (`HeartMatch`: Form, Handindizes, Mitte, Größe, Box, Score).
@@ -107,6 +108,7 @@ Es bleibt bei `MaxPalmRuns` = 3 und `MaxLandmarkRuns` = 4 je Zyklus: **Höchsten
 - **Halten global:** Es gibt keine Paar-Identität über Bilder hinweg; das Halten gilt für „irgendein Herz“, ein Wechsel der beteiligten Hände ist unerheblich. Nach `HoldMilliseconds` löst die Engine genau einmal `Triggered` aus (`HeartTrigger`: Aktion, Form, Mitte, `HeartBox`, `FaceBoxes` der beteiligten Personen).
 - **Aussetzer:** Ein kurzer Ausfall des Herzens setzt das Halten nicht zurück. Toleranz `GapTolerance` = max(`PeaceEngine.MinGapTolerance`, 2,5 Analyseabstände); dieselbe Regel wie bei Peace (`Configure(settings, analysesPerSecond)`).
 - **Wiederscharf nur nach beobachteter Ruhe:** Nach einer Auslösung ist die Engine entwaffnet und wird erst wieder scharf, wenn `RearmQuietTime` (mindestens `PeaceEngine.MinRearmQuietTime`, sonst 2,5 Analyseabstände) lang **in Hand-Updates beobachtet** kein Herz zu sehen war. Während Foto/Kisscam laufen nur Gesichts-Updates; die reine Uhrzeit genügt deshalb nicht (ein stehengebliebenes Herz würde sofort wieder auslösen). Lücken zwischen Hand-Updates, länger als die Ruhefrist, zählen als unbeobachtet.
+- **`Configure` löst nie aus:** Es übernimmt Einstellungen und Rate und aktualisiert nur Snapshot und `Changed`; `Triggered` kommt ausschließlich aus `OnUpdate` und `Tick`. Der Aufrufer konfiguriert mitten in `PeaceOverlayViewModel.SetMode`, ein Auslösen dort würde synchron einen Kisscam-Durchgang starten und die Betriebsart verschachtelt umschalten. Zusätzlich verwirft `SetMode` nach dem Konfigurieren den Rest des Aufrufs, falls sich `_mode` (oder die Entsorgung) in der Zwischenzeit geändert hat.
 - **Nur im Leerlauf:** `GesturesEnabled` ist nur im `PeaceMode.Watching` (also `BoothState.Idle`) und bei eingeschalteter Erkennung wahr. Sonst wird weder ausgelöst noch gehalten; die Prüfung „Herz wieder weg“ läuft weiter. `Reset()` behält die Entwaffnung.
 - `Snapshot` (`HeartSnapshot`: ein `HeartView` mit Mitte, Größe, Fortschritt 0..1, Form; `Armed`) speist das Fortschrittsherz (`HeartFeedbackOverlay`), `DetectedNow`/`DetectedShape` die Admin-Anzeige.
 - Log: `Herzerkennung: Herz erkannt (Form …, 1 Hand/2 Hände), Aktion …`.
@@ -178,7 +180,7 @@ Eine Geometrie für Livebild und Foto: Alle Maße hängen nur von der kürzeren 
 
 ## Musik (`MusicPlayer`, `IMusicPlayer`)
 
-`IMusicPlayer` (`Play(path, volume, loop)`, `FadeOut(duration)`, `Stop()`, `IsPlaying`, `PlaybackChanged`) wirft nie und blockiert nie; Singleton in `App.RegisterServices`, im Konstruktor von `BoothViewModel` und `AdminViewModel` optional (ohne Player läuft die Kisscam stumm).
+`IMusicPlayer` (`Play(path, volume, loop)`, `FadeOut(duration)`, `Stop()`, `IsPlaying`, `PlaybackChanged`, `PlaybackFailed`) wirft nie und blockiert nie; Singleton in `App.RegisterServices`, im Konstruktor von `BoothViewModel` und `AdminViewModel` optional (ohne Player läuft die Kisscam stumm).
 
 - **Verhalten:** Die Musik startet mit dem Kisscam-Countdown (in Schleife, Lautstärke 0–100 %), blendet beim Blitz in 800 ms aus und endet; bei Abbruch (Taste, Mittelfinger, Fehler → Zustand `Idle`/`Error`/`Starting`) und beim Beenden der App stoppt sie sofort. `UpdateKisscamMusic` merkt sich per `_kisscamPending`, dass ein Kisscam-Countdown gesehen wurde.
 - **Technik:** WPF-`MediaPlayer` (Media Foundation) auf einem eigenen STA-Thread mit `Dispatcher`, der erst beim ersten `Play` entsteht; Aufrufer posten nur per `BeginInvoke` und warten nie. Jedes `Play`/`Stop` erhöht einen Generationszähler, Ereignisse und Timer älterer Generationen werden verworfen.
@@ -190,6 +192,7 @@ Eine Geometrie für Livebild und Foto: Alle Maße hängen nur von der kürzeren 
 | `DisposeWait` | 1 s | längste Wartezeit von `Dispose` auf das Thread-Ende |
 | `FadeStep` | 50 ms | Schrittweite des Ausblendens (Dauer 800 ms beim Blitz) |
 
+- **Fehlschlag melden:** Scheitert ein Start (Datei fehlt, Pfad ungültig, kein Media Foundation, `MediaFailed`, verpasste Öffnungsfrist), feuert `PlaybackFailed` (nur für die aktuelle Generation, Handler dürfen werfen), weil `PlaybackChanged` dann nie kommt (es wurde nie gespielt). Der Admin setzt darauf das Anhören zurück (Knopf wieder „Anhören“) und zeigt `KisscamMusicPlayFailedText` („Die Datei konnte nicht abgespielt werden.“); der Hinweis verfällt bei neuem Anhören, Teststart, Dateiwechsel und Seiten-/Tabwechsel. Im Kisscam-Test läuft der Test ohne Ton weiter. Die Gastansicht reagiert nicht darauf (die Warnung steht im Log, die Kisscam läuft stumm).
 - **Stumm ohne Datei:** Kein Pfad, fehlende/kaputte Datei, fehlendes Media Foundation (Windows N ohne Media Feature Pack) oder verpasste Öffnungsfrist ergeben nur eine Logwarnung und Stille – nie einen Fehlerzustand und nie einen Hänger der Kisscam.
 - **Gerätespezifisch:** `Heart.KisscamMusicPath` steht in `DeviceSpecificSettings.Paths` (wird beim Teilen nicht übertragen, beim Import behält der Zielrechner seinen Pfad), der Normalizer verwirft zu lange Pfade (> 1024 Zeichen) und Pfade mit Steuerzeichen.
 - Der Admin spielt die Musik zum Anhören über denselben Player (siehe `docs/admin.md`).
