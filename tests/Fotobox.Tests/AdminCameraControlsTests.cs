@@ -448,6 +448,39 @@ public sealed class AdminCameraControlsTests : IDisposable
     }
 
     [Fact]
+    public async Task AfterReset_MovingAnotherControl_KeepsTheResetValuesLive()
+    {
+        var vm = await OpenAsync();
+        vm.GetControl(CameraControlKind.Brightness)!.Value = 80;
+        vm.ResetControlsCommand.Execute(null);
+        _camera.LiveCalls.Clear();
+
+        vm.GetControl(CameraControlKind.Contrast)!.Value = 10;
+
+        var values = Assert.Single(_camera.LiveCalls).Values;
+        Assert.Equal(50, Find(values, CameraControlKind.Brightness).Value);   // Standard nach dem Zurücksetzen, nicht der alte Treiberstand 60
+        Assert.Equal(10, Find(values, CameraControlKind.Contrast).Value);
+        // „Nur Verstelltes setzen“: Die Standardwerte stehen nicht im Entwurf.
+        Assert.Equal(CameraControlKind.Contrast, Assert.Single(vm.Draft.Camera.ControlValues).Kind);
+    }
+
+    [Fact]
+    public async Task AfterReset_RevertOnClose_ReturnsToTheDriverState()
+    {
+        var vm = await OpenAsync();
+        vm.GetControl(CameraControlKind.Brightness)!.Value = 80;
+        vm.ResetControlsCommand.Execute(null);
+        vm.GetControl(CameraControlKind.Contrast)!.Value = 10;
+        _camera.LiveCalls.Clear();
+
+        await vm.RevertCameraControlsAsync();
+
+        var values = Assert.Single(_camera.LiveCalls).Values;
+        Assert.Equal(60, Find(values, CameraControlKind.Brightness).Value);
+        Assert.Equal(40, Find(values, CameraControlKind.Contrast).Value);
+    }
+
+    [Fact]
     public async Task RestoreAfterClose_WithoutCameraRestore_RevertsDirectly()
     {
         var vm = await OpenAsync();

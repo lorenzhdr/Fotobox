@@ -591,6 +591,22 @@ public sealed class CameraControlAccessTests
     }
 
     [Fact]
+    public void Cache_SeedFromRead_AutoOffWithTheDisplayedValue_StillWritesTheValue()
+    {
+        // Belichtung läuft in Automatik (gelesen -5, die Automatik führt den Wert nach): „Automatik aus“ mit demselben Wert
+        // muss den Wert trotzdem schreiben, sonst läuft die Kamera auf einem anderen Wert als gespeichert.
+        var t = Target();
+        var cache = new ControlStateCache();
+        cache.Seed(CameraControlAccess.Read(t, "cam", writable: true));
+
+        CameraControlAccess.Apply(t, [Val(CameraControlKind.Exposure, -5, auto: false)], CameraPowerline.Unchanged, live: true, cache);
+
+        Assert.Equal(["auto:Exposure=False", "value:Exposure=-5"], t.Calls);
+        Assert.Equal(1, cache.CountPending([Val(CameraControlKind.Exposure, -4, auto: false)], CameraPowerline.Unchanged));
+        Assert.Equal(0, cache.CountPending([Val(CameraControlKind.Exposure, -5, auto: false)], CameraPowerline.Unchanged));
+    }
+
+    [Fact]
     public void Cache_AfterARejectedWrite_TheEntryIsForgotten_AndRetried()
     {
         var t = Target();

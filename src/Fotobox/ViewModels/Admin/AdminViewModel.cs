@@ -118,6 +118,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     private int _cameraRestartVersion;
     // Mit diesen Kameraeinstellungen wurde die Kamera zuletzt wirklich gestartet (null = nie durch die Admin-Ansicht).
     private CameraSettings? _lastAppliedCamera;
+    // Ton-/Mikrofonstand, den die Admin-Ansicht der Kamera zuletzt mitgegeben hat (null = nie).
+    private VideoSettings? _lastAppliedVideo;
     // Speicherordner beim Öffnen bzw. beim letzten Speichern: Nur ein geänderter Ordner wird per Schreibtest geprüft.
     private string? _initialPhotoFolder;
     private string? _initialVideoFolder;
@@ -623,6 +625,13 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             // früheren Entwurfsstand laufen, obwohl die gespeicherten Werte denen beim Öffnen gleichen (siehe AdminLauncher).
             Volatile.Write(ref _lastAppliedCamera, settings.Clone());
             // Der Ton gilt ab dem nächsten Sessionstart: für die Vorschau der Stand des Entwurfs.
+            // Auch diesen Stand festhalten: Wird er verworfen, muss die Kamera nach dem Schließen wieder auf den gespeicherten Ton.
+            Volatile.Write(ref _lastAppliedVideo, new VideoSettings
+            {
+                Enabled = _draft.Video.Enabled,
+                RecordAudio = _draft.Video.RecordAudio,
+                MicrophoneId = _draft.Video.MicrophoneId,
+            });
             Camera.ConfigureAudio(CameraServiceExtensions.AudioFor(_draft.Video));
             await Camera.StartAsync(settings);
         }
@@ -645,6 +654,19 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     /// angefasst hat. Läuft die Kamera damit anders als gespeichert, muss die Gastansicht sie nach dem Speichern neu starten.
     /// </summary>
     public CameraSettings? LastAppliedCamera => Volatile.Read(ref _lastAppliedCamera)?.Clone();
+
+    /// <summary>
+    /// Ton-Einstellungen (Aufnehmen an/aus, Mikrofon), mit denen die Admin-Ansicht die Kamera zuletzt gestartet hat (Kopie der
+    /// relevanten Felder); null, wenn sie sie nie angefasst hat.
+    /// </summary>
+    public VideoSettings? LastAppliedVideo
+    {
+        get
+        {
+            var v = Volatile.Read(ref _lastAppliedVideo);
+            return v is null ? null : new VideoSettings { Enabled = v.Enabled, RecordAudio = v.RecordAudio, MicrophoneId = v.MicrophoneId };
+        }
+    }
 
     /// <summary>
     /// Stellt nach „Schließen“ ohne Speichern die gespeicherten Einstellungen (Kamera und Ton) wieder her. Läuft über dasselbe Gate wie

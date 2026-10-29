@@ -124,7 +124,7 @@ internal sealed class ControlStateCache
             foreach (var c in snapshot.Controls)
             {
                 if (c.Supported && c.Writable)
-                    _state[c.Kind] = (c.Value, c.Auto);
+                    _state[c.Kind] = (c.Auto == true ? null : c.Value, c.Auto); // In Automatik führt der Treiber den Wert nach: unbekannt.
             }
             _powerline = snapshot.PowerlineSupported ? snapshot.Powerline : null;
         }
