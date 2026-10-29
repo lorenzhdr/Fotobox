@@ -47,7 +47,7 @@ public sealed class HeartDiagnoseTests
     public void TipsTooFarApart_OnlyTheTipChecksFail_AndAllOthersAreStillComputed()
     {
         var valid = HeartHandFixtures.Pair(tipGap: 0);
-        var apart = HeartHandFixtures.Pair(tipGap: 0.12);
+        var apart = HeartHandFixtures.Pair(tipGap: -0.15);
         var reference = HeartGestureClassifier.Diagnose(valid[0], valid[1], Settings());
         var diagnosis = HeartGestureClassifier.Diagnose(apart[0], apart[1], Settings());
 
@@ -58,11 +58,11 @@ public sealed class HeartDiagnoseTests
         Assert.False(diagnosis.Verdict.IsHeart);
         Assert.Equal("Fingerspitzen berühren sich nicht.", diagnosis.Verdict.RejectReason);
         var failed = diagnosis.FailedChecks.ToList();
-        Assert.Contains("Zeigefingerspitzen/S", failed);
+        Assert.Contains("Zeigefinger-Kontakt/S", failed);
         Assert.Contains("Daumenspitzen/S", failed);
         // Die späteren Prüfungen (Höhe, Neigung, Öffnung) sind trotz des Fehlschlags berechnet und bestanden.
         Assert.Equal(2, failed.Count);
-        var tip = diagnosis.Checks.Single(c => c.Name == "Zeigefingerspitzen/S");
+        var tip = diagnosis.Checks.Single(c => c.Name == "Zeigefinger-Kontakt/S");
         Assert.True(tip.Value > tip.Limit);
         Assert.Equal("<=", tip.Op);
         Assert.Contains("FEHL", diagnosis.ToLogString());
@@ -99,6 +99,11 @@ public sealed class HeartDiagnoseTests
             HeartHandFixtures.PrayerHands(),
             HeartHandFixtures.TwoPeaceHands(),
         };
+        for (var number = 1; number <= 5; number++)
+        {
+            sets.Add(HeartHandFixtures.RealHeart(number));
+            sets.Add(HeartHandFixtures.RealNonHeart(number));
+        }
         foreach (var sensitivity in new[] { 10, 50, 95 })
         {
             foreach (var hands in sets)

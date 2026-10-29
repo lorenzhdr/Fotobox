@@ -405,7 +405,7 @@ public sealed class HeartEngine
             if (nearest is { } pair)
             {
                 sb.Append("nächstes Paar ").Append(HeartDiagnosisFormat.Int(pair.A)).Append('/').Append(HeartDiagnosisFormat.Int(pair.B))
-                  .Append(" (Spitzenabstände/S ").Append(HeartDiagnosisFormat.Num(pair.Cost)).Append("): ")
+                  .Append(" (Kontaktabstände/S").Append(HeartDiagnosisFormat.Num(pair.Cost)).Append("): ")
                   .Append(HeartGestureClassifier.Diagnose(hands[pair.A], hands[pair.B], _settings, aspect).ToLogString())
                   .Append(" | Hand").Append(HeartDiagnosisFormat.Int(pair.A)).Append(" [").Append(HeartDiagnosisFormat.Points(hands[pair.A])).Append(']')
                   .Append(" Hand").Append(HeartDiagnosisFormat.Int(pair.B)).Append(" [").Append(HeartDiagnosisFormat.Points(hands[pair.B])).Append(']');
