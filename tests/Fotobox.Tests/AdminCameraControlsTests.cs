@@ -124,8 +124,8 @@ public sealed class AdminCameraControlsTests : IDisposable
         Assert.False(pan.ShowControls);
         Assert.False(pan.IsSliderEnabled);
         Assert.Equal("Von dieser Kamera nicht unterstützt", AdminViewModel.ControlUnsupportedText);
-        // Alle zehn Regler erscheinen in den Gruppen.
-        Assert.Equal(10, vm.CameraControlGroups.Sum(g => g.Items.Count));
+        // Alle Regler erscheinen in den Gruppen.
+        Assert.Equal(Enum.GetValues<CameraControlKind>().Length, vm.CameraControlGroups.Sum(g => g.Items.Count));
     }
 
     [Fact]
