@@ -278,6 +278,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         TestMoustacheCommand = new RelayCommand(StartPeaceTestMoustache);
         TestMiddleFingerCancelCommand = new RelayCommand(StartMiddleFingerCancelTest);
 
+        InitCameraControls();
         Camera.StatusChanged += OnCameraStatusChanged;
         UpdateOverlay();
         _baselineJson = SnapshotJson();
@@ -482,7 +483,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             Guard(LoadMonitorsAsync(), "Monitorliste"),
             Guard(LoadMicrophonesAsync(), "Mikrofonliste"),
             Guard(ApplyFontsAsync(FontCatalog.GetAsync()), "Schriftenliste"),
-            Guard(RefreshPageSpecAsync(), "Seitengröße"));
+            Guard(RefreshPageSpecAsync(), "Seitengröße"),
+            Guard(RefreshControlsAsync(), "Kamera-Regler"));
         // Das Overlay-Vorschaubild hat bereits der Konstruktor geladen.
         RaiseCameraStatus();
 
@@ -533,9 +535,15 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     /// <summary>Gerätewechsel: Auflösung zurücksetzen, Auflösungen laden, Kamera mit Entwurf neu starten.</summary>
     public async Task SelectDeviceAsync(CameraDevice device)
     {
+        // Live verstellte Regler der bisherigen Kamera zurücknehmen, solange sie noch läuft (der Treiber behält sie sonst).
+        await RevertCameraControlsAsync();
+
         _draft.Camera.DeviceId = device.Id;
         _draft.Camera.ResolutionWidth = null;
         _draft.Camera.ResolutionHeight = null;
+        // Reglerwerte gehören nur zur gewählten Kamera; Profile bleiben.
+        _draft.Camera.ControlValues = [];
+        _draft.Camera.ControlsDeviceId = null;
         if (!Equals(_selectedDevice, device))
         {
             _selectedDevice = device;
@@ -603,6 +611,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             return;
 
         var version = Interlocked.Increment(ref _cameraRestartVersion);
+        var started = false;
         await _cameraGate.WaitAsync();
         try
         {
@@ -617,6 +626,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             // Der Ton gilt ab dem nächsten Sessionstart: für die Vorschau der Stand des Entwurfs.
             Camera.ConfigureAudio(CameraServiceExtensions.AudioFor(_draft.Video));
             await Camera.StartAsync(settings);
+            started = true;
         }
         catch (Exception ex)
         {
@@ -627,6 +637,10 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             _cameraGate.Release();
             RaiseCameraStatus();
         }
+
+        // Nach dem Neustart die Regler der (neuen) Session lesen; was live verstellt war, geht erneut an die Kamera.
+        if (started)
+            await Guard(RefreshControlsAsync(), "Kamera-Regler");
     }
 
     /// <summary>
@@ -761,9 +775,18 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     private void OnCameraStatusChanged(object? sender, EventArgs e)
     {
         if (_sync is null)
+        {
             RaiseCameraStatus();
+            OnCameraStatusChangedForControls();
+        }
         else
-            _sync.Post(_ => RaiseCameraStatus(), null);
+        {
+            _sync.Post(_ =>
+            {
+                RaiseCameraStatus();
+                OnCameraStatusChangedForControls();
+            }, null);
+        }
     }
 
     private void RaiseCameraStatus()
@@ -2966,12 +2989,16 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     {
         if (!_ui.Confirm("Standardwerte wiederherstellen",
                 "Alle Einstellungen außer der PIN werden auf die Standardwerte zurückgesetzt. " +
+                "Die Profile der Kamerasteuerung bleiben erhalten. " +
                 "Die Änderung wird erst mit „Übernehmen“ oder „Speichern & schließen“ gespeichert.\nFortfahren?"))
             return;
 
         var cameraBefore = _draft.Camera;
+        // Die Profile der Kamerasteuerung bleiben (sie gehören zur jeweiligen Kamera, nicht zu den „Einstellungen“).
+        var keptControlProfiles = cameraBefore.ControlProfiles;
         // Alle übertragbaren Abschnitte (siehe SettingsSections); Security (PIN) und Version bleiben bewusst unverändert.
         SettingsSections.CopyPortableSections(new AppSettings(), _draft);
+        _draft.Camera.ControlProfiles = keptControlProfiles ?? [];
         // „Standardwerte“ heißt „außer PIN“: Eine noch nicht gespeicherte, importierte PIN fällt ebenfalls weg.
         _pendingImportedSecurity = null;
         RebuildAfterDraftReplaced(keepDeviceSelections: false);
@@ -2983,7 +3010,16 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         RequestPageSpec();
 
         if (cameraBefore.RequiresRestartComparedTo(_draft.Camera))
+        {
+            // Andere Kamera: die bisher live verstellte vorher zurücknehmen (danach ist sie nicht mehr erreichbar).
+            if (!string.Equals(cameraBefore.DeviceId, _draft.Camera.DeviceId, StringComparison.Ordinal))
+                await RevertCameraControlsAsync();
             await RestartCameraAsync();
+        }
+
+        // Regler wie bei „Alle zurücksetzen“: Treiber-Standardwerte live (nach einem eventuellen Neustart der Kamera).
+        ResetControlsCore();
+        RebuildControlProfileOptions(resetSelection: true);
     }
 
     /// <summary>
@@ -3320,6 +3356,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         ValidationMessage = string.Empty;
         // Neuer Vergleichsstand für die Erkennung ungespeicherter Änderungen (gleich nach dem Speichern, ohne await dazwischen).
         ResetBaseline();
+        OnControlsSaved();
 
         if (close)
         {

@@ -3590,10 +3590,50 @@ public sealed class AdminViewModelTests : IDisposable
         public string? StatusMessage => null;
         public CameraResolution? ActiveResolution => new(1280, 720);
 
-#pragma warning disable CS0067
         public event EventHandler? StatusChanged;
+#pragma warning disable CS0067
         public event EventHandler<CameraFrame>? FrameArrived;
 #pragma warning restore CS0067
+
+        /// <summary>Setzt den Status und löst <see cref="StatusChanged"/> aus (wie bei Neustart oder Wiederverbindung).</summary>
+        public void SetStatus(CameraStatus status)
+        {
+            Status = status;
+            StatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        // ---- Kamerasteuerung
+
+        /// <summary>Aufgelöste Geräte-Id der laufenden Session; <see cref="StartAsync"/> setzt sie auf das gestartete Gerät.</summary>
+        public string? ActiveDeviceId { get; set; } = "cam1";
+
+        /// <summary>Stand, den <see cref="GetControlsAsync"/> liefert (Standard: keine Regler).</summary>
+        public CameraControlsSnapshot ControlsSnapshot { get; set; } = CameraControlsSnapshot.Empty;
+
+        /// <summary>Gesetzt: liefert den Stand je Gerät statt <see cref="ControlsSnapshot"/>.</summary>
+        public Func<string?, CameraControlsSnapshot>? ControlsSnapshotFor { get; set; }
+
+        public int GetControlsCalls { get; private set; }
+
+        /// <summary>Alle Aufrufe von <see cref="ApplyControlsLiveAsync"/> (Kopien).</summary>
+        public List<(IReadOnlyList<CameraControlValue> Values, CameraPowerline Powerline)> LiveCalls { get; } = [];
+
+        /// <summary>Alle Aufrufe von <see cref="ConfigureControls"/> (Kopien).</summary>
+        public List<CameraSettings> ConfigureCalls { get; } = [];
+
+        public Task<CameraControlsSnapshot> GetControlsAsync()
+        {
+            GetControlsCalls++;
+            return Task.FromResult(ControlsSnapshotFor?.Invoke(ActiveDeviceId) ?? ControlsSnapshot);
+        }
+
+        public void ConfigureControls(CameraSettings saved) => ConfigureCalls.Add(saved.Clone());
+
+        public Task ApplyControlsLiveAsync(IReadOnlyList<CameraControlValue> values, CameraPowerline powerline)
+        {
+            LiveCalls.Add((values.Select(v => v.Clone()).ToList(), powerline));
+            return Task.CompletedTask;
+        }
 
         public Task<IReadOnlyList<CameraDevice>> GetDevicesAsync() =>
             Task.FromResult<IReadOnlyList<CameraDevice>>([new CameraDevice("cam1", "Kamera 1"), new CameraDevice("cam2", "Kamera 2")]);
@@ -3635,6 +3675,7 @@ public sealed class AdminViewModelTests : IDisposable
                 Powerline = settings.Powerline,
             });
             AudioAtStart.Add(ConfiguredAudio);
+            ActiveDeviceId = settings.DeviceId ?? ActiveDeviceId;
             Status = CameraStatus.Running;
             if (StartGate is not null)
                 await StartGate(settings);

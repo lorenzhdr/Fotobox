@@ -31,6 +31,7 @@
             <!-- ============================== Kamera ============================== -->
             <TabItem Header="Kamera" Tag="&#xE722;">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
                     <Border Style="{StaticResource Card}">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -65,6 +66,107 @@
                             </StackPanel>
                         </Grid>
                     </Border>
+
+                    <!-- Bildeinstellungen: Hardware-Regler der Kamera (live), Flimmerschutz und Profile -->
+                    <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                        <StackPanel MaxWidth="820" HorizontalAlignment="Left">
+                            <TextBlock Text="Bildeinstellungen" Style="{StaticResource SectionTitle}" />
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Die Regler wirken sofort auf das Livebild, gespeichert wird mit „Übernehmen“. Was die Kamera nicht kann, ist ausgegraut." />
+                            <TextBlock Text="{Binding ControlsHint}" Style="{StaticResource Hint}" Foreground="{DynamicResource AccentBrush}"
+                                       Visibility="{Binding HasControlsHint, Converter={StaticResource BoolToVis}}" />
+
+                            <StackPanel Visibility="{Binding ControlGroupsVisible, Converter={StaticResource BoolToVis}}">
+
+                                <!-- Profile -->
+                                <TextBlock Text="Profile" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <ComboBox Width="280" ItemsSource="{Binding ControlProfileOptions}" SelectedItem="{Binding SelectedControlProfile}"
+                                              DisplayMemberPath="Name" AutomationProperties.Name="Profil wählen"
+                                              IsEnabled="{Binding ControlsEditable}" />
+                                    <TextBlock Text="{Binding ControlProfileModifiedText}" Style="{StaticResource Hint}" Margin="12,0,0,0"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Text="Profilname" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding ControlProfileName, UpdateSourceTrigger=PropertyChanged}"
+                                         MaxLength="{x:Static core:SettingsLimits.CameraProfileNameMaxLength}" Width="320" HorizontalAlignment="Left"
+                                         AutomationProperties.Name="Profilname" />
+                                <WrapPanel Margin="0,10,0,0">
+                                    <Button Content="Als neues Profil speichern" Command="{Binding SaveNewControlProfileCommand}" Margin="0,0,10,6"
+                                            AutomationProperties.Name="Als neues Profil speichern" />
+                                    <Button Content="Überschreiben" Command="{Binding OverwriteControlProfileCommand}" Margin="0,0,10,6"
+                                            AutomationProperties.Name="Profil überschreiben" />
+                                    <Button Content="Umbenennen" Command="{Binding RenameControlProfileCommand}" Margin="0,0,10,6"
+                                            AutomationProperties.Name="Profil umbenennen" />
+                                    <Button Content="Löschen" Command="{Binding DeleteControlProfileCommand}" Margin="0,0,10,6"
+                                            AutomationProperties.Name="Profil löschen" />
+                                </WrapPanel>
+                                <TextBlock Text="{Binding ControlProfileHint}" Style="{StaticResource Hint}" Foreground="{DynamicResource AccentBrush}"
+                                           Visibility="{Binding HasControlProfileHint, Converter={StaticResource BoolToVis}}" />
+
+                                <!-- Regler in Gruppen -->
+                                <ItemsControl ItemsSource="{Binding CameraControlGroups}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource FieldLabel}" Margin="0,22,0,6" />
+                                                <ItemsControl ItemsSource="{Binding Items}" Focusable="False">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid Margin="0,4">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="170" />
+                                                                    <ColumnDefinition Width="*" MinWidth="220" />
+                                                                    <ColumnDefinition Width="84" />
+                                                                    <ColumnDefinition Width="175" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center"
+                                                                           Foreground="{DynamicResource TextBrush}" />
+                                                                <Slider Grid.Column="1" Maximum="{Binding Maximum, Mode=OneTime}"
+                                                                        Minimum="{Binding Minimum, Mode=OneTime}"
+                                                                        SmallChange="{Binding SliderStep, Mode=OneTime}"
+                                                                        TickFrequency="{Binding SliderStep, Mode=OneTime}"
+                                                                        LargeChange="{Binding SliderStep, Mode=OneTime}"
+                                                                        IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                                                        Value="{Binding Value}" IsEnabled="{Binding IsSliderEnabled}"
+                                                                        AutomationProperties.Name="{Binding Name}"
+                                                                        Visibility="{Binding ShowControls, Converter={StaticResource BoolToVis}}" />
+                                                                <TextBlock Grid.Column="2" Text="{Binding DisplayValue}" FontWeight="SemiBold"
+                                                                           VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,12,0"
+                                                                           Foreground="{DynamicResource TextBrush}" />
+                                                                <CheckBox Grid.Column="3" Content="Automatisch" IsChecked="{Binding Auto}"
+                                                                          IsEnabled="{Binding IsAutoEnabled}" VerticalAlignment="Center"
+                                                                          AutomationProperties.Name="{Binding Name, StringFormat='{}{0} automatisch'}"
+                                                                          Visibility="{Binding AutoSupported, Converter={StaticResource BoolToVis}}" />
+                                                                <TextBlock Grid.Column="1" Grid.ColumnSpan="3" Text="Von dieser Kamera nicht unterstützt"
+                                                                           Style="{StaticResource Hint}" Margin="0" VerticalAlignment="Center"
+                                                                           Visibility="{Binding ShowNotSupported, Converter={StaticResource BoolToVis}}" />
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- Flimmerschutz -->
+                                <TextBlock Text="Flimmerschutz" Style="{StaticResource FieldLabel}" Margin="0,24,0,6" />
+                                <ComboBox Width="280" HorizontalAlignment="Left" ItemsSource="{Binding PowerlineOptions}"
+                                          SelectedItem="{Binding SelectedPowerline}" DisplayMemberPath="Display"
+                                          IsEnabled="{Binding PowerlineEnabled}" AutomationProperties.Name="Flimmerschutz" />
+                                <TextBlock Text="Gegen Streifen oder Flackern unter LED- und Neonlicht. In Deutschland 50 Hz." Style="{StaticResource Hint}" />
+                                <TextBlock Text="Von dieser Kamera nicht unterstützt" Style="{StaticResource Hint}" Foreground="{DynamicResource AccentBrush}"
+                                           Visibility="{Binding ShowPowerlineUnsupported, Converter={StaticResource BoolToVis}}" />
+
+                                <Button Content="Alle zurücksetzen" Command="{Binding ResetControlsCommand}" HorizontalAlignment="Left"
+                                        Margin="0,22,0,0" AutomationProperties.Name="Alle Bildeinstellungen zurücksetzen" />
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Setzt alle Regler auf die Standardwerte der Kamera (mit Automatik, wo möglich) und den Flimmerschutz auf 50 Hz. Nach dem Speichern setzt die Fotobox diese Regler beim Start nicht mehr; die Kamera behält ihre Standardwerte." />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 

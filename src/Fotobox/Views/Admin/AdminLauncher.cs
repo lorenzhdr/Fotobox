@@ -120,9 +120,11 @@ public sealed class AdminLauncher : IAdminLauncher
             cameraBefore, videoBefore, viewModel.LastAppliedCamera, _settings.Current);
         // Nie gespeichert (Schließen): Wurde die Kamera mit Entwurfs-Einstellungen neu gestartet, wieder auf den gespeicherten
         // Stand bringen. (Bei Speichern oder Beenden übernimmt das Hauptfenster bzw. die Anwendung.)
-        if (handling.RestoreCamera)
+        // Live verstellte Kamera-Regler werden danach (verkettet, nicht parallel zum Neustart) auf die Grundwerte zurückgenommen;
+        // das gilt auch ohne Kamera-Neustart und nach „Übernehmen“ (nur was seither live verstellt wurde).
+        if (!viewModel.ExitRequested)
         {
-            _ = viewModel.RestoreCameraAsync(_settings.Current.Clone());
+            _ = viewModel.RestoreAfterCloseAsync(_settings.Current.Clone(), handling.RestoreCamera);
         }
 
         var cameraChanged = handling.CameraChanged;
