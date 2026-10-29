@@ -119,6 +119,25 @@ public class AppServicesTests
         Assert.True(launcher.HasPeaceServices);
     }
 
+    [Fact]
+    public async Task MusicPlayer_IsRegisteredAsSingleton_AndInjectedIntoTheGuestView()
+    {
+        var services = new ServiceCollection();
+        App.RegisterServices(services);
+        services.AddSingleton<ISettingsStore>(new TestSettingsStore());
+        services.AddSingleton<ICameraService>(new DetectionFakeCamera());
+        services.AddSingleton<IPrintService, NoPrinting>();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var music = provider.GetRequiredService<IMusicPlayer>();
+        Assert.IsType<Fotobox.Services.Audio.MusicPlayer>(music);
+        Assert.Same(music, provider.GetRequiredService<IMusicPlayer>());
+        Assert.False(music.IsPlaying);
+        // Der optionale Konstruktorparameter darf nicht still auf null zurückfallen.
+        Assert.True(provider.GetRequiredService<Fotobox.ViewModels.Booth.BoothViewModel>().HasMusic);
+    }
+
     private sealed class TestSettingsStore : ISettingsStore
     {
         public string ConfigDirectory => Path.GetTempPath();

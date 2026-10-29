@@ -128,6 +128,13 @@ public sealed class SettingsTransferTests : IDisposable
         s.MiddleFinger.Enabled = false;
         s.MiddleFinger.HoldMilliseconds = 900;
         s.MiddleFinger.SensitivityPercent = 75;
+        s.MiddleFinger.ActionCancelKisscam = false;
+        s.Heart.Enabled = false;
+        s.Heart.ShapeInverted = true;
+        s.Heart.HoldMilliseconds = 1400;
+        s.Heart.KisscamSeconds = 20;
+        s.Heart.KisscamColor = KisscamColor.Gold;
+        s.Heart.KisscamFilePrefix = "Kuss";
 
         FillDevices(s);
         return s;
@@ -155,6 +162,7 @@ public sealed class SettingsTransferTests : IDisposable
         s.Appearance.GuestMonitorId = @"\\?\DISPLAY#MONITOR-4711";
         s.Appearance.GuestMonitorName = "Monitor-Name-4711";
         s.Appearance.AdminZoomPercent = 65;
+        s.Heart.KisscamMusicPath = @"D:\Eigene\Musik-Pfad.mp3";
     }
 
     /// <summary>Gerätefeld nach Export/Import: leer (null/leere Liste) bzw. beim Admin-Zoom der Standard (eine Zahl, nie null).</summary>
@@ -188,7 +196,7 @@ public sealed class SettingsTransferTests : IDisposable
     private static readonly string[] DeviceValues =
     [
         "kamera-geraet-4711", "kamera-controls-4711", "Profil-Name-4711", "777.5", "Drucker-Wohnzimmer", "Papier-Spezial", "Fotos-Pfad", "mikrofon-id-4711", "Mikrofon-Name-4711",
-        "Videos-Pfad", "MONITOR-4711", "Monitor-Name-4711", "101.6", "152.4", "1920", "1080",
+        "Videos-Pfad", "Musik-Pfad", "MONITOR-4711", "Monitor-Name-4711", "101.6", "152.4", "1920", "1080",
     ];
 
     /// <summary>JSON der übertragbaren Abschnitte ohne Gerätefelder, Version und PIN (normalisiert) – zum Vergleichen.</summary>
@@ -498,7 +506,7 @@ public sealed class SettingsTransferTests : IDisposable
 
         Assert.Equal(9, result.Sections.Flow.CountdownSeconds);
         var defaults = new AppSettings();
-        foreach (var name in new[] { "Camera", "Layout", "Printer", "Storage", "Input", "GuestScreen", "Appearance", "Video", "Fun", "Peace", "MiddleFinger" })
+        foreach (var name in new[] { "Camera", "Layout", "Printer", "Storage", "Input", "GuestScreen", "Appearance", "Video", "Fun", "Peace", "MiddleFinger", "Heart" })
             Assert.Equal(SectionJson(defaults, name), SectionJson(result.Sections, name));
         Assert.False(result.FromNewerVersion);
         Assert.Empty(result.Notes);

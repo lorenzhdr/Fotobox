@@ -549,7 +549,7 @@ public sealed class AdminFunTabTests : IDisposable
             vm.FunSingularText = "Eigener Text";
             Assert.Equal(Visibility.Collapsed, placeholder.Visibility);
 
-            var boxes = FindDescendants<TextBox>(root).Where(t => t.MaxLength == SettingsLimits.HintTextMaxLength).ToList();
+            var boxes = FindDescendants<TextBox>((DependencyObject)window.FindName("FunPersonsPage")).Where(t => t.MaxLength == SettingsLimits.HintTextMaxLength).ToList();
             Assert.Equal(2, boxes.Count);
         });
     }

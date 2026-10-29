@@ -42,6 +42,7 @@ public sealed class SettingsSectionsTests
                      nameof(AppSettings.Camera), nameof(AppSettings.Flow), nameof(AppSettings.Layout), nameof(AppSettings.Printer),
                      nameof(AppSettings.Storage), nameof(AppSettings.Input), nameof(AppSettings.GuestScreen), nameof(AppSettings.Appearance),
                      nameof(AppSettings.Video), nameof(AppSettings.Fun), nameof(AppSettings.Peace), nameof(AppSettings.MiddleFinger),
+                     nameof(AppSettings.Heart),
                  })
             Assert.Contains(expected, names);
         Assert.Equal(names.Count, names.Distinct().Count());

@@ -165,6 +165,8 @@ public partial class App : Application
             kind => kind == DetectionKind.Body ? new YoloxPersonDetector() : new WindowsFaceDetector(),
             sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IFunSoundPlayer, FunSoundPlayer>();
+        // Musik der Kisscam (eigener Musik-Thread, lazy); der Container gibt sie beim Beenden frei (Dispose wartet höchstens 1 s).
+        services.AddSingleton<IMusicPlayer, MusicPlayer>();
         // Peaceerkennung (Easter Egg): Gesichts- und Handerkennung (Modelle laden lazy beim ersten Bedarf), Bart-Zustand der Gastansicht
         // und Foto-Verzierer, den der BoothController (optionaler Konstruktorparameter) je Aufnahme aufruft.
         services.AddSingleton<IGestureDetectionService>(sp => new PeaceDetectionService(

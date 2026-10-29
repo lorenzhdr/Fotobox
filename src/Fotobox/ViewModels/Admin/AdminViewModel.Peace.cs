@@ -310,7 +310,7 @@ public sealed partial class AdminViewModel
             : PeacePreviewStatusFormatter.Format(PeacePreview.Status, PeacePreview.Hands.Count, PeacePreview.FaceCount,
                 PeacePreview.PeaceDetectedNow, FunPreviewCameraRunning);
 
-    // Läuft die Peace- oder Mittelfinger-Seite, gelten die Entwurfswerte sofort. Die Vorschau (eine Instanz) ist nur auf diesen beiden Seiten aktiv.
+    // Läuft die Peace-, Mittelfinger- oder Herz-Seite, gelten die Entwurfswerte sofort. Die Vorschau (eine Instanz) ist nur auf diesen drei Seiten aktiv.
     private void UpdatePeacePreview()
     {
         if (_disposed)
@@ -325,17 +325,33 @@ public sealed partial class AdminViewModel
     {
         if (_disposed)
             return;
-        var active = _isFunTabSelected && _funPage is FunPage.Peace or FunPage.MiddleFinger;
-        // Die Mittelfinger-Einstellungen gelten immer; ein sichtbarer Selbstzerstörungs-Test zählt als aufhebbares Ziel.
+        var onHeartPage = _isFunTabSelected && _funPage == FunPage.Heart;
+        var active = _isFunTabSelected && _funPage is FunPage.Peace or FunPage.MiddleFinger or FunPage.Heart;
+        // Die Mittelfinger-Einstellungen gelten immer; ein sichtbarer Selbstzerstörungs-Test und ein laufender Kisscam-Test
+        // zählen als aufhebbare Ziele.
         var external = PeaceTestSelfDestructVisible ? MiddleFingerTargets.SelfDestruct : MiddleFingerTargets.None;
+        if (_kisscamTestRunning)
+            external |= MiddleFingerTargets.Kisscam;
+        // Nur auf der Herz-Seite erkennt die Vorschau Herzen (Entwurf, auch bei ausgeschaltetem Schalter) und dann ohne Peace-Gesten.
+        HeartSettings? heart = null;
+        if (onHeartPage)
+        {
+            heart = _draft.Heart.Clone();
+            heart.Enabled = true;
+        }
         PeacePreview.SetMode(active ? PeaceMode.Watching : PeaceMode.Off, _draft.Peace.Clone(), MirrorPreview,
-            _draft.MiddleFinger.Clone(), external);
+            _draft.MiddleFinger.Clone(), external, heart, peaceGestures: !onHeartPage);
         RaisePeacePreviewStatus();
     }
 
     private static bool AffectsPeacePreview(string? propertyName) =>
         string.IsNullOrEmpty(propertyName) // alle Eigenschaften (Standardwerte wiederhergestellt)
         || propertyName == nameof(MirrorPreview)
+        // Herz: nur, was die Erkennung der Vorschau beeinflusst (bewusst eine Liste statt Präfix: Status-/Zustands-Properties wie
+        // HeartPreview*, HeartStatusText oder HeartShape…Enabled würden sonst eine Schleife über RaisePeacePreviewStatus auslösen).
+        || propertyName is nameof(HeartShapeClassic) or nameof(HeartShapeRoof) or nameof(HeartShapeInverted)
+            or nameof(HeartShapeFingerHeart) or nameof(HeartHoldMilliseconds) or nameof(HeartSensitivityPercent)
+            or nameof(HeartSelectedAction)
         || (propertyName.StartsWith("Peace", StringComparison.Ordinal)
             && !propertyName.StartsWith("PeacePreview", StringComparison.Ordinal)
             && !propertyName.StartsWith("PeaceTest", StringComparison.Ordinal)
@@ -347,7 +363,8 @@ public sealed partial class AdminViewModel
             && !propertyName.StartsWith("MiddleFingerTest", StringComparison.Ordinal)
             && !propertyName.StartsWith("HasMiddleFinger", StringComparison.Ordinal)
             && propertyName is not (nameof(MiddleFingerStatusText) or nameof(MiddleFingerHasNoAction)
-                or nameof(MiddleFingerPeaceDisabledWarning) or nameof(MiddleFingerActionCancelPeaceEnabled)));
+                or nameof(MiddleFingerPeaceDisabledWarning) or nameof(MiddleFingerActionCancelPeaceEnabled)
+                or nameof(MiddleFingerActionCancelKisscamEnabled)));
 
     private void RaisePeacePreviewStatus()
     {
@@ -357,6 +374,7 @@ public sealed partial class AdminViewModel
         OnPropertyChanged(nameof(PeacePreviewMoustacheWarning));
         OnPropertyChanged(nameof(HasPeacePreviewMoustacheWarning));
         RaiseMiddleFingerPreviewStatus();
+        RaiseHeartPreviewStatus();
     }
 
     private void OnPeacePreviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -364,6 +382,7 @@ public sealed partial class AdminViewModel
         if (e.PropertyName is nameof(PeaceOverlayViewModel.Status) or nameof(PeaceOverlayViewModel.Hands) or nameof(PeaceOverlayViewModel.FaceCount)
             or nameof(PeaceOverlayViewModel.MoustacheAvailable)
             or nameof(PeaceOverlayViewModel.PeaceDetectedNow) or nameof(PeaceOverlayViewModel.MiddleFingerDetectedNow)
+            or nameof(PeaceOverlayViewModel.HeartDetectedNow) or nameof(PeaceOverlayViewModel.HeartDetectedShape)
             or nameof(PeaceOverlayViewModel.MiddleFingerWatching) or nameof(PeaceOverlayViewModel.Mode) or nameof(PeaceOverlayViewModel.IsShown)
             or null or "")
             RaisePeacePreviewStatus();
@@ -372,8 +391,8 @@ public sealed partial class AdminViewModel
     // Aktion in der Vorschau: nie ein echtes Foto oder Druck.
     private void OnPeacePreviewAction(object? sender, PeaceTrigger trigger)
     {
-        // Auf der Mittelfinger-Seite löst ein zufälliges Peace in der Vorschau nichts aus (kein überraschender Selbstzerstörungs-Test).
-        if (_disposed || _funPage == FunPage.MiddleFinger)
+        // Nur auf der Peace-Seite lösen Peace-Gesten in der Vorschau etwas aus (kein überraschender Selbstzerstörungs-Test anderswo).
+        if (_disposed || _funPage != FunPage.Peace)
             return;
         switch (trigger.Action)
         {
@@ -496,6 +515,7 @@ public sealed partial class AdminViewModel
         PeacePreview.PropertyChanged -= OnPeacePreviewPropertyChanged;
         PeacePreview.ActionRequested -= OnPeacePreviewAction;
         PeacePreview.MiddleFingerTriggered -= OnPeacePreviewMiddleFinger;
+        PeacePreview.HeartTriggered -= OnPeacePreviewHeart;
         PeacePreview.Dispose();
     }
 }

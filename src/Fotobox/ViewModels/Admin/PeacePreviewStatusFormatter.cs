@@ -1,4 +1,5 @@
 using System.Globalization;
+using Fotobox.Core;
 using Fotobox.Core.Peace;
 
 namespace Fotobox.ViewModels.Admin;
@@ -18,6 +19,18 @@ public static class PeacePreviewStatusFormatter
     public const string NoCamera = "Keine Kamera – Vorschau nicht verfügbar.";
     public const string PeaceDetected = "Peace erkannt ✌";
     public const string MiddleFingerDetected = "Mittelfinger erkannt";
+    public const string HeartDetected = "Herz erkannt ❤";
+
+    /// <summary>Abzeichen der Herz-Seite: „Herz erkannt ❤ (Klassisch)“; ohne bekannte Form nur „Herz erkannt ❤“.</summary>
+    public static string HeartBadge(HeartShape? shape) =>
+        shape switch
+        {
+            HeartShape.Classic => HeartDetected + " (Klassisch)",
+            HeartShape.Roof => HeartDetected + " (Dach)",
+            HeartShape.Inverted => HeartDetected + " (Umgedreht)",
+            HeartShape.FingerHeart => HeartDetected + " (Fingerherz)",
+            _ => HeartDetected,
+        };
 
     /// <param name="status">Zustand der offenen Anforderung; null = es gibt keine (die Anforderung ist gescheitert).</param>
     /// <param name="hands">Aktuell verfolgte Hände.</param>
@@ -25,8 +38,9 @@ public static class PeacePreviewStatusFormatter
     /// <param name="peaceNow">Zeigt gerade mindestens eine Hand das Peace-Zeichen?</param>
     /// <param name="cameraRunning">Die Kamera liefert ein Livebild.</param>
     /// <param name="middleFingerNow">Zeigt gerade eine Hand den Mittelfinger (Seite „Mittelfinger“)?</param>
+    /// <param name="heartNow">Formen gerade Hände ein Herz (Seite „Herz“)?</param>
     public static PeacePreviewStatusLines Format(GestureStatus? status, int hands, int faces, bool peaceNow, bool cameraRunning,
-        bool middleFingerNow = false)
+        bool middleFingerNow = false, bool heartNow = false)
     {
         var warnings = new List<string>();
         if (!cameraRunning)
@@ -62,8 +76,12 @@ public static class PeacePreviewStatusFormatter
             parts.Add(PeaceDetected);
         if (middleFingerNow)
             parts.Add(MiddleFingerDetected);
+        if (heartNow)
+            parts.Add(HeartDetected);
         return new PeacePreviewStatusLines(string.Join(" · ", parts), Join(warnings));
     }
 
-    private static string? Join(List<string> warnings) => warnings.Count == 0 ? null : string.Join("\n", warnings);
+    // Gleiche Meldungen nur einmal (Hand- und Gesichtserkennung nennen bei einem Totalausfall oft denselben Grund).
+    private static string? Join(List<string> warnings) =>
+        warnings.Count == 0 ? null : string.Join("\n", warnings.Distinct(StringComparer.Ordinal));
 }

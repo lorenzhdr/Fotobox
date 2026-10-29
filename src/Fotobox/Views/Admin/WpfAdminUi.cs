@@ -27,6 +27,18 @@ public sealed class WpfAdminUi : IAdminUi
         return (Owner is null ? dialog.ShowDialog() : dialog.ShowDialog(Owner)) == true ? dialog.FileName : null;
     }
 
+    public string? PickAudioFile()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Musikdatei für die Kisscam auswählen",
+            Filter = "Audiodateien (*.wav;*.mp3)|*.wav;*.mp3",
+            CheckFileExists = true,
+            Multiselect = false,
+        };
+        return (Owner is null ? dialog.ShowDialog() : dialog.ShowDialog(Owner)) == true ? dialog.FileName : null;
+    }
+
     public string? PickFolder(string? initialFolder, string title)
     {
         var dialog = new OpenFolderDialog { Title = title };

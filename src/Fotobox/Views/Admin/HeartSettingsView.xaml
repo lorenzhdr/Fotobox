@@ -1,0 +1,367 @@
+<UserControl x:Class="Fotobox.Views.Admin.HeartSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Fotobox.Views.Admin"
+             xmlns:core="clr-namespace:Fotobox.Core"
+             xmlns:vm="clr-namespace:Fotobox.ViewModels.Admin"
+             xmlns:conv="clr-namespace:Fotobox.Views.Converters"
+             xmlns:controls="clr-namespace:Fotobox.Views.Controls"
+             xmlns:peace="clr-namespace:Fotobox.Views.Booth.Peace"
+             xmlns:heart="clr-namespace:Fotobox.Views.Booth.Heart">
+
+    <!-- Seite „Herz“ im Tab „Fun“. Der DataContext (AdminViewModel) wird vom Fenster geerbt. Stile und Farben des Admins
+         kommen per DynamicResource aus dem Fenster (dieses Steuerelement wird beim Laden noch nicht im Fenster geparst). -->
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <conv:EnumMatchConverter x:Key="EnumMatch" />
+        <!-- Bereich, der bei IsEnabled=False ausgegraut wird -->
+        <Style x:Key="Dim" TargetType="StackPanel">
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.55" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,14">
+            <Button x:Name="HeartBackButton" Content="←  Zurück" Command="{Binding ShowFunPageCommand}"
+                    CommandParameter="{x:Static vm:FunPage.Start}" VerticalAlignment="Center"
+                    AutomationProperties.Name="Zurück zur Fun-Übersicht" />
+            <TextBlock Text="Herz" Style="{DynamicResource SectionTitle}" Margin="18,0,0,0" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel MaxWidth="780" HorizontalAlignment="Left">
+
+                <!-- Schalter -->
+                <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Herzerkennung" Style="{DynamicResource SectionTitle}" />
+                        <CheckBox x:Name="HeartEnabledCheck" Content="Herzerkennung aktiv" IsChecked="{Binding HeartEnabled}"
+                                  Margin="0,12,0,0" FontWeight="SemiBold" AutomationProperties.Name="Herzerkennung aktiv" />
+                        <TextBlock Style="{DynamicResource Hint}"
+                                   Text="Verstecktes Extra: Formen zwei Gäste mit ihren Händen ein Herz (oder ein Gast ein Fingerherz) und halten es kurz, startet die gewählte Aktion. In der Gastansicht wird darauf nicht hingewiesen. Die Herzerkennung ist unabhängig von der Peaceerkennung ein- und ausschaltbar." />
+                    </StackPanel>
+                </Border>
+
+                <!-- Vorschau: außerhalb des ausgegrauten Bereichs, damit man sie auch bei ausgeschalteter Herzerkennung ansehen kann -->
+                <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Vorschau" Style="{DynamicResource SectionTitle}" />
+                        <TextBlock Style="{DynamicResource Hint}" Margin="0,2,0,0"
+                                   Text="Formen Sie zu zweit mit den Händen ein Herz (oder zeigen Sie allein ein Fingerherz) und halten Sie es: Die erkannten Handpunkte erscheinen im Bild, und nach der Haltedauer startet die Kisscam als Test. Mit „Kisscam testen“ starten Sie den Test auch ohne Herz. Die Vorschau zeigt die Erkennung auch bei ausgeschalteter Herzerkennung, nutzt die aktuellen (noch nicht gespeicherten) Einstellungen und löst nie ein echtes Foto oder einen Druck aus. Der Zoom wird in der Vorschau nicht gezeigt." />
+                        <!-- Gastansicht im Maßstab 1:3 (1920 × 1080). Fest eingefärbt wie die Gastansicht (bewusst nicht themenabhängig).
+                             TextFormattingMode=Ideal: Die großen Schriften der Gastansicht (Ziffern, Abzeichen, Hinweise) zeichnen im vom Fenster
+                             geerbten Modus „Display“ im gerenderten Bild nichts. -->
+                        <Border x:Name="HeartPreviewHost" Width="640" Height="360" HorizontalAlignment="Left" Margin="0,12,0,0"
+                                Background="#14171D" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="10" ClipToBounds="True" AutomationProperties.Name="Vorschau der Herzerkennung">
+                            <Viewbox Stretch="Uniform">
+                                <Grid Width="1920" Height="1080" ClipToBounds="True" Background="#14171D" TextOptions.TextFormattingMode="Ideal">
+                                    <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}"
+                                                            Stretch="Uniform" ShowStatusOverlay="False" />
+                                    <TextBlock x:Name="HeartPreviewNoCameraText" Foreground="#A3ADBC" FontSize="48" TextAlignment="Center"
+                                               TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="160,0"
+                                               Text="Keine Kamera – „Kisscam testen“ zeigt trotzdem den Ablauf."
+                                               Visibility="{Binding FunPreviewNoCamera, Converter={StaticResource BoolToVis}}" />
+                                    <peace:PeaceOverlay x:Name="HeartPreviewOverlay" Fit="Uniform" ShowLandmarks="True" ShowHoldProgress="False"
+                                                        Hands="{Binding PeacePreview.Hands}"
+                                                        ImageWidth="{Binding PeacePreview.ImageWidth}" ImageHeight="{Binding PeacePreview.ImageHeight}"
+                                                        Mirror="{Binding MirrorPreview}" />
+                                    <!-- Haltefortschritt des Herzens (wie in der Gastansicht, nur bei „Herz beim Halten anzeigen“) -->
+                                    <heart:HeartFeedbackOverlay x:Name="HeartPreviewFeedback" Fit="Uniform" Heart="{Binding PeacePreview.Heart}"
+                                                                ImageWidth="{Binding PeacePreview.ImageWidth}" ImageHeight="{Binding PeacePreview.ImageHeight}"
+                                                                Mirror="{Binding MirrorPreview}"
+                                                                Visibility="{Binding HeartShowHoldFeedback, Converter={StaticResource BoolToVis}}" />
+                                    <!-- Abzeichen „Herz erkannt ❤“ -->
+                                    <Border x:Name="HeartDetectedBadge" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="48" Padding="36,16"
+                                            Background="#CCC2185B" CornerRadius="48"
+                                            Visibility="{Binding PeacePreview.HeartDetectedNow, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock x:Name="HeartDetectedBadgeText" Text="{Binding HeartPreviewBadgeText}" Foreground="White" FontSize="54" FontWeight="SemiBold" />
+                                    </Border>
+                                    <!-- Kisscam-Test: Jumbotron-Rahmen mit Gasttext, in den letzten Sekunden große Ziffern -->
+                                    <heart:KisscamOverlay x:Name="HeartKisscamTestOverlay" Frame="{Binding KisscamTestFrame}"
+                                                          Text="{Binding KisscamTestText}" ShowText="{Binding KisscamTestShowText}"
+                                                          Visibility="{Binding KisscamTestRunning, Converter={StaticResource BoolToVis}}" />
+                                    <Border x:Name="HeartKisscamTestDigits" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                            Width="480" Height="480" CornerRadius="240" Background="#99000000" IsHitTestVisible="False"
+                                            Visibility="{Binding KisscamTestShowDigits, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock x:Name="HeartKisscamTestDigitsText" Text="{Binding KisscamTestDigits}" Foreground="White" FontSize="360"
+                                                   FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <!-- Ende des Tests: nur ein Hinweis, nie ein echtes Foto -->
+                                    <Border x:Name="HeartKisscamTestPhotoBadge" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="36,16"
+                                            Background="#CC14171D" CornerRadius="48" IsHitTestVisible="False"
+                                            Visibility="{Binding KisscamTestPhotoBadgeVisible, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="Foto würde jetzt ausgelöst 📷" Foreground="White" FontSize="54" FontWeight="SemiBold" />
+                                    </Border>
+                                </Grid>
+                            </Viewbox>
+                        </Border>
+                        <StackPanel Margin="0,12,0,0">
+                            <Button x:Name="KisscamTestButton" Content="{Binding KisscamTestButtonText}" Command="{Binding ToggleKisscamTestCommand}"
+                                    Style="{DynamicResource PrimaryButton}" HorizontalAlignment="Left" MinWidth="160"
+                                    AutomationProperties.Name="Kisscam testen oder Test abbrechen" />
+                            <TextBlock x:Name="HeartPreviewStatus" Text="{Binding HeartPreviewStatusText}" FontSize="14"
+                                       Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
+                            <TextBlock x:Name="HeartPreviewWarning" Text="{Binding HeartPreviewWarningText}" FontSize="13"
+                                       Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Visibility="{Binding HasHeartPreviewWarning, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Alles Weitere ist bei ausgeschalteter Herzerkennung ausgegraut. -->
+                <StackPanel x:Name="HeartSettingsPanel" IsEnabled="{Binding HeartEnabled}" Style="{StaticResource Dim}">
+
+                    <!-- Erkennung -->
+                    <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                        <StackPanel>
+                            <TextBlock Text="Erkennung" Style="{DynamicResource SectionTitle}" />
+
+                            <TextBlock Text="Erkannte Herzformen" Style="{DynamicResource FieldLabel}" />
+                            <CheckBox x:Name="HeartShapeClassicCheck" Content="Klassisch" FontWeight="SemiBold" Margin="0,2,0,0"
+                                      IsChecked="{Binding HeartShapeClassic}" IsEnabled="{Binding HeartShapeClassicEnabled}"
+                                      AutomationProperties.Name="Herzform: Klassisch" />
+                            <TextBlock Style="{DynamicResource Hint}" Margin="26,0,0,0"
+                                       Text="Zeigefinger oben, Daumen unten, übrige Finger eingerollt oder locker gekrümmt." />
+                            <CheckBox x:Name="HeartShapeRoofCheck" Content="Dach" FontWeight="SemiBold" Margin="0,12,0,0"
+                                      IsChecked="{Binding HeartShapeRoof}" IsEnabled="{Binding HeartShapeRoofEnabled}"
+                                      AutomationProperties.Name="Herzform: Dach" />
+                            <TextBlock Style="{DynamicResource Hint}" Margin="26,0,0,0"
+                                       Text="Mindestens zwei der übrigen Finger gestreckt nach oben." />
+                            <CheckBox x:Name="HeartShapeInvertedCheck" Content="Umgedreht" FontWeight="SemiBold" Margin="0,12,0,0"
+                                      IsChecked="{Binding HeartShapeInverted}" IsEnabled="{Binding HeartShapeInvertedEnabled}"
+                                      AutomationProperties.Name="Herzform: Umgedreht" />
+                            <TextBlock Style="{DynamicResource Hint}" Margin="26,0,0,0"
+                                       Text="Das Herz steht auf dem Kopf." />
+                            <CheckBox x:Name="HeartShapeFingerHeartCheck" Content="Fingerherz" FontWeight="SemiBold" Margin="0,12,0,0"
+                                      IsChecked="{Binding HeartShapeFingerHeart}" IsEnabled="{Binding HeartShapeFingerHeartEnabled}"
+                                      AutomationProperties.Name="Herzform: Fingerherz" />
+                            <TextBlock Style="{DynamicResource Hint}" Margin="26,0,0,0"
+                                       Text="Eine Hand (experimentell, wird öfter fälschlich erkannt)." />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Die letzte gewählte Form lässt sich nicht abwählen." />
+                            <TextBlock x:Name="HeartNoShapeWarning" Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
+                                       Text="Wählen Sie mindestens eine Herzform aus."
+                                       Visibility="{Binding HeartHasNoShape, Converter={StaticResource BoolToVis}}" />
+
+                            <TextBlock Text="Haltedauer" Style="{DynamicResource FieldLabel}" />
+                            <local:NumberStepper x:Name="HeartHoldStepper" Value="{Binding HeartHoldMilliseconds}" Minimum="{x:Static core:SettingsLimits.HeartHoldMillisecondsMin}" Maximum="{x:Static core:SettingsLimits.HeartHoldMillisecondsMax}" Step="{x:Static core:SettingsLimits.HeartHoldMillisecondsStep}" Suffix=" ms" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="So lange muss das Herz gehalten werden. Länger verhindert Fehlauslösungen." />
+
+                            <TextBlock Text="Empfindlichkeit" Style="{DynamicResource FieldLabel}" />
+                            <local:NumberStepper x:Name="HeartSensitivityStepper" Value="{Binding HeartSensitivityPercent}" Minimum="{x:Static core:SettingsLimits.HeartSensitivityMin}" Maximum="{x:Static core:SettingsLimits.HeartSensitivityMax}" Step="5" Suffix=" %" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Höher erkennt auch undeutliche Herzen, löst aber öfter fälschlich aus." />
+
+                            <CheckBox x:Name="HeartShowHoldFeedbackCheck" Content="Herz beim Halten anzeigen" Margin="0,18,0,0"
+                                      IsChecked="{Binding HeartShowHoldFeedback}" AutomationProperties.Name="Herz beim Halten anzeigen" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Ein Fortschrittsherz zeigt dem Gast, wie lange er das Herz noch halten muss." />
+
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Analysen pro Sekunde" Style="{DynamicResource FieldLabel}" />
+                                <Button x:Name="HeartAnalysesInfo" Style="{DynamicResource InfoBadge}"
+                                        ToolTip="{x:Static vm:AdminInfoTexts.HeartAnalysesPerSecond}"
+                                        AutomationProperties.Name="{x:Static vm:AdminInfoTexts.AnalysesPerSecondName}"
+                                        AutomationProperties.HelpText="{x:Static vm:AdminInfoTexts.HeartAnalysesPerSecond}" />
+                            </StackPanel>
+                            <local:NumberStepper x:Name="HeartAnalysesStepper" Value="{Binding PeaceAnalysesPerSecond}" Minimum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMin}" Maximum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMax}" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Gilt gemeinsam für Peace-, Mittelfinger- und Herzerkennung (gleicher Wert wie auf der Peace-Seite)." />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Aktion -->
+                    <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                        <StackPanel>
+                            <TextBlock Text="Aktion" Style="{DynamicResource SectionTitle}" />
+                            <TextBlock Style="{DynamicResource Hint}" Margin="0,2,0,0"
+                                       Text="Genau eine Aktion wird ausgelöst, wenn ein Herz erkannt wird." />
+                            <ItemsControl x:Name="HeartActionList" ItemsSource="{Binding HeartActionOptions}" Margin="0,12,0,0"
+                                          Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <RadioButton GroupName="HeartAction" Style="{DynamicResource CardRadio}" Margin="0,0,0,10"
+                                                     IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                     AutomationProperties.Name="{Binding DisplayName, StringFormat='Aktion: {0}'}">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
+                                                <TextBlock Text="{Binding Description}" Style="{DynamicResource Hint}" TextAlignment="Center" />
+                                            </StackPanel>
+                                        </RadioButton>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Kisscam -->
+                    <Border x:Name="HeartKisscamCard" Style="{DynamicResource Card}" Margin="0,0,0,16"
+                            Visibility="{Binding IsKisscamActionSelected, Converter={StaticResource BoolToVis}}">
+                        <StackPanel>
+                            <TextBlock Text="Kisscam" Style="{DynamicResource SectionTitle}" />
+                            <TextBlock Style="{DynamicResource Hint}" Margin="0,2,0,0"
+                                       Text="Ein Rahmen im Stil einer Stadion-Videowand erscheint, ein Timer läuft ab, und am Ende entsteht ein Einzelfoto mit Kisscam-Rahmen. Es wird nach den Einstellungen im Tab „Drucker“ gedruckt. Ein Mittelfinger kann die Kisscam abbrechen (Seite „Mittelfinger“)." />
+
+                            <TextBlock Text="Timer" Style="{DynamicResource FieldLabel}" />
+                            <local:NumberStepper x:Name="KisscamSecondsStepper" Value="{Binding KisscamSeconds}" Minimum="{x:Static core:SettingsLimits.KisscamSecondsMin}" Maximum="{x:Static core:SettingsLimits.KisscamSecondsMax}" Suffix=" s" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="So lange haben die Gäste Zeit. In den letzten Sekunden erscheint ein großer Countdown 3 – 2 – 1." />
+                            <TextBlock x:Name="KisscamOnlyCountdownHint" Text="{x:Static vm:AdminViewModel.KisscamOnlyCountdownHintText}"
+                                       Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
+                                       Visibility="{Binding HasKisscamOnlyCountdownHint, Converter={StaticResource BoolToVis}}" />
+
+                            <TextBlock Text="Text für die Gäste" Style="{DynamicResource FieldLabel}" />
+                            <Grid Width="620" HorizontalAlignment="Left">
+                                <TextBox x:Name="KisscamTextBox" Text="{Binding KisscamText, UpdateSourceTrigger=PropertyChanged}"
+                                         MaxLength="{x:Static core:SettingsLimits.HintTextMaxLength}"
+                                         AutomationProperties.Name="Text für die Gäste" />
+                                <!-- Platzhalter: der Standardtext, solange das Feld leer ist -->
+                                <TextBlock x:Name="KisscamTextPlaceholder" Text="{Binding KisscamTextPlaceholder}" IsHitTestVisible="False"
+                                           Foreground="{DynamicResource MutedBrush}" FontSize="15" TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" Margin="12,0,12,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding KisscamText}" Value="">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Leer lassen für den Standardtext. {Sekunden} wird durch die Restzeit ersetzt." />
+                            <TextBlock x:Name="KisscamTextProblems" Text="{Binding KisscamTextProblemsText}" Style="{DynamicResource Hint}"
+                                       Foreground="{DynamicResource DangerBrush}"
+                                       Visibility="{Binding HasKisscamTextProblems, Converter={StaticResource BoolToVis}}" />
+
+                            <TextBlock Text="Banner-Text" Style="{DynamicResource FieldLabel}" />
+                            <Grid Width="320" HorizontalAlignment="Left">
+                                <TextBox x:Name="KisscamBannerTextBox" Text="{Binding KisscamBannerText, UpdateSourceTrigger=PropertyChanged}"
+                                         MaxLength="{x:Static core:SettingsLimits.KisscamBannerMaxLength}"
+                                         AutomationProperties.Name="Banner-Text" />
+                                <TextBlock x:Name="KisscamBannerPlaceholder" Text="{Binding KisscamBannerTextPlaceholder}" IsHitTestVisible="False"
+                                           Foreground="{DynamicResource MutedBrush}" FontSize="15" TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" Margin="12,0,12,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding KisscamBannerText}" Value="">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Die Aufschrift im Banner des Rahmens, auch im Foto. Leer lassen für „KISS CAM“." />
+
+                            <TextBlock Text="Farbe" Style="{DynamicResource FieldLabel}" />
+                            <UniformGrid Columns="3" Margin="0,0,-14,0">
+                                <RadioButton x:Name="KisscamColorPinkRed" GroupName="KisscamColor" Style="{DynamicResource CardRadio}" Margin="0,0,14,14"
+                                             IsChecked="{Binding KisscamColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:KisscamColor.PinkRed}}"
+                                             AutomationProperties.Name="Farbe: Pink-Rot">
+                                    <StackPanel>
+                                        <local:KisscamFrameSketch Color="PinkRed" />
+                                        <TextBlock Text="Pink-Rot" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton x:Name="KisscamColorRed" GroupName="KisscamColor" Style="{DynamicResource CardRadio}" Margin="0,0,14,14"
+                                             IsChecked="{Binding KisscamColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:KisscamColor.Red}}"
+                                             AutomationProperties.Name="Farbe: Rot">
+                                    <StackPanel>
+                                        <local:KisscamFrameSketch Color="Red" />
+                                        <TextBlock Text="Rot" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton x:Name="KisscamColorGold" GroupName="KisscamColor" Style="{DynamicResource CardRadio}" Margin="0,0,14,14"
+                                             IsChecked="{Binding KisscamColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:KisscamColor.Gold}}"
+                                             AutomationProperties.Name="Farbe: Gold">
+                                    <StackPanel>
+                                        <local:KisscamFrameSketch Color="Gold" />
+                                        <TextBlock Text="Gold" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton x:Name="KisscamColorPurple" GroupName="KisscamColor" Style="{DynamicResource CardRadio}" Margin="0,0,14,14"
+                                             IsChecked="{Binding KisscamColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:KisscamColor.Purple}}"
+                                             AutomationProperties.Name="Farbe: Lila">
+                                    <StackPanel>
+                                        <local:KisscamFrameSketch Color="Purple" />
+                                        <TextBlock Text="Lila" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton x:Name="KisscamColorBlackWhite" GroupName="KisscamColor" Style="{DynamicResource CardRadio}" Margin="0,0,14,14"
+                                             IsChecked="{Binding KisscamColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:KisscamColor.BlackWhite}}"
+                                             AutomationProperties.Name="Farbe: Schwarz-Weiß">
+                                    <StackPanel>
+                                        <local:KisscamFrameSketch Color="BlackWhite" />
+                                        <TextBlock Text="Schwarz-Weiß" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,0" HorizontalAlignment="Center" />
+                                    </StackPanel>
+                                </RadioButton>
+                            </UniformGrid>
+
+                            <TextBlock Text="Zoom" Style="{DynamicResource FieldLabel}" />
+                            <CheckBox x:Name="KisscamZoomCheck" Content="Auf die Herz-Personen zoomen" IsChecked="{Binding KisscamZoomEnabled}"
+                                      Margin="0,2,0,0" AutomationProperties.Name="Auf die Herz-Personen zoomen" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Das Livebild wird während der Kisscam digital auf die Personen vergrößert, die das Herz zeigen." />
+                            <StackPanel x:Name="KisscamZoomPanel" IsEnabled="{Binding KisscamZoomEnabled}" Style="{StaticResource Dim}">
+                                <TextBlock Text="Zoomstärke" Style="{DynamicResource FieldLabel}" />
+                                <local:NumberStepper x:Name="KisscamZoomStepper" Value="{Binding KisscamZoomPercent}" Minimum="{x:Static core:SettingsLimits.KisscamZoomPercentMin}" Maximum="{x:Static core:SettingsLimits.KisscamZoomPercentMax}" Step="{x:Static core:SettingsLimits.KisscamZoomPercentStep}" Suffix=" %" />
+                                <TextBlock Style="{DynamicResource Hint}"
+                                           Text="Stärkerer Zoom kostet Auflösung im Druck." />
+                            </StackPanel>
+
+                            <TextBlock Text="Dateipräfix des Fotos" Style="{DynamicResource FieldLabel}" />
+                            <TextBox x:Name="KisscamPrefixBox" Text="{Binding KisscamFilePrefix, UpdateSourceTrigger=PropertyChanged}"
+                                     MaxLength="{x:Static core:SettingsLimits.FilePrefixMaxLength}"
+                                     HorizontalAlignment="Left" Width="320" AutomationProperties.Name="Dateipräfix des Kisscam-Fotos" />
+                            <TextBlock x:Name="KisscamFileNameExampleText" Text="{Binding KisscamFileNameExample}" Style="{DynamicResource Hint}" />
+
+                            <TextBlock Text="Musik" Style="{DynamicResource FieldLabel}" />
+                            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                <Button x:Name="KisscamMusicPickButton" Content="Datei wählen …" Command="{Binding PickKisscamMusicCommand}"
+                                        AutomationProperties.Name="Musikdatei wählen" />
+                                <Button x:Name="KisscamMusicRemoveButton" Content="Entfernen" Command="{Binding RemoveKisscamMusicCommand}"
+                                        Margin="10,0,0,0" AutomationProperties.Name="Musikdatei entfernen" />
+                                <Button x:Name="KisscamMusicPreviewButton" Content="{Binding KisscamMusicPreviewButtonText}"
+                                        Command="{Binding ToggleKisscamMusicPreviewCommand}" Margin="10,0,0,0" MinWidth="90"
+                                        AutomationProperties.Name="Musik anhören oder stoppen" />
+                            </StackPanel>
+                            <TextBlock x:Name="KisscamMusicFileNameText" Text="{Binding KisscamMusicFileName}" ToolTip="{Binding KisscamMusicPath}"
+                                       Foreground="{DynamicResource TextBrush}" FontSize="14" TextTrimming="CharacterEllipsis" Margin="0,10,0,0" />
+                            <TextBlock x:Name="KisscamMusicMissingWarning" Text="{x:Static vm:AdminViewModel.KisscamMusicMissingText}"
+                                       Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
+                                       Visibility="{Binding KisscamMusicMissing, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock x:Name="KisscamMusicPlayFailedWarning" Text="{x:Static vm:AdminViewModel.KisscamMusicPlayFailedText}"
+                                       Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
+                                       Visibility="{Binding KisscamMusicPlayFailed, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Ohne Datei läuft die Kisscam ohne Ton. Erlaubt sind WAV- und MP3-Dateien. Der Dateipfad gilt nur für diesen Rechner und wird beim Teilen der Einstellungen nicht übertragen." />
+
+                            <TextBlock Text="Lautstärke" Style="{DynamicResource FieldLabel}" />
+                            <local:NumberStepper x:Name="KisscamMusicVolumeStepper" Value="{Binding KisscamMusicVolumePercent}" Minimum="{x:Static core:SettingsLimits.KisscamMusicVolumeMin}" Maximum="{x:Static core:SettingsLimits.KisscamMusicVolumeMax}" Step="{x:Static core:SettingsLimits.KisscamMusicVolumeStep}" Suffix=" %" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Die Lautstärke gilt beim nächsten Anhören." />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

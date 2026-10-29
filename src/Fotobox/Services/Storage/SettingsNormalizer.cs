@@ -37,6 +37,7 @@ internal static class SettingsNormalizer
         s.Fun ??= new FunSettings();
         s.Peace ??= new PeaceSettings();
         s.MiddleFinger ??= new MiddleFingerSettings();
+        s.Heart ??= new HeartSettings();
 
         NormalizeCamera(s.Camera);
 
@@ -75,6 +76,7 @@ internal static class SettingsNormalizer
         NormalizeFun(s.Fun);
         NormalizePeace(s.Peace);
         NormalizeMiddleFinger(s.MiddleFinger);
+        NormalizeHeart(s.Heart);
 
         // PinIterations wird bewusst nicht geklemmt: Ein anderer Wert passte nicht mehr zum gespeicherten Hash (siehe PinService).
 
@@ -299,7 +301,7 @@ internal static class SettingsNormalizer
 
     /// <summary>
     /// Mittelfinger-Einstellungen: Zahlen auf <see cref="SettingsLimits"/> klemmen, Haltedauer auf 100er-Schritte runden;
-    /// ohne gewählte Aktion gilt „Peace-Effekte aufheben“.
+    /// ohne irgendeine gewählte Aktion (weder Peace-Effekte noch Kisscam abbrechen) gilt „Peace-Effekte aufheben“.
     /// </summary>
     private static void NormalizeMiddleFinger(MiddleFingerSettings m)
     {
@@ -310,6 +312,54 @@ internal static class SettingsNormalizer
 
         if (!m.HasAnyAction)
             m.ActionCancelPeace = true;
+    }
+
+    /// <summary>
+    /// Herz-/Kisscam-Einstellungen: Zahlen auf <see cref="SettingsLimits"/> klemmen (Haltedauer auf 100er-, Zoom auf 10er-,
+    /// Lautstärke auf 5er-Schritte runden), ohne gewählte Herzform gilt „Klassisch“, unbekannte Enum-Werte → Standard.
+    /// Texte: Steuerzeichen → Leerzeichen, gekürzt, nur Leerraum → null (= Standardtext). Präfix leer → Standard.
+    /// Der Musikpfad wird nur getrimmt und auf Plausibilität geprüft (keine Steuerzeichen, Länge), nie auf Existenz:
+    /// Datei oder Laufwerk können später verfügbar sein.
+    /// </summary>
+    private static void NormalizeHeart(HeartSettings h)
+    {
+        var defaults = new HeartSettings();
+
+        h.HoldMilliseconds = ClampToStep(h.HoldMilliseconds, SettingsLimits.HeartHoldMillisecondsMin,
+            SettingsLimits.HeartHoldMillisecondsMax, SettingsLimits.HeartHoldMillisecondsStep);
+        h.SensitivityPercent = Math.Clamp(h.SensitivityPercent, SettingsLimits.HeartSensitivityMin, SettingsLimits.HeartSensitivityMax);
+        h.KisscamSeconds = Math.Clamp(h.KisscamSeconds, SettingsLimits.KisscamSecondsMin, SettingsLimits.KisscamSecondsMax);
+        h.KisscamZoomPercent = ClampToStep(h.KisscamZoomPercent, SettingsLimits.KisscamZoomPercentMin,
+            SettingsLimits.KisscamZoomPercentMax, SettingsLimits.KisscamZoomPercentStep);
+        h.KisscamMusicVolumePercent = ClampToStep(h.KisscamMusicVolumePercent, SettingsLimits.KisscamMusicVolumeMin,
+            SettingsLimits.KisscamMusicVolumeMax, SettingsLimits.KisscamMusicVolumeStep);
+
+        if (!h.HasAnyShape)
+            h.ShapeClassic = true;
+
+        if (!Enum.IsDefined(h.Action))
+            h.Action = defaults.Action;
+        if (!Enum.IsDefined(h.KisscamColor))
+            h.KisscamColor = defaults.KisscamColor;
+
+        h.KisscamText = SanitizeHintText(h.KisscamText);
+        var banner = CleanLine(h.KisscamBannerText, SettingsLimits.KisscamBannerMaxLength);
+        h.KisscamBannerText = string.IsNullOrEmpty(banner) ? null : banner;
+        h.KisscamFilePrefix = SanitizePrefix(h.KisscamFilePrefix, HeartSettings.DefaultKisscamFilePrefix);
+
+        var music = h.KisscamMusicPath?.Trim();
+        if (string.IsNullOrEmpty(music)
+            || music.Length > SettingsLimits.KisscamMusicPathMaxLength
+            || music.Any(char.IsControl))
+            music = null;
+        h.KisscamMusicPath = music;
+    }
+
+    /// <summary>Rundet kaufmännisch auf ein Vielfaches von <paramref name="step"/> und klemmt auf [<paramref name="min"/>, <paramref name="max"/>].</summary>
+    private static int ClampToStep(int value, int min, int max, int step)
+    {
+        var rounded = (int)(Math.Round(value / (double)step, MidpointRounding.AwayFromZero) * step);
+        return Math.Clamp(rounded, min, max);
     }
 
     /// <summary>

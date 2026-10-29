@@ -1263,8 +1263,8 @@
 
             <!-- ============================== Fun ============================== -->
             <TabItem x:Name="FunTab" Header="Fun" Tag="&#xE81D;">
-                <!-- Vier Seiten als Geschwister (kein verschachteltes TabControl: es erbte den Seitenleisten-Stil): Startseite mit Kacheln,
-                     Personenerkennung (Zielerfassung), Peaceerkennung und Mittelfinger. Sichtbar je nach AdminViewModel.FunPage. -->
+                <!-- Fünf Seiten als Geschwister (kein verschachteltes TabControl: es erbte den Seitenleisten-Stil): Startseite mit Kacheln,
+                     Personenerkennung (Zielerfassung), Peaceerkennung, Mittelfinger und Herz. Sichtbar je nach AdminViewModel.FunPage. -->
                 <Grid xmlns:funconv="clr-namespace:Fotobox.Views.Converters">
                     <Grid.Resources>
                         <funconv:EnumMatchVisibilityConverter x:Key="FunPageVis" />
@@ -1362,11 +1362,35 @@
                                         <StackPanel Grid.Row="1" Margin="0,14,0,16">
                                             <TextBlock Text="Mittelfinger" FontSize="20" FontWeight="SemiBold" />
                                             <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0"
-                                                       Text="Hebt Bart und Selbstzerstörung auf." />
+                                                       Text="Hebt Bart, Selbstzerstörung und Kisscam auf." />
                                         </StackPanel>
                                         <Grid Grid.Row="2">
                                             <Border Style="{StaticResource FunTileStatus}">
                                                 <TextBlock Text="{Binding MiddleFingerStatusText}" Style="{StaticResource FunTileStatusText}" />
+                                            </Border>
+                                            <TextBlock Text="›" FontSize="30" Foreground="{DynamicResource MutedBrush}"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-8,0,0" />
+                                        </Grid>
+                                    </Grid>
+                                </Button>
+                                <Button x:Name="FunTileHeart" Style="{StaticResource FunTile}"
+                                        Command="{Binding ShowFunPageCommand}" CommandParameter="{x:Static vm:FunPage.Heart}"
+                                        AutomationProperties.Name="Herz">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="56" />
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="&#x2764;" FontFamily="Segoe UI Emoji" FontSize="38" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Row="1" Margin="0,14,0,16">
+                                            <TextBlock Text="Herz" FontSize="20" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0"
+                                                       Text="Verstecktes Extra: Ein Herz aus zwei Händen startet die Kisscam." />
+                                        </StackPanel>
+                                        <Grid Grid.Row="2">
+                                            <Border Style="{StaticResource FunTileStatus}">
+                                                <TextBlock Text="{Binding HeartStatusText}" Style="{StaticResource FunTileStatusText}" />
                                             </Border>
                                             <TextBlock Text="›" FontSize="30" Foreground="{DynamicResource MutedBrush}"
                                                        HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-8,0,0" />
@@ -1822,6 +1846,10 @@
                     <!-- Seite „Mittelfinger“ -->
                     <local:MiddleFingerSettingsView x:Name="MiddleFingerPage"
                                                     Visibility="{Binding FunPage, Converter={StaticResource FunPageVis}, ConverterParameter={x:Static vm:FunPage.MiddleFinger}}" />
+
+                    <!-- Seite „Herz“ -->
+                    <local:HeartSettingsView x:Name="HeartPage"
+                                             Visibility="{Binding FunPage, Converter={StaticResource FunPageVis}, ConverterParameter={x:Static vm:FunPage.Heart}}" />
                 </Grid>
             </TabItem>
         </TabControl>

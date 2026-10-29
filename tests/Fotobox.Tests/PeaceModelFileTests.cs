@@ -92,6 +92,10 @@ public sealed class PeaceModelFileTests(ITestOutputHelper output)
         Assert.Equal(224, inputDims[2]);
         Assert.Equal(224, inputDims[3]);
         Assert.Equal(3, session.OutputNames.Count);
+        // Der Detektor liest die Händigkeit (Herzerkennung) über diesen Namen; ohne sie bliebe Handedness stets null.
+        Assert.Contains("xyz_x21", session.OutputNames);
+        Assert.Contains("hand_score", session.OutputNames);
+        Assert.Contains("lefthand_0_or_righthand_1", session.OutputNames);
 
         var (shapes, ms) = RunZeros(session, [1, 3, 224, 224]);
         for (var i = 0; i < shapes.Length; i++)

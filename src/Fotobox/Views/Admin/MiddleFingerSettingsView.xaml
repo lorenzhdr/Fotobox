@@ -44,7 +44,7 @@
                         <CheckBox x:Name="MiddleFingerEnabledCheck" Content="Mittelfingererkennung aktiv" IsChecked="{Binding MiddleFingerEnabled}"
                                   Margin="0,12,0,0" FontWeight="SemiBold" AutomationProperties.Name="Mittelfingererkennung aktiv" />
                         <TextBlock Style="{DynamicResource Hint}"
-                                   Text="Verstecktes Extra: Hält jemand den Mittelfinger in die Kamera, verschwinden alle Schnurrbärte, und eine laufende Selbstzerstörung wird abgebrochen. Die Funktion wirkt nur zusammen mit der Peaceerkennung. In der Gastansicht wird darauf nicht hingewiesen." />
+                                   Text="Verstecktes Extra: Hält jemand den Mittelfinger in die Kamera, verschwinden alle Schnurrbärte, eine laufende Selbstzerstörung wird abgebrochen, und eine laufende Kisscam wird beendet. Die Funktion wirkt nur zusammen mit der Peace- oder der Herzerkennung. In der Gastansicht wird darauf nicht hingewiesen." />
                         <TextBlock x:Name="MiddleFingerPeaceDisabledWarning" Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
                                    Text="{Binding MiddleFingerPeaceDisabledWarning}"
                                    Visibility="{Binding HasMiddleFingerPeaceDisabledWarning, Converter={StaticResource BoolToVis}}" />
@@ -128,7 +128,7 @@
                             </StackPanel>
                             <local:NumberStepper x:Name="MiddleFingerAnalysesStepper" Value="{Binding PeaceAnalysesPerSecond}" Minimum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMin}" Maximum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMax}" />
                             <TextBlock Style="{DynamicResource Hint}"
-                                       Text="Gilt gemeinsam für Peace- und Mittelfingererkennung (gleicher Wert wie auf der Peace-Seite)." />
+                                       Text="Gilt gemeinsam für Peace-, Mittelfinger- und Herzerkennung (gleicher Wert wie auf der Peace-Seite)." />
                         </StackPanel>
                     </Border>
 
@@ -141,6 +141,11 @@
                                       IsChecked="{Binding MiddleFingerActionCancelPeace}"
                                       IsEnabled="{Binding MiddleFingerActionCancelPeaceEnabled}"
                                       AutomationProperties.Name="Aktion: Peace-Effekte aufheben" />
+                            <CheckBox x:Name="MiddleFingerActionCancelKisscamCheck" Margin="0,12,0,0"
+                                      Content="Kisscam abbrechen (laufenden Countdown ohne Foto beenden)"
+                                      IsChecked="{Binding MiddleFingerActionCancelKisscam}"
+                                      IsEnabled="{Binding MiddleFingerActionCancelKisscamEnabled}"
+                                      AutomationProperties.Name="Aktion: Kisscam abbrechen" />
                             <TextBlock Style="{DynamicResource Hint}"
                                        Text="Die letzte gewählte Aktion lässt sich nicht abwählen." />
                             <TextBlock x:Name="MiddleFingerNoActionWarning" Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"

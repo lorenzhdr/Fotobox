@@ -22,6 +22,7 @@ public sealed class MiddleFingerSettingsTests
 
         Assert.True(m.Enabled);
         Assert.True(m.ActionCancelPeace);
+        Assert.True(m.ActionCancelKisscam);
         Assert.Equal(500, m.HoldMilliseconds);
         Assert.Equal(50, m.SensitivityPercent);
         Assert.True(m.HasAnyAction);
@@ -74,10 +75,41 @@ public sealed class MiddleFingerSettingsTests
     [Fact]
     public void NoAction_FallsBackToCancelPeace()
     {
-        var m = Normalized(s => s.MiddleFinger.ActionCancelPeace = false).MiddleFinger;
+        var m = Normalized(s => { s.MiddleFinger.ActionCancelPeace = false; s.MiddleFinger.ActionCancelKisscam = false; }).MiddleFinger;
 
         Assert.True(m.ActionCancelPeace);
         Assert.True(m.HasAnyAction);
+    }
+
+    [Fact]
+    public void OnlyCancelKisscam_IsKept_AndPeaceStaysOff()
+    {
+        var m = Normalized(s => { s.MiddleFinger.ActionCancelPeace = false; s.MiddleFinger.ActionCancelKisscam = true; }).MiddleFinger;
+
+        Assert.False(m.ActionCancelPeace);
+        Assert.True(m.ActionCancelKisscam);
+        Assert.True(m.HasAnyAction);
+    }
+
+    [Fact]
+    public void OnlyCancelPeace_IsKept_AndKisscamStaysOff()
+    {
+        var m = Normalized(s => { s.MiddleFinger.ActionCancelPeace = true; s.MiddleFinger.ActionCancelKisscam = false; }).MiddleFinger;
+
+        Assert.True(m.ActionCancelPeace);
+        Assert.False(m.ActionCancelKisscam);
+    }
+
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(false, false, false)]
+    public void HasAnyAction_IsPeaceOrKisscam(bool peace, bool kisscam, bool expected)
+    {
+        var m = new MiddleFingerSettings { ActionCancelPeace = peace, ActionCancelKisscam = kisscam };
+
+        Assert.Equal(expected, m.HasAnyAction);
     }
 
     [Fact]
@@ -165,6 +197,30 @@ public sealed class MiddleFingerSettingsTests
         var m = new MiddleFingerSettings { Enabled = enabled, ActionCancelPeace = action };
 
         Assert.Equal(expected, m.Wants(present));
+    }
+
+    [Theory]
+    [InlineData(true, true, true, true)]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, false, true, false)]
+    [InlineData(true, false, false, false)]
+    [InlineData(false, true, true, false)]
+    [InlineData(false, false, false, false)]
+    public void Wants_Kisscam_FollowsEnabledAndKisscamAction(bool enabled, bool cancelKisscam, bool cancelPeace, bool expected)
+    {
+        var m = new MiddleFingerSettings { Enabled = enabled, ActionCancelKisscam = cancelKisscam, ActionCancelPeace = cancelPeace };
+
+        Assert.Equal(expected, m.Wants(MiddleFingerTargets.Kisscam));
+    }
+
+    [Fact]
+    public void Wants_PeaceTargets_IgnoreKisscamAction()
+    {
+        var m = new MiddleFingerSettings { ActionCancelPeace = false, ActionCancelKisscam = true };
+
+        Assert.False(m.Wants(MiddleFingerTargets.Moustache));
+        Assert.False(m.Wants(MiddleFingerTargets.SelfDestruct));
+        Assert.True(m.Wants(MiddleFingerTargets.Moustache | MiddleFingerTargets.Kisscam));
     }
 
     [Fact]

@@ -13,8 +13,11 @@ public readonly record struct HandPoint(double X, double Y, double Z);
 /// </summary>
 public sealed record FaceLandmarks(NormRect Box, double Score, NormPoint RightEye, NormPoint LeftEye, NormPoint Nose, NormPoint MouthRight, NormPoint MouthLeft);
 
-/// <summary>Hand mit genau 21 Punkten in der Reihenfolge von MediaPipe (0 = Handgelenk).</summary>
-public sealed record HandLandmarks(IReadOnlyList<HandPoint> Points, double Score, NormRect Box);
+/// <summary>
+/// Hand mit genau 21 Punkten in der Reihenfolge von MediaPipe (0 = Handgelenk). <paramref name="Handedness"/> = Händigkeit laut Modell
+/// (0 = links, 1 = rechts), null = unbekannt; noch nicht auf die Spiegelung des Kamerabilds kalibriert.
+/// </summary>
+public sealed record HandLandmarks(IReadOnlyList<HandPoint> Points, double Score, NormRect Box, double? Handedness = null);
 
 /// <summary>Was eine Anforderung an Erkennung braucht.</summary>
 [Flags]
@@ -24,8 +27,9 @@ public enum GestureNeeds { None = 0, Faces = 1, Hands = 2 }
 /// Bedarf einer Anforderung: Umfang, Rate (Analysen pro Sekunde) und Mindestscores. <paramref name="HandCycleDivisor"/> &gt; 1 =
 /// schneller Gesichtsmodus (Bart sichtbar): Gesichter laufen in jedem Zyklus (<paramref name="AnalysesPerSecond"/>), die Handstufe
 /// nur in jedem n-ten (effektive Handrate = Rate / n), und Gesichter werden vor der Handstufe ausgeliefert.
+/// <paramref name="PairedHands"/> = Herzerkennung aktiv: Die Pipeline darf eng anliegende Hände nicht zusammenfassen.
 /// </summary>
-public sealed record GestureRequestOptions(GestureNeeds Needs, int AnalysesPerSecond, double MinFaceScore, double MinHandScore, int HandCycleDivisor = 1);
+public sealed record GestureRequestOptions(GestureNeeds Needs, int AnalysesPerSecond, double MinFaceScore, double MinHandScore, int HandCycleDivisor = 1, bool PairedHands = false);
 
 /// <summary>
 /// Zustand der Erkennungsstufen; Gründe sind kurze deutsche Texte für Admin und Log. <paramref name="MeanCycleMs"/> = mittlere Dauer

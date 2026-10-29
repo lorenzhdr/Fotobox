@@ -624,16 +624,19 @@ public sealed class AdminPeaceTabTests : IDisposable
             Assert.Equal(Visibility.Collapsed, peace.Visibility);
 
             var tiles = FindDescendants<Button>(start).Where(b => b.Style == window.TryFindResource("FunTile")).ToList();
-            Assert.Equal(3, tiles.Count);
-            Assert.Equal(["Personenerkennung", "Peaceerkennung", "Mittelfinger"], tiles.Select(AutomationProperties.GetName));
+            Assert.Equal(4, tiles.Count);
+            Assert.Equal(["Personenerkennung", "Peaceerkennung", "Mittelfinger", "Herz"], tiles.Select(AutomationProperties.GetName));
             Assert.Contains(FindDescendants<TextBlock>(start), t => t.Text == "Zielmarkierungen über erkannten Personen im Livebild.");
             Assert.Contains(FindDescendants<TextBlock>(start), t => t.Text == "Verstecktes Extra: Ein Peace-Zeichen löst eine Überraschung aus.");
-            Assert.Equal(["An", "An", "An"], FindDescendants<TextBlock>(start).Where(t => t.Text is "An" or "Aus").Select(t => t.Text));
+            Assert.Equal(["An", "An", "An", "An · Kisscam"],
+                FindDescendants<TextBlock>(start).Where(t => t.Text is "An" or "Aus" || t.Text.StartsWith("An ·", StringComparison.Ordinal)).Select(t => t.Text));
 
             vm.FunEnabled = false;
             vm.PeaceEnabled = false;
             vm.MiddleFingerEnabled = false;
-            Assert.Equal(["Aus", "Aus", "Aus"], FindDescendants<TextBlock>(start).Where(t => t.Text is "An" or "Aus").Select(t => t.Text));
+            vm.HeartEnabled = false;
+            Assert.Equal(["Aus", "Aus", "Aus", "Aus"],
+                FindDescendants<TextBlock>(start).Where(t => t.Text is "An" or "Aus" || t.Text.StartsWith("An ·", StringComparison.Ordinal)).Select(t => t.Text));
         });
     }
 

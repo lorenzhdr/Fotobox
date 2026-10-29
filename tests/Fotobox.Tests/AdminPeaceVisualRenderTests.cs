@@ -12,7 +12,7 @@ namespace Fotobox.Tests;
 
 /// <summary>
 /// Sichtprüfung per Bilddatei, kein Test im engeren Sinn: Läuft nur, wenn die Umgebungsvariable <c>FOTOBOX_RENDER_DIR</c> auf einen
-/// Ordner zeigt (sonst sofort beendet, auch in der CI). Rendert die Startseite des Admin-Tabs „Fun“, die Seiten „Peaceerkennung“ und „Mittelfinger“
+/// Ordner zeigt (sonst sofort beendet, auch in der CI). Rendert die Startseite des Admin-Tabs „Fun“, die Seiten „Peaceerkennung“, „Mittelfinger“ und „Herz“
 /// im hellen und dunklen Schema als PNG.
 /// Aufruf: <c>FOTOBOX_RENDER_DIR=C:\pfad\render dotnet test --filter "FullyQualifiedName~AdminPeaceVisualRenderTests"</c>.
 /// </summary>
@@ -44,7 +44,8 @@ public sealed class AdminPeaceVisualRenderTests : IDisposable
         return dir;
     }
 
-    private void Render(string outDir, string name, AdminThemeMode theme, FunPage page, int width, int height)
+    private void Render(string outDir, string name, AdminThemeMode theme, FunPage page, int width, int height,
+        Action<AdminViewModel>? afterTabSelected = null)
     {
         var store = new AdminViewModelTests.FakeStore(_dir);
         using var vm = new AdminViewModel(store, new AdminViewModelTests.FakePinService(store),
@@ -61,6 +62,9 @@ public sealed class AdminPeaceVisualRenderTests : IDisposable
         var root = (FrameworkElement)window.Content;
         root.Measure(new Size(width, height));
         root.Arrange(new Rect(0, 0, width, height));
+        root.UpdateLayout();
+        afterTabSelected?.Invoke(vm); // erst nach dem ersten Layout, wie im Betrieb
+        root.UpdateLayout();
         root.UpdateLayout();
 
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
@@ -91,7 +95,7 @@ public sealed class AdminPeaceVisualRenderTests : IDisposable
     }
 
     [StaFact]
-    public void Render_StartPagePeacePageAndMiddleFingerPage()
+    public void Render_StartPagePeacePageMiddleFingerPageAndHeartPage()
     {
         var dir = RenderDir();
         if (dir is null)
@@ -104,6 +108,9 @@ public sealed class AdminPeaceVisualRenderTests : IDisposable
             Render(dir, $"admin-fun-start-{suffix}.png", theme, FunPage.Start, 1100, 750);
             Render(dir, $"admin-fun-peace-{suffix}.png", theme, FunPage.Peace, 1100, 3300);
             Render(dir, $"admin-fun-mittelfinger-{suffix}.png", theme, FunPage.MiddleFinger, 1100, 1750);
+            Render(dir, $"admin-fun-herz-{suffix}.png", theme, FunPage.Heart, 1100, 3300);
+            // Mit laufendem Kisscam-Test: Jumbotron-Rahmen und Gasttext in der Vorschau
+            Render(dir, $"admin-fun-herz-test-{suffix}.png", theme, FunPage.Heart, 1100, 1300, v => v.ToggleKisscamTestCommand.Execute(null));
         }
     }
 }

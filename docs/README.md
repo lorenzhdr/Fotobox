@@ -1,6 +1,6 @@
 # Entwicklerdokumentation Fotobox+ (Stand 2.5.1)
 
-Fotobox+ ist eine WPF-Anwendung (.NET 10, Windows, x64 und ARM64, self-contained) für Fotoboxen auf Veranstaltungen: Das Livebild einer Webcam läuft im Vollbild, ein Tastendruck (Standard Leertaste) startet Countdown, Foto(s), Speichern und Druck. Dazu kommen ein Videomodus, ein PIN-geschützter Admin-Bereich und spielerische Zusatzfunktionen (Zielerfassung, Peaceerkennung, Mittelfingererkennung).
+Fotobox+ ist eine WPF-Anwendung (.NET 10, Windows, x64 und ARM64, self-contained) für Fotoboxen auf Veranstaltungen: Das Livebild einer Webcam läuft im Vollbild, ein Tastendruck (Standard Leertaste) startet Countdown, Foto(s), Speichern und Druck. Dazu kommen ein Videomodus, ein PIN-geschützter Admin-Bereich und spielerische Zusatzfunktionen (Zielerfassung, Peaceerkennung, Mittelfingererkennung, Herzerkennung mit Kisscam).
 
 Diese Dokumentation richtet sich an Menschen und an KI-Agenten, die am Code weiterarbeiten. Sie beschreibt den tatsächlichen Stand des Codes; bei Abweichungen gilt der Code. Nutzerorientierte Kurzinfos stehen in der `README.md` im Repo-Root, Hinweise für KI-Assistenten in `CLAUDE.md`.
 
@@ -27,6 +27,7 @@ Hinweis zum Namen: Die App hieß bis 1.4.1 „Fotobox“. Der sichtbare Name ist
 | `video.md` | Videomodus: Ablauf, Aufnahme, Speicherung, Gastansicht. |
 | `fun-zielerfassung.md` | Zielerfassung: Personenerkennung (YOLOX/Windows-Gesichter), Engine, Tracker, Animation, Töne. |
 | `fun-peace-mittelfinger.md` | Peaceerkennung (Selbstzerstörung, Foto, Bart) und Mittelfingererkennung. |
+| `fun-herz-kisscam.md` | Herzerkennung (Formen, Paarbildung, `PairedHands`, Engine) und Aktion Kisscam (Ablauf, Rahmen, Zoom, Musik, Abbruch). |
 | `build-release.md` | Publish, CI, Release-Ablauf, VC++-Runtime, Smoke-Test. |
 | `tests.md` | Teststrategie, Befehle, Konventionen (STA, Collections, Hardware-Tests). |
 | `bekannte-grenzen.md` | Bekannte Grenzen, offene Punkte und bewusst nicht Geändertes. |
@@ -54,6 +55,7 @@ Hinweis zum Namen: Die App hieß bis 1.4.1 „Fotobox“. Der sichtbare Name ist
 | Fotos und Videos enthalten keine Zielmarken; nur der Schnurrbart wird ins Foto gezeichnet. | `fun-zielerfassung.md`, `fun-peace-mittelfinger.md` |
 | Der `BoothController` ist UI-frei; Zeit läuft über `TimeProvider`; Compose läuft auf dem UI-Thread. | `architektur.md` |
 | Alle Admin-Farben stehen nur in den beiden Paletten (`AdminColors.Light.xaml`/`AdminColors.Dark.xaml`, gleiche Schlüssel) und werden per `DynamicResource` bezogen. | `admin.md` |
+| Der `MusicPlayer` läuft auf eigenem Thread; Aufrufer posten nur und warten nie synchron (UI-Thread), ohne Musikdatei bzw. bei Fehlern bleibt es still. | `fun-herz-kisscam.md` |
 | Jede neue WPF-Testklasse trägt `[Collection(WpfCollection.Name)]`. | `tests.md` |
 | Öffentliches Repo: keine persönlichen oder gerätespezifischen Daten (Benutzernamen, lokale Pfade, Hostnamen, Drucker-/Kameramodelle, Portnamen) in Code, Tests, Docs oder Commits. | – |
 

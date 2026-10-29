@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Fotobox.Core;
 using Fotobox.Core.Fun;
+using Fotobox.Core.Heart;
 using Fotobox.Core.Peace;
 using Fotobox.Services.Detection.Peace;
 
@@ -22,7 +23,7 @@ public enum PeaceMode
 /// Tick-Timer und Töne. Nur auf dem UI-Thread verwenden; <see cref="SetMode"/> merkt sich dessen <see cref="SynchronizationContext"/>
 /// für die Timer-Ticks.
 /// </summary>
-public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
+public sealed partial class PeaceOverlayViewModel : ObservableObject, IDisposable
 {
     /// <summary>Takt von Engine und Bart-Verfolgung.</summary>
     public static readonly TimeSpan TickInterval = TimeSpan.FromMilliseconds(100);
@@ -96,6 +97,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         _faceTracker = new FaceTracker(time);
         _engine = new PeaceEngine(time, random);
         _mfEngine = new MiddleFingerEngine(time);
+        _heartEngine = CreateHeartEngine(time);
         _tracker = new MoustacheTracker(time, random);
         _engine.Triggered += OnEngineTriggered;
         _engine.Changed += (_, _) => RefreshHands();
@@ -234,9 +236,15 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     /// (z. B. <see cref="MiddleFingerTargets.SelfDestruct"/> im Selbstzerstörungs-Countdown; ein aktiver Bart zählt von selbst) wird
     /// <see cref="MiddleFingerWatching"/> bestimmt. Nur dann fordert <see cref="PeaceMode.FollowMoustache"/> auch Hände an.
     /// </para>
+    /// <para>
+    /// Herz: Mit <paramref name="heart"/> (null = aus) beobachtet die Herzerkennung die Hände mit; sie teilt sich die Anforderung (und
+    /// die Analyserate) mit der Peaceerkennung und löst nur in <see cref="PeaceMode.Watching"/> aus. <paramref name="peaceGestures"/>
+    /// false schaltet die Peace-Gesten ab (Herz ohne Peace), Bärte und Mittelfinger bleiben davon unberührt.
+    /// </para>
     /// </summary>
     public void SetMode(PeaceMode mode, PeaceSettings settings, bool mirror,
-        MiddleFingerSettings? middleFinger = null, MiddleFingerTargets external = MiddleFingerTargets.None)
+        MiddleFingerSettings? middleFinger = null, MiddleFingerTargets external = MiddleFingerTargets.None,
+        HeartSettings? heart = null, bool peaceGestures = true)
     {
         ArgumentNullException.ThrowIfNull(settings);
         if (_disposed)
@@ -246,6 +254,8 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         _settings = settings.Clone();
         _mf = middleFinger?.Clone();
         _mfExternal = external;
+        _heart = heart?.Clone();
+        _peaceGestures = peaceGestures;
         if (mode == PeaceMode.Off)
         {
             var changed = _mode != PeaceMode.Off;
@@ -262,10 +272,16 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         _mode = mode;
 
         _engine.Configure(_settings, MoustacheAvailable);
-        _engine.GesturesEnabled = mode == PeaceMode.Watching;
+        _engine.GesturesEnabled = mode == PeaceMode.Watching && peaceGestures;
         _tracker.SetHoldExpiry(mode == PeaceMode.FollowMoustache);
         _mfEngine.Configure(_mf ?? new MiddleFingerSettings { Enabled = false }, _settings.AnalysesPerSecond);
+        ConfigureHeart(mode);
         UpdateMiddleFingerWatching();
+
+        // Ein Ereignis während des Konfigurierens kann SetMode verschachtelt aufgerufen haben (Betriebsart oder Entsorgung geändert):
+        // Dann hat der innere Aufruf alles erledigt, dieser veraltete darf Anforderung und Betriebsart nicht mehr überschreiben.
+        if (_disposed || _mode != mode)
+            return;
 
         var options = BuildOptions();
         _faceTracker.LostAfter = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor / Math.Max(1, options.AnalysesPerSecond));
@@ -303,6 +319,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         {
             _engine.Reset();
             _mfEngine.Reset();
+            _heartEngine.Reset();
         }
         StartTimer();
         if (modeChanged)
@@ -407,19 +424,31 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
     private GestureRequestOptions BuildOptions()
     {
         var watching = _mode == PeaceMode.Watching;
-        // Solange etwas aufzuheben ist, reicht für den Mittelfinger die niedrigere der beiden Mindestwerte.
-        var minHand = _mfWatching && _mf is not null ? Math.Min(_settings.MinHandScore, _mf.MinHandScore) : _settings.MinHandScore;
+        var heartOn = HeartActive;
+        // Hände braucht, wer sie auswertet: Peace-Gesten oder Herz im Leerlauf bzw. der Mittelfinger, solange etwas aufzuheben ist.
+        var wantsHands = (watching && (_peaceGestures || heartOn)) || _mfWatching;
+
+        // Der niedrigste Mindestwert der aktiven Funktionen gilt (jede darf ihre Hände sehen).
+        var minHand = double.MaxValue;
+        if (_peaceGestures)
+            minHand = _settings.MinHandScore;
+        if (_mfWatching && _mf is not null)
+            minHand = Math.Min(minHand, _mf.MinHandScore);
+        if (heartOn && _heart is not null)
+            minHand = Math.Min(minHand, _heart.MinHandScore);
+        if (minHand == double.MaxValue)
+            minHand = _settings.MinHandScore;
 
         // Ohne Hände bleibt es bei billigen Gesichtern (Hände brauchen ohnehin die Gesichter als Suchbereiche).
-        if (!watching && !_mfWatching)
+        if (!wantsHands)
             return new GestureRequestOptions(GestureNeeds.Faces, FollowRate, MinFaceScore, minHand);
 
         if (_tracker.IsActive)
         {
             var cycleRate = Math.Clamp(Math.Max(FollowRate, FastHandDivisor * Math.Max(1, _settings.AnalysesPerSecond)), 1, MaxFastRate);
-            return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, cycleRate, MinFaceScore, minHand, FastHandDivisor);
+            return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, cycleRate, MinFaceScore, minHand, FastHandDivisor, heartOn);
         }
-        return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, _settings.AnalysesPerSecond, MinFaceScore, minHand);
+        return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, _settings.AnalysesPerSecond, MinFaceScore, minHand, PairedHands: heartOn);
     }
 
     // Gibt es etwas aufzuheben? Setzt die Engine scharf bzw. aus; true, wenn sich das geändert hat (dann muss die Anforderung neu bestimmt werden).
@@ -481,6 +510,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         StopTimer();
         _engine.GesturesEnabled = false;
         _engine.Reset();
+        ResetHeart();
         var mfWasWatching = _mfWatching;
         _mfWatching = false;
         _mfEngine.Applicable = false;
@@ -575,9 +605,14 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         {
             // Ohne angeforderte Hände liefert der Dienst leere Handlisten; die Peace-Engine darf sie nicht als beobachtete Ruhe
             // werten, sonst würde sie ohne Handdaten wieder scharf (z. B. ein über Foto und Vorschau gehaltenes Peace nach dem Bart).
-            if (_options is { } options && (options.Needs & GestureNeeds.Hands) != 0)
+            var handsRequested = _options is { } options && (options.Needs & GestureNeeds.Hands) != 0;
+            if (handsRequested && _peaceGestures)
                 _engine.OnUpdate(update.Hands, tracked, aspect);
             _mfEngine.OnUpdate(update.Hands, aspect);
+            // Zuletzt: Löst das Herz aus, startet der Aufrufer synchron einen Durchgang und schaltet damit diese Erkennung um oder aus
+            // (Deactivate); danach darf nichts mehr in die Engines gelangen.
+            if (handsRequested && _heart is { Enabled: true } && ReferenceEquals(sender, _request) && _mode != PeaceMode.Off)
+                _heartEngine.OnUpdate(update.Hands, tracked, aspect);
         }
         RefreshMoustaches();
     }
@@ -675,6 +710,7 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
             _tracker.Tick();
             _engine.Tick();
             _mfEngine.Tick();
+            _heartEngine.Tick();
             RefreshMoustaches();
         }
         catch (Exception ex)

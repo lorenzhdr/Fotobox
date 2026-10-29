@@ -6,7 +6,13 @@ namespace Fotobox.Core.Peace;
 public enum PeaceAction { SelfDestruct, Photo, Moustache }
 
 /// <summary>Darstellung des Countdowns einer Aufnahme.</summary>
-public enum CountdownStyle { Normal, Peace, SelfDestruct }
+public enum CountdownStyle { Normal, Peace, SelfDestruct, Kisscam }
+
+/// <summary>Art des Bildrahmens, den das Layout um ein Foto zeichnet. Nur hinten erweitern.</summary>
+public enum PhotoFrameKind { Kisscam }
+
+/// <summary>Rahmen um das Foto (Jumbotron-Rahmen der Kisscam) mit Banner-Text (bereits bereinigt) und Farbschema.</summary>
+public sealed record PhotoFrame(PhotoFrameKind Kind, string BannerText, KisscamColor Color);
 
 /// <summary>Ausgelöste Peace-Aktion mit der auslösenden Hand (und dem zugeordneten Gesicht, falls bekannt).</summary>
 public sealed record PeaceTrigger(PeaceAction Action, int HandTrackId, int? FaceTrackId, NormPoint HandCenter);
@@ -53,4 +59,10 @@ public sealed record TriggerOptions
     /// <summary>Countdown in Sekunden (0 = sofort), null = Einstellung aus dem Ablauf.</summary>
     public int? CountdownSeconds { get; init; }
     public CountdownStyle Style { get; init; } = CountdownStyle.Normal;
+    /// <summary>Ausschnitt des UNgespiegelten Rohfotos (normiert, 0..1); null = ganzes Foto.</summary>
+    public NormRect? CropRegion { get; init; }
+    /// <summary>Dateinamen-Präfix für diesen Durchgang (bereits bereinigt); null = Präfix aus den Speichereinstellungen.</summary>
+    public string? FilePrefix { get; init; }
+    /// <summary>Rahmen um das fertige Foto; null = kein Rahmen.</summary>
+    public PhotoFrame? Frame { get; init; }
 }

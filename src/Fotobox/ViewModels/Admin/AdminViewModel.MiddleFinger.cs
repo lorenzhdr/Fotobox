@@ -11,8 +11,8 @@ public sealed partial class AdminViewModel
     /// <summary>Dauer des Test-Bartes „Aufheben testen“ in Sekunden (lang genug, um den Mittelfinger in Ruhe zu zeigen).</summary>
     internal const int MiddleFingerTestMoustacheSeconds = 20;
 
-    /// <summary>Hinweis, wenn die Peaceerkennung aus ist (es gibt dann nichts aufzuheben).</summary>
-    public const string MiddleFingerPeaceDisabledText = "Die Peaceerkennung ist aus – ohne sie gibt es nichts aufzuheben.";
+    /// <summary>Hinweis, wenn Peace- und Herzerkennung aus sind (es gibt dann nichts abzubrechen).</summary>
+    public const string MiddleFingerPeaceDisabledText = "Peace- und Herzerkennung sind aus – es gibt nichts abzubrechen.";
 
     /// <summary>Hinweis, wenn die Gesichtserkennung fehlt (Hände werden dann schlechter gefunden).</summary>
     public const string MiddleFingerFaceUnavailableText =
@@ -44,20 +44,40 @@ public sealed partial class AdminViewModel
         set
         {
             if (SetProperty(_draft.MiddleFinger.ActionCancelPeace, value, v => _draft.MiddleFinger.ActionCancelPeace = v))
-            {
-                OnPropertyChanged(nameof(MiddleFingerHasNoAction));
-                OnPropertyChanged(nameof(MiddleFingerActionCancelPeaceEnabled));
-            }
+                RaiseMiddleFingerActionState();
+        }
+    }
+
+    /// <summary>Aktion „Kisscam abbrechen“ (der Mittelfinger beendet den laufenden Kisscam-Countdown ohne Foto).</summary>
+    public bool MiddleFingerActionCancelKisscam
+    {
+        get => _draft.MiddleFinger.ActionCancelKisscam;
+        set
+        {
+            if (SetProperty(_draft.MiddleFinger.ActionCancelKisscam, value, v => _draft.MiddleFinger.ActionCancelKisscam = v))
+                RaiseMiddleFingerActionState();
         }
     }
 
     /// <summary>
-    /// Der Haken „Peace-Effekte aufheben“ lässt sich ändern. Der letzte gesetzte Haken ist gesperrt (wie bei den Zufallsformen der
-    /// Peaceerkennung): Es soll immer mindestens eine Aktion übrig bleiben. Künftige Aktionen erhöhen <see cref="MiddleFingerActionCount"/>.
+    /// Der Haken „Peace-Effekte aufheben“ lässt sich ändern. Der letzte gesetzte Haken (aller Aktionen) ist gesperrt (wie bei den
+    /// Zufallsformen der Peaceerkennung): Es soll immer mindestens eine Aktion übrig bleiben. Künftige Aktionen erhöhen <see cref="MiddleFingerActionCount"/>.
     /// </summary>
     public bool MiddleFingerActionCancelPeaceEnabled => !(_draft.MiddleFinger.ActionCancelPeace && MiddleFingerActionCount <= 1);
 
-    private int MiddleFingerActionCount => _draft.MiddleFinger.ActionCancelPeace ? 1 : 0;
+    /// <summary>Der Haken „Kisscam abbrechen“ lässt sich ändern (der letzte gesetzte Haken ist gesperrt, siehe <see cref="MiddleFingerActionCancelPeaceEnabled"/>).</summary>
+    public bool MiddleFingerActionCancelKisscamEnabled => !(_draft.MiddleFinger.ActionCancelKisscam && MiddleFingerActionCount <= 1);
+
+    private int MiddleFingerActionCount =>
+        (_draft.MiddleFinger.ActionCancelPeace ? 1 : 0) + (_draft.MiddleFinger.ActionCancelKisscam ? 1 : 0);
+
+    // Jede Aktion verändert, welche Haken gesperrt sind, und ob überhaupt eine Aktion gewählt ist.
+    private void RaiseMiddleFingerActionState()
+    {
+        OnPropertyChanged(nameof(MiddleFingerHasNoAction));
+        OnPropertyChanged(nameof(MiddleFingerActionCancelPeaceEnabled));
+        OnPropertyChanged(nameof(MiddleFingerActionCancelKisscamEnabled));
+    }
 
     /// <summary>Mittelfingererkennung ist an, aber keine Aktion gewählt (Warnung; blockiert das Speichern).</summary>
     public bool MiddleFingerHasNoAction => _draft.MiddleFinger.Enabled && !_draft.MiddleFinger.HasAnyAction;
@@ -85,10 +105,10 @@ public sealed partial class AdminViewModel
     /// <summary>„An“ bzw. „Aus“ für die Kachel „Mittelfinger“ (gleiche Darstellung wie die anderen Kacheln).</summary>
     public string MiddleFingerStatusText => _draft.MiddleFinger.Enabled ? "An" : "Aus";
 
-    /// <summary>Warnung „Peaceerkennung aus“ auf der Mittelfinger-Seite (es gäbe nichts aufzuheben).</summary>
+    /// <summary>Warnung „Peace- und Herzerkennung aus“ auf der Mittelfinger-Seite (es gäbe nichts aufzuheben oder abzubrechen).</summary>
     public string MiddleFingerPeaceDisabledWarning => HasMiddleFingerPeaceDisabledWarning ? MiddleFingerPeaceDisabledText : string.Empty;
 
-    public bool HasMiddleFingerPeaceDisabledWarning => !_draft.Peace.Enabled;
+    public bool HasMiddleFingerPeaceDisabledWarning => !_draft.Peace.Enabled && !_draft.Heart.Enabled;
 
     /// <summary>Statuszeile unter der Vorschau der Mittelfinger-Seite (Hände, Gesichter, Rate, „Mittelfinger erkannt“).</summary>
     public string MiddleFingerPreviewStatusText => MiddleFingerPreviewStatus.Text;
@@ -141,6 +161,9 @@ public sealed partial class AdminViewModel
             return;
         PeacePreview.VanishMoustaches();
         StopPeaceSelfDestructTest();
+        // Mit der Aktion „Kisscam abbrechen“ beendet der Mittelfinger auch den Kisscam-Test (ohne Foto, wie in der Gastansicht).
+        if (_kisscamTestRunning && _draft.MiddleFinger.ActionCancelKisscam)
+            EndKisscamTest(completed: false);
     }
 
     /// <summary>Mittelfingererkennung: mindestens eine Aktion und alle Zahlen im Wertebereich.</summary>

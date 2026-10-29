@@ -8,7 +8,7 @@ Fotobox+ ist eine Windows-Desktop-App (WPF, .NET 10, `net10.0-windows10.0.19041.
 
 - Ablauf: Auslösen → Countdown (Standard 5 s) → Aufnahme (weißer Blitz) → Speichern → Vorschau (Standard 4 s) → Druck → „Fertig“ (5 s) → zurück zum Livebild.
 - Fotos werden als JPEG gespeichert (Standardordner `Bilder\Fotobox+`, Unterordner pro Tag, Dateiname `<Präfix>_<yyyyMMdd_HHmmss>.jpg`, Kollisionen `_2`, `_3` …). Auf Wunsch werden zusätzlich die Originale der Einzelbilder gespeichert.
-- Ein Foto besteht aus den rohen Kamera-Pixeln; Zielmarken der Zielerfassung und Overlays der Gastansicht sind nie im Foto. Einzige Ausnahme ist der Schnurrbart der Peaceerkennung.
+- Ein Foto besteht aus den rohen Kamera-Pixeln; Zielmarken der Zielerfassung und Overlays der Gastansicht sind nie im Foto. Einzige Ausnahme ist der Schnurrbart der Peaceerkennung; das Kisscam-Foto trägt zusätzlich den Jumbotron-Rahmen (gezeichnet bei der Komposition, die Originale bleiben ungerahmt).
 
 ### Layouts
 
@@ -43,9 +43,10 @@ Strg+Alt+A (frei belegbar) öffnet nach PIN-Abfrage das Einstellungsfenster. Die
 |---|---|---|
 | Zielerfassung | Zielmarken „TARGET n“ über erkannten Personen im Livebild mit Einrast-Animation und Spaßtext (nur Gastansicht, im Leerlauf). | an |
 | Peaceerkennung (Easter Egg) | Peace-Zeichen halten löst Selbstzerstörung, Foto mit Countdown oder Schnurrbart aus. Gastansicht verrät nichts. | an |
-| Mittelfingererkennung (Easter Egg) | Mittelfinger halten hebt Peace-Effekte auf (Bart entfernen, Selbstzerstörung abbrechen). Nur zusammen mit Peaceerkennung wirksam. | an |
+| Mittelfingererkennung (Easter Egg) | Mittelfinger halten hebt Peace-Effekte auf (Bart entfernen, Selbstzerstörung abbrechen) oder bricht eine laufende Kisscam ab. Wirkt, wenn Peace oder Herz an ist. | an |
+| Herzerkennung → Kisscam (Easter Egg) | Zwei Gäste formen mit den Händen ein Herz (oder ein Fingerherz) und halten es: Jumbotron-Rahmen mit Timer zum Kusspartner-Suchen, optional Zoom und Musik, am Ende ein Einzelfoto mit Rahmen. Gastansicht verrät nichts. | an |
 
-Details: `fun-zielerfassung.md`, `fun-peace-mittelfinger.md`.
+Details: `fun-zielerfassung.md`, `fun-peace-mittelfinger.md`, `fun-herz-kisscam.md`.
 
 ### Kamerasteuerung
 
@@ -61,7 +62,7 @@ Admin-Tab „Sicherheit & Daten“: Export und Import der Einstellungen als JSON
 |---|---|---|
 | Foto auslösen | Leertaste, linke und rechte Maustaste | Mausklicks einzeln abschaltbar (`TriggerOnLeftClick`/`TriggerOnRightClick`); Doppelklick zählt einmal. Die Maus startet nie ein Video. |
 | Admin öffnen | Strg+Alt+A | Frei belegbar. |
-| Abbrechen | Esc | Bricht Countdown still ab, stoppt eine Videoaufnahme (erst ab Mindestlänge), storniert einen laufenden Druck. |
+| Abbrechen | Esc | Bricht Countdown (auch die Kisscam) still ab, stoppt eine Videoaufnahme (erst ab Mindestlänge), storniert einen laufenden Druck. |
 | Video starten/beenden | Enter | Gleiche Taste in Start und Stopp = Umschalten. |
 | Layout wechseln | Mausrad (im Leerlauf) | Nach oben = vorheriges Layout; `InvertMouseWheel` kehrt um. |
 
@@ -74,6 +75,7 @@ Pro Aktion sind bis zu 8 Tasten möglich (`SettingsLimits.KeysPerActionMax`). Sy
 | `src/Fotobox/Core` | UI-freie Logik: `BoothController` (Zustandsmaschine), `Interfaces.cs`, `Settings.cs` (inkl. `SettingsLimits`), `KeyChord`, `PinRules`, `Models.cs` (inkl. `AppInfo`), `AppLog`, `GuestLayouts`, `HintTextFormatter`, `DisplayMonitor`, `CameraServiceExtensions` (`StartWithAudioAsync`), Kamerasteuerung (`CameraControls`, `CameraControlMath`, `CameraControlFormatter`, `LatestOnlyWorker`), `WheelScrollMath`, `SettingsSections`, `DeviceSpecificSettings`. |
 | `src/Fotobox/Core/Fun` | UI-freie Logik der Zielerfassung (`FunEngine`, `TargetTracker`, `LockOnTuning`, `ToneSynth`, `OverlayMapper`). |
 | `src/Fotobox/Core/Peace` | UI-freie Logik der Peace- und Mittelfingererkennung (Engines, Klassifikatoren, Tracker, Bartgeometrie und -bewegung, `OneEuroFilter`). |
+| `src/Fotobox/Core/Heart` | UI-freie Logik der Herzerkennung und Kisscam (`HeartGestureClassifier`, `HeartEngine`, `HeartActions`, `KisscamFrameGeometry`, `KisscamZoom`, `KisscamTextFormatter`). |
 | `src/Fotobox/Services/Camera` | WinRT-Kameradienst, Formatwahl, `CameraSupervision` (Timeouts, Watchdog), Videoaufnahme (`WinRtVideoRecording`, `VideoBitrate`), Hardware-Regler (`CameraControlAccess`, `ExtendedCameraControls`, `WinRtCameraService.Controls`). |
 | `src/Fotobox/Services/Printing` | Drucken über System.Printing/XPS, Jobstatus-Auswertung, Seitengrößen (`PageSpecCache`). |
 | `src/Fotobox/Services/Display` | Monitoraufzählung per Win32 (`Win32DisplayService`, `DisplayNative`). |
@@ -81,9 +83,9 @@ Pro Aktion sind bis zu 8 Tasten möglich (`SettingsLimits.KeysPerActionMax`). Sy
 | `src/Fotobox/Services/Storage` | Settings-Store (`JsonSettingsStore`), `SettingsNormalizer`, `SettingsTransfer`/`SettingsJson`, `PinService`, `PhotoStorage`, `VideoStorage`, `FolderProbe`. |
 | `src/Fotobox/Services/Detection` | Personenerkennung (YOLOX per ONNX, Windows `FaceDetector`); `Detection/Peace`: Gesichts- und Handerkennung (YuNet, MediaPipe). |
 | `src/Fotobox/Services/Peace` | Foto-Verzierer (Bart im Foto: `MoustachePhotoDecorator`). |
-| `src/Fotobox/Services/Audio` | Tonausgabe (`FunSoundPlayer`). |
+| `src/Fotobox/Services/Audio` | Tonausgabe (`FunSoundPlayer`) und Kisscam-Musik (`MusicPlayer`). |
 | `src/Fotobox/ViewModels` | MVVM mit CommunityToolkit.Mvvm; `Booth` (Gastansicht, Fun-/Peace-Overlays), `Admin` (Einstellungen, PIN-Limiter, Info-Texte). |
-| `src/Fotobox/Views` | `Booth` (Gastansicht, `GuestHint`, Overlays), `Admin` (Fenster, Themes, PIN-Dialoge, Skizzen), `Controls`, `Converters`. |
+| `src/Fotobox/Views` | `Booth` (Gastansicht, `GuestHint`, Overlays; `Booth/Heart`: Kisscam-Rahmen, Zoom, Fortschrittsherz), `Admin` (Fenster, Themes, PIN-Dialoge, Skizzen), `Controls`, `Converters`. |
 | `src/Fotobox/Assets/Models` | ONNX-Modelle (`yolox_nano`, YuNet, MediaPipe Palm und Hand-Landmark). |
 | `tests/Fotobox.Tests` | xUnit mit Xunit.StaFact für WPF/STA. |
 | `build/` | `publish.ps1`, `smoke-test.ps1`, `release-notes.template.md`. |

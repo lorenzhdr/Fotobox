@@ -110,6 +110,33 @@ public interface ILayoutComposer
     int GetRequiredPhotoCount(LayoutSettings layout);   // Strip → Clamp(StripPhotoCount,2,4), sonst 1
     /// <summary>Komponiert die Druckseite. Ergebnis: Frozen BitmapSource mit exakt page.PixelWidth × page.PixelHeight, Dpi = page.Dpi. Muss auf STA-Thread laufen.</summary>
     BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page, string overlayDirectory, DateTime timestamp);
+
+    /// <summary>
+    /// Wie <see cref="Compose(IReadOnlyList{BitmapSource}, LayoutSettings, PageSpec, string, DateTime)"/>, zusätzlich mit einem Rahmen
+    /// um das Foto (null = kein Rahmen). Die Standardimplementierung ignoriert den Rahmen.
+    /// </summary>
+    BitmapSource Compose(IReadOnlyList<BitmapSource> photos, LayoutSettings layout, PageSpec page, string overlayDirectory, DateTime timestamp, Peace.PhotoFrame? frame) =>
+        Compose(photos, layout, page, overlayDirectory, timestamp);
+}
+
+/// <summary>
+/// Spielt Musik zur Kisscam. Wirft nie und blockiert nie; ohne Datei oder bei einem Fehler passiert still nichts außer einer
+/// Log-Warnung.
+/// </summary>
+public interface IMusicPlayer
+{
+    /// <summary>Startet die Wiedergabe der Datei <paramref name="path"/> (WAV/MP3) mit der Lautstärke 0..100; ersetzt eine laufende Wiedergabe. null/leer/fehlende Datei = still nichts.</summary>
+    void Play(string? path, int volumePercent, bool loop);
+    /// <summary>Blendet die laufende Wiedergabe in <paramref name="duration"/> aus und beendet sie.</summary>
+    void FadeOut(TimeSpan duration);
+    /// <summary>Beendet die Wiedergabe sofort.</summary>
+    void Stop();
+    /// <summary>Läuft gerade eine Wiedergabe?</summary>
+    bool IsPlaying { get; }
+    /// <summary>Beginn oder Ende der Wiedergabe; kann auf einem beliebigen Thread kommen.</summary>
+    event EventHandler? PlaybackChanged;
+    /// <summary>Die Wiedergabe konnte nicht beginnen oder brach ab (Datei fehlt, nicht lesbar, Öffnungsfrist verpasst); kann auf einem beliebigen Thread kommen. <see cref="PlaybackChanged"/> feuert dabei nicht zwingend.</summary>
+    event EventHandler? PlaybackFailed;
 }
 
 public interface IPrintService

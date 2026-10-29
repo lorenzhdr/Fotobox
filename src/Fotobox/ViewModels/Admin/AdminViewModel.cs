@@ -190,9 +190,11 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
     public AdminViewModel(ISettingsStore store, IPinService pin, ICameraService camera, IPrintService print, IAdminUi ui,
         TimeProvider? time = null, IDisplayService? displays = null,
-        IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null, IGestureDetectionService? gestures = null)
+        IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null, IGestureDetectionService? gestures = null,
+        IMusicPlayer? music = null)
     {
         _time = time ?? TimeProvider.System;
+        _music = music;
         // Live-Vorschau im Tab „Fun“: eigene Zielerfassung (nicht aus dem Container, sonst hielte dieser jede Instanz). Ohne Dienste
         // (Tests) inert: Sie startet keine Erkennung, der Test-Knopf funktioniert trotzdem.
         FunPreview = detection is not null && sound is not null
@@ -207,6 +209,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         PeacePreview.PropertyChanged += OnPeacePreviewPropertyChanged;
         PeacePreview.ActionRequested += OnPeacePreviewAction;
         PeacePreview.MiddleFingerTriggered += OnPeacePreviewMiddleFinger;
+        PeacePreview.HeartTriggered += OnPeacePreviewHeart;
         _store = store;
         _pin = pin;
         Camera = camera;
@@ -280,6 +283,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         TestMoustacheCommand = new RelayCommand(StartPeaceTestMoustache);
         TestMiddleFingerCancelCommand = new RelayCommand(StartMiddleFingerCancelTest);
 
+        InitHeart(music);
         InitCameraControls();
         Camera.StatusChanged += OnCameraStatusChanged;
         UpdateOverlay();
@@ -463,6 +467,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
                 or nameof(FunPreviewCameraRunning) or nameof(FunPreviewNoCamera) or nameof(IsFunTabSelected)
                 or nameof(FunPage) or nameof(MiddleFingerStatusText) or nameof(MiddleFingerPeaceDisabledWarning)
                 or nameof(HasMiddleFingerPeaceDisabledWarning))
+            && !IsHeartViewStateProperty(e.PropertyName)
             && e.PropertyName?.StartsWith("PeacePreview", StringComparison.Ordinal) != true
             && e.PropertyName?.StartsWith("MiddleFingerPreview", StringComparison.Ordinal) != true
             && e.PropertyName?.StartsWith("MiddleFingerDetected", StringComparison.Ordinal) != true
@@ -2935,13 +2940,14 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             {
                 UpdateFunPreview();
                 UpdatePeacePreview();
+                UpdateHeartPageState();
             }
         }
     }
 
     private FunPage _funPage = FunPage.Start;
 
-    /// <summary>Welche Seite des Tabs „Fun“ zeigt (Startseite mit Kacheln, Personenerkennung, Peaceerkennung, Mittelfingererkennung). Reine Ansicht, keine Einstellung.</summary>
+    /// <summary>Welche Seite des Tabs „Fun“ zeigt (Startseite mit Kacheln, Personenerkennung, Peaceerkennung, Mittelfingererkennung, Herz). Reine Ansicht, keine Einstellung.</summary>
     public FunPage FunPage
     {
         get => _funPage;
@@ -2952,7 +2958,18 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
                 // Personenerkennung und Peaceerkennung teilen sich die Kamera nur über getrennte Anforderungen: Je Seite läuft höchstens eine Vorschau.
                 UpdateFunPreview();
                 UpdatePeacePreview();
+                UpdateHeartPageState();
             }
+        }
+    }
+
+    // Das Anhören der Kisscam-Musik und der Kisscam-Test gehören zur Seite „Herz“: Verlassen der Seite oder des Tabs beendet sie.
+    private void UpdateHeartPageState()
+    {
+        if (!(_isFunTabSelected && _funPage == FunPage.Heart))
+        {
+            EndKisscamTest(completed: false);
+            StopKisscamMusicPreview();
         }
     }
 
@@ -3101,6 +3118,11 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         RaiseFolder();
         RaiseVideoFolder();
         RaisePrintTimeoutHint();
+        // Der Entwurf hat eine andere Musikdatei bzw. Aktion: Anhören und Kisscam-Test beenden, Datei neu prüfen, Wahlkarten neu lesen.
+        EndKisscamTest(completed: false);
+        StopKisscamMusicPreview();
+        RefreshKisscamMusicCheck();
+        RefreshHeartActionOptions();
         // Alle gebundenen Eigenschaften neu lesen (Werte kommen direkt aus dem Entwurf).
         OnPropertyChanged(string.Empty);
         // Ein ersetzter Flimmerschutz (Import) wirkt sofort wie eine Auswahl in der ComboBox.
@@ -3217,6 +3239,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
         ValidatePeace(errors);
         ValidateMiddleFinger(errors);
+        ValidateHeart(errors);
 
         if (_newPin.Length > 0 || _repeatPin.Length > 0)
         {
@@ -3456,6 +3479,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         FunPreview.PropertyChanged -= OnFunPreviewPropertyChanged;
         FunPreview.Dispose();
         DisposePeacePreview();
+        DisposeHeart();
         Camera.StatusChanged -= OnCameraStatusChanged;
         _lifetime.Cancel();
         _lifetime.Dispose();

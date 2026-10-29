@@ -234,8 +234,8 @@ public sealed class MiddleFingerEngineTests
         foreach (var settings in new[]
                  {
                      Settings(s => s.Enabled = false),
-                     Settings(s => s.ActionCancelPeace = false),
-                     Settings(s => { s.Enabled = false; s.ActionCancelPeace = false; }),
+                     Settings(s => { s.ActionCancelPeace = false; s.ActionCancelKisscam = false; }),
+                     Settings(s => { s.Enabled = false; s.ActionCancelPeace = false; s.ActionCancelKisscam = false; }),
                  })
         {
             var engine = Create(settings);

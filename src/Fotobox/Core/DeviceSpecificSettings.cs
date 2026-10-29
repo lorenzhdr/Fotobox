@@ -2,7 +2,7 @@ namespace Fotobox.Core;
 
 /// <summary>
 /// Die geräte- und pfadabhängigen Einstellungen, die nie exportiert und nie importiert werden (der Zielrechner behält seine
-/// eigenen): Kamera (Gerät, Auflösung, Reglerwerte und Profile; der Flimmerschutz <c>Camera.Powerline</c> ist übertragbar), Drucker/Papier, Foto- und Videoordner, Mikrofon, Monitor der Gastansicht und Zoom der Admin-Ansicht. Einzige Quelle für diese
+/// eigenen): Kamera (Gerät, Auflösung, Reglerwerte und Profile; der Flimmerschutz <c>Camera.Powerline</c> ist übertragbar), Drucker/Papier, Foto- und Videoordner, Mikrofon, Monitor der Gastansicht, Zoom der Admin-Ansicht und Musikdatei der Kisscam. Einzige Quelle für diese
 /// Felder; ein Test erzwingt, dass jedes neue Feld von <see cref="AppSettings"/> entweder hier oder in dessen Liste
 /// der übertragbaren Felder eingeordnet wird.
 /// </summary>
@@ -28,6 +28,7 @@ public static class DeviceSpecificSettings
         "Appearance.GuestMonitorId",
         "Appearance.GuestMonitorName",
         "Appearance.AdminZoomPercent",
+        "Heart.KisscamMusicPath",
     ];
 
     /// <summary>Setzt alle gerätespezifischen Felder auf den Standard eines neuen Abschnitts (nicht gewählt = <c>null</c>). Fehlende Abschnitte werden übersprungen.</summary>
@@ -65,6 +66,8 @@ public static class DeviceSpecificSettings
             appearance.GuestMonitorName = null;
             appearance.AdminZoomPercent = SettingsLimits.AdminZoomDefault;
         }
+        if (s.Heart is { } heart)
+            heart.KisscamMusicPath = null;
     }
 
     /// <summary>Kopiert die gerätespezifischen Felder von <paramref name="source"/> nach <paramref name="target"/>; alles andere bleibt unverändert.</summary>
@@ -94,5 +97,7 @@ public static class DeviceSpecificSettings
         target.Appearance.GuestMonitorId = source.Appearance.GuestMonitorId;
         target.Appearance.GuestMonitorName = source.Appearance.GuestMonitorName;
         target.Appearance.AdminZoomPercent = source.Appearance.AdminZoomPercent;
+
+        target.Heart.KisscamMusicPath = source.Heart.KisscamMusicPath;
     }
 }
