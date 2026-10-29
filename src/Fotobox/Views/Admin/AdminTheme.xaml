@@ -1,6 +1,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                    xmlns:core="clr-namespace:Fotobox.Core">
+                    xmlns:core="clr-namespace:Fotobox.Core"
+                    xmlns:local="clr-namespace:Fotobox.Views.Admin">
 
     <!-- Farben kommen aus AdminColors.Light.xaml bzw. AdminColors.Dark.xaml (im Fenster gemergt, AdminThemeManager);
          deshalb hier immer DynamicResource. -->
@@ -162,6 +163,11 @@
         <Setter Property="CaretBrush" Value="{DynamicResource TextBrush}" />
     </Style>
 
+    <!-- Mausrad/Trackpad: proportional zum Delta statt eine feste Strecke je Ereignis (siehe ProportionalWheelScroll). -->
+    <Style TargetType="ScrollViewer">
+        <Setter Property="local:ProportionalWheelScroll.IsEnabled" Value="True" />
+    </Style>
+
     <!-- Eigenes Template: Das Windows-Standardtemplate ignoriert Background und bliebe im dunklen Schema hell. -->
     <Style TargetType="ComboBox">
         <Setter Property="FontSize" Value="15" />
@@ -213,7 +219,8 @@
                             <Border x:Name="DropDown" Margin="0,2,0,0" CornerRadius="6" SnapsToDevicePixels="True"
                                     Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                                     MinWidth="{Binding ActualWidth, ElementName=Root}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                                <ScrollViewer CanContentScroll="{TemplateBinding ScrollViewer.CanContentScroll}" Margin="0,4">
+                                <ScrollViewer CanContentScroll="{TemplateBinding ScrollViewer.CanContentScroll}" Margin="0,4"
+                                              local:ProportionalWheelScroll.IsEnabled="True">
                                     <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
                                 </ScrollViewer>
                             </Border>
