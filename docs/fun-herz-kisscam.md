@@ -1,6 +1,6 @@
 # Fun „Herzerkennung“ und „Kisscam“
 
-Stand: nach 2.5.2 (Branch `feature/herz-kisscam`, noch nicht veröffentlicht). Die Herzerkennung ist ein verstecktes Extra („Easter Egg“) wie Peace und Mittelfinger: Die Gastansicht verrät nichts davon (kein Hinweistext). Sie nutzt Dienst, Modelle, Analyserate und Vorschau der Peaceerkennung mit. Aktuell gibt es genau eine Herz-Aktion: die **Kisscam**. Pfade sind relativ zum Repo-Root.
+Stand: 2.6.0. Die Herzerkennung ist ein verstecktes Extra („Easter Egg“) wie Peace und Mittelfinger: Die Gastansicht verrät nichts davon (kein Hinweistext). Sie nutzt Dienst, Modelle, Analyserate und Vorschau der Peaceerkennung mit. Aktuell gibt es genau eine Herz-Aktion: die **Kisscam**. Pfade sind relativ zum Repo-Root.
 
 | Schicht | Dateien |
 |---|---|

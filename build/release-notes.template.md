@@ -1,11 +1,14 @@
 ## Fotobox+ {{VERSION}}
 
-### Neu in 2.5.2
+### Neu in 2.6.0
 
-- **Speichern an einem Ort:** Speicherordner, Tagesunterordner, Dateipräfix und Qualität der Videos stehen jetzt im Admin-Tab „Speicher“ – in einer eigenen Karte „Videos speichern“ direkt unter den Fotos. Die Karte ist ausgegraut, solange der Videomodus aus ist. Der Tab „Video“ enthält nur noch Aufnahme, Anzeige und Ton.
-- **Mehr Überblick im Admin:** Der Inhaltsbereich der Einstellungen ist ab Werk auf 80 % verkleinert, damit mehr auf einmal zu sehen ist. Unten im Tab „Darstellung“ lässt sich die Größe zwischen 60 und 100 % einstellen; sie gilt nur für das jeweilige Gerät und wird nicht mit „Einstellungen teilen“ weitergegeben.
+- **Easter Egg „Herzerkennung“ mit Kisscam:** Formen zwei Gäste mit ihren Händen ein Herz – oder ein Gast mit beiden Händen – und halten es kurz (ab Werk 1,8 s), startet die Kisscam: Ein Jumbotron-Rahmen mit Lichterkette, Banner „KISS CAM“ und Herzen erscheint über dem Livebild, ein Text fordert dazu auf, sich jemanden zum Küssen zu suchen, die letzten drei Sekunden zählen groß herunter, dann entsteht ein Foto mit dem Rahmen. Es wird wie jedes Foto gespeichert und gedruckt. Esc oder ein gehaltener Mittelfinger brechen die Kisscam ohne Foto ab. Die Gastansicht verrät vorher nichts; nur ein kleines Fortschrittsherz zeigt beim Halten, wie lange es noch dauert.
+- **Kisscam einstellen:** Im Admin-Tab „Fun“ → „Herz“ lassen sich erkannte Herzformen (klassisch, Dach, umgedreht, experimentell auch ein Fingerherz mit einer Hand), Haltedauer, Empfindlichkeit, Dauer (3–60 s), Text, Banner-Aufschrift, Farbschema, Dateipräfix, ein Zoom auf die Herz-Gäste und eigene Musik (WAV/MP3) einstellen. Eine Live-Vorschau zeigt die erkannten Hände, „Kisscam testen“ spielt den Ablauf ohne Foto durch. Die Musik gilt nur für das jeweilige Gerät und wird nicht mit „Einstellungen teilen“ weitergegeben.
+- **Erkennung an echten Händen abgestimmt:** Eng aneinanderliegende Hände werden zuverlässiger beide erkannt, und die Herzprüfung berücksichtigt gekrümmte Zeigefinger, die sich oben mit den Fingerrücken berühren. Kurze Aussetzer der Erkennung brechen das Halten nicht mehr ab.
+- **Diagnose im Protokoll:** Für Praxistests schreibt die Herzerkennung höchstens einmal pro Sekunde, warum ein Herz nicht erkannt wurde (Zeilen „Herz-Diagnose“). Das Verhalten ändert sich dadurch nicht.
+- **Hinweis:** Die Herzerkennung ist mit einer Person und beiden Händen im Praxistest geprüft; ein Herz aus zwei Personen mit je einer Hand noch nicht.
 
-Alle Neuerungen von 2.5.1 und der Testversionen davor stehen unten unter „Ältere Versionen“.
+Alle Neuerungen von 2.5.2 und den Versionen davor stehen unten unter „Ältere Versionen“.
 
 ### Welche Datei passt zu meinem PC?
 
@@ -36,7 +39,12 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer der Fotobox 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
 
 <details>
-<summary>Änderungen der Versionen 0.0.0-beta bis 2.5.1 anzeigen</summary>
+<summary>Änderungen der Versionen 0.0.0-beta bis 2.5.2 anzeigen</summary>
+
+#### [Fotobox+ 2.5.2](https://github.com/lorenzhdr/Fotobox/tree/v2.5.2) · 29.10.2026
+
+- **Speichern an einem Ort:** Speicherordner, Tagesunterordner, Dateipräfix und Qualität der Videos stehen jetzt im Admin-Tab „Speicher“ – in einer eigenen Karte „Videos speichern“ direkt unter den Fotos. Die Karte ist ausgegraut, solange der Videomodus aus ist. Der Tab „Video“ enthält nur noch Aufnahme, Anzeige und Ton.
+- **Mehr Überblick im Admin:** Der Inhaltsbereich der Einstellungen ist ab Werk auf 80 % verkleinert, damit mehr auf einmal zu sehen ist. Unten im Tab „Darstellung“ lässt sich die Größe zwischen 60 und 100 % einstellen; sie gilt nur für das jeweilige Gerät und wird nicht mit „Einstellungen teilen“ weitergegeben.
 
 #### [Fotobox+ 2.5.1](https://github.com/lorenzhdr/Fotobox/tree/v2.5.1) · 29.10.2026
 
