@@ -396,7 +396,12 @@ public sealed partial class WinRtCameraService : ICameraService
         _ = start.ContinueWith(async t =>
         {
             if (!t.IsCompletedSuccessfully)
+            {
+                // Den Fehler hier lesen, damit er nicht später als nicht beobachtete Task-Ausnahme im Log landet.
+                if (t.IsFaulted)
+                    AppLog.Warn("Verspäteter Start der Videoaufnahme ist fehlgeschlagen.", t.Exception?.GetBaseException());
                 return;
+            }
             AppLog.Warn("Verspätet gestartete Videoaufnahme wird wieder beendet.");
             try { await capture.StopRecordAsync().AsTask().WaitAsync(WinRtVideoRecording.FinishTimeout).ConfigureAwait(false); }
             catch (Exception ex) { AppLog.Warn("Verspätete Videoaufnahme konnte nicht beendet werden.", ex); }

@@ -5,7 +5,7 @@ using Fotobox.Services.Storage;
 
 namespace Fotobox.ViewModels.Admin;
 
-// Einstellungen teilen – Export und Import (Tab „Sicherheit“)
+// Einstellungen teilen – Export und Import (Tab „Sicherheit & Daten“)
 public sealed partial class AdminViewModel
 {
     private const string TransferHint = "Die Änderungen gelten erst nach „Übernehmen“ bzw. „Speichern & schließen“.";

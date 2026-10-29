@@ -156,6 +156,56 @@ public sealed class PeaceEngineTests
     }
 
     [Fact]
+    public void TickWithoutHandUpdates_DoesNotRearm_AndPeaceAfterwardsDoesNotTrigger()
+    {
+        var engine = Create();
+        Step(engine, 0, Peace);
+        Hold(engine, 1000, Peace);
+        Assert.Single(_triggers);
+
+        // Foto/Vorschau: keine Hand-Updates, nur die Uhr läuft (und Ticks).
+        for (var i = 0; i < 50; i++)
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(100));
+            engine.Tick();
+        }
+        Assert.False(engine.IsArmed);
+
+        // Zurück im Leerlauf: Die Hand ist weiterhin oben.
+        Hold(engine, 3000, Peace);
+        Assert.Single(_triggers);
+        Assert.False(engine.IsArmed);
+
+        // Erst beobachtete Ruhe (Hand-Updates ohne Peace über die Ruhezeit) macht wieder scharf.
+        Hold(engine, 300, Fist);
+        Assert.False(engine.IsArmed);
+        Hold(engine, 300, Fist);
+        Assert.True(engine.IsArmed);
+
+        Step(engine, 100, Peace);
+        Hold(engine, 1000, Peace);
+        Assert.Equal(2, _triggers.Count);
+    }
+
+    [Fact]
+    public void GapBetweenHandUpdates_RestartsTheObservedQuietTime()
+    {
+        var engine = Create();
+        Step(engine, 0, Peace);
+        Hold(engine, 1000, Peace);
+        Assert.Single(_triggers);
+
+        Hold(engine, 200, Fist);          // 200 ms beobachtet, noch nicht genug
+        _time.Advance(TimeSpan.FromSeconds(5));
+        engine.Tick();                    // Lücke ohne Updates zählt nicht als Ruhe
+        Assert.False(engine.IsArmed);
+        Step(engine, 100, Fist);          // erstes Update nach der Lücke: Beobachtung beginnt neu
+        Assert.False(engine.IsArmed);
+        Hold(engine, 500, Fist); // Ruhefrist bei 5 Analysen/s = 500 ms
+        Assert.True(engine.IsArmed);
+    }
+
+    [Fact]
     public void Cooldown_BlocksUntilItHasPassed_AndHandMustGoDown()
     {
         var engine = Create(Settings(s => s.CooldownSeconds = 10));

@@ -605,7 +605,7 @@ public sealed class AdminMiddleFingerTabTests : IDisposable
             Assert.Equal("Aufheben testen", test.Content);
             Assert.Same(vm.TestMiddleFingerCancelCommand, test.Command);
 
-            Assert.Equal(2, FindDescendants<NumberStepper>(view).Count()); // Haltedauer, Empfindlichkeit
+            Assert.Equal(3, FindDescendants<NumberStepper>(view).Count()); // Haltedauer, Empfindlichkeit, Analysen pro Sekunde
             var check = InView<CheckBox>(view, "MiddleFingerActionCancelPeaceCheck");
             Assert.True(check.IsChecked);
             Assert.False(check.IsEnabled); // der letzte Haken ist gesperrt
@@ -657,6 +657,79 @@ public sealed class AdminMiddleFingerTabTests : IDisposable
             vm.MiddleFingerHoldMilliseconds = 900;
             Assert.Equal(900, InView<NumberStepper>(view, "MiddleFingerHoldStepper").Value);
         });
+    }
+
+    [StaFact]
+    public void Page_AnalysesStepper_IsBoundToTheSharedPeaceValue_InBothDirections()
+    {
+        NoContext();
+        WithWindow((window, vm) =>
+        {
+            vm.FunPage = FunPage.MiddleFinger;
+            ShowFunTab(window);
+            var view = MfView(window);
+            var stepper = InView<NumberStepper>(view, "MiddleFingerAnalysesStepper");
+            var peaceStepper = InView<NumberStepper>(PeaceViewOf(window), "PeaceAnalysesStepper");
+
+            Assert.Equal(5, stepper.Value);
+            Assert.Equal(SettingsLimits.PeaceAnalysesPerSecondMin, stepper.Minimum);
+            Assert.Equal(SettingsLimits.PeaceAnalysesPerSecondMax, stepper.Maximum);
+
+            stepper.Value = 8;
+            Assert.Equal(8, vm.PeaceAnalysesPerSecond);
+            Assert.Equal(8, vm.Draft.Peace.AnalysesPerSecond);
+            Assert.Equal(8, peaceStepper.Value); // die Peace-Seite folgt
+
+            peaceStepper.Value = 3;
+            Assert.Equal(3, stepper.Value);      // und umgekehrt
+            vm.PeaceAnalysesPerSecond = 6;
+            Assert.Equal(6, stepper.Value);
+            Assert.Equal(6, peaceStepper.Value);
+        });
+    }
+
+    [StaFact]
+    public void Page_AnalysesLabel_HasAnInfoBadge_WithATooltipAndAutomationText()
+    {
+        NoContext();
+        WithWindow((window, vm) =>
+        {
+            vm.FunPage = FunPage.MiddleFinger;
+            ShowFunTab(window);
+            var badge = InView<Button>(MfView(window), "MiddleFingerAnalysesInfo");
+
+            AssertInfoBadge(window, badge, AdminInfoTexts.MiddleFingerAnalysesPerSecond);
+        });
+    }
+
+    [StaFact]
+    public void PeaceAndFunPages_HaveInfoBadgesOnTheirAnalysesRate()
+    {
+        NoContext();
+        WithWindow((window, vm) =>
+        {
+            ShowFunTab(window);
+            AssertInfoBadge(window, InView<Button>(PeaceViewOf(window), "PeaceAnalysesInfo"), AdminInfoTexts.PeaceAnalysesPerSecond);
+            var fun = Assert.IsType<Button>(window.FindName("FunAnalysesInfo"));
+            AssertInfoBadge(window, fun, AdminInfoTexts.FunAnalysesPerSecond);
+        });
+    }
+
+    private static PeaceSettingsView PeaceViewOf(AdminWindow window) => (PeaceSettingsView)window.FindName("PeacePage");
+
+    private static T InView<T>(PeaceSettingsView view, string name) where T : class =>
+        view.FindName(name) as T ?? throw new InvalidOperationException(name + " nicht gefunden.");
+
+    private static void AssertInfoBadge(AdminWindow window, Button badge, string expectedText)
+    {
+        Assert.Equal(expectedText, badge.ToolTip);
+        Assert.False(string.IsNullOrWhiteSpace(expectedText));
+        Assert.Equal(AdminInfoTexts.AnalysesPerSecondName, AutomationProperties.GetName(badge));
+        Assert.Equal(expectedText, AutomationProperties.GetHelpText(badge));
+        Assert.Same(window.TryFindResource("InfoBadge"), badge.Style);
+        Assert.Equal(60000, ToolTipService.GetShowDuration(badge));
+        Assert.True(ToolTipService.GetShowOnDisabled(badge));
+        Assert.False(badge.Focusable);
     }
 
     [StaFact]

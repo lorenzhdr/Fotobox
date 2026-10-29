@@ -2,8 +2,8 @@ namespace Fotobox.Core.Peace;
 
 /// <summary>
 /// UI-freie Zustandsmaschine der Peaceerkennung: ordnet Hände zu, prüft das Peace-Zeichen, misst die Haltedauer und löst genau
-/// eine Aktion aus. Danach ist sie erst wieder scharf, wenn <see cref="RearmQuietTime"/> lang keine Hand Peace zeigt und die
-/// Sperrzeit vorbei ist. Alle Zeit läuft über <see cref="TimeProvider"/>; nicht threadsicher (UI-Thread).
+/// eine Aktion aus. Danach ist sie erst wieder scharf, wenn <see cref="RearmQuietTime"/> lang (in Hand-Updates beobachtet) keine
+/// Hand Peace zeigt und die Sperrzeit vorbei ist. Alle Zeit läuft über <see cref="TimeProvider"/>; nicht threadsicher (UI-Thread).
 /// </summary>
 public sealed class PeaceEngine
 {
@@ -37,6 +37,10 @@ public sealed class PeaceEngine
     private bool _armed = true;
     private DateTimeOffset _lastTriggerAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastAnyPeaceAt = DateTimeOffset.MinValue;
+    // Wiederscharf nur nach tatsächlich beobachteter Ruhe: Ohne Hand-Updates (z. B. während Foto/Vorschau, dort nur Gesichter)
+    // kann die Hand unbemerkt oben geblieben sein, die reine Uhrzeit genügt dann nicht.
+    private DateTimeOffset _lastHandUpdateAt = DateTimeOffset.MinValue;
+    private DateTimeOffset? _observedQuietSince;
     private double _aspect = 16.0 / 9;
     private IReadOnlyList<TrackedFace> _faces = [];
     private PeaceSnapshot _snapshot = PeaceSnapshot.Empty;
@@ -107,6 +111,7 @@ public sealed class PeaceEngine
         _aspect = aspect > 0 ? aspect : 1;
         _faces = faces;
         var now = _time.GetUtcNow();
+        var anyPeace = false;
 
         foreach (var tracked in _handTracker.Update(hands, _aspect))
         {
@@ -123,6 +128,7 @@ public sealed class PeaceEngine
 
             var verdict = PeaceGestureClassifier.Classify(tracked.Hand, _settings.SensitivityPercent, _aspect);
             state.IsPeace = verdict.IsPeace;
+            anyPeace |= verdict.IsPeace;
             if (state.HoldStart is not null && now - state.LastPeace > _gapTolerance)
                 state.HoldStart = null; // Aussetzer zu lang: Halten beginnt von vorn
             if (verdict.IsPeace)
@@ -134,6 +140,7 @@ public sealed class PeaceEngine
             }
         }
 
+        TrackObservedQuiet(now, anyPeace);
         Evaluate(now, force: true);
     }
 
@@ -150,7 +157,11 @@ public sealed class PeaceEngine
         _handTracker.Reset();
         _faces = [];
         if (!_armed)
+        {
             _lastAnyPeaceAt = _time.GetUtcNow();
+            _observedQuietSince = null;
+            _lastHandUpdateAt = DateTimeOffset.MinValue; // die Ruhe muss nach dem Reset neu beobachtet werden
+        }
         if (_snapshot.Hands.Count > 0 || _snapshot.Faces.Count > 0)
         {
             _snapshot = PeaceSnapshot.Empty;
@@ -159,6 +170,23 @@ public sealed class PeaceEngine
     }
 
     // ---- intern
+
+    // Führt mit, seit wann (lückenlos beobachtet) keine Hand Peace zeigt. Eine Lücke zwischen zwei Hand-Updates, länger als die
+    // Ruhefrist, war unbeobachtet und startet neu. Gebraucht wird das nur, solange die Engine entwaffnet ist.
+    private void TrackObservedQuiet(DateTimeOffset now, bool anyPeace)
+    {
+        if (!_armed)
+        {
+            var gap = _lastHandUpdateAt == DateTimeOffset.MinValue || now - _lastHandUpdateAt > _rearmQuietTime;
+            if (anyPeace)
+                _observedQuietSince = null;
+            else if (gap)
+                _observedQuietSince = now;
+            else
+                _observedQuietSince ??= _lastAnyPeaceAt;
+        }
+        _lastHandUpdateAt = now;
+    }
 
     private void Evaluate(DateTimeOffset now, bool force)
     {
@@ -179,7 +207,8 @@ public sealed class PeaceEngine
             }
         }
 
-        if (!_armed && now - _lastTriggerAt >= Cooldown && now - _lastAnyPeaceAt >= _rearmQuietTime)
+        if (!_armed && now - _lastTriggerAt >= Cooldown && now - _lastAnyPeaceAt >= _rearmQuietTime
+            && _observedQuietSince is { } quietSince && _lastHandUpdateAt - quietSince >= _rearmQuietTime)
             _armed = true;
 
         PeaceTrigger? trigger = null;
@@ -218,6 +247,7 @@ public sealed class PeaceEngine
         _armed = false;
         _lastTriggerAt = now;
         _lastAnyPeaceAt = now;
+        _observedQuietSince = null;
         ResetHolds();
 
         var actions = new List<PeaceAction>(3);

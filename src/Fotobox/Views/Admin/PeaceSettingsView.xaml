@@ -190,10 +190,16 @@
                             <TextBlock Style="{DynamicResource Hint}"
                                        Text="Höher erkennt auch undeutliche Zeichen, löst aber öfter fälschlich aus." />
 
-                            <TextBlock Text="Analysen pro Sekunde" Style="{DynamicResource FieldLabel}" />
-                            <local:NumberStepper Value="{Binding PeaceAnalysesPerSecond}" Minimum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMin}" Maximum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMax}" />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Analysen pro Sekunde" Style="{DynamicResource FieldLabel}" />
+                                <Button x:Name="PeaceAnalysesInfo" Style="{DynamicResource InfoBadge}"
+                                        ToolTip="{x:Static vm:AdminInfoTexts.PeaceAnalysesPerSecond}"
+                                        AutomationProperties.Name="{x:Static vm:AdminInfoTexts.AnalysesPerSecondName}"
+                                        AutomationProperties.HelpText="{x:Static vm:AdminInfoTexts.PeaceAnalysesPerSecond}" />
+                            </StackPanel>
+                            <local:NumberStepper x:Name="PeaceAnalysesStepper" Value="{Binding PeaceAnalysesPerSecond}" Minimum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMin}" Maximum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMax}" />
                             <TextBlock Style="{DynamicResource Hint}"
-                                       Text="Mehr Analysen reagieren schneller, belasten den Rechner aber stärker. Das Livebild hat immer Vorrang." />
+                                       Text="Mehr Analysen reagieren schneller, belasten den Rechner aber stärker. Das Livebild hat immer Vorrang. Der Wert gilt auch für die Mittelfingererkennung." />
                         </StackPanel>
                     </Border>
 

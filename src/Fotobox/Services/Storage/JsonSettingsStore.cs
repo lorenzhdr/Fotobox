@@ -87,30 +87,36 @@ public sealed class JsonSettingsStore : ISettingsStore
                 throw new IOException("Die Einstellungsdatei konnte nicht gelesen werden und wird deshalb nicht überschrieben. " +
                                       "Bitte die Fotobox neu starten.");
 
-            var tmp = Path.Combine(ConfigDirectory, $"settings.json.{Guid.NewGuid():N}.tmp");
-            try
-            {
-                using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                {
-                    using (var writer = new StreamWriter(fs, new UTF8Encoding(false), leaveOpen: true))
-                        writer.Write(json);
-                    fs.Flush(true);
-                }
-
-                if (File.Exists(_settingsPath))
-                    File.Replace(tmp, _settingsPath, null);
-                else
-                    File.Move(tmp, _settingsPath);
-            }
-            catch
-            {
-                TryDelete(tmp);
-                throw;
-            }
+            WriteAtomic(json);
             _current = copy;
         }
 
         RaiseSettingsChanged();
+    }
+
+    /// <summary>Schreibt die Datei atomar (erst nach .tmp, dann ersetzen). Wirft bei Fehlern; die .tmp wird dann entfernt.</summary>
+    private void WriteAtomic(string json)
+    {
+        var tmp = Path.Combine(ConfigDirectory, $"settings.json.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                using (var writer = new StreamWriter(fs, new UTF8Encoding(false), leaveOpen: true))
+                    writer.Write(json);
+                fs.Flush(true);
+            }
+
+            if (File.Exists(_settingsPath))
+                File.Replace(tmp, _settingsPath, null);
+            else
+                File.Move(tmp, _settingsPath);
+        }
+        catch
+        {
+            TryDelete(tmp);
+            throw;
+        }
     }
 
     /// <summary>
@@ -168,11 +174,21 @@ public sealed class JsonSettingsStore : ISettingsStore
             {
                 fallback.Security = security;
                 AppLog.Warn("settings.json ist defekt – Standardwerte werden verwendet, die PIN wurde übernommen.", ex);
+                var rescued = SettingsNormalizer.Normalize(fallback);
+                // Die gerettete PIN sofort sichern: Startet die App neu, bevor im Admin gespeichert wurde, gäbe es sonst keine
+                // settings.json mehr (Erststart ohne PIN). Ohne SettingsChanged; Load läuft im Konstruktor bzw. unter dem Lock von TryReload.
+                try
+                {
+                    WriteAtomic(JsonSerializer.Serialize(rescued, AppSettings.JsonOptions));
+                }
+                catch (Exception writeEx)
+                {
+                    AppLog.Warn("Die gerettete PIN konnte nicht in settings.json gespeichert werden – sie gilt nur bis zum Beenden.", writeEx);
+                }
+                return rescued;
             }
-            else
-            {
-                AppLog.Warn("settings.json ist defekt – Standardwerte werden verwendet (keine PIN übernommen).", ex);
-            }
+
+            AppLog.Warn("settings.json ist defekt – Standardwerte werden verwendet (keine PIN übernommen).", ex);
             return SettingsNormalizer.Normalize(fallback);
         }
     }

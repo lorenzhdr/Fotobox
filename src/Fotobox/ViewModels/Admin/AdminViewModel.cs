@@ -118,6 +118,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     private int _cameraRestartVersion;
     // Mit diesen Kameraeinstellungen wurde die Kamera zuletzt wirklich gestartet (null = nie durch die Admin-Ansicht).
     private CameraSettings? _lastAppliedCamera;
+    // Ton-/Mikrofonstand, den die Admin-Ansicht der Kamera zuletzt mitgegeben hat (null = nie).
+    private VideoSettings? _lastAppliedVideo;
     // Speicherordner beim Öffnen bzw. beim letzten Speichern: Nur ein geänderter Ordner wird per Schreibtest geprüft.
     private string? _initialPhotoFolder;
     private string? _initialVideoFolder;
@@ -623,6 +625,13 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             // früheren Entwurfsstand laufen, obwohl die gespeicherten Werte denen beim Öffnen gleichen (siehe AdminLauncher).
             Volatile.Write(ref _lastAppliedCamera, settings.Clone());
             // Der Ton gilt ab dem nächsten Sessionstart: für die Vorschau der Stand des Entwurfs.
+            // Auch diesen Stand festhalten: Wird er verworfen, muss die Kamera nach dem Schließen wieder auf den gespeicherten Ton.
+            Volatile.Write(ref _lastAppliedVideo, new VideoSettings
+            {
+                Enabled = _draft.Video.Enabled,
+                RecordAudio = _draft.Video.RecordAudio,
+                MicrophoneId = _draft.Video.MicrophoneId,
+            });
             Camera.ConfigureAudio(CameraServiceExtensions.AudioFor(_draft.Video));
             await Camera.StartAsync(settings);
         }
@@ -645,6 +654,19 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     /// angefasst hat. Läuft die Kamera damit anders als gespeichert, muss die Gastansicht sie nach dem Speichern neu starten.
     /// </summary>
     public CameraSettings? LastAppliedCamera => Volatile.Read(ref _lastAppliedCamera)?.Clone();
+
+    /// <summary>
+    /// Ton-Einstellungen (Aufnehmen an/aus, Mikrofon), mit denen die Admin-Ansicht die Kamera zuletzt gestartet hat (Kopie der
+    /// relevanten Felder); null, wenn sie sie nie angefasst hat.
+    /// </summary>
+    public VideoSettings? LastAppliedVideo
+    {
+        get
+        {
+            var v = Volatile.Read(ref _lastAppliedVideo);
+            return v is null ? null : new VideoSettings { Enabled = v.Enabled, RecordAudio = v.RecordAudio, MicrophoneId = v.MicrophoneId };
+        }
+    }
 
     /// <summary>
     /// Stellt nach „Schließen“ ohne Speichern die gespeicherten Einstellungen (Kamera und Ton) wieder her. Läuft über dasselbe Gate wie
@@ -1985,6 +2007,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         try
         {
             _pin.SetPin(_newPin);
+            // Die gerade gesetzte PIN gilt im Store sofort und schlägt eine zuvor importierte (sonst würde diese beim Speichern gewinnen).
+            _pendingImportedSecurity = null;
             NewPin = string.Empty;
             RepeatPin = string.Empty;
             PinFieldsCleared?.Invoke();
@@ -2300,7 +2324,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     /// belegten Auslöse-Tasten und die Maus-Einstellung.
     /// </summary>
     public string HintPreviewText =>
-        HintTextFormatter.Format(_draft.GuestScreen.HintText, TriggerChords(), TriggerOnLeftClick || TriggerOnRightClick, VideoStartChords());
+        HintTextFormatter.Format(_draft.GuestScreen.HintText, TriggerChords(), TriggerOnLeftClick || TriggerOnRightClick,
+            _draft.Video.Enabled ? VideoStartChords() : []);
 
     /// <summary>Zusatzzeile der Vorschau mit dem Namen des Standard-Layouts (sichtbar bei <see cref="HasGuestOrder"/>).</summary>
     public string HintPreviewLayoutText =>
@@ -2308,7 +2333,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
     /// <summary>Hinweise zu den Platzhaltern im Hinweistext (leer = alles in Ordnung).</summary>
     public IReadOnlyList<string> HintProblems =>
-        HintTextFormatter.FindProblems(_draft.GuestScreen.HintText, Editor(KeyAction.Trigger).Keys.Count, Editor(KeyAction.VideoStart).Keys.Count);
+        HintTextFormatter.FindProblems(_draft.GuestScreen.HintText, Editor(KeyAction.Trigger).Keys.Count,
+            _draft.Video.Enabled ? Editor(KeyAction.VideoStart).Keys.Count : 0);
 
     public string HintProblemsText => string.Join(Environment.NewLine, HintProblems);
 
@@ -2341,7 +2367,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
     /// <summary>Die Video-Hinweiszeile, wie die Gastansicht sie mit dem aktuellen Entwurf zeigt (leer ohne Video-Starttaste).</summary>
     public string VideoHintPreviewText =>
-        HintTextFormatter.FormatVideo(_draft.GuestScreen.VideoHintText, VideoStartChords(), click: false, TriggerChords());
+        HintTextFormatter.FormatVideo(_draft.GuestScreen.VideoHintText, VideoStartChords(), TriggerOnLeftClick || TriggerOnRightClick, TriggerChords());
 
     /// <summary>Die Vorschau zeigt die Video-Zeile: Videomodus aktiv und Text nicht leer (ohne Starttaste entfällt die Zeile).</summary>
     public bool ShowVideoHintPreview => _draft.Video.Enabled && VideoHintPreviewText.Length > 0;
@@ -3171,7 +3197,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         {
             var pinError = PinRules.GetError(_newPin, _repeatPin);
             if (pinError is not null)
-                errors.Add("Sicherheit: " + pinError);
+                errors.Add("PIN: " + pinError);
         }
 
         return errors;

@@ -256,13 +256,40 @@ public sealed class SettingsStoreTests : IDisposable
 
         Assert.False(store.LoadFailed);
         Assert.Single(Directory.GetFiles(_dir, "settings.json.bak-*"));
-        Assert.False(File.Exists(SettingsPath));
+        Assert.True(File.Exists(SettingsPath));   // die gerettete PIN wird sofort in eine neue Datei geschrieben
         Assert.Equal("hash", store.Current.Security.PinHash);
         Assert.Equal("salt", store.Current.Security.PinSalt);
         Assert.Equal(250000, store.Current.Security.PinIterations);
         // Alles andere sind Standardwerte.
         Assert.Equal(5, store.Current.Flow.CountdownSeconds);
         Assert.Equal(1, store.Current.Printer.Copies);
+    }
+
+    [Fact]
+    public void WrongType_RescuedPin_SurvivesRestartBeforeAnySave()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, """
+        {
+          "Printer": { "Copies": "2" },
+          "Security": { "PinHash": "hash", "PinSalt": "salt", "PinIterations": 250000 }
+        }
+        """);
+
+        var first = new JsonSettingsStore(_dir);
+        var changed = 0;
+        first.SettingsChanged += (_, _) => changed++;
+        Assert.Equal("hash", first.Current.Security.PinHash);
+
+        var second = new JsonSettingsStore(_dir);
+
+        Assert.False(second.LoadFailed);
+        Assert.Equal("hash", second.Current.Security.PinHash);
+        Assert.Equal("salt", second.Current.Security.PinSalt);
+        Assert.Equal(250000, second.Current.Security.PinIterations);
+        Assert.Single(Directory.GetFiles(_dir, "settings.json.bak-*"));
+        Assert.Empty(Directory.GetFiles(_dir, "settings.json.*.tmp"));
+        Assert.Equal(0, changed);
     }
 
     [Fact]

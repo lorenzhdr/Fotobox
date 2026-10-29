@@ -494,6 +494,45 @@ public sealed class PeaceOverlayViewModelTests
     }
 
     [Fact]
+    public void FacesOnlyRequest_EmptyHandLists_DoNotRearmThePeaceEngine()
+    {
+        using var vm = Create();
+        var actions = new List<PeaceTrigger>();
+        vm.ActionRequested += (_, t) => actions.Add(t);
+        var settings = Settings(s =>
+        {
+            s.ActionSelfDestruct = false;
+            s.ActionMoustache = true;
+            s.CooldownSeconds = 2;
+        });
+        vm.SetMode(PeaceMode.Watching, settings, false);
+
+        // Peace halten bis zur Auslösung.
+        _service.Last.RaiseUpdated([Face], [Peace]);
+        Run(1.3, [Face], [Peace]);
+        Assert.Equal(PeaceAction.Moustache, Assert.Single(actions).Action);
+
+        // Foto/Vorschau: nur Gesichter angefordert. Der echte Dienst meldet dabei HandsIncluded = true mit leerer Handliste,
+        // weit über Ruhezeit und Sperrzeit hinaus; die Hand bleibt in Wirklichkeit oben.
+        vm.SetMode(PeaceMode.FollowMoustache, settings, false);
+        Assert.Equal(GestureNeeds.Faces, _service.Last.Options.Needs);
+        Run(5, [Face], []);
+
+        // Zurück im Leerlauf: Das noch gezeigte Peace darf nicht erneut auslösen.
+        vm.SetMode(PeaceMode.Watching, settings, false);
+        Assert.Equal(GestureNeeds.Faces | GestureNeeds.Hands, _service.Last.Options.Needs);
+        _service.Last.RaiseUpdated([Face], [Peace]);
+        Run(2, [Face], [Peace]);
+        Assert.Single(actions);
+
+        // Gegenprobe: Mit beobachteter Ruhe (Hand-Updates ohne Peace) wird sie wieder scharf.
+        Run(1, [Face], []);
+        _service.Last.RaiseUpdated([Face], [Peace]);
+        Run(1.3, [Face], [Peace]);
+        Assert.Equal(2, actions.Count);
+    }
+
+    [Fact]
     public void RepeatedFaces_AreOnlyUsedToMatchHands_NotTrackedAgain()
     {
         using var vm = Create();

@@ -276,13 +276,20 @@ public sealed partial class AdminViewModel
         HideSaveStatusIfDirty();
     }
 
-    /// <summary>Der Stand, den die Kamera live bekommt: verstellte Regler des Entwurfs über den Grundwerten, nur beschreibbare Regler.</summary>
-    private IReadOnlyList<CameraControlValue> BuildLiveValues(string key)
+    /// <summary>
+    /// Der Stand, den die Kamera live bekommt: verstellte Regler des Entwurfs über der Grundlage, nur beschreibbare Regler.
+    /// Grundlage ist der zuletzt live gesendete Stand desselben Geräts (<paramref name="continueFromLastLive"/>; sonst standen nach
+    /// „Alle zurücksetzen“ die nicht verstellten Regler beim nächsten Verstellen wieder auf den alten Grundwerten), sonst die Grundwerte.
+    /// </summary>
+    private IReadOnlyList<CameraControlValue> BuildLiveValues(string key, bool continueFromLastLive = true)
     {
         var camera = _draft.Camera;
         var draftValues = string.Equals(camera.ControlsDeviceId, key, StringComparison.OrdinalIgnoreCase) ? camera.ControlValues : [];
         var writable = _controlItems.Where(i => i.Writable).Select(i => i.Kind).ToHashSet();
-        return CameraControlMath.Merge(draftValues, GetControlBaseline(key)).Where(v => writable.Contains(v.Kind)).ToList();
+        var basis = continueFromLastLive && _controlsLiveDirty && string.Equals(_liveDirtyDeviceId, key, StringComparison.OrdinalIgnoreCase)
+            ? CameraControlMath.Merge(_lastLive, GetControlBaseline(key))
+            : GetControlBaseline(key);
+        return CameraControlMath.Merge(draftValues, basis).Where(v => writable.Contains(v.Kind)).ToList();
     }
 
     /// <summary>Grundwerte des Geräts: zuletzt gespeicherte Werte (nur dieses Geräts) über dem Treiber-Schnappschuss.</summary>
@@ -641,7 +648,8 @@ public sealed partial class AdminViewModel
         camera.ControlsDeviceId = key;
         camera.ControlValues = CameraSettings.CloneValues(profile.Values).Where(v => supported.Contains(v.Kind)).OrderBy(v => v.Kind).ToList();
 
-        var live = BuildLiveValues(key);
+        // Ein Profil gilt über den Grundwerten (nicht über dem zuletzt gesendeten Stand).
+        var live = BuildLiveValues(key, continueFromLastLive: false);
         ApplyValuesToItems(live);
         SendControlsLive(live);
         HideSaveStatusIfDirty();

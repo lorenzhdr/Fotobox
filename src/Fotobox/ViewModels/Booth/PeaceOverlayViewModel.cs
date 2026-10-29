@@ -573,7 +573,10 @@ public sealed class PeaceOverlayViewModel : ObservableObject, IDisposable
         // Ein reines Gesichts-Update sagt nichts über die Hände: die Engine bekommt sie erst mit dem Ergebnis der Handstufe.
         if (update.HandsIncluded)
         {
-            _engine.OnUpdate(update.Hands, tracked, aspect);
+            // Ohne angeforderte Hände liefert der Dienst leere Handlisten; die Peace-Engine darf sie nicht als beobachtete Ruhe
+            // werten, sonst würde sie ohne Handdaten wieder scharf (z. B. ein über Foto und Vorschau gehaltenes Peace nach dem Bart).
+            if (_options is { } options && (options.Needs & GestureNeeds.Hands) != 0)
+                _engine.OnUpdate(update.Hands, tracked, aspect);
             _mfEngine.OnUpdate(update.Hands, aspect);
         }
         RefreshMoustaches();

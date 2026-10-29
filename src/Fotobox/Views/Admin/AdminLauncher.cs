@@ -117,7 +117,7 @@ public sealed class AdminLauncher : IAdminLauncher
         window.ShowDialog();
 
         var handling = DecideCameraHandling(viewModel.SettingsSaved, viewModel.ExitRequested, viewModel.CameraTouched,
-            cameraBefore, videoBefore, viewModel.LastAppliedCamera, _settings.Current);
+            cameraBefore, videoBefore, viewModel.LastAppliedCamera, _settings.Current, viewModel.LastAppliedVideo);
         // Nie gespeichert (Schließen): Wurde die Kamera mit Entwurfs-Einstellungen neu gestartet, wieder auf den gespeicherten
         // Stand bringen. (Bei Speichern oder Beenden übernimmt das Hauptfenster bzw. die Anwendung.)
         // Live verstellte Kamera-Regler werden danach (verkettet, nicht parallel zum Neustart) auf die Grundwerte zurückgenommen;
@@ -146,17 +146,20 @@ public sealed class AdminLauncher : IAdminLauncher
     /// <item>Mindestens einmal gespeichert (Übernehmen und/oder Speichern &amp; schließen): Das Hauptfenster startet die Kamera
     /// neu, wenn sich die gespeicherten Einstellungen gegenüber dem Öffnen geändert haben oder die Kamera zuletzt mit etwas anderem
     /// gestartet wurde – das deckt auch eine nach dem Übernehmen verstellte und beim Schließen verworfene Kamera ab (letzter
-    /// Start ≠ gespeicherter Stand) sowie einen übernommenen Ton-/Mikrofonwechsel.</item>
+    /// Start ≠ gespeicherter Stand), einen verworfenen Ton-/Mikrofonwechsel (zuletzt angewendeter Ton ≠ gespeicherter) sowie
+    /// einen übernommenen Ton-/Mikrofonwechsel.</item>
     /// </list>
     /// Beim Beenden der Anwendung wird nichts unternommen.
     /// </summary>
     public static CameraHandling DecideCameraHandling(bool settingsSaved, bool exitRequested, bool cameraTouched,
-        CameraSettings cameraBefore, VideoSettings videoBefore, CameraSettings? lastApplied, AppSettings saved)
+        CameraSettings cameraBefore, VideoSettings videoBefore, CameraSettings? lastApplied, AppSettings saved,
+        VideoSettings? lastAppliedVideo = null)
     {
         var restore = !settingsSaved && !exitRequested && cameraTouched;
         var cameraChanged = settingsSaved
             && (CameraNeedsRestart(cameraBefore, lastApplied, saved.Camera)
-                || videoBefore.RequiresCameraRestartComparedTo(saved.Video));
+                || videoBefore.RequiresCameraRestartComparedTo(saved.Video)
+                || (lastAppliedVideo is not null && lastAppliedVideo.RequiresCameraRestartComparedTo(saved.Video)));
         return new CameraHandling(restore, cameraChanged);
     }
 

@@ -210,6 +210,7 @@ public class AdminViewTests
     [StaFact]
     public void AdminTheme_PaletteFiles_DefineTheSameKeys()
     {
+        WpfCollection.EnsurePackUris();
         var light = new System.Windows.ResourceDictionary
         {
             Source = new Uri("/Fotobox;component/Views/Admin/AdminColors.Light.xaml", UriKind.Relative)
@@ -636,6 +637,82 @@ public class AdminViewTests
             Assert.True(panel.IsEnabled);
             Assert.False(mic.IsEnabled);
         });
+    }
+
+    [StaTheory]
+    [InlineData(AdminThemeMode.Light)]
+    [InlineData(AdminThemeMode.Dark)]
+    public void AdminWindow_PrinterTab_HoldsPrintToggle_AndGreysOutRestWhenPrintingIsOff(AdminThemeMode theme)
+    {
+        WithWindow((window, vm) =>
+        {
+            vm.IsAdminThemeLight = theme == AdminThemeMode.Light;
+            vm.IsAdminThemeDark = theme == AdminThemeMode.Dark;
+
+            // Der Schalter steht nicht mehr im Tab „Ablauf“.
+            var flow = ShowTab(window, "Ablauf");
+            Assert.DoesNotContain(FindDescendants<System.Windows.Controls.CheckBox>(flow),
+                c => System.Windows.Automation.AutomationProperties.GetName(c) == "Fotos nach der Aufnahme drucken");
+            Assert.DoesNotContain(FindDescendants<NumberStepper>(flow), s => s.Maximum == SettingsLimits.ExpectedPrintMax);
+
+            var root = ShowTab(window, "Drucker");
+            var toggle = FindDescendants<System.Windows.Controls.CheckBox>(root)
+                .Single(c => System.Windows.Automation.AutomationProperties.GetName(c) == "Fotos nach der Aufnahme drucken");
+            var panel = (System.Windows.Controls.StackPanel)window.FindName("PrinterSettingsPanel");
+            var printers = FindDescendants<System.Windows.Controls.ComboBox>(root).First();
+            Assert.True(toggle.IsEnabled);
+            Assert.True(panel.IsEnabled);
+            Assert.Equal(1.0, panel.Opacity);
+
+            vm.PrintingEnabled = false;
+
+            Assert.True(toggle.IsEnabled);   // der Schalter selbst bleibt bedienbar
+            Assert.False(panel.IsEnabled);
+            Assert.False(printers.IsEnabled);
+            Assert.True(panel.Opacity < 1.0);
+
+            vm.PrintingEnabled = true;
+            Assert.True(panel.IsEnabled);
+            Assert.True(printers.IsEnabled);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_SecurityTab_IsCalledSecurityAndData_WithThreeCards()
+    {
+        WithWindow((window, _) =>
+        {
+            var tabs = FindTabControl(window)!;
+            var headers = tabs.Items.OfType<System.Windows.Controls.TabItem>().Select(t => t.Header as string).ToList();
+            Assert.DoesNotContain("Sicherheit", headers);
+            Assert.Contains("Sicherheit & Daten", headers);
+
+            var root = ShowTab(window, "Sicherheit & Daten");
+            var titles = FindDescendants<System.Windows.Controls.TextBlock>(root).Select(t => t.Text).ToList();
+            Assert.Contains("PIN", titles);
+            Assert.Contains("Einstellungen teilen", titles);
+            Assert.Contains("Standardwerte", titles);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_SecurityTab_CardsAreLaidOutInBothThemes()
+    {
+        foreach (var theme in new[] { AdminThemeMode.Light, AdminThemeMode.Dark })
+        {
+            WithWindow((window, vm) =>
+            {
+                vm.IsAdminThemeLight = theme == AdminThemeMode.Light;
+                vm.IsAdminThemeDark = theme == AdminThemeMode.Dark;
+                var root = ShowTab(window, "Sicherheit & Daten");
+                var buttons = FindDescendants<System.Windows.Controls.Button>(root)
+                    .Select(b => System.Windows.Automation.AutomationProperties.GetName(b)).ToList();
+                Assert.Contains("Einstellungen exportieren", buttons);
+                Assert.Contains("Einstellungen importieren", buttons);
+                Assert.Contains("Standardwerte wiederherstellen", buttons);
+                Assert.True(root.ActualHeight > 0);
+            });
+        }
     }
 
     [StaFact]
