@@ -1,14 +1,15 @@
 ## Fotobox+ {{VERSION}}
 
-### Neu in 2.6.0
+### Neu in 2.7.0
 
-- **Easter Egg „Herzerkennung“ mit Kisscam:** Formen zwei Gäste mit ihren Händen ein Herz – oder ein Gast mit beiden Händen – und halten es kurz (ab Werk 1,8 s), startet die Kisscam: Ein Jumbotron-Rahmen mit Lichterkette, Banner „KISS CAM“ und Herzen erscheint über dem Livebild, ein Text fordert dazu auf, sich jemanden zum Küssen zu suchen, die letzten drei Sekunden zählen groß herunter, dann entsteht ein Foto mit dem Rahmen. Es wird wie jedes Foto gespeichert und gedruckt. Esc oder ein gehaltener Mittelfinger brechen die Kisscam ohne Foto ab. Die Gastansicht verrät vorher nichts; nur ein kleines Fortschrittsherz zeigt beim Halten, wie lange es noch dauert.
-- **Kisscam einstellen:** Im Admin-Tab „Fun“ → „Herz“ lassen sich erkannte Herzformen (klassisch, Dach, umgedreht, experimentell auch ein Fingerherz mit einer Hand), Haltedauer, Empfindlichkeit, Dauer (3–60 s), Text, Banner-Aufschrift, Farbschema, Dateipräfix, ein Zoom auf die Herz-Gäste und eigene Musik (WAV/MP3) einstellen. Eine Live-Vorschau zeigt die erkannten Hände, „Kisscam testen“ spielt den Ablauf ohne Foto durch. Die Musik gilt nur für das jeweilige Gerät und wird nicht mit „Einstellungen teilen“ weitergegeben.
-- **Erkennung an echten Händen abgestimmt:** Eng aneinanderliegende Hände werden zuverlässiger beide erkannt, und die Herzprüfung berücksichtigt gekrümmte Zeigefinger, die sich oben mit den Fingerrücken berühren. Kurze Aussetzer der Erkennung brechen das Halten nicht mehr ab.
-- **Diagnose im Protokoll:** Für Praxistests schreibt die Herzerkennung höchstens einmal pro Sekunde, warum ein Herz nicht erkannt wurde (Zeilen „Herz-Diagnose“). Das Verhalten ändert sich dadurch nicht.
-- **Hinweis:** Die Herzerkennung ist mit einer Person und beiden Händen im Praxistest geprüft; ein Herz aus zwei Personen mit je einer Hand noch nicht.
+- **Kisscam-Musik aus einem Ordner:** Statt einer einzelnen Datei gibt es jetzt den Musikordner `Musik\Fotobox+\Kisscam`. Er wird beim Start angelegt (ein vorhandener Ordner wird weiterverwendet) und lässt sich im Admin-Tab „Fun“ → „Herz“ ändern, öffnen und aktualisieren. Alle MP3-, WAV-, M4A- und WMA-Dateien im Ordner erscheinen in einer Liste; neu hineinkopierte Songs tauchen automatisch auf. Ist der Ordner leer, weist die Liste darauf hin.
+- **Mehrere Songs, zufällige Wahl:** Songs werden in der Liste angehakt (neue Songs sind zunächst nicht ausgewählt). Bei jeder Kisscam – und bei „Kisscam testen“ – spielt zufällig einer der ausgewählten Songs. Ist keiner ausgewählt, läuft die Kisscam ohne Musik.
+- **Startzeit und Lautstärke je Song:** Für jeden Song lässt sich festlegen, ab welcher Stelle er spielt (Standard 0:00), und wie laut er im Verhältnis zur Gesamtlautstärke ist. „Anspielen“ spielt den Song ab dieser Stelle so lange wie die Kisscam; mit „Position übernehmen“ wird die gerade gehörte Stelle zur Startzeit. Die Liste zeigt die Länge jedes Songs und warnt, wenn die Startzeit hinter dem Ende liegt oder eine Datei sich nicht abspielen lässt.
+- **Einstellungen im Musikordner:** Auswahl, Startzeiten und Song-Lautstärken stehen in der Datei `kisscam-musik.json` im Musikordner und werden bei jeder Änderung sofort gespeichert. Wird der Ordner auf einen anderen PC kopiert, kommt die Auswahl mit. Die bisher gewählte Einzeldatei wird nicht übernommen – den Song einfach in den neuen Ordner kopieren und anhaken.
+- **Zielerfassung rastet gemeinsam ein:** Kommt während der Einrast-Animation jemand dazu, startet die Animation für alle gleichzeitig neu (jede Person in ihrer eigenen Markierung), und erst danach erscheint die Meldung mit der Gesamtzahl. Wie oft neu gestartet wird, lässt sich im Tab „Zielerfassung“ unter „Maximale Neustarts beim Einrasten“ einstellen (ab Werk 3). Wer während der Meldung oder der Pause danach dazukommt, löst ebenfalls ein gemeinsames Einrasten aller aus.
+- **Videos laufen ungestört durch:** Esc beendet eine laufende Videoaufnahme nicht mehr – das geht nur mit der Videotaste (Standard Eingabetaste) oder durch die Maximaldauer. Den Video-Countdown bricht Esc weiterhin ab. Während Video-Countdown und Aufnahme sind wie bisher keine Fun-Funktionen aktiv, und Peace- sowie Herzerkennung lösen nur aus, wenn die Fotobox bereit ist (nicht im Countdown und nicht zwischen den Bildern eines Streifenfotos).
 
-Alle Neuerungen von 2.5.2 und den Versionen davor stehen unten unter „Ältere Versionen“.
+Alle Neuerungen von 2.6.0 und den Versionen davor stehen unten unter „Ältere Versionen“.
 
 ### Welche Datei passt zu meinem PC?
 
@@ -27,10 +28,10 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 ### Hinweise
 
 - Es gibt keine Installation: ZIP entpacken (z. B. in „Dokumente“) und `Fotobox.exe` starten. Der Ordner kann später einfach gelöscht werden.
-- Einstellungen und Protokolle liegen in `%LOCALAPPDATA%\Fotobox`, Fotos standardmäßig unter `Bilder\Fotobox+`, Videos unter `Videos\Fotobox+`. Alles bleibt erhalten, wenn der Programmordner gelöscht wird.
+- Einstellungen und Protokolle liegen in `%LOCALAPPDATA%\Fotobox`, Fotos standardmäßig unter `Bilder\Fotobox+`, Videos unter `Videos\Fotobox+`, Kisscam-Musik unter `Musik\Fotobox+\Kisscam`. Alles bleibt erhalten, wenn der Programmordner gelöscht wird.
 - **Umstieg von einer Setup-Version (Installer):** Einstellungen (`%LOCALAPPDATA%\Fotobox`), Fotos und Videos bleiben erhalten und werden von der portablen Version automatisch weiterverwendet. Die alte Installation kann über Windows „Apps“ deinstalliert werden, das löscht keine Daten.
 - Beim ersten Start wird eine Admin-PIN festgelegt.
-- Standardtasten: **Leertaste** löst das Foto aus, **Eingabetaste** startet und beendet ein Video, **Esc** bricht den Countdown oder einen laufenden Druck ab, **Strg + Alt + A** öffnet die Admin-Ansicht. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
+- Standardtasten: **Leertaste** löst das Foto aus, **Eingabetaste** startet und beendet ein Video, **Esc** bricht den Countdown oder einen laufenden Druck ab (eine laufende Videoaufnahme nicht), **Strg + Alt + A** öffnet die Admin-Ansicht. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
 
 ---
 
@@ -39,7 +40,15 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer der Fotobox 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
 
 <details>
-<summary>Änderungen der Versionen 0.0.0-beta bis 2.5.2 anzeigen</summary>
+<summary>Änderungen der Versionen 0.0.0-beta bis 2.6.0 anzeigen</summary>
+
+#### [Fotobox+ 2.6.0](https://github.com/lorenzhdr/Fotobox/tree/v2.6.0) · 29.10.2026
+
+- **Easter Egg „Herzerkennung“ mit Kisscam:** Formen zwei Gäste mit ihren Händen ein Herz – oder ein Gast mit beiden Händen – und halten es kurz (ab Werk 1,8 s), startet die Kisscam: Ein Jumbotron-Rahmen mit Lichterkette, Banner „KISS CAM“ und Herzen erscheint über dem Livebild, ein Text fordert dazu auf, sich jemanden zum Küssen zu suchen, die letzten drei Sekunden zählen groß herunter, dann entsteht ein Foto mit dem Rahmen. Es wird wie jedes Foto gespeichert und gedruckt. Esc oder ein gehaltener Mittelfinger brechen die Kisscam ohne Foto ab. Die Gastansicht verrät vorher nichts; nur ein kleines Fortschrittsherz zeigt beim Halten, wie lange es noch dauert.
+- **Kisscam einstellen:** Im Admin-Tab „Fun“ → „Herz“ lassen sich erkannte Herzformen (klassisch, Dach, umgedreht, experimentell auch ein Fingerherz mit einer Hand), Haltedauer, Empfindlichkeit, Dauer (3–60 s), Text, Banner-Aufschrift, Farbschema, Dateipräfix, ein Zoom auf die Herz-Gäste und eigene Musik (WAV/MP3) einstellen. Eine Live-Vorschau zeigt die erkannten Hände, „Kisscam testen“ spielt den Ablauf ohne Foto durch. Die Musik gilt nur für das jeweilige Gerät und wird nicht mit „Einstellungen teilen“ weitergegeben.
+- **Erkennung an echten Händen abgestimmt:** Eng aneinanderliegende Hände werden zuverlässiger beide erkannt, und die Herzprüfung berücksichtigt gekrümmte Zeigefinger, die sich oben mit den Fingerrücken berühren. Kurze Aussetzer der Erkennung brechen das Halten nicht mehr ab.
+- **Diagnose im Protokoll:** Für Praxistests schreibt die Herzerkennung höchstens einmal pro Sekunde, warum ein Herz nicht erkannt wurde (Zeilen „Herz-Diagnose“). Das Verhalten ändert sich dadurch nicht.
+- **Hinweis:** Die Herzerkennung ist mit einer Person und beiden Händen im Praxistest geprüft; ein Herz aus zwei Personen mit je einer Hand noch nicht.
 
 #### [Fotobox+ 2.5.2](https://github.com/lorenzhdr/Fotobox/tree/v2.5.2) · 29.10.2026
 
