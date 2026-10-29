@@ -119,8 +119,16 @@
                             <TextBlock Style="{DynamicResource Hint}"
                                        Text="Höher erkennt auch undeutliche Zeichen, löst aber öfter fälschlich aus." />
 
-                            <TextBlock Style="{DynamicResource Hint}" Margin="0,14,0,0"
-                                       Text="Die Analysen pro Sekunde gelten gemeinsam mit der Peaceerkennung und werden dort eingestellt." />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Analysen pro Sekunde" Style="{DynamicResource FieldLabel}" />
+                                <Button x:Name="MiddleFingerAnalysesInfo" Style="{DynamicResource InfoBadge}"
+                                        ToolTip="{x:Static vm:AdminInfoTexts.MiddleFingerAnalysesPerSecond}"
+                                        AutomationProperties.Name="{x:Static vm:AdminInfoTexts.AnalysesPerSecondName}"
+                                        AutomationProperties.HelpText="{x:Static vm:AdminInfoTexts.MiddleFingerAnalysesPerSecond}" />
+                            </StackPanel>
+                            <local:NumberStepper x:Name="MiddleFingerAnalysesStepper" Value="{Binding PeaceAnalysesPerSecond}" Minimum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMin}" Maximum="{x:Static core:SettingsLimits.PeaceAnalysesPerSecondMax}" />
+                            <TextBlock Style="{DynamicResource Hint}"
+                                       Text="Gilt gemeinsam für Peace- und Mittelfingererkennung (gleicher Wert wie auf der Peace-Seite)." />
                         </StackPanel>
                     </Border>
 

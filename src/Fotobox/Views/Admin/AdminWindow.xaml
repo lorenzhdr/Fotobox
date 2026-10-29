@@ -1488,7 +1488,13 @@
                                             <TextBlock Style="{StaticResource Hint}"
                                                        Text="Bei der Gesichtserkennung wird der Umfang aus dem Gesicht geschätzt." />
 
-                                            <TextBlock Text="Analysen pro Sekunde" Style="{StaticResource FieldLabel}" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="Analysen pro Sekunde" Style="{StaticResource FieldLabel}" />
+                                                <Button x:Name="FunAnalysesInfo" Style="{StaticResource InfoBadge}"
+                                                        ToolTip="{x:Static vm:AdminInfoTexts.FunAnalysesPerSecond}"
+                                                        AutomationProperties.Name="{x:Static vm:AdminInfoTexts.AnalysesPerSecondName}"
+                                                        AutomationProperties.HelpText="{x:Static vm:AdminInfoTexts.FunAnalysesPerSecond}" />
+                                            </StackPanel>
                                             <local:NumberStepper Value="{Binding FunAnalysesPerSecond}" Minimum="{x:Static core:SettingsLimits.FunAnalysesPerSecondMin}" Maximum="{x:Static core:SettingsLimits.FunAnalysesPerSecondMax}" />
                                             <TextBlock Style="{StaticResource Hint}"
                                                        Text="Mehr Analysen reagieren schneller, belasten den Rechner aber stärker. Das Livebild hat immer Vorrang." />

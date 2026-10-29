@@ -271,6 +271,47 @@
         <Setter Property="Background" Value="{DynamicResource CardBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+        <Setter Property="Padding" Value="10,8" />
+        <!-- Lange Texte brechen um (Inhalt ist in allen Admin-Tooltips ein String). -->
+        <Setter Property="ContentTemplate">
+            <Setter.Value>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" MaxWidth="380" />
+                </DataTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Kleines rundes „i“ neben einer Beschriftung; der Erklärtext kommt als ToolTip (und AutomationProperties.HelpText) vom Verwender.
+         Button, damit Bildschirmleser das Element kennen; nicht fokussierbar, Tooltip auch bei ausgegrautem Bereich. -->
+    <Style x:Key="InfoBadge" TargetType="Button">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Cursor" Value="Help" />
+        <Setter Property="Width" Value="20" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Margin" Value="8,12,0,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="ToolTipService.InitialShowDelay" Value="200" />
+        <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid Background="Transparent">
+                        <Ellipse x:Name="Disc" Fill="{DynamicResource AccentSoftBrush}" Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.5" />
+                        <TextBlock x:Name="Glyph" Text="i" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Disc" Property="Fill" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- Schalter statt Checkbox -->
