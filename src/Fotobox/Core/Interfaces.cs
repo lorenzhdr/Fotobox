@@ -250,6 +250,13 @@ public interface IHandLandmarkDetector : IAsyncDisposable
     Task<IReadOnlyList<Peace.PalmCandidate>> DetectPalmsAsync(Peace.BgraImage image, Fun.NormRect region, int max, CancellationToken ct = default);
     /// <summary>21 Handpunkte im gedrehten Ausschnitt <paramref name="roi"/>; null, wenn keine Hand mit mindestens <paramref name="minScore"/> darin ist.</summary>
     Task<Peace.HandLandmarks?> DetectLandmarksAsync(Peace.BgraImage image, Peace.HandRoi roi, double minScore, CancellationToken ct = default);
+    /// <summary>
+    /// Diagnose (Herz-Log): Beobachter, der nach jedem Landmark-Lauf den Roh-Score bekommt, auch wenn die Hand wegen
+    /// <c>minScore</c> verworfen wird (null = aus). Wird auf dem Threadpool gerufen und darf nicht blockieren; Standard: ignoriert.
+    /// </summary>
+    void SetScoreObserver(Action<double>? observer)
+    {
+    }
 }
 
 /// <summary>

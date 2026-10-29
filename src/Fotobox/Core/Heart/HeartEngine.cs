@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Fotobox.Core.Fun;
 using Fotobox.Core.Peace;
 
@@ -31,6 +33,9 @@ public sealed class HeartEngine
     private TimeSpan _gapTolerance = PeaceEngine.MinGapTolerance;
     private TimeSpan _rearmQuietTime = PeaceEngine.MinRearmQuietTime;
     private HeartSnapshot _snapshot = new([], true);
+    // Diagnose (nur Log, ohne Einfluss auf die Auslösung): Drosselung über die Engine-Zeit.
+    private static readonly TimeSpan DiagnosisInterval = TimeSpan.FromSeconds(1);
+    private DateTimeOffset _lastDiagnosisAt = DateTimeOffset.MinValue;
 
     public HeartEngine(TimeProvider time)
     {
@@ -74,7 +79,7 @@ public sealed class HeartEngine
                 return;
             _gesturesEnabled = value;
             if (!value)
-                _holdStart = null;
+                AbortHold(_time.GetUtcNow(), "Gesten ausgeschaltet");
         }
     }
 
@@ -94,7 +99,7 @@ public sealed class HeartEngine
         if (!CanDetect)
         {
             // Ausgeschaltet bzw. ohne Form: Halten und Anzeige verwerfen; die Entwaffnung bleibt erhalten.
-            _holdStart = null;
+            AbortHold(_time.GetUtcNow(), "Erkennung ausgeschaltet");
             _best = null;
             _bestFaces = [];
             _lastHeartAt = DateTimeOffset.MinValue;
@@ -116,17 +121,24 @@ public sealed class HeartEngine
 
         var matches = CanDetect ? HeartGestureClassifier.FindHearts(hands, _settings, aspect) : [];
         if (_holdStart is not null && now - _lastHeartAt > _gapTolerance)
-            _holdStart = null; // Aussetzer zu lang: Halten beginnt von vorn
+            AbortHold(now, "Aussetzer zu lang"); // Halten beginnt von vorn
 
         var anyHeart = matches.Count > 0;
         if (anyHeart)
         {
+            var heartBegins = _lastHeartAt == DateTimeOffset.MinValue || now - _lastHeartAt > _gapTolerance;
             _best = matches[0];
             _bestFaces = FaceBoxesFor(_best, hands, faces, aspect);
             _lastHeartAt = now;
             _lastAnyHeartAt = now;
             if (_holdStart is null && _armed && _gesturesEnabled)
                 _holdStart = now;
+            if (heartBegins)
+                LogHeartBegins(_best, hands.Count);
+        }
+        else if (CanDetect && hands.Count > 0)
+        {
+            LogNoHeartDiagnosis(hands, aspect, now);
         }
 
         // Ausgeschaltet bzw. ohne Form wird nichts beobachtet; die Ruhe zählt erst wieder ab dem ersten Update nach dem Einschalten.
@@ -144,7 +156,7 @@ public sealed class HeartEngine
     /// </summary>
     public void Reset()
     {
-        _holdStart = null;
+        AbortHold(_time.GetUtcNow(), "Reset");
         _best = null;
         _bestFaces = [];
         _lastHeartAt = DateTimeOffset.MinValue;
@@ -196,7 +208,8 @@ public sealed class HeartEngine
 
         if (_holdStart is not null && (now - _lastHeartAt > _gapTolerance || !_armed || !_gesturesEnabled || !CanDetect))
         {
-            _holdStart = null;
+            AbortHold(now, now - _lastHeartAt > _gapTolerance ? "Aussetzer zu lang"
+                : !_armed ? "Engine nicht scharf" : !_gesturesEnabled ? "Gesten nicht erlaubt" : "Erkennung ausgeschaltet");
             changed = true;
         }
 
@@ -226,6 +239,97 @@ public sealed class HeartEngine
         if (trigger is not null)
             Triggered?.Invoke(this, trigger);
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    // ---- Diagnose (nur Log; verändert außer der Drosselzeit und dem Verwerfen des Haltens keinen Zustand)
+
+    // Verwirft das laufende Halten und protokolliert den Abbruch samt Lücke und Fortschritt (nur wenn gerade gehalten wurde).
+    private void AbortHold(DateTimeOffset now, string reason)
+    {
+        if (_holdStart is not { } start)
+            return;
+        _holdStart = null;
+        try
+        {
+            var gap = now - _lastHeartAt;
+            var gapExceeded = gap > _gapTolerance;
+            var held = ((gapExceeded ? _lastHeartAt : now) - start).TotalMilliseconds;
+            var hold = Math.Max(1, _settings.HoldMilliseconds);
+            AppLog.Info(string.Create(CultureInfo.InvariantCulture,
+                $"Herz-Diagnose: Halten abgebrochen ({reason}); Lücke seit letztem Herz {gap.TotalMilliseconds:0} ms, "
+                + $"GapTolerance {_gapTolerance.TotalMilliseconds:0} ms; Fortschritt {Math.Max(0, held):0} von {hold} ms "
+                + $"({Math.Clamp(held / hold * 100, 0, 100):0} %)."));
+        }
+        catch
+        {
+            // Diagnose darf die Erkennung nie beeinträchtigen.
+        }
+    }
+
+    private void LogHeartBegins(HeartMatch best, int handCount)
+    {
+        try
+        {
+            AppLog.Info(string.Create(CultureInfo.InvariantCulture,
+                $"Herz-Diagnose: Herz-Treffer beginnt (Form {best.Shape}, Güte {HeartDiagnosisFormat.Num(best.Score)}, "
+                + $"Hände im Bild {handCount}, scharf {(_armed ? "ja" : "nein")}, Gesten erlaubt {(_gesturesEnabled ? "ja" : "nein")}, "
+                + $"Halten {(_holdStart is not null ? "läuft" : "läuft nicht")}, GapTolerance {_gapTolerance.TotalMilliseconds:0} ms, "
+                + $"Haltedauer {_settings.HoldMilliseconds} ms)."));
+        }
+        catch
+        {
+            // Diagnose darf die Erkennung nie beeinträchtigen.
+        }
+    }
+
+    // Hände sichtbar, aber kein Herz: höchstens einmal pro Sekunde die komplette Klassifikator-Diagnose des nächstliegenden Paars
+    // samt rohen Landmarks (normiert), damit sich der Fall offline nachrechnen lässt.
+    private void LogNoHeartDiagnosis(IReadOnlyList<HandLandmarks> hands, double aspect, DateTimeOffset now)
+    {
+        if (now - _lastDiagnosisAt < DiagnosisInterval)
+            return;
+        _lastDiagnosisAt = now;
+        try
+        {
+            var sb = new StringBuilder(2048);
+            sb.Append("Herz-Diagnose: Hände ohne Herz: Hände=").Append(HeartDiagnosisFormat.Int(hands.Count)).Append(" (Scores ");
+            for (var i = 0; i < hands.Count; i++)
+            {
+                if (i > 0)
+                    sb.Append('/');
+                sb.Append(HeartDiagnosisFormat.Num(hands[i].Score));
+            }
+            sb.Append("), Seitenverh.=").Append(HeartDiagnosisFormat.Num(aspect))
+              .Append(", Empfindlichkeit=").Append(HeartDiagnosisFormat.Int(_settings.SensitivityPercent))
+              .Append(", MinHandScore=").Append(HeartDiagnosisFormat.Num(_settings.MinHandScore))
+              .Append(", scharf=").Append(_armed ? "ja" : "nein")
+              .Append(", Gesten erlaubt=").Append(_gesturesEnabled ? "ja" : "nein");
+            if (_lastHeartAt != DateTimeOffset.MinValue)
+                sb.Append(", letztes Herz vor ").Append((now - _lastHeartAt).TotalMilliseconds.ToString("0", CultureInfo.InvariantCulture)).Append(" ms");
+            sb.Append(" | ");
+
+            var nearest = hands.Count >= 2 ? HeartGestureClassifier.FindNearestPair(hands, aspect) : null;
+            if (nearest is { } pair)
+            {
+                sb.Append("nächstes Paar ").Append(HeartDiagnosisFormat.Int(pair.A)).Append('/').Append(HeartDiagnosisFormat.Int(pair.B))
+                  .Append(" (Spitzenabstände/S ").Append(HeartDiagnosisFormat.Num(pair.Cost)).Append("): ")
+                  .Append(HeartGestureClassifier.Diagnose(hands[pair.A], hands[pair.B], _settings, aspect).ToLogString())
+                  .Append(" | Hand").Append(HeartDiagnosisFormat.Int(pair.A)).Append(" [").Append(HeartDiagnosisFormat.Points(hands[pair.A])).Append(']')
+                  .Append(" Hand").Append(HeartDiagnosisFormat.Int(pair.B)).Append(" [").Append(HeartDiagnosisFormat.Points(hands[pair.B])).Append(']');
+            }
+            else
+            {
+                sb.Append("einzelne Hand 0: ")
+                  .Append(HeartGestureClassifier.DiagnoseFingerHeart(hands[0], _settings, aspect).ToLogString())
+                  .Append(" | Hand0 [").Append(HeartDiagnosisFormat.Points(hands[0])).Append(']');
+            }
+            sb.Append('.');
+            AppLog.Info(sb.ToString());
+        }
+        catch
+        {
+            // Diagnose darf die Erkennung nie beeinträchtigen.
+        }
     }
 
     private HeartTrigger Fire(DateTimeOffset now)

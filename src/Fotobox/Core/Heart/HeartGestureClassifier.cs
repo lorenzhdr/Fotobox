@@ -22,7 +22,7 @@ public sealed record HeartVerdict(bool IsHeart, HeartShape? Shape, double Score,
 /// gelten alle Prüfungen unabhängig von Seitenverhältnis und Handgröße. Jede Schwelle wird mit der Empfindlichkeit von streng
 /// (<c>t</c> = 0, Empfindlichkeit 10) auf locker (<c>t</c> = 1, Empfindlichkeit 95) gelegt. Reine Rechnung, ohne Zustand.
 /// </summary>
-public static class HeartGestureClassifier
+public static partial class HeartGestureClassifier
 {
     public const int PointCount = HandPoseMath.PointCount;
 
@@ -285,17 +285,22 @@ public static class HeartGestureClassifier
     }
 
     // Dach: Mindestens zwei der Finger Mittel/Ring/klein sind gestreckt und zeigen grob nach oben.
-    private static bool IsRoofHand(V3[] p, Thresholds th)
+    private static bool IsRoofHand(V3[] p, Thresholds th) => RoofFingerCount(p, th, out _) >= 2;
+
+    // Anzahl der gestreckten und nach oben zeigenden Finger Mittel/Ring/klein (Rückgabe = nach oben; extended = nur gestreckt).
+    private static int RoofFingerCount(V3[] p, Thresholds th, out int extended)
     {
         var up = 0;
+        extended = 0;
         foreach (var mcp in new[] { 9, 13, 17 })
         {
             if (!IsExtended(p, mcp, th.ExtensionFactor, th.PipAngleDeg))
                 continue;
+            extended++;
             if (Angle2(p[mcp + 3].X - p[mcp].X, p[mcp + 3].Y - p[mcp].Y, 0, -1) <= RoofFingerMaxDeg)
                 up++;
         }
-        return up >= 2;
+        return up;
     }
 
     private static double D2(V3 a, V3 b)
