@@ -181,8 +181,233 @@ public sealed class CameraFormatSelectorTests
 }
 
 [Collection(WpfCollection.Name)]
-public sealed class CameraHardwareTests
+public sealed class CameraHardwareTests(Xunit.Abstractions.ITestOutputHelper output)
 {
+    private static IEnumerable<CameraControlInfo> WritableControls(CameraControlsSnapshot snap) =>
+        snap.Controls
+            .Where(c => c is { Supported: true, Writable: true, Value: not null } && c.Min < c.Max && !(c.AutoSupported && c.Auto == true))
+            .OrderBy(c => c.Kind == CameraControlKind.Brightness ? 0 : 1);
+
+    private static CameraControlInfo? PickWritableControl(CameraControlsSnapshot snap) => WritableControls(snap).FirstOrDefault();
+
+    // Ein anderer Wert im Bereich, deutlich vom Ausgangswert entfernt (in Richtung der größeren Spanne).
+    private static double OtherValue(CameraControlInfo c)
+    {
+        var current = c.Value!.Value;
+        var span = c.Max - c.Min;
+        var target = c.Max - current >= current - c.Min ? current + span * 0.25 : current - span * 0.25;
+        return CameraControlMath.ClampAndSnap(target, c.Min, c.Max, c.Step);
+    }
+
+    // Startet nacheinander die Kameras (virtuelle Kameras haben meist keine Regler) und liefert die erste mit einem
+    // verstellbaren Regler; sonst null (die Kamera läuft dann mit der zuletzt probierten). Bereiche nur als Zahlen im Testprotokoll.
+    private async Task<(CameraDevice Device, CameraControlsSnapshot Snapshot, CameraControlInfo Control)?> StartDeviceWithControlsAsync(
+        WinRtCameraService camera, IReadOnlyList<CameraDevice> devices)
+    {
+        for (var i = 0; i < devices.Count; i++)
+        {
+            await camera.StartAsync(new CameraSettings { DeviceId = devices[i].Id, Powerline = CameraPowerline.Unchanged }).WaitAsync(TimeSpan.FromSeconds(60));
+            if (camera.Status != CameraStatus.Running)
+            {
+                output.WriteLine($"Kamera {i}: Start nicht möglich ({camera.Status}).");
+                continue;
+            }
+
+            var snap = await camera.GetControlsAsync();
+            output.WriteLine($"Kamera {i}: {snap.Controls.Count(c => c.Supported)} Regler, schreibbar {snap.Writable}, Flimmerschutz unterstützt {snap.PowerlineSupported} ({snap.Powerline})");
+            foreach (var c in snap.Controls.Where(c => c.Supported))
+                output.WriteLine($"  {c.Kind}: min {c.Min} max {c.Max} step {c.Step} default {c.Default} wert {c.Value} auto {c.Auto} (auto möglich: {c.AutoSupported})");
+
+            if (PickWritableControl(snap) is { } control)
+                return (devices[i], snap, control);
+        }
+
+        return null;
+    }
+
+    private static double Tolerance(CameraControlInfo c) => Math.Max(c.Step > 0 ? c.Step : 0, (c.Max - c.Min) * 0.02);
+
+    private static async Task WaitUntilAsync(Func<Task<bool>> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (!await condition())
+        {
+            if (DateTime.UtcNow > deadline)
+                return;
+            await Task.Delay(100);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Hardware")]
+    public async Task Controls_LiveWrite_ReadsBackAndRestores()
+    {
+        await using var camera = new WinRtCameraService();
+        var devices = await camera.GetDevicesAsync();
+        if (devices.Count == 0)
+            return; // Keine Kamera angeschlossen: nichts zu prüfen.
+
+        var found = await StartDeviceWithControlsAsync(camera, devices);
+        if (found is not { } f)
+        {
+            output.WriteLine("HINWEIS: Keine Kamera mit verstellbarem Regler ohne Automatik gefunden, Test übersprungen.");
+            return;
+        }
+
+        Assert.Equal(camera.ActiveDeviceId, f.Snapshot.DeviceId);
+        Assert.True(f.Snapshot.Writable);
+        foreach (var control in WritableControls(f.Snapshot))
+            await LiveWriteRoundTripAsync(camera, control);
+    }
+
+    private async Task LiveWriteRoundTripAsync(WinRtCameraService camera, CameraControlInfo control)
+    {
+        var original = control.Value!.Value;
+        var target = OtherValue(control);
+        output.WriteLine($"Test mit {control.Kind}: {original} -> {target}");
+        if (Math.Abs(target - original) < 1e-9)
+        {
+            output.WriteLine("HINWEIS: Kein abweichender Zielwert möglich, Test übersprungen.");
+            return;
+        }
+
+        var isolated = new[] { new CameraControlValue { Kind = control.Kind, Value = target } };
+        var restore = new[] { new CameraControlValue { Kind = control.Kind, Value = original } };
+        try
+        {
+            await camera.ApplyControlsLiveAsync(isolated, CameraPowerline.Unchanged).WaitAsync(TimeSpan.FromSeconds(30));
+            double? read = null;
+            await WaitUntilAsync(async () =>
+            {
+                read = (await camera.GetControlsAsync()).Controls.Single(c => c.Kind == control.Kind).Value;
+                return read is { } r && Math.Abs(r - target) <= Tolerance(control);
+            }, TimeSpan.FromSeconds(3));
+            output.WriteLine($"Zurückgelesen: {read}");
+            Assert.NotNull(read);
+            Assert.InRange(read!.Value, target - Tolerance(control), target + Tolerance(control));
+        }
+        finally
+        {
+            await camera.ApplyControlsLiveAsync(restore, CameraPowerline.Unchanged).WaitAsync(TimeSpan.FromSeconds(30));
+        }
+
+        var after = (await camera.GetControlsAsync()).Controls.Single(c => c.Kind == control.Kind).Value;
+        output.WriteLine($"Nach dem Zurücksetzen: {after}");
+        Assert.NotNull(after);
+        Assert.InRange(after!.Value, original - Tolerance(control), original + Tolerance(control));
+
+        // Schnelle Folge: nur der letzte Stand zählt, der letzte Task endet nach dem Anwenden.
+        var last = Enumerable.Range(0, 20).Select(_ => camera.ApplyControlsLiveAsync(isolated, CameraPowerline.Unchanged)).ToList();
+        await camera.ApplyControlsLiveAsync(restore, CameraPowerline.Unchanged).WaitAsync(TimeSpan.FromSeconds(30));
+        await Task.WhenAll(last).WaitAsync(TimeSpan.FromSeconds(30));
+        var final = (await camera.GetControlsAsync()).Controls.Single(c => c.Kind == control.Kind).Value;
+        Assert.NotNull(final);
+        Assert.InRange(final!.Value, original - Tolerance(control), original + Tolerance(control));
+    }
+
+    [Fact]
+    [Trait("Category", "Hardware")]
+    public async Task Powerline_IsAppliedAtStart_AndLive_AndRestored()
+    {
+        await using var camera = new WinRtCameraService();
+        var devices = await camera.GetDevicesAsync();
+        if (devices.Count == 0)
+            return; // Keine Kamera angeschlossen: nichts zu prüfen.
+
+        for (var i = 0; i < devices.Count; i++)
+        {
+            await camera.StartAsync(new CameraSettings { DeviceId = devices[i].Id, Powerline = CameraPowerline.Unchanged }).WaitAsync(TimeSpan.FromSeconds(60));
+            var snap = await camera.GetControlsAsync();
+            if (camera.Status != CameraStatus.Running || !snap.PowerlineSupported)
+                continue;
+
+            var original = snap.Powerline ?? CameraPowerline.Auto;
+            output.WriteLine($"Kamera {i}: Flimmerschutz unterstützt, Ausgang {snap.Powerline}");
+            var settings = new CameraSettings { DeviceId = devices[i].Id, Powerline = CameraPowerline.Hz50 };
+            try
+            {
+                // Beim Start (jeder Start setzt den Flimmerschutz).
+                await camera.StartAsync(settings).WaitAsync(TimeSpan.FromSeconds(60));
+                var atStart = (await camera.GetControlsAsync()).Powerline;
+                output.WriteLine($"Nach Start mit Hz50: {atStart}");
+                Assert.Equal(CameraPowerline.Hz50, atStart);
+
+                // Live, während der Stream läuft.
+                await camera.ApplyControlsLiveAsync([], CameraPowerline.Hz60).WaitAsync(TimeSpan.FromSeconds(30));
+                var live = (await camera.GetControlsAsync()).Powerline;
+                output.WriteLine($"Live auf Hz60: {live}");
+                Assert.Equal(CameraPowerline.Hz60, live);
+            }
+            finally
+            {
+                // Ausgangswert wiederherstellen (manche Treiber behalten ihn über Sitzungen hinweg).
+                await camera.ApplyControlsLiveAsync([], original).WaitAsync(TimeSpan.FromSeconds(30));
+                output.WriteLine($"Wiederhergestellt: {(await camera.GetControlsAsync()).Powerline}");
+            }
+
+            return;
+        }
+
+        output.WriteLine("HINWEIS: Keine Kamera mit Flimmerschutz gefunden, Test übersprungen.");
+    }
+
+    [Fact]
+    [Trait("Category", "Hardware")]
+    public async Task Controls_SavedValue_IsAppliedOnRestart()
+    {
+        await using var camera = new WinRtCameraService();
+        var devices = await camera.GetDevicesAsync();
+        if (devices.Count == 0)
+            return; // Keine Kamera angeschlossen: nichts zu prüfen.
+
+        var found = await StartDeviceWithControlsAsync(camera, devices);
+        if (found is not { } f)
+        {
+            output.WriteLine("HINWEIS: Keine Kamera mit verstellbarem Regler ohne Automatik gefunden, Test übersprungen.");
+            return;
+        }
+
+        var control = f.Control;
+        var device = f.Device;
+        var deviceId = camera.ActiveDeviceId;
+        Assert.NotNull(deviceId);
+
+        var original = control.Value!.Value;
+        var target = OtherValue(control);
+        if (Math.Abs(target - original) < 1e-9)
+        {
+            output.WriteLine("HINWEIS: Kein abweichender Zielwert möglich, Test übersprungen.");
+            return;
+        }
+
+        var saved = new CameraSettings
+        {
+            DeviceId = device.Id,
+            ControlsDeviceId = deviceId,
+            ControlValues = [new CameraControlValue { Kind = control.Kind, Value = target }],
+            Powerline = CameraPowerline.Unchanged,
+        };
+        var plain = new CameraSettings { DeviceId = device.Id, Powerline = CameraPowerline.Unchanged };
+        try
+        {
+            camera.ConfigureControls(saved);
+            await camera.StartAsync(saved).WaitAsync(TimeSpan.FromSeconds(60));
+            Assert.True(camera.Status == CameraStatus.Running, $"Status {camera.Status}: {camera.StatusMessage}");
+
+            var read = (await camera.GetControlsAsync()).Controls.Single(c => c.Kind == control.Kind).Value;
+            output.WriteLine($"{control.Kind}: Ausgang {original}, gespeichert {target}, nach Neustart {read}");
+            Assert.NotNull(read);
+            Assert.InRange(read!.Value, target - Tolerance(control), target + Tolerance(control));
+        }
+        finally
+        {
+            // Gerätewert zurücksetzen (manche Treiber behalten ihn über Sitzungen hinweg).
+            await camera.StartAsync(plain).WaitAsync(TimeSpan.FromSeconds(60));
+            await camera.ApplyControlsLiveAsync([new CameraControlValue { Kind = control.Kind, Value = original }], CameraPowerline.Unchanged)
+                .WaitAsync(TimeSpan.FromSeconds(30));
+        }
+    }
+
     [Fact]
     [Trait("Category", "Hardware")]
     public async Task StartCaptureStop_WithRealCamera()

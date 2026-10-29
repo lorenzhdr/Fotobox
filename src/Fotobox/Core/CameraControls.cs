@@ -1,7 +1,7 @@
 namespace Fotobox.Core;
 
 /// <summary>Regler der Webcam-Hardware (WinRT <c>VideoDeviceController</c>). Nur hinten erweitern.</summary>
-public enum CameraControlKind { Zoom, Pan, Tilt, Brightness, Contrast, Hue, Exposure, BacklightCompensation, Focus, WhiteBalance }
+public enum CameraControlKind { Zoom, Pan, Tilt, Brightness, Contrast, Hue, Exposure, BacklightCompensation, Focus, WhiteBalance, ExposureCompensation }
 
 /// <summary>Flimmerschutz (Netzfrequenz des Raumlichts). Nur hinten erweitern.</summary>
 public enum CameraPowerline { Unchanged, Off, Hz50, Hz60, Auto }

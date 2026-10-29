@@ -13,7 +13,7 @@ using Windows.Storage.Streams;
 namespace Fotobox.Services.Camera;
 
 /// <summary>Kamera-Dienst auf Basis von Windows.Media.Capture (MediaCapture + MediaFrameReader).</summary>
-public sealed class WinRtCameraService : ICameraService
+public sealed partial class WinRtCameraService : ICameraService
 {
     private static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(2);
     // Obergrenze je Abbauschritt: Ein hängender Treiber darf Neustart und Beenden nicht unbegrenzt blockieren.
@@ -69,6 +69,7 @@ public sealed class WinRtCameraService : ICameraService
     public WinRtCameraService(TimeProvider? time = null)
     {
         _time = time ?? TimeProvider.System;
+        InitializeControls();
     }
 
     public CameraStatus Status { get { lock (_stateLock) return _status; } }
@@ -166,6 +167,7 @@ public sealed class WinRtCameraService : ICameraService
             if (Volatile.Read(ref _disposed) != 0)
                 return;
             _lastSettings = CopyOf(settings);
+            _controlState = ControlState.From(settings);
 
             // Direkt nach einem Kamerawechsel meldet Media Foundation oft kurz einen Ressourcenfehler, solange die
             // alte Session noch freigegeben wird. Solche Fehler zuerst still (Status bleibt „Starting“) wiederholen.
@@ -428,6 +430,7 @@ public sealed class WinRtCameraService : ICameraService
             return ValueTask.CompletedTask;
 
         CancelReconnect();
+        _liveWorker?.Close(); // Wartende Live-Reglerwerte verwerfen; ein laufender Schreibvorgang blockiert den Abbau nicht.
         Interlocked.Increment(ref _generation);
         return new ValueTask(Task.Run(() => StopSerializedAsync(null)));
     }
@@ -487,7 +490,11 @@ public sealed class WinRtCameraService : ICameraService
             await ApplyFormatAsync(source, settings).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
 
-            reader = await CreateReaderAsync(capture, source).ConfigureAwait(false);
+            // Gespeicherte Reglerwerte und Flimmerschutz vor dem ersten Bild (jeder Start, auch Wiederverbindung); scheitert nie.
+            await ApplySavedControlsAsync(capture, init.Mode, device.Id).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+
+            reader =await CreateReaderAsync(capture, source).ConfigureAwait(false);
             reader.AcquisitionMode = MediaFrameReaderAcquisitionMode.Realtime;
             // Erst eintragen, dann anmelden: Die Handler verwerfen Ereignisse fremder (alter) Objekte per ReferenceEquals.
             // Abgemeldet wird bewusst nie (siehe DisposeSessionObjectsAsync).

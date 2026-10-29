@@ -106,6 +106,15 @@ public sealed class BoothViewModel : ObservableObject
         settings.SettingsChanged += (_, _) =>
         {
             _keyMap = null;
+            try
+            {
+                // Gespeicherte Reglerwerte für spätere Starts/Wiederverbindungen (wendet nichts sofort an).
+                camera.ConfigureControls(settings.Current.Camera);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Kamerareglerwerte konnten nicht übernommen werden.", ex);
+            }
             OnUi(() =>
             {
                 ResetLayoutSelection();

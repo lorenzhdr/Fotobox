@@ -145,6 +145,27 @@ public partial class BoothViewModelTests
     }
 
     [Fact]
+    public void SettingsChanged_PassesSavedCameraControlsToTheCamera()
+    {
+        var h = new Harness();
+        Assert.Empty(h.Camera.ConfiguredControls);
+
+        var camera = h.Settings.Current.Camera;
+        camera.ControlsDeviceId = "gerät-1";
+        camera.ControlValues = [new CameraControlValue { Kind = CameraControlKind.Brightness, Value = 42, Auto = false }];
+        camera.Powerline = CameraPowerline.Hz60;
+        h.Settings.RaiseSettingsChanged();
+
+        var configured = Assert.Single(h.Camera.ConfiguredControls);
+        Assert.Equal("gerät-1", configured.ControlsDeviceId);
+        Assert.Equal(CameraPowerline.Hz60, configured.Powerline);
+        var value = Assert.Single(configured.ControlValues);
+        Assert.Equal(CameraControlKind.Brightness, value.Kind);
+        Assert.Equal(42, value.Value);
+        Assert.False(value.Auto);
+    }
+
+    [Fact]
     public void HandleKey_UsesConfiguredKeys_AndReparsesAfterSettingsChange()
     {
         var h = new Harness();
@@ -1033,6 +1054,11 @@ public partial class BoothViewModelTests
 
         public void ConfigureAudio(CameraAudio? audio) =>
             Calls.Add(audio is null ? "audio:none" : "audio:" + (audio.MicrophoneId ?? "default"));
+
+        /// <summary>Alle Aufrufe von <see cref="ConfigureControls"/> (tiefe Kopien der übergebenen Einstellungen).</summary>
+        public List<CameraSettings> ConfiguredControls { get; } = [];
+
+        public void ConfigureControls(CameraSettings saved) => ConfiguredControls.Add(saved.Clone());
 
         public Task StartAsync(CameraSettings settings, CancellationToken ct = default)
         {
