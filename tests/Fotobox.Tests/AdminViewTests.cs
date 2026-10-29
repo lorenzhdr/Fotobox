@@ -606,7 +606,7 @@ public class AdminViewTests
             Assert.Contains("Videomodus aktiv", names);
             var combos = FindDescendants<System.Windows.Controls.ComboBox>(root)
                 .Select(c => System.Windows.Automation.AutomationProperties.GetName(c)).ToList();
-            Assert.Contains("Videoqualität", combos);
+            Assert.DoesNotContain("Videoqualität", combos);   // steht jetzt im Tab „Speicher“
             Assert.Contains("Mikrofon", combos);
             Assert.NotEmpty(FindDescendants<NumberStepper>(root));
             Assert.True(root.ActualHeight > 0);
@@ -636,6 +636,71 @@ public class AdminViewTests
             vm.VideoRecordAudio = false;   // nur das Mikrofon ist dann aus
             Assert.True(panel.IsEnabled);
             Assert.False(mic.IsEnabled);
+        });
+    }
+
+    private static List<string> ControlNames<T>(System.Windows.DependencyObject root) where T : System.Windows.DependencyObject =>
+        FindDescendants<T>(root).Select(c => System.Windows.Automation.AutomationProperties.GetName(c)).ToList();
+
+    [StaTheory]
+    [InlineData(AdminThemeMode.Light)]
+    [InlineData(AdminThemeMode.Dark)]
+    public void AdminWindow_StorageTab_HoldsVideoFolderPrefixSubfolderAndQuality_VideoTabDoesNot(AdminThemeMode theme)
+    {
+        WithWindow((window, vm) =>
+        {
+            vm.IsAdminThemeLight = theme == AdminThemeMode.Light;
+            vm.IsAdminThemeDark = theme == AdminThemeMode.Dark;
+
+            var storage = ShowTab(window, "Speicher");
+            Assert.True(storage.ActualHeight > 0);
+            Assert.Contains("Speicherordner der Videos", ControlNames<System.Windows.Controls.TextBox>(storage));
+            Assert.Contains("Dateipräfix der Videos", ControlNames<System.Windows.Controls.TextBox>(storage));
+            Assert.Contains("Dateipräfix der Fotos", ControlNames<System.Windows.Controls.TextBox>(storage));
+            Assert.Contains("Videoqualität", ControlNames<System.Windows.Controls.ComboBox>(storage));
+            Assert.Contains(FindDescendants<System.Windows.Controls.Button>(storage), b => Equals(b.Command, vm.ChooseVideoFolderCommand));
+            Assert.Contains(FindDescendants<System.Windows.Controls.Button>(storage), b => Equals(b.Command, vm.OpenVideoFolderCommand));
+            Assert.Contains(FindDescendants<System.Windows.Controls.Button>(storage), b => Equals(b.Command, vm.ResetVideoFolderCommand));
+            Assert.Contains(FindDescendants<System.Windows.Controls.CheckBox>(storage),
+                c => c.GetBindingExpression(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty)?.ParentBinding.Path.Path == nameof(vm.VideoDateSubfolder));
+
+            var video = ShowTab(window, "Video");
+            Assert.DoesNotContain("Speicherordner der Videos", ControlNames<System.Windows.Controls.TextBox>(video));
+            Assert.DoesNotContain("Dateipräfix der Videos", ControlNames<System.Windows.Controls.TextBox>(video));
+            Assert.DoesNotContain("Videoqualität", ControlNames<System.Windows.Controls.ComboBox>(video));
+            Assert.DoesNotContain(FindDescendants<System.Windows.Controls.Button>(video),
+                b => Equals(b.Command, vm.ChooseVideoFolderCommand) || Equals(b.Command, vm.OpenVideoFolderCommand) || Equals(b.Command, vm.ResetVideoFolderCommand));
+            Assert.DoesNotContain(FindDescendants<System.Windows.Controls.CheckBox>(video),
+                c => c.GetBindingExpression(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty)?.ParentBinding.Path.Path == nameof(vm.VideoDateSubfolder));
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_StorageTab_VideoCardIsGreyedOutWhenVideoModeIsOff_PhotoCardStaysUsable()
+    {
+        WithWindow((window, vm) =>
+        {
+            var root = ShowTab(window, "Speicher");
+            var panel = (System.Windows.Controls.StackPanel)window.FindName("VideoStoragePanel");
+            var videoPrefix = FindDescendants<System.Windows.Controls.TextBox>(root)
+                .Single(c => System.Windows.Automation.AutomationProperties.GetName(c) == "Dateipräfix der Videos");
+            var photoPrefix = FindDescendants<System.Windows.Controls.TextBox>(root)
+                .Single(c => System.Windows.Automation.AutomationProperties.GetName(c) == "Dateipräfix der Fotos");
+            Assert.True(panel.IsEnabled);
+            Assert.True(videoPrefix.IsEnabled);
+            Assert.Equal(1.0, panel.Opacity);
+
+            vm.VideoEnabled = false;
+
+            Assert.False(panel.IsEnabled);
+            Assert.False(videoPrefix.IsEnabled);
+            Assert.True(panel.Opacity < 1.0);
+            Assert.True(photoPrefix.IsEnabled);
+
+            vm.VideoEnabled = true;
+            Assert.True(panel.IsEnabled);
+            Assert.True(videoPrefix.IsEnabled);
+            Assert.Equal(1.0, panel.Opacity);
         });
     }
 
