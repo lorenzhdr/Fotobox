@@ -34,7 +34,7 @@ Die ausführliche Doku steht in [`docs/`](docs/README.md) und ist die Detailquel
 - Native ONNX-Sessions nie während eines `Run` freigeben (`DeferredReleaseGate`). Töne liegen bewusst in nie freigegebenem nativem Speicher.
 - Zielmarken nie im Foto/Video; nur der Schnurrbart (und beim Kisscam-Foto der Rahmen) wird ins Foto gezeichnet.
 - Herzerkennung: Die `HeartEngine` sitzt im `PeaceOverlayViewModel` (der Gestendienst bedient nur die oberste Anforderung; kein eigenes Herz-ViewModel mit eigener Anforderung). Wiederscharf nur nach in Hand-Updates beobachteter Ruhe. Neue Herz-Aktionen: Enum hinten, `HeartActions`-Katalog, `switch` in `BoothViewModel.OnHeartAction`.
-- `MusicPlayer` (Kisscam-Musik): eigener STA-Thread, Aufrufer posten nur und warten nie synchron (schon gar nicht auf dem UI-Thread); fehlende Datei, kaputtes Media Foundation oder Fehler führen nur zu Stille und Logwarnung, nie zu einem Hänger. Der Musikpfad ist gerätespezifisch.
+- `MusicPlayer` (Kisscam-Musik): eigener STA-Thread, Aufrufer posten nur und warten nie synchron (schon gar nicht auf dem UI-Thread); fehlende Datei, kaputtes Media Foundation oder Fehler führen nur zu Stille und Logwarnung, nie zu einem Hänger. Der Musikordner ist gerätespezifisch; die Song-Config liegt im Ordner.
 - `BoothController` ist UI-frei, Zeit über `TimeProvider`; Compose auf dem UI-Thread.
 - Admin-Farben nur in `AdminColors.Light.xaml`/`AdminColors.Dark.xaml` (gleiche Schlüssel, Test prüft das), Bezug nur per `DynamicResource`; neue Farben in beiden Paletten anlegen.
 - Jede neue WPF-Testklasse trägt `[Collection(WpfCollection.Name)]` (sonst BAML-Deadlock); Pack-URIs in Tests vorher `WpfCollection.EnsurePackUris()`.
