@@ -291,6 +291,26 @@ public sealed class AdminViewModelTests : IDisposable
     }
 
     [Fact]
+    public void PhotoFileNameExample_FollowsPrefix_AndUsesDefaultForBlankOrInvalid()
+    {
+        var vm = CreateViewModel();
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        Assert.Equal("Dateien heißen zum Beispiel „Fotobox+_20261028_153000.jpg“.", vm.PhotoFileNameExample);
+
+        vm.FilePrefix = "Hochzeit";
+        Assert.Equal("Dateien heißen zum Beispiel „Hochzeit_20261028_153000.jpg“.", vm.PhotoFileNameExample);
+        Assert.Contains(nameof(vm.PhotoFileNameExample), changed);
+
+        // Wie beim Speichern: ungültige Zeichen entfallen, ein leeres Präfix wird zum Standard.
+        vm.FilePrefix = "a/b";
+        Assert.Contains("„ab_20261028_153000.jpg“", vm.PhotoFileNameExample);
+        vm.FilePrefix = "   ";
+        Assert.Contains("„Fotobox+_20261028_153000.jpg“", vm.PhotoFileNameExample);
+    }
+
+    [Fact]
     public void Save_WithInvalidInput_ShowsGermanMessage_AndDoesNotSave()
     {
         var vm = CreateViewModel();

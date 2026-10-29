@@ -14,7 +14,7 @@ Eigene Start-/Stopptaste (Standard Enter) → Countdown → Aufnahme (mit Ton, M
 | `src/Fotobox/Services/Camera/VideoBitrate.cs` | Bitrate, Speicherplatzschätzung |
 | `src/Fotobox/Services/Storage/VideoStorage.cs` | Zielordner, Platzprüfung, `.tmp.mp4`, `CommitAsync` |
 | `src/Fotobox/Views/Booth/BoothWindow.xaml`, `ViewModels/Booth/BoothViewModel.cs` | Overlay, Hinweiszeile |
-| `src/Fotobox/Views/Admin/AdminWindow.xaml` | Tab „Video“ |
+| `src/Fotobox/Views/Admin/AdminWindow.xaml` | Tabs „Video“ und „Speicher“ (Karte „Videos speichern“) |
 
 ## Zustände
 
@@ -76,9 +76,9 @@ Gegenstück zu `PhotoStorage` (siehe [druck.md](druck.md#photostorage)).
 - Video-Countdown, „Video wird gespeichert …“, Erfolgsanzeige (`VideoSavedText`, `SuccessDisplaySeconds`).
 - Die Laufzeit wird bei jedem Lesen aus der Zeit berechnet (`TimeProvider`), `Changed` im Sekundentakt.
 
-## Admin-Tab „Video“
+## Admin-Tabs „Video“ und „Speicher“
 
-Haken „Videomodus aktiv“ (alles Weitere ist sonst ausgegraut), Höchstdauer (mit Text zur geschätzten Dateigröße), Countdown, Mindestlänge, Qualität, Anzeigeoptionen (Aufnahmepunkt, Laufzeit, Restzeit, Warnung), Erfolgstext/-dauer, „Ton aufnehmen“ samt Mikrofonwahl (Mikrofonliste über `GetMicrophonesAsync`, fehlendes Mikrofon als „nicht angeschlossen“), Speicherordner (ändern/öffnen/Standardordner), Unterordner pro Tag, Dateipräfix mit Beispielname. Video-Hinweistext und -Stil im Tab „Gastansicht“; Tasten im Tab „Tasten“.
+Haken „Videomodus aktiv“ (alles Weitere ist sonst ausgegraut), Höchstdauer (mit Text zur geschätzten Dateigröße), Countdown, Mindestlänge, Anzeigeoptionen (Aufnahmepunkt, Laufzeit, Restzeit, Warnung), Erfolgstext/-dauer, „Ton aufnehmen“ samt Mikrofonwahl (Mikrofonliste über `GetMicrophonesAsync`, fehlendes Mikrofon als „nicht angeschlossen“). **Seit 2.5.2:** Speicherordner (ändern/öffnen/Standardordner), Unterordner pro Tag, Videoqualität und Dateipräfix mit Beispielname stehen im Tab „Speicher“ in der Karte „Videos speichern“ (bei ausgeschaltetem Videomodus ausgegraut; der Tab „Video“ verweist darauf). Video-Hinweistext und -Stil im Tab „Gastansicht“; Tasten im Tab „Tasten“.
 
 ## Fristen
 

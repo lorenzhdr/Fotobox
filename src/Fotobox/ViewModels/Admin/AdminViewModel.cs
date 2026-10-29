@@ -1886,10 +1886,17 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     public string FilePrefix
     {
         get => _draft.Storage.FilePrefix;
-        set => SetProperty(_draft.Storage.FilePrefix, value ?? string.Empty, v => _draft.Storage.FilePrefix = v);
+        set
+        {
+            if (SetProperty(_draft.Storage.FilePrefix, value ?? string.Empty, v => _draft.Storage.FilePrefix = v))
+                OnPropertyChanged(nameof(PhotoFileNameExample));
+        }
     }
 
-    /// <summary>Anzuzeigender Zielordner (Standard: Bilder\Fotobox+).</summary>
+    /// <summary>Beispiel für einen Foto-Dateinamen mit dem aktuellen Präfix (wie beim Speichern bereinigt, leer: Standard).</summary>
+    public string PhotoFileNameExample =>
+        $"Dateien heißen zum Beispiel „{SettingsNormalizer.SanitizePrefix(_draft.Storage.FilePrefix)}_20261028_153000.jpg“.";
+
     /// <summary>Hinweis auf der Layout-Karte „Fotostreifen“.</summary>
     public string StripPhotosHint => $"{SettingsLimits.StripPhotosMin} bis {SettingsLimits.StripPhotosMax} Fotos untereinander.";
 
@@ -1897,6 +1904,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     public string ExpectedPrintHint =>
         $"So lange läuft der Fortschrittsbalken in der Gastansicht. Das Druck-Timeout liegt automatisch mindestens {SettingsLimits.PrintTimeoutReserveSeconds} s darüber.";
 
+    /// <summary>Anzuzeigender Zielordner (Standard: Bilder\Fotobox+).</summary>
     public string PhotoFolderDisplay => EffectivePhotoFolder;
 
     public bool IsDefaultPhotoFolder => string.IsNullOrWhiteSpace(_draft.Storage.PhotoFolder);
