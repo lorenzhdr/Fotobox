@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using Fotobox.Core;
 using Fotobox.Services.Audio;
 using Xunit;
 
@@ -129,6 +130,54 @@ public class MusicPlayerTests : IDisposable
     }
 
     [Fact]
+    public async Task PlaybackFailed_CarriesThePathOfTheFailedFile()
+    {
+        using var player = new MusicPlayer();
+        string? failedPath = null;
+        player.PlaybackFailed += (_, e) => failedPath = e.Path;
+        var path = TempFile(".mp3");
+
+        player.Play(path, 50, loop: false, TimeSpan.FromSeconds(12));
+
+        Assert.True(await WaitUntil(() => failedPath is not null, TimeSpan.FromSeconds(5)), "Kein PlaybackFailed.");
+        Assert.Equal(path, failedPath);
+    }
+
+    [Theory]
+    [InlineData(-5.0)]
+    [InlineData(0.0)]
+    [InlineData(3599.0)]
+    public async Task StartAt_OnAMissingFile_IsSilent_WhateverTheValue(double seconds)
+    {
+        using var player = new MusicPlayer();
+
+        player.Play(TempFile(".wav"), 50, loop: true, TimeSpan.FromSeconds(seconds));
+
+        await Task.Delay(300);
+        Assert.False(player.IsPlaying);
+    }
+
+    [Theory]
+    [InlineData(0.0, null, 0.0)]
+    [InlineData(-3.0, null, 0.0)]
+    [InlineData(12.0, null, 12.0)] // Länge unbekannt: Startzeit unverändert
+    [InlineData(12.0, 100.0, 12.0)]
+    [InlineData(99.9, 100.0, 99.9)]
+    [InlineData(100.0, 100.0, 0.0)] // gleich der Länge: ab Anfang
+    [InlineData(250.0, 100.0, 0.0)] // hinter dem Songende: ab Anfang
+    [InlineData(5.0, 0.0, 5.0)] // Länge 0 gilt als unbekannt
+    public void ResolveStart_ClampsAgainstTheNaturalDuration(double start, double? duration, double expected)
+    {
+        var result = MusicPlayer.ResolveStart(TimeSpan.FromSeconds(start), duration is null ? null : TimeSpan.FromSeconds(duration.Value));
+
+        Assert.Equal(TimeSpan.FromSeconds(expected), result);
+    }
+
+    [Fact]
+    public void PositionInterval_Is250Milliseconds() =>
+        Assert.Equal(TimeSpan.FromMilliseconds(250), MusicPlayer.PositionInterval);
+
+    [Fact]
     public async Task SupersededPlay_DoesNotRaiseAStalePlaybackFailed()
     {
         using var player = new MusicPlayer();
@@ -238,6 +287,61 @@ public class MusicPlayerTests : IDisposable
 
         await Task.Delay(200);
         Assert.False(player.IsPlaying);
+    }
+
+    // Braucht ein Audiogerät und Media Foundation: nicht in der CI.
+    [Fact]
+    [Trait("Category", "Hardware")]
+    public async Task RealWav_StartsAtTheStartTime_ReportsThePosition_AndLoopsBackToIt()
+    {
+        var path = TempFile(".wav");
+        WriteSineWav(path, 4.0);
+        using var player = new MusicPlayer();
+        var positions = new List<MusicPositionEventArgs>();
+        player.PositionChanged += (_, e) =>
+        {
+            lock (positions)
+                positions.Add(e);
+        };
+
+        player.Play(path, 5, loop: true, TimeSpan.FromSeconds(2.5));
+        Assert.True(await WaitUntil(() => player.IsPlaying, TimeSpan.FromSeconds(5)), "Wiedergabe startete nicht.");
+        Assert.True(await WaitUntil(() => { lock (positions) return positions.Count >= 2; }, TimeSpan.FromSeconds(5)), "Keine Positionsmeldung.");
+
+        lock (positions)
+        {
+            Assert.Equal(path, positions[0].Path);
+            Assert.True(positions[0].Position >= TimeSpan.FromSeconds(2.4), $"Start bei {positions[0].Position}.");
+            Assert.True(positions[0].Position < TimeSpan.FromSeconds(3.5));
+        }
+
+        // Nach dem Dateiende springt die Schleife auf die Startzeit zurück (nicht auf 0:00): Die Position wird kleiner und bleibt
+        // danach ab der Startzeit (eine einzelne Meldung genau am Dateiende kann noch 0:00 zeigen).
+        Assert.True(await WaitUntil(() =>
+        {
+            lock (positions)
+                return positions.Zip(positions.Skip(1), (a, b) => b.Position < a.Position).Any(wrapped => wrapped);
+        }, TimeSpan.FromSeconds(5)), "Die Schleife lief nicht über das Dateiende hinaus.");
+        await Task.Delay(700);
+        lock (positions)
+            Assert.True(positions[^1].Position >= TimeSpan.FromSeconds(2.4), $"Nach der Schleife bei {positions[^1].Position}.");
+        Assert.True(player.IsPlaying);
+    }
+
+    [Fact]
+    [Trait("Category", "Hardware")]
+    public async Task RealWav_StartBeyondTheEnd_PlaysFromZero()
+    {
+        var path = TempFile(".wav");
+        WriteSineWav(path, 2.0);
+        using var player = new MusicPlayer();
+        MusicPositionEventArgs? first = null;
+        player.PositionChanged += (_, e) => first ??= e;
+
+        player.Play(path, 5, loop: true, TimeSpan.FromSeconds(30));
+
+        Assert.True(await WaitUntil(() => first is not null, TimeSpan.FromSeconds(5)), "Keine Positionsmeldung.");
+        Assert.True(first!.Position < TimeSpan.FromSeconds(1), $"Start bei {first.Position}.");
     }
 
     // Braucht ein Audiogerät und Media Foundation: nicht in der CI.

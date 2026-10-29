@@ -162,7 +162,7 @@ public sealed class SettingsTransferTests : IDisposable
         s.Appearance.GuestMonitorId = @"\\?\DISPLAY#MONITOR-4711";
         s.Appearance.GuestMonitorName = "Monitor-Name-4711";
         s.Appearance.AdminZoomPercent = 65;
-        s.Heart.KisscamMusicPath = @"D:\Eigene\Musik-Pfad.mp3";
+        s.Heart.KisscamMusicFolder = @"D:\Eigene\Musik-Pfad";
     }
 
     /// <summary>Gerätefeld nach Export/Import: leer (null/leere Liste) bzw. beim Admin-Zoom der Standard (eine Zahl, nie null).</summary>

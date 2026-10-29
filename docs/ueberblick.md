@@ -83,7 +83,8 @@ Pro Aktion sind bis zu 8 Tasten möglich (`SettingsLimits.KeysPerActionMax`). Sy
 | `src/Fotobox/Services/Storage` | Settings-Store (`JsonSettingsStore`), `SettingsNormalizer`, `SettingsTransfer`/`SettingsJson`, `PinService`, `PhotoStorage`, `VideoStorage`, `FolderProbe`. |
 | `src/Fotobox/Services/Detection` | Personenerkennung (YOLOX per ONNX, Windows `FaceDetector`); `Detection/Peace`: Gesichts- und Handerkennung (YuNet, MediaPipe). |
 | `src/Fotobox/Services/Peace` | Foto-Verzierer (Bart im Foto: `MoustachePhotoDecorator`). |
-| `src/Fotobox/Services/Audio` | Tonausgabe (`FunSoundPlayer`) und Kisscam-Musik (`MusicPlayer`). |
+| `src/Fotobox/Core/Music` | UI-freie Logik der Kisscam-Musik (Config, Codec, Zeitformat, Songs, Snapshot, `KisscamSongPicker`). |
+| `src/Fotobox/Services/Audio` | Tonausgabe (`FunSoundPlayer`) und Kisscam-Musik (`MusicPlayer`, `KisscamMusicLibrary`, `KisscamMusicFileSystem`). |
 | `src/Fotobox/ViewModels` | MVVM mit CommunityToolkit.Mvvm; `Booth` (Gastansicht, Fun-/Peace-Overlays), `Admin` (Einstellungen, PIN-Limiter, Info-Texte). |
 | `src/Fotobox/Views` | `Booth` (Gastansicht, `GuestHint`, Overlays; `Booth/Heart`: Kisscam-Rahmen, Zoom, Fortschrittsherz), `Admin` (Fenster, Themes, PIN-Dialoge, Skizzen), `Controls`, `Converters`. |
 | `src/Fotobox/Assets/Models` | ONNX-Modelle (`yolox_nano`, YuNet, MediaPipe Palm und Hand-Landmark). |

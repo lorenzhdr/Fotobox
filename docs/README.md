@@ -27,7 +27,7 @@ Hinweis zum Namen: Die App hieß bis 1.4.1 „Fotobox“. Der sichtbare Name ist
 | `video.md` | Videomodus: Ablauf, Aufnahme, Speicherung, Gastansicht. |
 | `fun-zielerfassung.md` | Zielerfassung: Personenerkennung (YOLOX/Windows-Gesichter), Engine, Tracker, Animation, Töne. |
 | `fun-peace-mittelfinger.md` | Peaceerkennung (Selbstzerstörung, Foto, Bart) und Mittelfingererkennung. |
-| `fun-herz-kisscam.md` | Herzerkennung (Formen, Paarbildung, `PairedHands`, Engine) und Aktion Kisscam (Ablauf, Rahmen, Zoom, Musik, Abbruch). |
+| `fun-herz-kisscam.md` | Herzerkennung (Formen, Paarbildung, `PairedHands`, Engine) und Aktion Kisscam (Ablauf, Rahmen, Zoom, Musikordner mit Songliste, Abbruch). |
 | `build-release.md` | Publish, CI, Release-Ablauf, VC++-Runtime, Smoke-Test. |
 | `tests.md` | Teststrategie, Befehle, Konventionen (STA, Collections, Hardware-Tests). |
 | `bekannte-grenzen.md` | Bekannte Grenzen, offene Punkte und bewusst nicht Geändertes. |
@@ -55,7 +55,7 @@ Hinweis zum Namen: Die App hieß bis 1.4.1 „Fotobox“. Der sichtbare Name ist
 | Fotos und Videos enthalten keine Zielmarken; nur der Schnurrbart wird ins Foto gezeichnet. | `fun-zielerfassung.md`, `fun-peace-mittelfinger.md` |
 | Der `BoothController` ist UI-frei; Zeit läuft über `TimeProvider`; Compose läuft auf dem UI-Thread. | `architektur.md` |
 | Alle Admin-Farben stehen nur in den beiden Paletten (`AdminColors.Light.xaml`/`AdminColors.Dark.xaml`, gleiche Schlüssel) und werden per `DynamicResource` bezogen. | `admin.md` |
-| Der `MusicPlayer` läuft auf eigenem Thread; Aufrufer posten nur und warten nie synchron (UI-Thread), ohne Musikdatei bzw. bei Fehlern bleibt es still. | `fun-herz-kisscam.md` |
+| Der `MusicPlayer` läuft auf eigenem Thread; Aufrufer posten nur und warten nie synchron (UI-Thread), ohne Song bzw. bei Fehlern bleibt es still. Die Musikbibliothek blockiert nie (Snapshot `Current`, Dateizugriffe im Hintergrund mit Frist). | `fun-herz-kisscam.md` |
 | Jede neue WPF-Testklasse trägt `[Collection(WpfCollection.Name)]`. | `tests.md` |
 | Öffentliches Repo: keine persönlichen oder gerätespezifischen Daten (Benutzernamen, lokale Pfade, Hostnamen, Drucker-/Kameramodelle, Portnamen) in Code, Tests, Docs oder Commits. | – |
 

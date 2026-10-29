@@ -19,7 +19,7 @@ Alle Abhängigkeiten sind Interfaces in `src/Fotobox/Core/Interfaces.cs`. Dadurc
 
 | Lebensdauer | Dienste |
 |---|---|
-| Singleton | `TimeProvider.System`, `ISettingsStore` (`JsonSettingsStore`), `IPinService`, `ICameraService` (`WinRtCameraService`), `ILayoutComposer`, `IPrintService`, `IPhotoStorage`, `IVideoStorage`, `IDisplayService`, `IPersonDetectionService`, `IFunSoundPlayer`, `IMusicPlayer` (`MusicPlayer`, Kisscam-Musik), `IGestureDetectionService`, `GuestMoustacheState`, `IPhotoDecorator` (`MoustachePhotoDecorator`), `IAdminLauncher`, `BoothController`, `BoothViewModel`, `BoothWindow` |
+| Singleton | `TimeProvider.System`, `ISettingsStore` (`JsonSettingsStore`), `IPinService`, `ICameraService` (`WinRtCameraService`), `ILayoutComposer`, `IPrintService`, `IPhotoStorage`, `IVideoStorage`, `IDisplayService`, `IPersonDetectionService`, `IFunSoundPlayer`, `IMusicPlayer` (`MusicPlayer`, Kisscam-Musik), `IKisscamMusicLibrary` (`KisscamMusicLibrary`, Musikordner und Config; `Dispose` speichert höchstens 1 s lang), `IGestureDetectionService`, `GuestMoustacheState`, `IPhotoDecorator` (`MoustachePhotoDecorator`), `IAdminLauncher`, `BoothController`, `BoothViewModel`, `BoothWindow` |
 | Transient | `FunOverlayViewModel`, `PeaceOverlayViewModel` (Gastansicht und Admin-Vorschau brauchen je eine eigene Instanz; nur die Gastansicht bekommt `GuestMoustacheState`) |
 
 Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale Konstruktorparameter.
@@ -46,6 +46,7 @@ Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale 
 - Kamera: Auf- und Abbau einer Session läuft immer auf dem Threadpool (MTA), nie im UI-Thread. WinRT-Ereignisse (`Failed`, `FrameArrived`) werden nie mit `-=` abgemeldet (siehe `kamera.md`).
 - Native ONNX-Sessions werden nie während eines `Run` freigegeben (`DeferredReleaseGate`).
 - Musik (`MusicPlayer`): eigener STA-Thread mit `Dispatcher`; Aufrufer auf dem UI-Thread posten nur (`BeginInvoke`) und warten nie synchron (`fun-herz-kisscam.md`).
+- Musikbibliothek (`KisscamMusicLibrary`): `Current` ist ein unveränderlicher Snapshot und blockiert nie; alle Dateizugriffe laufen seriell auf dem Threadpool (`Task.Run(...).WaitAsync(Frist)`), `Changed` kommt auf beliebigen Threads (der Admin holt sie per `PostPeace` in den UI-Kontext). Die Gastansicht liest nur den Snapshot.
 - Blockierende Systemaufrufe (Drucker, Datei, Win32-Monitoraufzählung) laufen per `Task.Run` mit Frist.
 
 ## Zustandsmaschine des `BoothController`
@@ -197,6 +198,14 @@ Alles, was blockieren kann, hat ein Timeout und einen definierten Fehlerpfad zur
 | Peace: Dienst-Dispose | höchstens 1,5 s | `PeaceDetectionService.DisposeWait` |
 | Bart im Foto | Texturbudget 1,0 s, insgesamt 2,2 s | `MoustachePhotoDecorator.TextureBudget`/`OverallBudget` |
 | Kisscam-Musik: Datei öffnen | 3 s (danach still aufgegeben) | `MusicPlayer.OpenTimeout` |
+| Kisscam-Musikordner: anlegen oder prüfen, Watcher anlegen | 3 s | `KisscamMusicLibrary.EnsureFolderTimeout` |
+| Kisscam-Musikordner: auflisten | 3 s | `KisscamMusicLibrary.ListTimeout` |
+| Kisscam-Musikconfig: lesen / schreiben (auch Verschieben nach `.defekt`) | 2 s / 3 s | `ReadConfigTimeout` / `WriteConfigTimeout` |
+| Kisscam-Musik: Songlänge pro Datei | 2 s | `KisscamMusicLibrary.DurationTimeout` |
+| Kisscam-Musikordner: Entprellung Watcher / Speichern | 500 ms / 300 ms | `WatcherDebounce` / `SaveDebounce` |
+| Kisscam-Musik: Positionsmeldung | alle 250 ms | `MusicPlayer.PositionInterval` |
+| Kisscam-Musikbibliothek: Dispose | höchstens 1 s (letztes Speichern) | `KisscamMusicLibrary.DisposeWait` |
+| Admin: Anspielen eines Songs | `KisscamSeconds`, dann 800 ms Ausblenden | `AdminViewModel.KisscamTestMusicFadeOut` |
 | Kisscam-Musik: Dispose | höchstens 1 s Warten auf den Musik-Thread | `MusicPlayer.DisposeWait` |
 | Kisscam-Musik: Ausblenden beim Blitz | 800 ms in 50-ms-Schritten | `BoothViewModel.EndKisscamMusic`, `MusicPlayer.FadeStep` |
 | Einstellungen exportieren/importieren | Datei lesen/schreiben je 10 s | `SettingsTransfer.IoTimeout` |

@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Threading;
 using Fotobox.Core;
+using Fotobox.Core.Music;
 using Fotobox.Core.Fun;
 using Fotobox.Core.Peace;
 using Fotobox.Services.Audio;
@@ -111,6 +112,8 @@ public partial class App : Application
                 return;
             }
 
+            StartKisscamMusicLibrary(_services);
+
             var boothWindow = _services.GetRequiredService<BoothWindow>();
             MainWindow = boothWindow;
             ShutdownMode = ShutdownMode.OnMainWindowClose;
@@ -141,6 +144,23 @@ public partial class App : Application
         }
     }
 
+    // Der Musikordner (Standard: Musik\Fotobox+\Kisscam) wird beim Start angelegt und eingelesen – im Hintergrund, mit Frist; Fehler
+    // enden in einer Logwarnung. Ändert sich der gespeicherte Ordner, folgt die Bibliothek (der Admin lenkt sie nur während er offen ist).
+    private static void StartKisscamMusicLibrary(IServiceProvider services)
+    {
+        try
+        {
+            var store = services.GetRequiredService<ISettingsStore>();
+            var library = services.GetRequiredService<IKisscamMusicLibrary>();
+            library.SetFolder(store.Current.Heart.KisscamMusicFolder);
+            store.SettingsChanged += (_, _) => library.SetFolder(store.Current.Heart.KisscamMusicFolder);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Die Kisscam-Musikbibliothek konnte nicht gestartet werden.", ex);
+        }
+    }
+
     private static ServiceProvider BuildServices()
     {
         var services = new ServiceCollection();
@@ -167,6 +187,12 @@ public partial class App : Application
         services.AddSingleton<IFunSoundPlayer, FunSoundPlayer>();
         // Musik der Kisscam (eigener Musik-Thread, lazy); der Container gibt sie beim Beenden frei (Dispose wartet höchstens 1 s).
         services.AddSingleton<IMusicPlayer, MusicPlayer>();
+        // Songs, Häkchen, Startzeiten und Lautstärken der Kisscam-Musik (Ordner und Config); Dateizugriffe nur im Hintergrund mit Frist,
+        // Dispose speichert höchstens 1 s lang eine ausstehende Änderung.
+        services.AddSingleton<IKisscamMusicLibrary>(sp => new KisscamMusicLibrary(
+            new KisscamMusicFileSystem(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<IMusicPlayer>()));
         // Peaceerkennung (Easter Egg): Gesichts- und Handerkennung (Modelle laden lazy beim ersten Bedarf), Bart-Zustand der Gastansicht
         // und Foto-Verzierer, den der BoothController (optionaler Konstruktorparameter) je Aufnahme aufruft.
         services.AddSingleton<IGestureDetectionService>(sp => new PeaceDetectionService(

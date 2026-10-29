@@ -10,8 +10,8 @@ Stand: 2.6.0. Die Herzerkennung ist ein verstecktes Extra („Easter Egg“) wie
 | Erkennung | `Services/Detection/Peace/PeaceDetectionService.Pipeline.cs` (Option `PairedHands`), `MediaPipeHandDetector.cs` (Handseite) |
 | Darstellung | `src/Fotobox/Views/Booth/Heart/` (`KisscamFrameRenderer`, `KisscamPalette`, `KisscamOverlay`, `KisscamFrameElement`, `HeartFeedbackOverlay`, `LiveZoomHost`) |
 | Ansichtsmodelle | `ViewModels/Booth/PeaceOverlayViewModel.Heart.cs` (hostet die `HeartEngine`), `BoothViewModel.cs` (`OnHeartAction`, `StartKisscam`, Anzeige-Properties, Musik, `OnMiddleFinger`) |
-| Musik | `Services/Audio/MusicPlayer.cs` (`IMusicPlayer`, `Core/Interfaces.cs`) |
-| Admin | `Views/Admin/HeartSettingsView`, `KisscamFrameSketch`, `ViewModels/Admin/AdminViewModel.Heart.cs`, `AdminViewModel.MiddleFinger.cs`, `AdminInfoTexts.cs`, `WpfAdminUi.PickAudioFile` |
+| Musik | `Services/Audio/MusicPlayer.cs` (`IMusicPlayer`, `Core/Interfaces.cs`), `Services/Audio/KisscamMusicLibrary.cs` (`IKisscamMusicLibrary`) und `KisscamMusicFileSystem.cs`, UI-freie Logik in `Core/Music/` |
+| Admin | `Views/Admin/HeartSettingsView`, `KisscamFrameSketch`, `ViewModels/Admin/AdminViewModel.Heart.cs`, `AdminViewModel.MiddleFinger.cs`, `AdminInfoTexts.cs` |
 
 ---
 
@@ -20,14 +20,14 @@ Stand: 2.6.0. Die Herzerkennung ist ein verstecktes Extra („Easter Egg“) wie
 Formen zwei Gäste im `Idle` mit ihren Händen ein Herz (oder ein Gast mit beiden Händen; optional ein Fingerherz mit einer Hand) und halten es (Standard 1,8 s), startet die Aktion Kisscam:
 
 1. Ein Jumbotron-Rahmen (Lichterkette, Banner „KISS CAM“, vier Eckherzen) erscheint über dem Livebild, ein Hinweistext fordert die Gäste auf, sich einen Kusspartner zu suchen. Der Timer läuft (Standard 10 s, 3–60 s).
-2. In den letzten drei Sekunden ersetzen die großen Ziffern 3 – 2 – 1 den Text. Bei einem Timer von höchstens 3 s erscheinen von Anfang an nur die Ziffern, nie der Gasttext (der Admin weist unter dem Timer darauf hin: „Bei 3 Sekunden erscheint nur der Countdown 3 – 2 – 1, kein Text.“). Optional zoomt das Livebild auf die Herz-Gäste, optional läuft Musik.
+2. In den letzten drei Sekunden ersetzen die großen Ziffern 3 – 2 – 1 den Text. Bei einem Timer von höchstens 3 s erscheinen von Anfang an nur die Ziffern, nie der Gasttext (der Admin weist unter dem Timer darauf hin: „Bei 3 Sekunden erscheint nur der Countdown 3 – 2 – 1, kein Text.“). Optional zoomt das Livebild auf die Herz-Gäste, optional läuft Musik (zufälliger Song aus dem Musikordner).
 3. Am Ende folgt der Blitz und ein **Einzelfoto** mit dem Rahmen. Es wird wie jedes andere Foto gespeichert (eigener Dateipräfix) und nach dem Druckschalter im Tab „Drucker“ gedruckt.
 
 Die Kisscam lässt sich mit den Abbrechen-Tasten (Standard Esc) oder per Mittelfinger (Aktion „Kisscam abbrechen“) beenden; es entsteht dann kein Foto. Das Fortschrittsherz (`ShowHoldFeedback`) zeigt dem Gast beim Halten, wie lange er noch durchhalten muss; es ist die einzige sichtbare Spur der Funktion im `Idle`.
 
 ## Einstellungen (`AppSettings.Heart`, `HeartSettings`)
 
-Flacher, eigener Abschnitt (Wertebereiche in `SettingsLimits.Heart*`/`Kisscam*`). Er ist unabhängig von `Peace.Enabled` ein- und ausschaltbar und übertragbar (Export/Import) – außer `KisscamMusicPath`.
+Flacher, eigener Abschnitt (Wertebereiche in `SettingsLimits.Heart*`/`Kisscam*`). Er ist unabhängig von `Peace.Enabled` ein- und ausschaltbar und übertragbar (Export/Import) – außer `KisscamMusicFolder`.
 
 | Eigenschaft | Standard | Bereich | Bedeutung |
 |---|---|---|---|
@@ -44,7 +44,7 @@ Flacher, eigener Abschnitt (Wertebereiche in `SettingsLimits.Heart*`/`Kisscam*`)
 | `KisscamZoomEnabled` | aus | | Digitalzoom auf die Herz-Gäste |
 | `KisscamZoomPercent` | 140 | 110–200 %, Schritt 10 | gewünschte Zoomstärke |
 | `KisscamFilePrefix` | `Kisscam` | wie `FilePrefixMaxLength` | Dateipräfix des Fotos |
-| `KisscamMusicPath` | `null` | höchstens 1024 Zeichen | WAV/MP3; `null` = keine Musik; **gerätespezifisch** |
+| `KisscamMusicFolder` | `null` | höchstens 1024 Zeichen (`KisscamMusicFolderMaxLength`) | Musikordner; `null` = Standard `Musik\Fotobox+\Kisscam` (`AppInfo.DefaultKisscamMusicFolder`); **gerätespezifisch**. Das frühere Feld `KisscamMusicPath` (Einzeldatei) entfällt ersatzlos: Es wird beim Laden ignoriert und beim nächsten Speichern entfernt, ohne Übernahme |
 | `KisscamMusicVolumePercent` | 80 | 0–100 %, Schritt 5 | Lautstärke |
 
 Abgeleitet (`[JsonIgnore]`): `HasAnyShape`, `MinHandScore` (gemeinsame Abbildung `MiddleFingerSettings.MinHandScoreFor`, 10 → 0,9, 95 → 0,55). Details zur Normalisierung: `docs/einstellungen.md`.
@@ -134,7 +134,7 @@ Es bleibt bei `MaxPalmRuns` = 3 und `MaxLandmarkRuns` = 4 je Zyklus: **Höchsten
 
 1. Zoomausschnitt planen (nur bei `KisscamZoomEnabled`, siehe unten), `PhotoFrame(Kisscam, Banner, Farbe)` bauen und beides **vor** dem Start merken (der Zustandswechsel aktualisiert die Anzeige sofort).
 2. `Controller.TryTrigger(TriggerOptions { SingleShotOnly, CountdownSeconds = KisscamSeconds, Style = Kisscam, CropRegion, FilePrefix, Frame })`. Scheitert der Start, verfallen die gemerkten Werte.
-3. `ResetLayoutSelection()`, danach Musik starten (falls Pfad gesetzt), Logzeile `Kisscam gestartet (… s, Zoom …, Musik …)`.
+3. `ResetLayoutSelection()`, danach die Musik starten (`StartKisscamMusic`: Zufallswahl aus dem Stand der Bibliothek, kein Dateizugriff; ohne Treffer Stille), Logzeile `Kisscam gestartet (… s, Zoom …, Musik …)` mit Song, Startzeit und effektiver Lautstärke bzw. dem Grund für Stille.
 
 Im `BoothController` (`TryTrigger`):
 
@@ -181,11 +181,40 @@ Eine Geometrie für Livebild und Foto: Alle Maße hängen nur von der kürzeren 
 - **Foto:** `BoothController.CropPhoto` schneidet das **ungespiegelte** Rohfoto mit `KisscamZoom.ToPixelRect` zu (Pixelrechteck, auf das Bild geklemmt, mindestens 1 × 1). Der Rahmen wird danach um den Ausschnitt gelegt; das Foto behält das Seitenverhältnis der Kamera.
 - **Grenzen:** Der Zoom ist digital und kostet Auflösung (im Admin mit Hinweis). Weicht das Seitenverhältnis der Seite von dem des Kamerabilds ab, sind Live-Ausschnitt (füllend in der Ansicht) und Foto (crop-to-fill auf die Seite) minimal verschieden – gleiche Mitte, leicht anderer Rand.
 
-## Musik (`MusicPlayer`, `IMusicPlayer`)
+## Musik (Musikordner, `KisscamMusicLibrary`, `MusicPlayer`)
 
-`IMusicPlayer` (`Play(path, volume, loop)`, `FadeOut(duration)`, `Stop()`, `IsPlaying`, `PlaybackChanged`, `PlaybackFailed`) wirft nie und blockiert nie; Singleton in `App.RegisterServices`, im Konstruktor von `BoothViewModel` und `AdminViewModel` optional (ohne Player läuft die Kisscam stumm).
+Statt einer Einzeldatei gibt es einen **Musikordner** mit mehreren Songs (Standard `Musik\Fotobox+\Kisscam`, beim App-Start angelegt; ein vorhandener Ordner wird verwendet). Pro Song speichert der Admin Häkchen, Startzeit und Song-Lautstärke in der sichtbaren Datei `kisscam-musik.json` im Ordner. Bei jeder Kisscam (und im „Kisscam testen“ des Admins) wird **rein zufällig** (Wiederholung erlaubt) einer der angehakten, abspielbaren Songs gewählt und ab seiner Startzeit gespielt.
 
-- **Verhalten:** Die Musik startet mit dem Kisscam-Countdown (in Schleife, Lautstärke 0–100 %), blendet beim Blitz in 800 ms aus und endet; bei Abbruch (Taste, Mittelfinger, Fehler → Zustand `Idle`/`Error`/`Starting`) und beim Beenden der App stoppt sie sofort. `UpdateKisscamMusic` merkt sich per `_kisscamPending`, dass ein Kisscam-Countdown gesehen wurde.
+### Songs und Config
+
+- **Formate:** `.mp3 .wav .m4a .wma` (`KisscamMusicFiles.Extensions`), nur die oberste Ebene (nicht rekursiv), höchstens `SettingsLimits.KisscamMusicMaxSongs` (500) Songs, sortiert nach Dateiname.
+- **Pro Song** (`KisscamSong`): Häkchen (neue Songs **nicht** angehakt), Startzeit in Sekunden (0–3599, Anzeige `m:ss`, Standard 0:00), Song-Lautstärke 10–100 % in 5er-Schritten (Standard 100); die tatsächliche Lautstärke ist `round(Gesamtlautstärke × Song / 100)` (`KisscamSongPicker.EffectiveVolume`, Gesamtlautstärke `KisscamMusicVolumePercent` bleibt in den Einstellungen). Dazu die Songlänge (nur Anzeige und Prüfung). Liegt die Startzeit hinter (oder auf) dem Songende (`StartBeyondEnd`), wird ab 0:00 gespielt (`EffectiveStart`); ein Song, der kürzer als die Kisscam ist, läuft in einer Schleife **ab der Startzeit**.
+- **`kisscam-musik.json`** (Version 1, `KisscamMusicConfigCodec`): `{ "Version": 1, "Songs": [ { "File", "Enabled", "StartSeconds", "VolumePercent" } ] }`. Beim Lesen werden Werte über `SettingsLimits` geklemmt, ungültige Dateinamen (Pfade) verworfen und Doppelte ohne Beachtung der Groß-/Kleinschreibung entfernt (der erste gewinnt); unbekannte Felder werden ignoriert. Die Config ist **nicht** Teil von „Einstellungen teilen“ (sie liegt im Musikordner und wandert mit ihm).
+- **Auswahl** (`KisscamSongPicker.Pick(snapshot, totalVolume, Random)` → `KisscamPick(Path, StartAt, VolumePercent)`): nur Songs mit Häkchen und `Playable`; keiner = `null` (Stille mit Logzeile).
+
+### Dienst `KisscamMusicLibrary` (`IKisscamMusicLibrary`)
+
+Singleton für Gastansicht und Admin (`App.RegisterServices`; im Konstruktor von `BoothViewModel`, `AdminViewModel` und `AdminLauncher` optional – ohne Bibliothek läuft die Kisscam stumm).
+
+- **`Current`** ist ein unveränderlicher Snapshot (`KisscamLibrarySnapshot`: `Folder`, `Status`, `Songs`, `SaveFailed`) und **blockiert nie**; die Gastansicht liest nur ihn. Status: `Loading`, `Ready`, `FolderUnavailable` (die Songs bleiben als letzter bekannter Stand erhalten), `ConfigBroken`. Dazu `Changed` (beliebiger Thread), `SetFolder`, `Refresh`, `UpdateSong`, `MarkUnplayable`.
+- **Ein serieller Worker** führt alle Dateizugriffe aus, jeden als `Task.Run(...).WaitAsync(Frist)` über das austauschbare `IKisscamMusicFileSystem` (echt: `KisscamMusicFileSystem`; Tests: `FakeMusicFileSystem` mit Hängern). Hängt noch ein alter Zugriff, startet kein neuer (der Status wird `FolderUnavailable`). Ordnerwechsel zählen eine Epoche hoch; Ergebnisse älterer Epochen werden verworfen. Fristen: siehe `architektur.md`.
+- **`SetFolder`** (null/leer = Standardordner) legt den Ordner an, liest ihn und die Config und startet den Watcher; derselbe Ordner ist wirkungslos (außer er war nicht erreichbar). Eine ausstehende Änderung wird zuerst für den alten Ordner gespeichert. `App.xaml.cs` ruft es nach dem Start und bei `SettingsChanged` mit dem gespeicherten Ordner auf. Der Admin lenkt die Bibliothek auf den Ordner seines Entwurfs; `AdminViewModel.DisposeHeart` setzt sie **immer** auf den gespeicherten Ordner zurück (auch beim Abbrechen).
+- **`UpdateSong`** ändert den Cache sofort (`Changed`) und speichert die Config entprellt (300 ms, atomar: `.tmp` schreiben, dann ersetzen) – unabhängig vom „Speichern“ des Admins.
+- **Bereinigen:** Einträge zu fehlenden Dateien werden automatisch entfernt, aber **nur nach vollständig erfolgreicher Auflistung und gelesener, intakter Config** (ein Aussetzer, Hänger oder Lesefehler löscht keine Häkchen).
+- **Defekte Config:** Status `ConfigBroken` (Admin-Hinweis), die Songs sind aufgelistet, aber nicht angehakt; die Gastansicht bleibt still (Logwarnung einmal je Defekt). Erst die nächste Änderung im Admin verschiebt die alte Datei nach `kisscam-musik.json.defekt` und schreibt neu (scheitert das Verschieben, bleibt das Original unberührt und `SaveFailed` wird gemeldet). Bei Lesefehlern bleibt der letzte Cache; war die Config nie gelesen, wird sie nie überschrieben (nur `SaveFailed`).
+- **Beobachtung:** `FileSystemWatcher` mit den vier Endungen als Filter (das eigene Schreiben der Config löst keine Schleife aus), Neulesen 500 ms entprellt. Bei `Error` wird der Watcher abgeschaltet; dann bleibt der Knopf „Aktualisieren“.
+- **Songlänge:** WinRT `StorageFile.GetFileFromPathAsync` und `Properties.GetMusicPropertiesAsync().Duration` (Frist 2 s je Datei; Cache je Pfad, Änderungszeit und Größe). Hängt eine Abfrage, werden bis zu ihrem Ende keine weiteren gestartet, der Status bleibt `Ready`.
+- **Nicht abspielbar:** Die Bibliothek abonniert `IMusicPlayer.PlaybackFailed` (mit Pfad) und markiert den Song (`Playable = false`) bis zur Änderung der Datei (Größe/Zeit) oder zum Knopf „Aktualisieren“; die Markierung wird nicht gespeichert.
+- **Erholung:** Endet ein hängender Zugriff nach der Frist, liest die Bibliothek den Ordner von selbst neu (`OnHangEnded`), sonst bliebe sie auf „nicht erreichbar“ stehen. Speichert während einer Admin-Sitzung etwas anderes den Store (z. B. die PIN-Änderung), lenkt der Admin die Bibliothek danach wieder auf den Ordner seines Entwurfs.
+- **Dispose** (Beenden der App, im 5-s-Container-Dispose): Timer und Watcher beenden, eine ausstehende Änderung höchstens 1 s lang speichern.
+
+### Wiedergabe (`MusicPlayer`, `IMusicPlayer`)
+
+`IMusicPlayer` (`Play(path, volume, loop, startAt)`, `FadeOut(duration)`, `Stop()`, `IsPlaying`, `PlaybackChanged`, `PlaybackFailed` mit Pfad, `PositionChanged` mit Pfad, Position und Länge) wirft nie und blockiert nie; Singleton in `App.RegisterServices`, im Konstruktor von `BoothViewModel` und `AdminViewModel` optional (ohne Player läuft die Kisscam stumm).
+
+- **Verhalten:** Die Musik startet mit dem Kisscam-Countdown (in Schleife ab der Startzeit, Lautstärke 0–100 %), blendet beim Blitz in 800 ms aus und endet; bei Abbruch (Taste, Mittelfinger, Fehler → Zustand `Idle`/`Error`/`Starting`) und beim Beenden der App stoppt sie sofort. `UpdateKisscamMusic` merkt sich per `_kisscamPending`, dass ein Kisscam-Countdown gesehen wurde.
+- **Startzeit:** In `OnOpened` wird die Position auf `startAt` gesetzt (`ResolveStart`: negativ oder ≥ `NaturalDuration` → 0:00; ohne bekannte Länge unverändert), `OnEnded` springt bei `loop` zurück auf diese Startzeit. Bei VBR-MP3 ohne Index kann die Positionierung ungenau sein (`bekannte-grenzen.md`).
+- **Position:** Ein `DispatcherTimer` auf dem Musik-Thread meldet während des Spielens alle `PositionInterval` (250 ms) `PositionChanged`; `StopCore` hält ihn an. Der Admin nutzt es für „Position übernehmen“.
 - **Technik:** WPF-`MediaPlayer` (Media Foundation) auf einem eigenen STA-Thread mit `Dispatcher`, der erst beim ersten `Play` entsteht; Aufrufer posten nur per `BeginInvoke` und warten nie. Jedes `Play`/`Stop` erhöht einen Generationszähler, Ereignisse und Timer älterer Generationen werden verworfen.
 - **Fristen:**
 
@@ -194,11 +223,12 @@ Eine Geometrie für Livebild und Foto: Alle Maße hängen nur von der kürzeren 
 | `OpenTimeout` | 3 s | Öffnen der Datei (`MediaOpened`); danach still aufgegeben |
 | `DisposeWait` | 1 s | längste Wartezeit von `Dispose` auf das Thread-Ende |
 | `FadeStep` | 50 ms | Schrittweite des Ausblendens (Dauer 800 ms beim Blitz) |
+| `PositionInterval` | 250 ms | Takt von `PositionChanged` |
 
-- **Fehlschlag melden:** Scheitert ein Start (Datei fehlt, Pfad ungültig, kein Media Foundation, `MediaFailed`, verpasste Öffnungsfrist), feuert `PlaybackFailed` (nur für die aktuelle Generation, Handler dürfen werfen), weil `PlaybackChanged` dann nie kommt (es wurde nie gespielt). Der Admin setzt darauf das Anhören zurück (Knopf wieder „Anhören“) und zeigt `KisscamMusicPlayFailedText` („Die Datei konnte nicht abgespielt werden.“); der Hinweis verfällt bei neuem Anhören, Teststart, Dateiwechsel und Seiten-/Tabwechsel. Im Kisscam-Test läuft der Test ohne Ton weiter. Die Gastansicht reagiert nicht darauf (die Warnung steht im Log, die Kisscam läuft stumm).
-- **Stumm ohne Datei:** Kein Pfad, fehlende/kaputte Datei, fehlendes Media Foundation (Windows N ohne Media Feature Pack) oder verpasste Öffnungsfrist ergeben nur eine Logwarnung und Stille – nie einen Fehlerzustand und nie einen Hänger der Kisscam.
-- **Gerätespezifisch:** `Heart.KisscamMusicPath` steht in `DeviceSpecificSettings.Paths` (wird beim Teilen nicht übertragen, beim Import behält der Zielrechner seinen Pfad), der Normalizer verwirft zu lange Pfade (> 1024 Zeichen) und Pfade mit Steuerzeichen.
-- Der Admin spielt die Musik zum Anhören über denselben Player (siehe `docs/admin.md`).
+- **Fehlschlag melden:** Scheitert ein Start (Datei fehlt, Pfad ungültig, kein Media Foundation, `MediaFailed`, verpasste Öffnungsfrist), feuert `PlaybackFailed` mit dem Pfad (nur für die aktuelle Generation, Handler dürfen werfen), weil `PlaybackChanged` dann nie kommt. Die Bibliothek markiert den Song als nicht abspielbar, der Admin setzt das Anspielen zurück (Knopf wieder „Anspielen“); der Kisscam-Test läuft ohne Ton weiter. Die Gastansicht reagiert nicht selbst darauf (Warnung im Log, die Kisscam läuft stumm; der nächste Start wählt unter den übrigen Songs).
+- **Stumm ohne Song:** Kein angehakter oder abspielbarer Song, defekte Config, noch nie gelesener Ordner, fehlende/kaputte Datei (nach einem Aussetzer des Ordners spielt die Kisscam mit dem letzten bekannten Stand der Songs weiter), fehlendes Media Foundation (Windows N ohne Media Feature Pack) oder verpasste Öffnungsfrist ergeben nur eine Logzeile bzw. -warnung und Stille – nie einen Fehlerzustand und nie einen Hänger der Kisscam.
+- **Gerätespezifisch:** `Heart.KisscamMusicFolder` steht in `DeviceSpecificSettings.Paths` (wird beim Teilen nicht übertragen, beim Import behält der Zielrechner seinen Ordner), der Normalizer verwirft zu lange Pfade (> 1024 Zeichen) und Pfade mit Steuerzeichen (→ Standardordner).
+- Der Admin zeigt die Songliste und spielt Songs über denselben Player an (siehe `docs/admin.md`).
 
 ## Abbruch
 
@@ -208,7 +238,7 @@ Eine Geometrie für Livebild und Foto: Alle Maße hängen nur von der kürzeren 
 
 ## Logging
 
-`AppLog`: `Herzerkennung: Herz erkannt (Form …, 1 Hand/2 Hände), Aktion Kisscam.`, `Kisscam gestartet (… s, Zoom aus/… %, Musik an/aus).`, `Kisscam abgebrochen.`, `Mittelfinger: Kisscam abgebrochen.`, Warnungen bei Musik- und Zuschnittfehlern. Jede Fun-Auslösung steht im Log.
+`AppLog`: `Herzerkennung: Herz erkannt (Form …, 1 Hand/2 Hände), Aktion Kisscam.`, `Kisscam gestartet (… s, Zoom aus/… %, Musik an/aus).`, `Kisscam abgebrochen.`, `Mittelfinger: Kisscam abgebrochen.`, Warnungen bei Musik- und Zuschnittfehlern (u. a. `Die Kisscam-Musikconfig ist unlesbar …`, `Kisscam-Song nicht abspielbar: …`). Jede Fun-Auslösung steht im Log.
 
 **`Herz-Diagnose:`-Zeilen (Level Info, gedrosselt, ohne Einfluss auf die Erkennung):** Für Nachtests, wenn ein Herz nicht erkannt wird. Alle Zeilen beginnen mit `Herz-Diagnose:` (Filter z. B. `Select-String "Herz-Diagnose"` im Tageslog); es werden nur Zahlen und normierte Landmarks geloggt, nie Bilder. Auswertung: „Pipeline“ unterscheidet Handverlust in der Hand-Pipeline (Landmark-Scores auch verworfener Hände gegen den Mindestscore, von einer verfolgten Hand absorbierte Palm-ROIs, Paar-Duplikatprüfung mit Abstand, Schwelle und Handseiten); „Hände ohne Herz“ zeigt, welche Klassifikatorprüfung scheitert; die Ereigniszeilen zeigen, ob ein Treffer nur vereinzelt kommt und das Halten wegen `GapTolerance` neu beginnt.
 - `Herz-Diagnose: Pipeline: …` (`PeaceDetectionService.Pipeline.cs`, `PairedHandDiagnostics`): nur bei `PairedHands`, höchstens 1 Zeile/s und nur, wenn Gesicht, verfolgte Hand, Palm- oder Landmark-Ergebnis vorhanden sind. Enthält Gesichter, verfolgte Hände, Palmsuchen (Gesichtsbereiche, Vollbild), Palm-Treffer, übernommene und verworfene Palm-ROIs (mit Abstand/Schwelle in Pixeln), Mindestscore, Roh-Score jedes Landmark-Laufs (`IHandLandmarkDetector.SetScoreObserver`, auch unter dem Mindestscore verworfene), Hände vor/nach der Paar-Duplikatprüfung samt mittlerem Abstand, Schwelle und Handseiten. Der Sammler wird wiederverwendet; in Zyklen ohne Zeile entsteht keine Allokation und keine Formatierung.
@@ -218,4 +248,4 @@ Eine Geometrie für Livebild und Foto: Alle Maße hängen nur von der kürzeren 
 
 ## Tests
 
-Siehe `docs/tests.md`: `HeartGestureClassifierTests` (mit `HeartHandFixtures`), `HeartDiagnoseTests`, `HeartEngineTests`, `HeartActionsTests`, `HeartSettingsTests`, `HeartPipelineTests` (`PairedHands`), `KisscamFrameGeometryTests`, `KisscamZoomTests`, `KisscamTextFormatterTests`, `BoothControllerKisscamTests`, `BoothViewModelKisscamTests`, `PeaceOverlayViewModelHeartTests`, `LayoutComposerKisscamTests`, `MusicPlayerTests`, `AdminHeartTabTests`, `HeartViewsTests`, `KisscamVisualRenderTests` (Visual).
+Siehe `docs/tests.md`: `HeartGestureClassifierTests` (mit `HeartHandFixtures`), `HeartDiagnoseTests`, `HeartEngineTests`, `HeartActionsTests`, `HeartSettingsTests`, `HeartPipelineTests` (`PairedHands`), `KisscamFrameGeometryTests`, `KisscamZoomTests`, `KisscamTextFormatterTests`, `BoothControllerKisscamTests`, `BoothViewModelKisscamTests`, `KisscamMusicConfigCodecTests`, `KisscamTimeFormatTests`, `KisscamSongPickerTests`, `KisscamMusicLibraryTests`, `KisscamMusicFileSystemTests`, `PeaceOverlayViewModelHeartTests`, `LayoutComposerKisscamTests`, `MusicPlayerTests`, `AdminHeartTabTests`, `HeartViewsTests`, `KisscamVisualRenderTests` (Visual).

@@ -1,8 +1,10 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Fotobox.Core;
 using Fotobox.Core.Heart;
+using Fotobox.Core.Music;
 using Fotobox.Core.Peace;
 using Fotobox.Services.Storage;
 using Fotobox.ViewModels.Booth;
@@ -53,36 +55,45 @@ public sealed partial class AdminViewModel
     private ITimer? _kisscamTestTimer;
     private int _kisscamTestGeneration;
 
-    /// <summary>Hinweis, wenn die Musikdatei fehlt oder nicht erreichbar ist (nur Warnung, blockiert das Speichern nicht).</summary>
-    public const string KisscamMusicMissingText =
-        "Die Musikdatei wurde nicht gefunden oder ist nicht erreichbar. Die Kisscam läuft dann ohne Ton.";
+    /// <summary>Hinweis, wenn der Musikordner leer ist (keine Musikdateien der erlaubten Formate).</summary>
+    public const string KisscamMusicEmptyText = "Der Ordner ist leer – kopieren Sie Musikdateien (MP3, WAV, M4A, WMA) hinein.";
 
-    /// <summary>Hinweis, wenn die Musik beim Anhören oder im Kisscam-Test nicht abgespielt werden konnte.</summary>
-    public const string KisscamMusicPlayFailedText = "Die Datei konnte nicht abgespielt werden.";
+    /// <summary>Hinweis, wenn Songs vorhanden sind, aber keiner angehakt ist.</summary>
+    public const string KisscamNoSongSelectedText = "Kein Song ausgewählt – die Kisscam läuft ohne Musik.";
+
+    /// <summary>Hinweis, wenn Songs angehakt sind, aber keiner davon abspielbar ist.</summary>
+    public const string KisscamNoPlayableSongText = "Kein abspielbarer Song ausgewählt – die Kisscam läuft ohne Musik.";
+
+    /// <summary>Hinweis, wenn der Musikordner nicht angelegt oder gelesen werden kann.</summary>
+    public const string KisscamMusicFolderUnavailableText =
+        "Der Musikordner ist nicht erreichbar oder lässt sich nicht anlegen. Prüfen Sie den Pfad und klicken Sie auf „Aktualisieren“. Die Kisscam läuft solange ohne Musik.";
+
+    /// <summary>Hinweis, wenn die Config des Musikordners unlesbar ist.</summary>
+    public const string KisscamMusicConfigBrokenText =
+        "Die Datei kisscam-musik.json im Musikordner ist unlesbar, die Kisscam läuft deshalb ohne Musik. Sobald Sie hier etwas ändern, wird sie neu angelegt; die alte Datei bleibt als kisscam-musik.json.defekt erhalten.";
+
+    /// <summary>Hinweis, wenn die Songeinstellungen nicht gespeichert werden konnten.</summary>
+    public const string KisscamMusicSaveFailedText =
+        "Die Songeinstellungen konnten nicht in den Musikordner gespeichert werden. Prüfen Sie die Schreibrechte des Ordners.";
 
     /// <summary>Hinweis unter dem Timer, wenn die Kisscam nur die letzten Sekunden dauert (kein Gasttext).</summary>
     public const string KisscamOnlyCountdownHintText = "Bei 3 Sekunden erscheint nur der Countdown 3 – 2 – 1, kein Text.";
 
-    /// <summary>Text der Anzeige, solange keine Musikdatei gewählt ist.</summary>
-    public const string KisscamNoMusicText = "Keine Datei gewählt";
-
     private readonly IMusicPlayer? _music;
+    private IKisscamMusicLibrary? _library;
     private IReadOnlyList<HeartActionOption>? _heartActionOptions;
-    // Die Vorschau der Musik wurde von dieser Ansicht gestartet (nur dann darf sie den geteilten Player wieder stoppen).
-    private bool _kisscamPreviewStarted;
-    // Der Player hat die Wiedergabe tatsächlich begonnen (danach bedeutet „läuft nicht mehr“ = Ende).
-    private bool _kisscamPreviewSawPlaying;
-    private bool _kisscamMusicMissing;
-    private bool _kisscamMusicPlayFailed;
-    private int _kisscamMusicCheckVersion;
 
-    /// <summary>
-    /// Prüfung, ob die Musikdatei existiert (läuft auf dem Threadpool, siehe <see cref="FolderProbeTimeout"/>). Für Tests austauschbar.
-    /// </summary>
-    internal Func<string, bool> KisscamMusicFileExists { get; set; } = File.Exists;
+    // Anspielen eines Songs: die Zeile, die Wiedergabe wurde gestartet (danach bedeutet „läuft nicht mehr“ = Ende), die zuletzt
+    // gemeldete Position und der Timer, der nach der Kisscam-Dauer ausblendet.
+    private KisscamSongRowViewModel? _previewRow;
+    private bool _previewSawPlaying;
+    private TimeSpan _previewPosition;
+    private ITimer? _previewTimer;
+    private int _previewGeneration;
+    private string? _kisscamTestMusicPath;
 
-    /// <summary>Die zuletzt gestartete Prüfung der Musikdatei (für Tests abwartbar; wirft nie).</summary>
-    internal Task KisscamMusicCheck { get; private set; } = Task.CompletedTask;
+    /// <summary>Quelle der Zufallswahl des Songs im Kisscam-Test. Für Tests austauschbar.</summary>
+    internal Random KisscamRandom { get; set; } = Random.Shared;
 
     // ---------------------------------------------------------------- Schalter, Formen, Erkennung
 
@@ -352,25 +363,7 @@ public sealed partial class AdminViewModel
 
     // ---------------------------------------------------------------- Kisscam: Musik
 
-    /// <summary>Gewählter Pfad der Musikdatei (leer = keine); gerätespezifisch, wird beim Teilen der Einstellungen nicht übertragen.</summary>
-    public string KisscamMusicPath => _draft.Heart.KisscamMusicPath ?? string.Empty;
-
-    public bool HasKisscamMusic => !string.IsNullOrEmpty(_draft.Heart.KisscamMusicPath);
-
-    /// <summary>Anzeige: nur der Dateiname der Musik (oder „Keine Datei gewählt“).</summary>
-    public string KisscamMusicFileName
-    {
-        get
-        {
-            var path = _draft.Heart.KisscamMusicPath;
-            if (string.IsNullOrEmpty(path))
-                return KisscamNoMusicText;
-            var name = Path.GetFileName(path);
-            return string.IsNullOrEmpty(name) ? path : name;
-        }
-    }
-
-    /// <summary>Lautstärke der Musik in Prozent (<see cref="SettingsLimits.KisscamMusicVolumeMin"/> bis <c>Max</c>).</summary>
+    /// <summary>Gesamtlautstärke der Musik in Prozent (<see cref="SettingsLimits.KisscamMusicVolumeMin"/> bis <c>Max</c>); die Lautstärke eines Songs wirkt als Prozentsatz davon.</summary>
     public int KisscamMusicVolumePercent
     {
         get => _draft.Heart.KisscamMusicVolumePercent;
@@ -379,193 +372,352 @@ public sealed partial class AdminViewModel
             v => _draft.Heart.KisscamMusicVolumePercent = v);
     }
 
-    /// <summary>Die gewählte Musikdatei fehlt oder ist nicht erreichbar (Warnung; blockiert das Speichern nicht).</summary>
-    public bool KisscamMusicMissing
-    {
-        get => _kisscamMusicMissing;
-        private set
-        {
-            if (SetProperty(ref _kisscamMusicMissing, value))
-                RaiseKisscamMusicCommands();
-        }
-    }
+    /// <summary>Anzuzeigender Musikordner (Standard: Musik\Fotobox+\Kisscam); gerätespezifisch, wird beim Teilen der Einstellungen nicht übertragen.</summary>
+    public string KisscamMusicFolderDisplay => EffectiveKisscamMusicFolder;
 
-    /// <summary>Die Musik konnte beim letzten Anhören bzw. Kisscam-Test nicht gespielt werden (Hinweis; Zustand, keine Einstellung).</summary>
-    public bool KisscamMusicPlayFailed
-    {
-        get => _kisscamMusicPlayFailed;
-        private set => SetProperty(ref _kisscamMusicPlayFailed, value);
-    }
+    public bool IsDefaultKisscamMusicFolder => string.IsNullOrWhiteSpace(_draft.Heart.KisscamMusicFolder);
 
-    /// <summary>Die Musik wird gerade zum Anhören gespielt (Zustand, keine Einstellung).</summary>
-    public bool KisscamMusicPreviewPlaying => _kisscamPreviewStarted;
+    public bool HasCustomKisscamMusicFolder => !IsDefaultKisscamMusicFolder;
 
-    /// <summary>„Stopp“ während des Anhörens, sonst „Anhören“.</summary>
-    public string KisscamMusicPreviewButtonText => _kisscamPreviewStarted ? "Stopp" : "Anhören";
+    private string EffectiveKisscamMusicFolder =>
+        string.IsNullOrWhiteSpace(_draft.Heart.KisscamMusicFolder) ? AppInfo.DefaultKisscamMusicFolder : _draft.Heart.KisscamMusicFolder;
 
-    /// <summary>Wählt eine Musikdatei (WAV/MP3) über den Dateidialog.</summary>
-    public IRelayCommand PickKisscamMusicCommand { get; private set; } = null!;
+    /// <summary>Die Songs des Musikordners (nach Dateinamen abgeglichen, nicht bei jeder Änderung neu erzeugt).</summary>
+    public ObservableCollection<KisscamSongRowViewModel> KisscamSongs { get; } = [];
 
-    /// <summary>Entfernt die Musikdatei (die Kisscam läuft dann ohne Ton).</summary>
-    public IRelayCommand RemoveKisscamMusicCommand { get; private set; } = null!;
+    /// <summary>Stand der Bibliothek (Laden, bereit, Ordner nicht erreichbar, Config defekt).</summary>
+    public KisscamLibraryStatus KisscamMusicStatus => _library?.Current.Status ?? KisscamLibraryStatus.Loading;
 
-    /// <summary>Spielt die Musik zum Anhören bzw. beendet das Anhören. Ohne Player oder Datei nicht ausführbar.</summary>
-    public IRelayCommand ToggleKisscamMusicPreviewCommand { get; private set; } = null!;
+    /// <summary>Hinweise zur Musik (leerer Ordner, kein Song gewählt, Ordner nicht erreichbar, Config defekt, Speichern fehlgeschlagen).</summary>
+    public IReadOnlyList<string> KisscamMusicHints => BuildKisscamMusicHints(_library?.Current);
 
-    private void InitHeart(IMusicPlayer? music)
+    public string KisscamMusicHintsText => string.Join(Environment.NewLine, KisscamMusicHints);
+
+    public bool HasKisscamMusicHints => KisscamMusicHints.Count > 0;
+
+    /// <summary>Öffnet die Ordnerauswahl für den Musikordner.</summary>
+    public IRelayCommand ChooseKisscamMusicFolderCommand { get; private set; } = null!;
+
+    /// <summary>Setzt den Musikordner auf den Standard zurück.</summary>
+    public IRelayCommand ResetKisscamMusicFolderCommand { get; private set; } = null!;
+
+    /// <summary>Öffnet den Musikordner im Explorer.</summary>
+    public IAsyncRelayCommand OpenKisscamMusicFolderCommand { get; private set; } = null!;
+
+    /// <summary>Liest den Musikordner und die Config neu.</summary>
+    public IRelayCommand RefreshKisscamMusicCommand { get; private set; } = null!;
+
+    private void InitHeart(IMusicPlayer? music, IKisscamMusicLibrary? library)
     {
         // Wird im Konstruktor aufgerufen (die get-only-Auto-Properties der Befehle sind dort noch nicht belegt).
-        PickKisscamMusicCommand = new RelayCommand(PickKisscamMusic);
-        RemoveKisscamMusicCommand = new RelayCommand(RemoveKisscamMusic, () => HasKisscamMusic);
-        ToggleKisscamMusicPreviewCommand = new RelayCommand(ToggleKisscamMusicPreview, CanToggleKisscamMusicPreview);
+        _library = library;
+        ChooseKisscamMusicFolderCommand = new RelayCommand(ChooseKisscamMusicFolder);
+        ResetKisscamMusicFolderCommand = new RelayCommand(ResetKisscamMusicFolder);
+        OpenKisscamMusicFolderCommand = new AsyncRelayCommand(OpenKisscamMusicFolderAsync);
+        RefreshKisscamMusicCommand = new RelayCommand(() => _library?.Refresh(), () => _library is not null);
         ToggleKisscamTestCommand = new RelayCommand(ToggleKisscamTest, () => !_disposed);
         if (music is not null)
         {
             music.PlaybackChanged += OnMusicPlaybackChanged;
             music.PlaybackFailed += OnMusicPlaybackFailed;
+            music.PositionChanged += OnMusicPositionChanged;
         }
-        RefreshKisscamMusicCheck();
+        if (_library is not null)
+        {
+            _library.Changed += OnKisscamLibraryChanged;
+            // Speichert etwas anderes den Store (z. B. die PIN-Änderung), setzt die Anwendung die Bibliothek auf den gespeicherten Ordner;
+            // dieser Handler (später angemeldet) lenkt sie danach wieder auf den Ordner des Entwurfs.
+            _store.SettingsChanged += OnStoreSettingsChanged;
+            // Der Admin arbeitet auf dem Ordner des Entwurfs; beim Schließen geht die Bibliothek zurück auf den gespeicherten Ordner.
+            _library.SetFolder(_draft.Heart.KisscamMusicFolder);
+            ReconcileKisscamSongs();
+        }
     }
 
-    private bool CanToggleKisscamMusicPreview() =>
-        !_disposed && _music is not null && !_kisscamTestRunning
-        && (_kisscamPreviewStarted || (HasKisscamMusic && !_kisscamMusicMissing));
-
-    private void RaiseKisscamMusicCommands()
+    private void OnStoreSettingsChanged(object? sender, EventArgs e)
     {
-        RemoveKisscamMusicCommand.NotifyCanExecuteChanged();
-        ToggleKisscamMusicPreviewCommand.NotifyCanExecuteChanged();
+        if (!_disposed)
+            _library?.SetFolder(_draft.Heart.KisscamMusicFolder);
     }
 
-    private void PickKisscamMusic()
+    /// <summary>Wendet den Ordner des Entwurfs auf die Bibliothek an (nach Wahl, Zurücksetzen oder Ersetzen des Entwurfs).</summary>
+    private void ApplyKisscamMusicFolderToLibrary()
     {
-        string? file;
+        StopKisscamMusicPreview();
+        RaiseKisscamMusicFolder();
+        _library?.SetFolder(_draft.Heart.KisscamMusicFolder);
+        ReconcileKisscamSongs();
+    }
+
+    private void RaiseKisscamMusicFolder()
+    {
+        OnPropertyChanged(nameof(KisscamMusicFolderDisplay));
+        OnPropertyChanged(nameof(IsDefaultKisscamMusicFolder));
+        OnPropertyChanged(nameof(HasCustomKisscamMusicFolder));
+    }
+
+    private void ChooseKisscamMusicFolder()
+    {
+        string? folder;
         try
         {
-            file = _ui.PickAudioFile();
+            folder = _ui.PickFolder(EffectiveKisscamMusicFolder, "Musikordner für die Kisscam auswählen");
         }
         catch (Exception ex)
         {
-            AppLog.Error("Dateiauswahl der Kisscam-Musik fehlgeschlagen.", ex);
+            AppLog.Error("Ordnerauswahl der Kisscam-Musik fehlgeschlagen.", ex);
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(file))
+        if (string.IsNullOrWhiteSpace(folder))
             return;
         // Der Normalisierer würde zu lange Pfade stillschweigend verwerfen: lieber gleich melden.
-        if (file.Length > SettingsLimits.KisscamMusicPathMaxLength || file.Any(char.IsControl))
+        if (folder.Length > SettingsLimits.KisscamMusicFolderMaxLength || folder.Any(char.IsControl))
         {
-            _ui.ShowInfo("Musikdatei", $"Der Pfad der Datei ist zu lang oder ungültig (höchstens {SettingsLimits.KisscamMusicPathMaxLength} Zeichen). Bitte wählen Sie die Datei an einem kürzeren Ort aus.");
+            _ui.ShowInfo("Musikordner", $"Der Pfad des Ordners ist zu lang oder ungültig (höchstens {SettingsLimits.KisscamMusicFolderMaxLength} Zeichen). Bitte wählen Sie einen Ordner an einem kürzeren Ort aus.");
             return;
         }
 
-        SetKisscamMusicPath(file);
+        _draft.Heart.KisscamMusicFolder = folder;
+        ApplyKisscamMusicFolderToLibrary();
     }
 
-    private void RemoveKisscamMusic() => SetKisscamMusicPath(null);
-
-    private void SetKisscamMusicPath(string? path)
+    private void ResetKisscamMusicFolder()
     {
-        if (string.Equals(_draft.Heart.KisscamMusicPath, path, StringComparison.Ordinal))
+        if (_draft.Heart.KisscamMusicFolder is null)
             return;
-        StopKisscamMusicPreview();
-        _draft.Heart.KisscamMusicPath = path;
-        OnPropertyChanged(nameof(KisscamMusicPath));
-        OnPropertyChanged(nameof(KisscamMusicFileName));
-        OnPropertyChanged(nameof(HasKisscamMusic));
-        RefreshKisscamMusicCheck();
+        _draft.Heart.KisscamMusicFolder = null;
+        ApplyKisscamMusicFolderToLibrary();
     }
 
-    // Prüft die Musikdatei im Hintergrund (ein hängender Netzpfad friert die Oberfläche nicht ein); ältere Ergebnisse verfallen.
-    private void RefreshKisscamMusicCheck()
+    // Öffnet den Musikordner im Explorer, aber nur, wenn er existiert (die Bibliothek legt ihn selbst an); mit Frist.
+    private async Task OpenKisscamMusicFolderAsync()
     {
-        var version = ++_kisscamMusicCheckVersion;
-        var path = _draft.Heart.KisscamMusicPath;
-        KisscamMusicMissing = false;
-        RaiseKisscamMusicCommands();
-        KisscamMusicCheck = string.IsNullOrWhiteSpace(path) ? Task.CompletedTask : CheckKisscamMusicAsync(path, version);
-    }
+        var folder = EffectiveKisscamMusicFolder;
+        var exists = await FolderProbe.ExistsAsync(folder, FolderProbeTimeout);
+        if (_disposed)
+            return;
+        if (exists is null)
+        {
+            ValidationMessage = "Der Ordner ist nicht erreichbar (Zeitüberschreitung).";
+            return;
+        }
 
-    private async Task CheckKisscamMusicAsync(string path, int version)
-    {
-        var exists = KisscamMusicFileExists;
-        bool missing;
+        if (!exists.Value)
+        {
+            ValidationMessage = "Der Ordner existiert noch nicht. Klicken Sie auf „Aktualisieren“, um ihn anzulegen.";
+            return;
+        }
+
         try
         {
-            missing = !await Task.Run(() => exists(path)).WaitAsync(FolderProbeTimeout, _time);
-        }
-        catch (TimeoutException)
-        {
-            AppLog.Warn("Prüfung der Kisscam-Musikdatei: Zeitüberschreitung.");
-            missing = true;
+            _ui.OpenFolder(folder);
         }
         catch (Exception ex)
         {
-            AppLog.Warn("Prüfung der Kisscam-Musikdatei fehlgeschlagen.", ex);
-            missing = true;
+            AppLog.Error("Musikordner konnte nicht geöffnet werden.", ex);
+            ValidationMessage = "Der Ordner konnte nicht geöffnet werden.";
         }
-
-        if (_disposed || version != _kisscamMusicCheckVersion)
-            return;
-        KisscamMusicMissing = missing;
     }
 
-    private void ToggleKisscamMusicPreview()
+    // Die Bibliothek meldet auf einem beliebigen Thread: in den UI-Kontext holen (wie PostPeace); ohne Kontext (Tests) sofort.
+    private void OnKisscamLibraryChanged(object? sender, EventArgs e)
+    {
+        if (_disposed)
+            return;
+        PostPeace(() =>
+        {
+            if (!_disposed)
+                ReconcileKisscamSongs();
+        });
+    }
+
+    // Gleicht die Zeilen mit dem Stand der Bibliothek ab (nach Dateinamen): vorhandene Zeilen werden aktualisiert und bei Bedarf
+    // verschoben, neue eingefügt, fehlende entfernt. So bleibt der Fokus erhalten.
+    private void ReconcileKisscamSongs()
+    {
+        var snapshot = _library?.Current ?? KisscamLibrarySnapshot.Empty;
+        var wanted = snapshot.Songs;
+        var byName = KisscamSongs.ToDictionary(r => r.FileName, StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < wanted.Count; i++)
+        {
+            var song = wanted[i];
+            if (byName.TryGetValue(song.FileName, out var row))
+            {
+                row.Apply(song);
+                var current = KisscamSongs.IndexOf(row);
+                if (current != i)
+                    KisscamSongs.Move(current, i);
+            }
+            else
+            {
+                KisscamSongs.Insert(i, new KisscamSongRowViewModel(this, song));
+            }
+        }
+
+        while (KisscamSongs.Count > wanted.Count)
+        {
+            var last = KisscamSongs[^1];
+            if (ReferenceEquals(last, _previewRow))
+                StopKisscamMusicPreview();
+            KisscamSongs.RemoveAt(KisscamSongs.Count - 1);
+        }
+
+        OnPropertyChanged(nameof(KisscamMusicStatus));
+        OnPropertyChanged(nameof(KisscamMusicHints));
+        OnPropertyChanged(nameof(KisscamMusicHintsText));
+        OnPropertyChanged(nameof(HasKisscamMusicHints));
+    }
+
+    private static IReadOnlyList<string> BuildKisscamMusicHints(KisscamLibrarySnapshot? snapshot)
+    {
+        var hints = new List<string>();
+        if (snapshot is null)
+            return hints;
+        switch (snapshot.Status)
+        {
+            case KisscamLibraryStatus.FolderUnavailable:
+                hints.Add(KisscamMusicFolderUnavailableText);
+                break;
+            case KisscamLibraryStatus.ConfigBroken:
+                hints.Add(KisscamMusicConfigBrokenText);
+                break;
+            case KisscamLibraryStatus.Ready when snapshot.Songs.Count == 0:
+                hints.Add(KisscamMusicEmptyText);
+                break;
+            case KisscamLibraryStatus.Ready when !snapshot.HasEnabledSong:
+                hints.Add(KisscamNoSongSelectedText);
+                break;
+            case KisscamLibraryStatus.Ready when !snapshot.Songs.Any(s => s.Enabled && s.Playable):
+                hints.Add(KisscamNoPlayableSongText);
+                break;
+        }
+        if (snapshot.SaveFailed)
+            hints.Add(KisscamMusicSaveFailedText);
+        return hints;
+    }
+
+    // ---- Songliste: Änderungen, Anspielen
+
+    // Eine Zeile hat sich geändert: in die Bibliothek (Cache sofort, Config entprellt) – unabhängig vom „Speichern“ des Admins.
+    internal void UpdateKisscamSong(KisscamSongRowViewModel row, bool? enabled = null, int? startSeconds = null, int? volumePercent = null)
+    {
+        if (_disposed)
+            return;
+        try
+        {
+            _library?.UpdateSong(row.FileName, enabled, startSeconds, volumePercent);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Kisscam-Songeinstellung konnte nicht übernommen werden.", ex);
+        }
+    }
+
+    /// <summary>
+    /// „Anspielen“: spielt den Song ab seiner Startzeit für die Dauer der Kisscam und blendet dann aus. Es läuft nur ein Anspielen;
+    /// ein anderer Song, der Kisscam-Test, ein Ordnerwechsel, ein Tabwechsel und das Schließen beenden es.
+    /// </summary>
+    internal void ToggleKisscamSongPreview(KisscamSongRowViewModel row)
     {
         if (_disposed || _music is null)
             return;
-        if (_kisscamPreviewStarted)
+        if (ReferenceEquals(_previewRow, row))
         {
             StopKisscamMusicPreview();
             return;
         }
 
-        var path = _draft.Heart.KisscamMusicPath;
-        if (string.IsNullOrWhiteSpace(path))
-            return;
-        KisscamMusicPlayFailed = false;
-        SetKisscamPreviewStarted(true);
+        StopKisscamMusicPreview();
+        EndKisscamTest(completed: false);
+        var generation = ++_previewGeneration;
+        _previewRow = row;
+        _previewSawPlaying = false;
+        _previewPosition = TimeSpan.Zero;
+        row.IsPreviewing = true;
+        var volume = KisscamSongPicker.EffectiveVolume(_draft.Heart.KisscamMusicVolumePercent, row.VolumePercent);
         try
         {
-            _music.Play(path, _draft.Heart.KisscamMusicVolumePercent, loop: true);
+            _music.Play(row.FullPath, volume, loop: true, row.Song.EffectiveStart);
         }
         catch (Exception ex)
         {
-            AppLog.Warn("Kisscam-Musik konnte nicht zum Anhören gestartet werden.", ex);
-            SetKisscamPreviewStarted(false);
+            AppLog.Warn("Kisscam-Song konnte nicht angespielt werden.", ex);
+            ClearKisscamPreviewState();
+            return;
         }
+
+        var seconds = Math.Clamp(_draft.Heart.KisscamSeconds, SettingsLimits.KisscamSecondsMin, SettingsLimits.KisscamSecondsMax);
+        _previewTimer = _time.CreateTimer(_ => PostPeace(() => KisscamPreviewElapsed(generation)), null,
+            TimeSpan.FromSeconds(seconds), Timeout.InfiniteTimeSpan);
+    }
+
+    // Die Kisscam-Dauer ist um: ausblenden; das Ende der Wiedergabe räumt den Zustand auf.
+    private void KisscamPreviewElapsed(int generation)
+    {
+        if (_disposed || generation != _previewGeneration || _previewRow is null)
+            return;
+        DisposeKisscamPreviewTimer();
+        try
+        {
+            _music?.FadeOut(KisscamTestMusicFadeOut);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Kisscam-Song konnte nicht ausgeblendet werden.", ex);
+        }
+        // Falls der Player kein Ende meldet (z. B. nie gestartet), räumt die Frist nach dem Ausblenden auf.
+        _previewTimer = _time.CreateTimer(_ => PostPeace(() =>
+        {
+            if (!_disposed && generation == _previewGeneration)
+                ClearKisscamPreviewState();
+        }), null, KisscamTestMusicFadeOut + TimeSpan.FromMilliseconds(500), Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>„Position übernehmen“: Die zuletzt gemeldete Position des laufenden Anspielens wird zur Startzeit des Songs.</summary>
+    internal void TakeKisscamSongPreviewPosition(KisscamSongRowViewModel row)
+    {
+        if (_disposed || !ReferenceEquals(_previewRow, row))
+            return;
+        row.StartSeconds = (int)Math.Floor(_previewPosition.TotalSeconds);
     }
 
     /// <summary>
-    /// Beendet das Anhören der Kisscam-Musik – aber nur, wenn diese Ansicht es gestartet hat (der Player gehört auch der
-    /// Gastansicht). Wird beim Schließen, bei Tab- und Seitenwechsel, bei geänderter Datei und beim Ersetzen des Entwurfs aufgerufen.
+    /// Beendet das Anspielen eines Songs – aber nur, wenn diese Ansicht es gestartet hat (der Player gehört auch der Gastansicht).
+    /// Wird beim Schließen, bei Tab- und Seitenwechsel, bei Ordnerwechsel, beim Kisscam-Test und beim Ersetzen des Entwurfs aufgerufen.
     /// </summary>
     internal void StopKisscamMusicPreview()
     {
-        // Seiten-/Tabwechsel, Dateiwechsel usw. räumen auch einen alten Fehlerhinweis ab.
-        KisscamMusicPlayFailed = false;
-        if (!_kisscamPreviewStarted)
+        if (_previewRow is null)
             return;
-        SetKisscamPreviewStarted(false);
+        ClearKisscamPreviewState();
         try
         {
             _music?.Stop();
         }
         catch (Exception ex)
         {
-            AppLog.Warn("Kisscam-Musik konnte nicht gestoppt werden.", ex);
+            AppLog.Warn("Kisscam-Song konnte nicht gestoppt werden.", ex);
         }
     }
 
-    private void SetKisscamPreviewStarted(bool started)
+    private void ClearKisscamPreviewState()
     {
-        _kisscamPreviewSawPlaying = false;
-        if (_kisscamPreviewStarted == started)
-            return;
-        _kisscamPreviewStarted = started;
-        OnPropertyChanged(nameof(KisscamMusicPreviewPlaying));
-        OnPropertyChanged(nameof(KisscamMusicPreviewButtonText));
-        ToggleKisscamMusicPreviewCommand.NotifyCanExecuteChanged();
+        ++_previewGeneration;
+        DisposeKisscamPreviewTimer();
+        var row = _previewRow;
+        _previewRow = null;
+        _previewSawPlaying = false;
+        if (row is not null)
+            row.IsPreviewing = false;
+    }
+
+    private void DisposeKisscamPreviewTimer()
+    {
+        var timer = _previewTimer;
+        _previewTimer = null;
+        timer?.Dispose();
     }
 
     // Kann auf jedem Thread kommen: in den UI-Kontext holen (wie PostPeace); ohne Kontext (Tests) sofort.
@@ -573,52 +725,52 @@ public sealed partial class AdminViewModel
     {
         if (_disposed)
             return;
-        if (_sync is null)
-            HandleMusicPlaybackChanged();
-        else
-            _sync.Post(_ => HandleMusicPlaybackChanged(), null);
+        PostPeace(HandleMusicPlaybackChanged);
     }
 
     // Der Player meldet einen gescheiterten Start (Datei fehlt/kaputt, Öffnungsfrist verpasst): kein PlaybackChanged, weil nie gespielt
-    // wurde – ohne diese Meldung bliebe der Knopf auf „Stopp“ stehen. Kann auf jedem Thread kommen.
-    private void OnMusicPlaybackFailed(object? sender, EventArgs e)
+    // wurde – ohne diese Meldung bliebe der Knopf auf „Stopp“ stehen. Die Bibliothek markiert den Song selbst als nicht abspielbar.
+    private void OnMusicPlaybackFailed(object? sender, MusicPlaybackFailedEventArgs e)
     {
         if (_disposed)
             return;
-        if (_sync is null)
-            HandleMusicPlaybackFailed();
-        else
-            _sync.Post(_ => HandleMusicPlaybackFailed(), null);
+        PostPeace(() => HandleMusicPlaybackFailed(e.Path));
     }
 
-    private void HandleMusicPlaybackFailed()
+    private void OnMusicPositionChanged(object? sender, MusicPositionEventArgs e)
+    {
+        if (_disposed)
+            return;
+        PostPeace(() => HandleMusicPosition(e));
+    }
+
+    private void HandleMusicPlaybackFailed(string path)
     {
         if (_disposed)
             return;
         // Der Player gehört auch der Gastansicht: nur reagieren, wenn diese Ansicht die Musik gestartet hat.
-        var ours = false;
-        if (_kisscamPreviewStarted)
-        {
-            SetKisscamPreviewStarted(false);
-            ours = true;
-        }
-        if (_kisscamTestMusic)
-        {
+        if (_previewRow is { } row && string.Equals(row.FullPath, path, StringComparison.OrdinalIgnoreCase))
+            ClearKisscamPreviewState();
+        if (_kisscamTestMusic && string.Equals(_kisscamTestMusicPath, path, StringComparison.OrdinalIgnoreCase))
             _kisscamTestMusic = false;
-            ours = true;
-        }
-        if (ours)
-            KisscamMusicPlayFailed = true;
     }
 
     private void HandleMusicPlaybackChanged()
     {
-        if (_disposed || !_kisscamPreviewStarted || _music is null)
+        if (_disposed || _previewRow is null || _music is null)
             return;
         if (_music.IsPlaying)
-            _kisscamPreviewSawPlaying = true;
-        else if (_kisscamPreviewSawPlaying)
-            SetKisscamPreviewStarted(false); // Die Wiedergabe ist zu Ende (oder wurde von anderer Stelle gestoppt).
+            _previewSawPlaying = true;
+        else if (_previewSawPlaying)
+            ClearKisscamPreviewState(); // Die Wiedergabe ist zu Ende (oder wurde von anderer Stelle gestoppt).
+    }
+
+    private void HandleMusicPosition(MusicPositionEventArgs e)
+    {
+        if (_disposed || _previewRow is not { } row || !string.Equals(row.FullPath, e.Path, StringComparison.OrdinalIgnoreCase))
+            return;
+        _previewPosition = e.Position;
+        row.PositionText = KisscamTimeFormat.Format((int)Math.Floor(e.Position.TotalSeconds));
     }
 
     private void DisposeHeart()
@@ -627,9 +779,17 @@ public sealed partial class AdminViewModel
         {
             _music.PlaybackChanged -= OnMusicPlaybackChanged;
             _music.PlaybackFailed -= OnMusicPlaybackFailed;
+            _music.PositionChanged -= OnMusicPositionChanged;
         }
         EndKisscamTest(completed: false);
         StopKisscamMusicPreview();
+        if (_library is not null)
+        {
+            _library.Changed -= OnKisscamLibraryChanged;
+            _store.SettingsChanged -= OnStoreSettingsChanged;
+            // Die Bibliothek wieder auf den gespeicherten Ordner zurücksetzen (auch beim Abbrechen: ein ungespeicherter Entwurfsordner gilt nicht).
+            _library.SetFolder(_store.Current.Heart.KisscamMusicFolder);
+        }
     }
 
     // ---------------------------------------------------------------- Live-Vorschau: Kisscam-Test
@@ -689,7 +849,7 @@ public sealed partial class AdminViewModel
         if (_disposed || _kisscamTestRunning || !(_isFunTabSelected && _funPage == FunPage.Heart))
             return;
 
-        // Der Player gehört beiden Anhör-Wegen: das Anhören der Musik endet, bevor der Test sie spielt.
+        // Der Player gehört beiden Wegen: das Anspielen eines Songs endet, bevor der Test Musik spielt.
         StopKisscamMusicPreview();
         var generation = ++_kisscamTestGeneration;
         StartKisscamTestMusic();
@@ -699,16 +859,25 @@ public sealed partial class AdminViewModel
         AppLog.Info("Admin-Vorschau: Kisscam-Test gestartet.");
     }
 
+    // Wie in der Gastansicht: rein zufällige Wahl (Wiederholung erlaubt) unter den angehakten, abspielbaren Songs aus dem Stand der
+    // Bibliothek (kein Dateizugriff); keiner = Stille.
     private void StartKisscamTestMusic()
     {
-        var path = _draft.Heart.KisscamMusicPath;
-        if (_music is null || string.IsNullOrWhiteSpace(path) || _kisscamMusicMissing)
+        if (_music is null)
             return;
+        var pick = KisscamSongPicker.Pick(_library?.Current, _draft.Heart.KisscamMusicVolumePercent, KisscamRandom);
+        if (pick is null)
+        {
+            AppLog.Info("Admin-Vorschau: Kisscam-Test ohne Musik (kein abspielbarer Song ausgewählt).");
+            return;
+        }
+
         // Vor dem Play setzen: Ein Fehlschlag kann schon während des Aufrufs gemeldet werden.
         _kisscamTestMusic = true;
+        _kisscamTestMusicPath = pick.Path;
         try
         {
-            _music.Play(path, _draft.Heart.KisscamMusicVolumePercent, loop: true);
+            _music.Play(pick.Path, pick.VolumePercent, loop: true, pick.StartAt);
         }
         catch (Exception ex)
         {
@@ -801,7 +970,6 @@ public sealed partial class AdminViewModel
             OnPropertyChanged(name);
         if (!runningChanged)
             return;
-        ToggleKisscamMusicPreviewCommand.NotifyCanExecuteChanged();
         // Der laufende Test ist für die Mittelfingererkennung ein aufhebbares Ziel (external im SetMode).
         if (PeacePreview.Mode != PeaceMode.Off)
             PushPeacePreviewMode();
@@ -847,9 +1015,9 @@ public sealed partial class AdminViewModel
     // Zustands-Properties der Herz-Seite: sie sind keine Einstellungen und löschen „Einstellungen gespeichert“ nicht.
     private static bool IsHeartViewStateProperty(string? propertyName) =>
         propertyName is nameof(HeartStatusText) or nameof(HeartHasNoShape) or nameof(IsKisscamActionSelected)
-            or nameof(KisscamMusicPreviewPlaying) or nameof(KisscamMusicPreviewButtonText) or nameof(KisscamMusicMissing)
+            or nameof(KisscamMusicStatus) or nameof(KisscamMusicHints) or nameof(KisscamMusicHintsText) or nameof(HasKisscamMusicHints)
             or nameof(KisscamTextProblems) or nameof(KisscamTextProblemsText) or nameof(HasKisscamTextProblems)
-            or nameof(KisscamFileNameExample) or nameof(KisscamMusicPlayFailed) or nameof(HasKisscamOnlyCountdownHint)
+            or nameof(KisscamFileNameExample) or nameof(HasKisscamOnlyCountdownHint)
         || (propertyName is not null && propertyName.StartsWith("HeartShape", StringComparison.Ordinal)
             && propertyName.EndsWith("Enabled", StringComparison.Ordinal))
         // Live-Vorschau und Kisscam-Test: reiner Zustand, keine Einstellung
@@ -887,7 +1055,7 @@ public sealed partial class AdminViewModel
         else if (prefix.Length > SettingsLimits.FilePrefixMaxLength || prefix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             errors.Add($"Das Dateipräfix der Kisscam darf höchstens {SettingsLimits.FilePrefixMaxLength} Zeichen lang sein und keine Zeichen wie \\ / : * ? \" < > | enthalten.");
 
-        if ((h.KisscamMusicPath?.Length ?? 0) > SettingsLimits.KisscamMusicPathMaxLength)
-            errors.Add($"Der Pfad der Musikdatei darf höchstens {SettingsLimits.KisscamMusicPathMaxLength} Zeichen lang sein.");
+        if ((h.KisscamMusicFolder?.Length ?? 0) > SettingsLimits.KisscamMusicFolderMaxLength)
+            errors.Add($"Der Pfad des Musikordners darf höchstens {SettingsLimits.KisscamMusicFolderMaxLength} Zeichen lang sein.");
     }
 }

@@ -119,14 +119,32 @@ public interface ILayoutComposer
         Compose(photos, layout, page, overlayDirectory, timestamp);
 }
 
+/// <summary>Die Wiedergabe von <see cref="Path"/> konnte nicht beginnen oder brach ab.</summary>
+public sealed class MusicPlaybackFailedEventArgs(string path) : EventArgs
+{
+    public string Path { get; } = path;
+}
+
+/// <summary>Aktuelle Wiedergabeposition von <see cref="Path"/>; <see cref="Duration"/> ist null, solange die Länge unbekannt ist.</summary>
+public sealed class MusicPositionEventArgs(string path, TimeSpan position, TimeSpan? duration) : EventArgs
+{
+    public string Path { get; } = path;
+    public TimeSpan Position { get; } = position;
+    public TimeSpan? Duration { get; } = duration;
+}
+
 /// <summary>
 /// Spielt Musik zur Kisscam. Wirft nie und blockiert nie; ohne Datei oder bei einem Fehler passiert still nichts außer einer
 /// Log-Warnung.
 /// </summary>
 public interface IMusicPlayer
 {
-    /// <summary>Startet die Wiedergabe der Datei <paramref name="path"/> (WAV/MP3) mit der Lautstärke 0..100; ersetzt eine laufende Wiedergabe. null/leer/fehlende Datei = still nichts.</summary>
-    void Play(string? path, int volumePercent, bool loop);
+    /// <summary>
+    /// Startet die Wiedergabe der Datei <paramref name="path"/> (MP3/WAV/M4A/WMA) mit der Lautstärke 0..100 ab <paramref name="startAt"/>;
+    /// ersetzt eine laufende Wiedergabe. Liegt <paramref name="startAt"/> hinter dem Ende, beginnt sie bei 0:00; mit <paramref name="loop"/>
+    /// springt die Wiederholung zurück zur Startzeit. null/leer/fehlende Datei = still nichts.
+    /// </summary>
+    void Play(string? path, int volumePercent, bool loop, TimeSpan startAt = default);
     /// <summary>Blendet die laufende Wiedergabe in <paramref name="duration"/> aus und beendet sie.</summary>
     void FadeOut(TimeSpan duration);
     /// <summary>Beendet die Wiedergabe sofort.</summary>
@@ -136,7 +154,9 @@ public interface IMusicPlayer
     /// <summary>Beginn oder Ende der Wiedergabe; kann auf einem beliebigen Thread kommen.</summary>
     event EventHandler? PlaybackChanged;
     /// <summary>Die Wiedergabe konnte nicht beginnen oder brach ab (Datei fehlt, nicht lesbar, Öffnungsfrist verpasst); kann auf einem beliebigen Thread kommen. <see cref="PlaybackChanged"/> feuert dabei nicht zwingend.</summary>
-    event EventHandler? PlaybackFailed;
+    event EventHandler<MusicPlaybackFailedEventArgs>? PlaybackFailed;
+    /// <summary>Position der laufenden Wiedergabe, alle 250 ms; kann auf einem beliebigen Thread (dem Musik-Thread) kommen.</summary>
+    event EventHandler<MusicPositionEventArgs>? PositionChanged;
 }
 
 public interface IPrintService

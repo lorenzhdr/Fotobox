@@ -3827,9 +3827,6 @@ public sealed class AdminViewModelTests : IDisposable
         public BitmapSource? LastTestPage { get; private set; }
 
         public string? PickOverlayFile() => null;
-        /// <summary>Rückgabe von <see cref="PickAudioFile"/> (null = abgebrochen).</summary>
-        public string? AudioFileToPick { get; set; }
-        public string? PickAudioFile() => AudioFileToPick;
         public string? LastPickTitle { get; private set; }
         public string? LastPickInitial { get; private set; }
         public string? PickFolder(string? initialFolder, string title)

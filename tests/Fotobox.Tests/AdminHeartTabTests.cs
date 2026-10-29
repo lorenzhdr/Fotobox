@@ -9,6 +9,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Fotobox.Core;
 using Fotobox.Core.Heart;
+using Fotobox.Core.Music;
 using Fotobox.Core.Peace;
 using Fotobox.ViewModels.Admin;
 using Fotobox.ViewModels.Booth;
@@ -17,7 +18,7 @@ using Xunit;
 
 namespace Fotobox.Tests;
 
-/// <summary>Admin-Tab „Fun“, Seite „Herz“: Entwurf, Kisscam-Einstellungen, Musik-Anhören, Validierung, Kachel und Ansicht.</summary>
+/// <summary>Admin-Tab „Fun“, Seite „Herz“: Entwurf, Kisscam-Einstellungen, Musikordner und Songliste, Validierung, Kachel und Ansicht.</summary>
 [Collection(WpfCollection.Name)]
 public sealed class AdminHeartTabTests : IDisposable
 {
@@ -26,6 +27,7 @@ public sealed class AdminHeartTabTests : IDisposable
     private readonly AdminViewModelTests.FakePinService _pin;
     private readonly AdminViewModelTests.FakeUi _ui = new();
     private readonly FakeMusicPlayer _music = new();
+    private readonly FakeMusicLibrary _library = new();
     private readonly FakeGestureService _gestures = new();
     private readonly FakeSoundPlayer _sound = new();
     private readonly TrackingTimeProvider _time = new();
@@ -59,23 +61,15 @@ public sealed class AdminHeartTabTests : IDisposable
         var vm = new AdminViewModel(_store, _pin, new AdminViewModelTests.FakeCamera(), new AdminViewModelTests.FakePrint(), _ui, _time,
             new AdminViewModelTests.FakeDisplays(AdminViewModelTests.AdminMonitors.Primary),
             detection: null, sound: withServices ? _sound : null, gestures: withServices ? _gestures : null,
-            music: withMusic ? _music : null);
+            music: withMusic ? _music : null, library: _library);
         _created.Add(vm);
         return vm;
-    }
-
-    // Eine echte (leere) Datei als Musikdatei – nur ihre Existenz zählt.
-    private string CreateMusicFile(string name = "kiss.mp3")
-    {
-        var path = Path.Combine(_dir, name);
-        File.WriteAllBytes(path, [0]);
-        return path;
     }
 
     private sealed class FakeMusicPlayer : IMusicPlayer
     {
         private EventHandler? _changed;
-        public List<(string? Path, int Volume, bool Loop)> Plays { get; } = [];
+        public List<(string? Path, int Volume, bool Loop, TimeSpan StartAt)> Plays { get; } = [];
         public int StopCalls { get; private set; }
         public int Subscribers { get; private set; }
         public bool IsPlaying { get; private set; }
@@ -94,24 +88,29 @@ public sealed class AdminHeartTabTests : IDisposable
             }
         }
 
-        public event EventHandler? PlaybackFailed;
+        public event EventHandler<MusicPlaybackFailedEventArgs>? PlaybackFailed;
+
+        public event EventHandler<MusicPositionEventArgs>? PositionChanged;
 
         /// <summary>Jeder Start scheitert (Datei defekt, Öffnungsfrist verpasst …): kein PlaybackChanged, nur PlaybackFailed.</summary>
         public bool FailPlays { get; set; }
 
-        public void Play(string? path, int volumePercent, bool loop)
+        public void Play(string? path, int volumePercent, bool loop, TimeSpan startAt = default)
         {
-            Plays.Add((path, volumePercent, loop));
+            Plays.Add((path, volumePercent, loop, startAt));
             if (FailPlays)
             {
-                PlaybackFailed?.Invoke(this, EventArgs.Empty);
+                PlaybackFailed?.Invoke(this, new MusicPlaybackFailedEventArgs(path ?? string.Empty));
                 return;
             }
             IsPlaying = true;
             _changed?.Invoke(this, EventArgs.Empty);
         }
 
-        public void RaiseFailed() => PlaybackFailed?.Invoke(this, EventArgs.Empty);
+        public void RaiseFailed(string path) => PlaybackFailed?.Invoke(this, new MusicPlaybackFailedEventArgs(path));
+
+        public void RaisePosition(string path, TimeSpan position) =>
+            PositionChanged?.Invoke(this, new MusicPositionEventArgs(path, position, null));
 
         public List<TimeSpan> FadeOuts { get; } = [];
 
@@ -192,10 +191,9 @@ public sealed class AdminHeartTabTests : IDisposable
         Assert.Equal(d.KisscamZoomPercent, vm.KisscamZoomPercent);
         Assert.Equal("Kisscam", vm.KisscamFilePrefix);
         Assert.Equal(d.KisscamMusicVolumePercent, vm.KisscamMusicVolumePercent);
-        Assert.False(vm.HasKisscamMusic);
-        Assert.Equal(AdminViewModel.KisscamNoMusicText, vm.KisscamMusicFileName);
-        Assert.False(vm.KisscamMusicMissing);
-        Assert.False(vm.KisscamMusicPreviewPlaying);
+        Assert.True(vm.IsDefaultKisscamMusicFolder);
+        Assert.Equal(AppInfo.DefaultKisscamMusicFolder, vm.KisscamMusicFolderDisplay);
+        Assert.Empty(vm.KisscamSongs);
         Assert.Equal("An · Kisscam", vm.HeartStatusText);
         Assert.False(vm.HasUnsavedChanges);
     }
@@ -497,7 +495,7 @@ public sealed class AdminHeartTabTests : IDisposable
         vm.HeartEnabled = false;
         vm.KisscamSeconds = 40;
         vm.KisscamColor = KisscamColor.Red;
-        vm.Draft.Heart.KisscamMusicPath = CreateMusicFile();
+        vm.Draft.Heart.KisscamMusicFolder = Path.Combine(_dir, "Musik");
         _ui.ConfirmResult = true;
         // Ohne Sync-Kontext feuert der nicht abgewartete Seitengrößen-Refresh PropertyChanged auf dem Threadpool nach: Liste sperren.
         var raised = new List<string?>();
@@ -514,206 +512,570 @@ public sealed class AdminHeartTabTests : IDisposable
         Assert.True(vm.HeartActionOptions[0].IsSelected);
     }
 
-    // ------------------------------------------------------------------ Musik
+    // ------------------------------------------------------------------ Musik: Ordner
+
+    private static KisscamSong Song(string name, bool enabled = false, int start = 0, int volume = 100, TimeSpan? duration = null,
+        bool playable = true) => FakeMusicLibrary.Song(name, enabled, start, volume, duration, playable);
+
+    private AdminViewModel CreateViewModelWithSongs(params KisscamSong[] songs)
+    {
+        _library.Set(songs);
+        return CreateViewModel();
+    }
 
     [Fact]
-    public async Task PickingMusic_StoresThePath_ShowsTheFileName_AndRemovingClearsIt()
+    public void MusicFolder_DefaultsToTheStandardFolder_AndTheLibraryFollowsTheDraft()
     {
         NoContext();
         var vm = CreateViewModel();
-        var path = CreateMusicFile("Song Eins.mp3");
-        _ui.AudioFileToPick = path;
-        Assert.False(vm.RemoveKisscamMusicCommand.CanExecute(null));
 
-        vm.PickKisscamMusicCommand.Execute(null);
-        await vm.KisscamMusicCheck;
+        Assert.True(vm.IsDefaultKisscamMusicFolder);
+        Assert.False(vm.HasCustomKisscamMusicFolder);
+        Assert.Equal(AppInfo.DefaultKisscamMusicFolder, vm.KisscamMusicFolderDisplay);
+        Assert.Null(Assert.Single(_library.Folders)); // der Admin lenkt die Bibliothek auf den Ordner des Entwurfs
+    }
 
-        Assert.Equal(path, vm.Draft.Heart.KisscamMusicPath);
-        Assert.Equal("Song Eins.mp3", vm.KisscamMusicFileName);
-        Assert.Equal(path, vm.KisscamMusicPath);
-        Assert.True(vm.HasKisscamMusic);
-        Assert.False(vm.KisscamMusicMissing);
-        Assert.True(vm.RemoveKisscamMusicCommand.CanExecute(null));
+    [Fact]
+    public void ChoosingAFolder_StoresIt_PointsTheLibrary_AndTheDefaultButtonResetsIt()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+        var folder = Path.Combine(_dir, "Musik");
+        _ui.FolderToPick = folder;
+        var raised = new List<string?>();
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.ChooseKisscamMusicFolderCommand.Execute(null);
+
+        Assert.Equal(folder, vm.Draft.Heart.KisscamMusicFolder);
+        Assert.Equal(folder, vm.KisscamMusicFolderDisplay);
+        Assert.False(vm.IsDefaultKisscamMusicFolder);
+        Assert.True(vm.HasCustomKisscamMusicFolder);
+        Assert.Equal(folder, _library.Folders[^1]);
         Assert.True(vm.HasUnsavedChanges);
+        Assert.Contains(nameof(AdminViewModel.KisscamMusicFolderDisplay), raised);
+        Assert.Contains("Musikordner", _ui.LastPickTitle);
+        Assert.Equal(AppInfo.DefaultKisscamMusicFolder, _ui.LastPickInitial);
 
-        _ui.AudioFileToPick = null; // Abbrechen ändert nichts
-        vm.PickKisscamMusicCommand.Execute(null);
-        Assert.Equal(path, vm.Draft.Heart.KisscamMusicPath);
+        _ui.FolderToPick = null; // Abbrechen ändert nichts
+        vm.ChooseKisscamMusicFolderCommand.Execute(null);
+        Assert.Equal(folder, vm.Draft.Heart.KisscamMusicFolder);
 
-        vm.RemoveKisscamMusicCommand.Execute(null);
-        Assert.Null(vm.Draft.Heart.KisscamMusicPath);
-        Assert.Equal(AdminViewModel.KisscamNoMusicText, vm.KisscamMusicFileName);
-        Assert.False(vm.HasKisscamMusic);
+        vm.ResetKisscamMusicFolderCommand.Execute(null);
+
+        Assert.Null(vm.Draft.Heart.KisscamMusicFolder);
+        Assert.True(vm.IsDefaultKisscamMusicFolder);
+        Assert.Null(_library.Folders[^1]);
         Assert.False(vm.HasUnsavedChanges);
     }
 
     [Fact]
-    public void PickingAnOverlongPath_IsRejectedWithAMessage()
+    public void ChoosingAnOverlongFolder_IsRejectedWithAMessage()
     {
         NoContext();
         var vm = CreateViewModel();
-        _ui.AudioFileToPick = "C:\\" + new string('a', SettingsLimits.KisscamMusicPathMaxLength) + ".mp3";
+        _ui.FolderToPick = "C:\\" + new string('a', SettingsLimits.KisscamMusicFolderMaxLength);
 
-        vm.PickKisscamMusicCommand.Execute(null);
+        vm.ChooseKisscamMusicFolderCommand.Execute(null);
 
-        Assert.Null(vm.Draft.Heart.KisscamMusicPath);
-        var info = Assert.Single(_ui.InfoCalls);
-        Assert.Equal("Musikdatei", info.Title);
+        Assert.Null(vm.Draft.Heart.KisscamMusicFolder);
+        Assert.NotNull(_ui.LastInfo);
+        Assert.Single(_library.Folders);
     }
 
     [Fact]
-    public async Task MissingMusicFile_ShowsAWarning_WithoutBlockingSaving()
+    public void Dispose_ResetsTheLibraryToTheSavedFolder_EvenAfterCancelling()
     {
         NoContext();
+        _store.Current.Heart.KisscamMusicFolder = Path.Combine(_dir, "Gespeichert");
         var vm = CreateViewModel();
-        vm.KisscamMusicFileExists = _ => false;
-        _ui.AudioFileToPick = Path.Combine(_dir, "gibt-es-nicht.mp3");
+        Assert.Equal(_store.Current.Heart.KisscamMusicFolder, _library.Folders[^1]);
+        _ui.FolderToPick = Path.Combine(_dir, "Entwurf");
+        vm.ChooseKisscamMusicFolderCommand.Execute(null);
+        Assert.Equal(_ui.FolderToPick, _library.Folders[^1]);
 
-        vm.PickKisscamMusicCommand.Execute(null);
-        await vm.KisscamMusicCheck;
+        vm.Dispose(); // Abbrechen: Der ungespeicherte Entwurfsordner gilt nicht
 
-        Assert.True(vm.KisscamMusicMissing);
-        Assert.False(vm.ToggleKisscamMusicPreviewCommand.CanExecute(null));
-        Assert.Empty(vm.Validate());
-        vm.SaveCommand.Execute(null);
-        Assert.Equal(1, _store.SaveCount);
-
-        vm.RemoveKisscamMusicCommand.Execute(null);
-        Assert.False(vm.KisscamMusicMissing);
+        Assert.Equal(_store.Current.Heart.KisscamMusicFolder, _library.Folders[^1]);
     }
 
     [Fact]
-    public async Task MusicCheck_IsMarkedMissing_WhenTheProbeHangs_AndTheTimeoutExpires()
+    public void SavingSomethingElse_DuringTheSession_KeepsTheLibraryOnTheDraftFolder()
     {
         NoContext();
         var vm = CreateViewModel();
-        using var gate = new ManualResetEventSlim();
-        vm.KisscamMusicFileExists = _ =>
-        {
-            gate.Wait(TimeSpan.FromSeconds(30));
-            return true;
-        };
-        _ui.AudioFileToPick = Path.Combine(_dir, "netz.mp3");
+        _ui.FolderToPick = Path.Combine(_dir, "Entwurf");
+        vm.ChooseKisscamMusicFolderCommand.Execute(null);
 
-        vm.PickKisscamMusicCommand.Execute(null);
-        Assert.False(vm.KisscamMusicMissing); // die Prüfung läuft noch, die Oberfläche wartet nicht
-        _time.Advance(vm.FolderProbeTimeout + TimeSpan.FromSeconds(1));
-        await vm.KisscamMusicCheck;
+        // Z. B. die PIN-Änderung speichert den Store: Die Anwendung lenkt die Bibliothek auf den gespeicherten Ordner …
+        _library.SetFolder(_store.Current.Heart.KisscamMusicFolder);
+        _store.Save(_store.Current);
 
-        Assert.True(vm.KisscamMusicMissing);
-        gate.Set();
+        // … der Admin danach wieder auf den Ordner seines Entwurfs.
+        Assert.Equal(_ui.FolderToPick, _library.Folders[^1]);
+        vm.Dispose();
+        var count = _library.Folders.Count;
+        Assert.Null(_library.Folders[^1]); // beim Schließen wieder der gespeicherte Ordner
+        _store.Save(_store.Current);
+        Assert.Equal(count, _library.Folders.Count); // abgemeldet
     }
 
     [Fact]
-    public async Task StaleMusicCheck_DoesNotOverwriteTheNewerResult()
+    public async Task OpenFolder_OpensOnlyAnExistingFolder()
     {
         NoContext();
         var vm = CreateViewModel();
-        using var gate = new ManualResetEventSlim();
-        vm.KisscamMusicFileExists = _ =>
-        {
-            gate.Wait(TimeSpan.FromSeconds(30));
-            return false;
-        };
-        _ui.AudioFileToPick = Path.Combine(_dir, "langsam.mp3");
-        vm.PickKisscamMusicCommand.Execute(null);
-        var slow = vm.KisscamMusicCheck;
+        var existing = Path.Combine(_dir, "Musik");
+        Directory.CreateDirectory(existing);
+        vm.Draft.Heart.KisscamMusicFolder = existing;
 
-        vm.RemoveKisscamMusicCommand.Execute(null); // neuere Auswahl: keine Datei
-        gate.Set();
-        await slow;
+        await vm.OpenKisscamMusicFolderCommand.ExecuteAsync(null);
 
-        Assert.False(vm.KisscamMusicMissing);
+        Assert.Equal(existing, _ui.OpenedFolder);
+
+        vm.Draft.Heart.KisscamMusicFolder = Path.Combine(_dir, "gibt-es-nicht");
+        await vm.OpenKisscamMusicFolderCommand.ExecuteAsync(null);
+
+        Assert.Equal(existing, _ui.OpenedFolder); // unverändert
+        Assert.Contains("existiert noch nicht", vm.ValidationMessage);
     }
 
     [Fact]
-    public async Task MusicFileFromTheSettings_IsCheckedWhenTheViewModelIsCreated()
+    public void RefreshButton_ReadsTheFolderAgain()
     {
         NoContext();
-        _store.Current.Heart.KisscamMusicPath = Path.Combine(_dir, "weg.mp3");
         var vm = CreateViewModel();
-        await vm.KisscamMusicCheck;
-        Assert.True(vm.KisscamMusicMissing);
 
-        _store.Current.Heart.KisscamMusicPath = CreateMusicFile();
-        var ok = CreateViewModel();
-        await ok.KisscamMusicCheck;
-        Assert.False(ok.KisscamMusicMissing);
+        vm.RefreshKisscamMusicCommand.Execute(null);
+
+        Assert.Equal(1, _library.Refreshes);
     }
 
     [Fact]
-    public async Task Preview_TogglesPlayback_WithTheDraftValues_AndStopsOnDemand()
+    public async Task ReplacingTheDraft_PointsTheLibraryAtTheNewFolder()
     {
         NoContext();
         var vm = CreateViewModel();
-        Assert.False(vm.ToggleKisscamMusicPreviewCommand.CanExecute(null)); // keine Datei
-        var path = CreateMusicFile();
-        _ui.AudioFileToPick = path;
-        vm.PickKisscamMusicCommand.Execute(null);
-        await vm.KisscamMusicCheck;
-        vm.KisscamMusicVolumePercent = 35;
-        Assert.True(vm.ToggleKisscamMusicPreviewCommand.CanExecute(null));
-        Assert.Equal("Anhören", vm.KisscamMusicPreviewButtonText);
+        await vm.InitializeAsync();
+        vm.Draft.Heart.KisscamMusicFolder = Path.Combine(_dir, "Anders");
+        _ui.ConfirmResult = true;
+
+        await vm.ResetToDefaultsCommand.ExecuteAsync(null);
+
+        Assert.Null(vm.Draft.Heart.KisscamMusicFolder);
+        Assert.Null(_library.Folders[^1]);
+    }
+
+    // ------------------------------------------------------------------ Musik: Songliste
+
+    [Fact]
+    public void SongRows_FollowTheLibrary_ByFileName_WithoutRecreatingRows()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3"), Song("b.mp3"));
+        var a = vm.KisscamSongs[0];
+        var b = vm.KisscamSongs[1];
+        Assert.Equal(["a.mp3", "b.mp3"], vm.KisscamSongs.Select(r => r.FileName));
+
+        // Ein neuer Song, ein geänderter Stand: dieselben Zeilen bleiben erhalten.
+        _library.Set(Song("a.mp3", enabled: true, start: 5), Song("b.mp3"), Song("c.mp3"));
+
+        Assert.Equal(3, vm.KisscamSongs.Count);
+        Assert.Same(a, vm.KisscamSongs[0]);
+        Assert.Same(b, vm.KisscamSongs[1]);
+        Assert.True(a.Enabled);
+        Assert.Equal(5, a.StartSeconds);
+
+        // Ein Song verschwindet, die Reihenfolge ändert sich.
+        _library.Set(Song("a.mp3", enabled: true, start: 5), Song("c.mp3"));
+        Assert.Equal(["a.mp3", "c.mp3"], vm.KisscamSongs.Select(r => r.FileName));
+        Assert.Same(a, vm.KisscamSongs[0]);
+
+        _library.Set(Song("0.mp3"), Song("a.mp3", enabled: true, start: 5), Song("c.mp3"));
+        Assert.Equal(["0.mp3", "a.mp3", "c.mp3"], vm.KisscamSongs.Select(r => r.FileName));
+        Assert.Same(a, vm.KisscamSongs[1]);
+
+        _library.Set();
+        Assert.Empty(vm.KisscamSongs);
+    }
+
+    [Fact]
+    public void RowEdits_GoIntoTheLibrary_NotIntoTheDraft_AndAreNoUnsavedChange()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3", duration: TimeSpan.FromMinutes(3)));
+        var row = vm.KisscamSongs[0];
+
+        row.Enabled = true;
+        row.StartLaterCommand.Execute(null);
+        row.StartLaterCommand.Execute(null);
+        row.StartEarlierCommand.Execute(null);
+        row.VolumePercent = 60;
+
+        Assert.Equal(
+        [
+            ("a.mp3", (bool?)true, (int?)null, (int?)null),
+            ("a.mp3", (bool?)null, (int?)1, (int?)null),
+            ("a.mp3", (bool?)null, (int?)2, (int?)null),
+            ("a.mp3", (bool?)null, (int?)1, (int?)null),
+            ("a.mp3", (bool?)null, (int?)null, (int?)60),
+        ], _library.Updates);
+        Assert.True(row.Enabled);
+        Assert.Equal(1, row.StartSeconds);
+        Assert.Equal("0:01", row.StartText);
+        Assert.Equal(60, row.VolumePercent);
+        Assert.False(vm.HasUnsavedChanges); // die Songwerte stehen in der Config, nicht in den Einstellungen
+    }
+
+    [Fact]
+    public void StartTime_AcceptsMinutesAndSeconds_OrSeconds_AndRejectsGarbage()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3", start: 7));
+        var row = vm.KisscamSongs[0];
         var raised = new List<string?>();
-        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        row.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
 
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
+        row.StartText = "1:30";
+        Assert.Equal(90, row.StartSeconds);
+        Assert.Equal("1:30", row.StartText);
 
-        Assert.True(vm.KisscamMusicPreviewPlaying);
-        Assert.Equal("Stopp", vm.KisscamMusicPreviewButtonText);
-        Assert.Equal((path, 35, true), Assert.Single(_music.Plays));
-        Assert.Contains(nameof(AdminViewModel.KisscamMusicPreviewPlaying), raised);
+        row.StartText = "45";
+        Assert.Equal(45, row.StartSeconds);
+        Assert.Equal("0:45", row.StartText);
 
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
+        raised.Clear();
+        row.StartText = "abc";
+        Assert.Equal(45, row.StartSeconds);
+        Assert.Contains(nameof(KisscamSongRowViewModel.StartText), raised); // die Anzeige springt auf den gültigen Wert zurück
 
-        Assert.False(vm.KisscamMusicPreviewPlaying);
-        Assert.Equal(1, _music.StopCalls);
-        Assert.Equal("Anhören", vm.KisscamMusicPreviewButtonText);
+        row.StartText = "99999:00";
+        Assert.Equal(SettingsLimits.KisscamSongStartSecondsMax, row.StartSeconds);
+
+        row.StartEarlierCommand.Execute(null);
+        row.StartText = "0";
+        row.StartEarlierCommand.Execute(null);
+        Assert.Equal(0, row.StartSeconds); // nie unter 0:00
     }
 
     [Fact]
-    public async Task Preview_WithoutAPlayer_IsDisabled()
+    public void Volume_IsClampedIntoTheSongLimits_InSteps()
     {
         NoContext();
-        var vm = CreateViewModel(withMusic: false);
-        _ui.AudioFileToPick = CreateMusicFile();
-        vm.PickKisscamMusicCommand.Execute(null);
-        await vm.KisscamMusicCheck;
+        var vm = CreateViewModelWithSongs(Song("a.mp3"));
+        var row = vm.KisscamSongs[0];
 
-        Assert.False(vm.ToggleKisscamMusicPreviewCommand.CanExecute(null));
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.False(vm.KisscamMusicPreviewPlaying);
+        row.VolumePercent = 3;
+        Assert.Equal(SettingsLimits.KisscamSongVolumeMin, row.VolumePercent);
+        row.VolumePercent = 500;
+        Assert.Equal(SettingsLimits.KisscamSongVolumeMax, row.VolumePercent);
+        row.VolumePercent = 47;
+        Assert.Equal(45, row.VolumePercent);
+    }
+
+    [Fact]
+    public void Warnings_ShowStartBeyondTheEnd_AndNotPlayable_AndTheLength()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(
+            Song("kurz.mp3", start: 200, duration: TimeSpan.FromSeconds(125)),
+            Song("kaputt.mp3", playable: false),
+            Song("ohne.mp3"));
+        var kurz = vm.KisscamSongs[0];
+        var kaputt = vm.KisscamSongs[1];
+        var ohne = vm.KisscamSongs[2];
+
+        Assert.True(kurz.StartBeyondEnd);
+        Assert.False(kurz.NotPlayable);
+        Assert.Equal("2:05", kurz.DurationText);
+        Assert.True(kaputt.NotPlayable);
+        Assert.False(kaputt.StartBeyondEnd);
+        Assert.Equal("–", ohne.DurationText);
+        Assert.Equal("Startzeit liegt hinter dem Songende – es wird ab 0:00 gespielt", KisscamSongRowViewModel.StartBeyondEndText);
+        Assert.Equal("Datei lässt sich nicht abspielen", KisscamSongRowViewModel.NotPlayableText);
+
+        kurz.StartText = "0:30"; // vor dem Ende: die Warnung verschwindet
+        Assert.False(kurz.StartBeyondEnd);
+    }
+
+    [Fact]
+    public void Hints_FollowTheLibraryState()
+    {
+        NoContext();
+        var vm = CreateViewModel();
+
+        _library.Set(KisscamLibraryStatus.Ready, false);
+        Assert.Equal("Der Ordner ist leer – kopieren Sie Musikdateien (MP3, WAV, M4A, WMA) hinein.", AdminViewModel.KisscamMusicEmptyText);
+        Assert.Equal([AdminViewModel.KisscamMusicEmptyText], vm.KisscamMusicHints);
+        Assert.True(vm.HasKisscamMusicHints);
+
+        _library.Set(KisscamLibraryStatus.Ready, false, Song("a.mp3"));
+        Assert.Equal("Kein Song ausgewählt – die Kisscam läuft ohne Musik.", AdminViewModel.KisscamNoSongSelectedText);
+        Assert.Equal([AdminViewModel.KisscamNoSongSelectedText], vm.KisscamMusicHints);
+
+        _library.Set(KisscamLibraryStatus.Ready, false, Song("a.mp3", enabled: true, playable: false));
+        Assert.Equal([AdminViewModel.KisscamNoPlayableSongText], vm.KisscamMusicHints);
+
+        _library.Set(KisscamLibraryStatus.Ready, false, Song("a.mp3", enabled: true));
+        Assert.Empty(vm.KisscamMusicHints);
+        Assert.False(vm.HasKisscamMusicHints);
+        Assert.Equal(string.Empty, vm.KisscamMusicHintsText);
+
+        _library.Set(KisscamLibraryStatus.FolderUnavailable, false);
+        Assert.Equal([AdminViewModel.KisscamMusicFolderUnavailableText], vm.KisscamMusicHints);
+
+        _library.Set(KisscamLibraryStatus.ConfigBroken, false, Song("a.mp3"));
+        Assert.Equal([AdminViewModel.KisscamMusicConfigBrokenText], vm.KisscamMusicHints);
+        Assert.Contains("kisscam-musik.json.defekt", AdminViewModel.KisscamMusicConfigBrokenText);
+
+        _library.Set(KisscamLibraryStatus.Ready, true, Song("a.mp3", enabled: true));
+        Assert.Equal([AdminViewModel.KisscamMusicSaveFailedText], vm.KisscamMusicHints);
+        Assert.Equal(KisscamLibraryStatus.Ready, vm.KisscamMusicStatus);
+    }
+
+    [Fact]
+    public void LibraryChange_FromAnotherThread_IsMarshalledToTheUiContext()
+    {
+        var context = new RecordingContext();
+        SynchronizationContext.SetSynchronizationContext(context);
+        var vm = CreateViewModelWithSongs(Song("a.mp3"));
+        context.RunAll();
+
+        var change = Task.Run(() => _library.Set(Song("a.mp3"), Song("b.mp3")));
+        Assert.True(SpinWait.SpinUntil(() => change.IsCompleted, TimeSpan.FromSeconds(10)));
+        Assert.Single(vm.KisscamSongs); // wartet auf den UI-Kontext
+        context.RunAll();
+
+        Assert.Equal(2, vm.KisscamSongs.Count);
+
+        vm.Dispose();
+        _library.Set(Song("c.mp3"));
+        context.RunAll(); // nach dem Schließen wirkungslos, wirft nicht
+        Assert.Equal(2, vm.KisscamSongs.Count);
+    }
+
+    // ------------------------------------------------------------------ Musik: Anspielen
+
+    [Fact]
+    public void Preview_PlaysFromTheStartTime_WithTheEffectiveVolume_AndFadesOutAfterTheKisscamDuration()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3", start: 12, volume: 50, duration: TimeSpan.FromMinutes(5)));
+        var row = vm.KisscamSongs[0];
+        vm.KisscamMusicVolumePercent = 80;
+        vm.KisscamSeconds = 10;
+        var baseline = _time.ActiveTimers;
+        Assert.Equal("Anspielen", row.PreviewButtonText);
+
+        row.PreviewCommand.Execute(null);
+
+        var play = Assert.Single(_music.Plays);
+        Assert.Equal((@"C:\Musik\a.mp3", 40, true, TimeSpan.FromSeconds(12)), play); // 80 % × 50 %
+        Assert.True(row.IsPreviewing);
+        Assert.Equal("Stopp", row.PreviewButtonText);
+
+        AdvanceSeconds(9);
+        Assert.Empty(_music.FadeOuts);
+        AdvanceSeconds(1);
+        Assert.Equal([TimeSpan.FromMilliseconds(800)], _music.FadeOuts);
+
+        _music.EndPlayback(); // der Player meldet das Ende der Ausblendung
+        Assert.False(row.IsPreviewing);
+        Assert.Equal("Anspielen", row.PreviewButtonText);
+        Assert.Equal(0, _music.StopCalls);
+        Assert.Equal(baseline, _time.ActiveTimers);
+    }
+
+    [Fact]
+    public void Preview_EndsOnItsOwn_EvenWhenThePlayerReportsNoEnd()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3"));
+        var row = vm.KisscamSongs[0];
+        var baseline = _time.ActiveTimers;
+        row.PreviewCommand.Execute(null);
+
+        AdvanceSeconds(vm.KisscamSeconds);
+        Assert.True(row.IsPreviewing);
+        _time.Advance(TimeSpan.FromSeconds(2));
+
+        Assert.False(row.IsPreviewing);
+        Assert.Equal(baseline, _time.ActiveTimers);
+    }
+
+    [Fact]
+    public void Preview_StartBeyondTheEnd_PlaysFromZero()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3", start: 200, duration: TimeSpan.FromSeconds(100)));
+
+        vm.KisscamSongs[0].PreviewCommand.Execute(null);
+
+        Assert.Equal(TimeSpan.Zero, Assert.Single(_music.Plays).StartAt);
+    }
+
+    [Fact]
+    public void Preview_OnlyOneAtATime_AStopButtonEndsIt()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3"), Song("b.mp3"));
+        var a = vm.KisscamSongs[0];
+        var b = vm.KisscamSongs[1];
+
+        a.PreviewCommand.Execute(null);
+        Assert.True(a.IsPreviewing);
+        b.PreviewCommand.Execute(null);
+
+        Assert.False(a.IsPreviewing);
+        Assert.True(b.IsPreviewing);
+        Assert.Equal(2, _music.Plays.Count);
+
+        b.PreviewCommand.Execute(null); // „Stopp“
+        Assert.False(b.IsPreviewing);
+        Assert.Equal(2, _music.StopCalls); // beim Wechsel auf b und beim Stopp
+    }
+
+    [Fact]
+    public void Preview_WithoutAPlayer_DoesNothing()
+    {
+        NoContext();
+        _library.Set(Song("a.mp3"));
+        var vm = CreateViewModel(withMusic: false);
+
+        vm.KisscamSongs[0].PreviewCommand.Execute(null);
+
+        Assert.False(vm.KisscamSongs[0].IsPreviewing);
         Assert.Empty(_music.Plays);
     }
 
     [Fact]
-    public async Task Preview_FailedStart_ResetsTheButton_AndShowsAHint()
+    public void TakePosition_UsesTheLastReportedPosition_AsTheStartTime()
     {
         NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3", start: 3), Song("b.mp3"));
+        var row = vm.KisscamSongs[0];
+        row.PreviewCommand.Execute(null);
+
+        _music.RaisePosition(@"C:\Musik\b.mp3", TimeSpan.FromSeconds(99)); // anderer Song: ignoriert
+        Assert.Equal(string.Empty, row.PositionText);
+        _music.RaisePosition(@"C:\Musik\a.mp3", TimeSpan.FromSeconds(41.8));
+        Assert.Equal("0:41", row.PositionText);
+        _music.RaisePosition(@"C:\Musik\a.mp3", TimeSpan.FromSeconds(72.2));
+        row.TakePositionCommand.Execute(null);
+
+        Assert.Equal(72, row.StartSeconds);
+        Assert.Equal("1:12", row.StartText);
+        Assert.Equal(72, _library.Updates[^1].Start);
+        Assert.True(row.IsPreviewing); // das Anspielen läuft weiter
+        Assert.Equal(0, _music.StopCalls);
+
+        // Ohne Anspielen übernimmt der Knopf nichts.
+        var other = vm.KisscamSongs[1];
+        other.TakePositionCommand.Execute(null);
+        Assert.Equal(0, other.StartSeconds);
+    }
+
+    [Fact]
+    public void PositionText_IsClearedWhenThePreviewEnds()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3"));
+        var row = vm.KisscamSongs[0];
+        row.PreviewCommand.Execute(null);
+        _music.RaisePosition(@"C:\Musik\a.mp3", TimeSpan.FromSeconds(5));
+        Assert.Equal("0:05", row.PositionText);
+
+        row.PreviewCommand.Execute(null);
+
+        Assert.Equal(string.Empty, row.PositionText);
+    }
+
+    [Fact]
+    public void Preview_Stops_OnFolderChange_ReplacedDraft_HeartSwitchOff_AndRemovedSong()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3"), Song("b.mp3"));
+        vm.KisscamSongs[0].PreviewCommand.Execute(null);
+        _ui.FolderToPick = Path.Combine(_dir, "Neu");
+        vm.ChooseKisscamMusicFolderCommand.Execute(null);
+        Assert.False(vm.KisscamSongs[0].IsPreviewing);
+        Assert.Equal(1, _music.StopCalls);
+
+        vm.KisscamSongs[0].PreviewCommand.Execute(null);
+        vm.HeartEnabled = false;
+        Assert.Equal(2, _music.StopCalls);
+
+        vm.HeartEnabled = true;
+        vm.KisscamSongs[1].PreviewCommand.Execute(null);
+        _library.Set(Song("a.mp3")); // der angespielte Song verschwindet aus dem Ordner
+        Assert.Equal(3, _music.StopCalls);
+        Assert.Single(vm.KisscamSongs);
+    }
+
+    [Fact]
+    public void Preview_Stops_OnPageChangeTabChangeAndDispose()
+    {
+        NoContext();
+        _library.Set(Song("a.mp3"));
         var vm = CreateViewModel();
-        _ui.AudioFileToPick = CreateMusicFile();
-        vm.PickKisscamMusicCommand.Execute(null);
-        await vm.KisscamMusicCheck;
+        vm.IsFunTabSelected = true;
+        vm.FunPage = FunPage.Heart;
+        var row = vm.KisscamSongs[0];
+        row.PreviewCommand.Execute(null);
+        Assert.True(row.IsPreviewing); // auf der Seite „Herz“ läuft sie weiter
+
+        vm.FunPage = FunPage.Start;
+        Assert.False(row.IsPreviewing);
+        Assert.Equal(1, _music.StopCalls);
+
+        vm.FunPage = FunPage.Heart;
+        row.PreviewCommand.Execute(null);
+        Assert.True(row.IsPreviewing);
+        vm.IsFunTabSelected = false;
+        Assert.False(row.IsPreviewing);
+        Assert.Equal(2, _music.StopCalls);
+
+        vm.IsFunTabSelected = true;
+        row.PreviewCommand.Execute(null);
+        Assert.True(_music.IsPlaying);
+        vm.Dispose();
+        Assert.False(_music.IsPlaying);
+        Assert.Equal(3, _music.StopCalls);
+        Assert.Equal(0, _music.Subscribers); // abgemeldet
+    }
+
+    [Fact]
+    public void NeverStartedPreview_DoesNotStopTheSharedPlayer()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3"));
+        vm.IsFunTabSelected = true;
+        vm.FunPage = FunPage.Heart;
+        vm.FunPage = FunPage.Start;
+        vm.IsFunTabSelected = false;
+        vm.Dispose();
+
+        Assert.Equal(0, _music.StopCalls); // der Player gehört auch der Gastansicht
+    }
+
+    [Fact]
+    public void Preview_FailedStart_ResetsTheButton_AndLeavesTheMarkingToTheLibrary()
+    {
+        NoContext();
+        var vm = CreateViewModelWithSongs(Song("a.mp3"));
+        var row = vm.KisscamSongs[0];
         _music.FailPlays = true;
-        var raised = new List<string?>();
-        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
-        var unsavedBefore = vm.HasUnsavedChanges; // die gewählte Datei ist eine Einstellung, der Hinweis nicht
 
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
+        row.PreviewCommand.Execute(null);
 
-        Assert.False(vm.KisscamMusicPreviewPlaying);
-        Assert.Equal("Anhören", vm.KisscamMusicPreviewButtonText);
-        Assert.True(vm.KisscamMusicPlayFailed);
-        Assert.Equal("Die Datei konnte nicht abgespielt werden.", AdminViewModel.KisscamMusicPlayFailedText);
-        Assert.True(vm.ToggleKisscamMusicPreviewCommand.CanExecute(null));
-        Assert.Contains(nameof(AdminViewModel.KisscamMusicPlayFailed), raised);
-        Assert.Equal(unsavedBefore, vm.HasUnsavedChanges);
+        Assert.False(row.IsPreviewing);
+        Assert.Equal("Anspielen", row.PreviewButtonText);
+        Assert.Empty(_library.Unplayable); // das tut die echte Bibliothek selbst über PlaybackFailed
 
-        // Ein erneuter, diesmal erfolgreicher Versuch räumt den Hinweis ab.
+        // Ein erneuter, diesmal erfolgreicher Versuch klappt.
         _music.FailPlays = false;
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.True(vm.KisscamMusicPreviewPlaying);
-        Assert.False(vm.KisscamMusicPlayFailed);
+        row.PreviewCommand.Execute(null);
+        Assert.True(row.IsPreviewing);
     }
 
     [Fact]
@@ -721,67 +1083,97 @@ public sealed class AdminHeartTabTests : IDisposable
     {
         var context = new RecordingContext();
         SynchronizationContext.SetSynchronizationContext(context);
-        var vm = CreateViewModel();
-        _ui.AudioFileToPick = CreateMusicFile();
-        vm.PickKisscamMusicCommand.Execute(null);
-        Assert.True(SpinWait.SpinUntil(() =>
-        {
-            context.RunAll();
-            return vm.KisscamMusicCheck.IsCompleted;
-        }, TimeSpan.FromSeconds(10)));
-        context.RunAll();
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.True(vm.KisscamMusicPreviewPlaying); // der Player meldet den Fehlschlag erst später (Musik-Thread)
+        var vm = CreateViewModelWithSongs(Song("a.mp3"));
+        var row = vm.KisscamSongs[0];
+        row.PreviewCommand.Execute(null);
+        Assert.True(row.IsPreviewing); // der Player meldet den Fehlschlag erst später (Musik-Thread)
 
         // Kein „await“: Es würde den aufzeichnenden Kontext des Tests erfassen und dort nie fortgesetzt.
-        var raise = Task.Run(() => _music.RaiseFailed());
+        var raise = Task.Run(() => _music.RaiseFailed(@"C:\Musik\a.mp3"));
         Assert.True(SpinWait.SpinUntil(() => raise.IsCompleted, TimeSpan.FromSeconds(10)));
-        Assert.True(vm.KisscamMusicPreviewPlaying); // wartet auf den UI-Kontext
+        Assert.True(row.IsPreviewing); // wartet auf den UI-Kontext
         context.RunAll();
 
-        Assert.False(vm.KisscamMusicPreviewPlaying);
-        Assert.True(vm.KisscamMusicPlayFailed);
+        Assert.False(row.IsPreviewing);
     }
 
     [Fact]
     public void PlaybackFailed_WhenThisViewDidNotStartTheMusic_IsIgnored()
     {
         NoContext();
-        var vm = CreateViewModel();
+        var vm = CreateViewModelWithSongs(Song("a.mp3"));
+        var row = vm.KisscamSongs[0];
+        row.PreviewCommand.Execute(null);
 
-        _music.RaiseFailed(); // der Player gehört auch der Gastansicht
+        _music.RaiseFailed(@"C:\Musik\anderer-song.mp3"); // der Player gehört auch der Gastansicht
 
-        Assert.False(vm.KisscamMusicPlayFailed);
-        Assert.False(vm.KisscamMusicPreviewPlaying);
+        Assert.True(row.IsPreviewing);
     }
 
     [Fact]
-    public async Task Preview_FailureHint_IsClearedByStoppingOrLeavingThePage()
+    public void Preview_Ends_WhenThePlaybackEndsByItself()
     {
         NoContext();
-        var vm = await OpenHeartPageWithMusicAsync();
-        _music.FailPlays = true;
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.True(vm.KisscamMusicPlayFailed);
+        var vm = CreateViewModelWithSongs(Song("a.mp3"));
+        var row = vm.KisscamSongs[0];
+        row.PreviewCommand.Execute(null);
 
-        vm.FunPage = FunPage.Start;
+        _music.EndPlayback();
 
-        Assert.False(vm.KisscamMusicPlayFailed);
+        Assert.False(row.IsPreviewing);
+        Assert.Equal(0, _music.StopCalls);
     }
 
     [Fact]
-    public async Task Test_FailedMusic_ShowsTheHint_AndTheTestKeepsRunning()
+    public async Task PlaybackChanged_FromAnotherThread_IsMarshalledToTheUiContext()
+    {
+        var context = new RecordingContext();
+        SynchronizationContext.SetSynchronizationContext(context);
+        var vm = CreateViewModelWithSongs(Song("a.mp3"));
+        var row = vm.KisscamSongs[0];
+        row.PreviewCommand.Execute(null);
+        context.RunAll();
+        Assert.True(row.IsPreviewing);
+
+        _music.SetPlayingSilently(false);
+        await RaiseMusicChangedOnAnotherThreadAsync();
+
+        Assert.True(row.IsPreviewing); // noch nicht: das Ereignis wartet auf den UI-Kontext
+        context.RunAll();
+        Assert.False(row.IsPreviewing);
+
+        vm.Dispose();
+        _music.SetPlayingSilently(true);
+        await RaiseMusicChangedOnAnotherThreadAsync();
+        context.RunAll(); // nach dem Schließen wirkungslos, wirft nicht
+    }
+
+    // Löst das Ereignis auf dem Threadpool aus. Gewartet wird per Schleife und erst dann „await“ auf die fertige Aufgabe: Ein echtes
+    // await würde den aufzeichnenden Kontext des Tests erfassen und dort nie fortgesetzt.
+    private async Task RaiseMusicChangedOnAnotherThreadAsync()
+    {
+        var raise = Task.Run(() => _music.RaiseChanged());
+        Assert.True(SpinWait.SpinUntil(() => raise.IsCompleted, TimeSpan.FromSeconds(10)));
+        await raise;
+    }
+
+    [Fact]
+    public async Task PreviewState_DoesNotCountAsAnUnsavedChange_AndKeepsTheSavedMessage()
     {
         NoContext();
-        var vm = await OpenHeartPageWithMusicAsync();
-        _music.FailPlays = true;
+        var vm = CreateViewModelWithSongs(Song("a.mp3"));
+        await vm.ApplyCommand.ExecuteAsync(null);
+        Assert.False(string.IsNullOrEmpty(vm.SaveStatusMessage));
+        Assert.False(vm.HasUnsavedChanges);
 
-        vm.ToggleKisscamTestCommand.Execute(null);
-
-        Assert.True(vm.KisscamTestRunning);
-        Assert.True(vm.KisscamMusicPlayFailed);
-        vm.ToggleKisscamTestCommand.Execute(null);
-        Assert.Equal(0, _music.StopCalls); // der Test hat keine Musik mehr zu stoppen
+        vm.KisscamSongs[0].PreviewCommand.Execute(null);
+        Assert.False(vm.HasUnsavedChanges);
+        Assert.False(string.IsNullOrEmpty(vm.SaveStatusMessage));
+        _library.Set(KisscamLibraryStatus.Ready, false, Song("a.mp3", enabled: true), Song("b.mp3"));
+        Assert.False(string.IsNullOrEmpty(vm.SaveStatusMessage));
+        vm.KisscamSongs[0].PreviewCommand.Execute(null);
+        Assert.False(vm.HasUnsavedChanges);
+        Assert.False(string.IsNullOrEmpty(vm.SaveStatusMessage));
     }
 
     [Fact]
@@ -808,162 +1200,15 @@ public sealed class AdminHeartTabTests : IDisposable
 
     [Theory]
     [InlineData(nameof(AdminViewModel.HasKisscamOnlyCountdownHint))]
-    [InlineData(nameof(AdminViewModel.KisscamMusicPlayFailed))]
+    [InlineData(nameof(AdminViewModel.KisscamMusicStatus))]
+    [InlineData(nameof(AdminViewModel.KisscamMusicHints))]
+    [InlineData(nameof(AdminViewModel.KisscamMusicHintsText))]
+    [InlineData(nameof(AdminViewModel.HasKisscamMusicHints))]
     public void HintProperties_AreViewState_NotSettings(string name)
     {
         var method = typeof(AdminViewModel).GetMethod("IsHeartViewStateProperty",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
         Assert.True((bool)method.Invoke(null, [name])!);
-    }
-
-    private async Task<AdminViewModel> StartPreviewAsync()
-    {
-        var vm = CreateViewModel();
-        _ui.AudioFileToPick = CreateMusicFile();
-        vm.PickKisscamMusicCommand.Execute(null);
-        await vm.KisscamMusicCheck;
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.True(vm.KisscamMusicPreviewPlaying);
-        return vm;
-    }
-
-    [Fact]
-    public async Task Preview_Stops_WhenTheFileChanges_IsRemoved_OrTheDetectionIsSwitchedOff()
-    {
-        NoContext();
-        var vm = await StartPreviewAsync();
-        vm.RemoveKisscamMusicCommand.Execute(null);
-        Assert.False(vm.KisscamMusicPreviewPlaying);
-        Assert.Equal(1, _music.StopCalls);
-
-        vm.PickKisscamMusicCommand.Execute(null);
-        await vm.KisscamMusicCheck;
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.True(vm.KisscamMusicPreviewPlaying);
-        vm.HeartEnabled = false;
-        Assert.False(vm.KisscamMusicPreviewPlaying);
-        Assert.Equal(2, _music.StopCalls);
-    }
-
-    [Fact]
-    public async Task Preview_Stops_OnPageChangeTabChangeAndDispose()
-    {
-        NoContext();
-        var vm = CreateViewModel();
-        vm.IsFunTabSelected = true;
-        vm.FunPage = FunPage.Heart;
-        _ui.AudioFileToPick = CreateMusicFile();
-        vm.PickKisscamMusicCommand.Execute(null);
-        await vm.KisscamMusicCheck;
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.True(vm.KisscamMusicPreviewPlaying); // auf der Seite „Herz“ läuft sie weiter
-
-        vm.FunPage = FunPage.Start;
-        Assert.False(vm.KisscamMusicPreviewPlaying);
-        Assert.Equal(1, _music.StopCalls);
-
-        vm.FunPage = FunPage.Heart;
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.True(vm.KisscamMusicPreviewPlaying);
-        vm.IsFunTabSelected = false;
-        Assert.False(vm.KisscamMusicPreviewPlaying);
-        Assert.Equal(2, _music.StopCalls);
-
-        vm.IsFunTabSelected = true;
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.True(_music.IsPlaying);
-        vm.Dispose();
-        Assert.False(_music.IsPlaying);
-        Assert.Equal(3, _music.StopCalls);
-        Assert.Equal(0, _music.Subscribers); // abgemeldet
-    }
-
-    [Fact]
-    public void NeverStartedPreview_DoesNotStopTheSharedPlayer()
-    {
-        NoContext();
-        var vm = CreateViewModel();
-        vm.IsFunTabSelected = true;
-        vm.FunPage = FunPage.Heart;
-        vm.FunPage = FunPage.Start;
-        vm.IsFunTabSelected = false;
-        vm.Dispose();
-
-        Assert.Equal(0, _music.StopCalls); // der Player gehört auch der Gastansicht
-    }
-
-    [Fact]
-    public async Task Preview_Ends_WhenThePlaybackEndsByItself()
-    {
-        NoContext();
-        var vm = await StartPreviewAsync();
-
-        _music.EndPlayback();
-
-        Assert.False(vm.KisscamMusicPreviewPlaying);
-        Assert.Equal("Anhören", vm.KisscamMusicPreviewButtonText);
-        Assert.Equal(0, _music.StopCalls);
-    }
-
-    [Fact]
-    public async Task PlaybackChanged_FromAnotherThread_IsMarshalledToTheUiContext()
-    {
-        var context = new RecordingContext();
-        SynchronizationContext.SetSynchronizationContext(context);
-        var vm = CreateViewModel();
-        _ui.AudioFileToPick = CreateMusicFile();
-        vm.PickKisscamMusicCommand.Execute(null);
-        // Die Prüfung der Datei meldet ihr Ergebnis ebenfalls über den (hier aufzeichnenden) UI-Kontext.
-        Assert.True(SpinWait.SpinUntil(() =>
-        {
-            context.RunAll();
-            return vm.KisscamMusicCheck.IsCompleted;
-        }, TimeSpan.FromSeconds(10)));
-        context.RunAll();
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        context.RunAll();
-        Assert.True(vm.KisscamMusicPreviewPlaying);
-
-        _music.SetPlayingSilently(false);
-        await RaiseMusicChangedOnAnotherThreadAsync();
-
-        Assert.True(vm.KisscamMusicPreviewPlaying); // noch nicht: das Ereignis wartet auf den UI-Kontext
-        context.RunAll();
-        Assert.False(vm.KisscamMusicPreviewPlaying);
-
-        vm.Dispose();
-        _music.SetPlayingSilently(true);
-        await RaiseMusicChangedOnAnotherThreadAsync();
-        context.RunAll(); // nach dem Schließen wirkungslos, wirft nicht
-    }
-
-    // Löst das Ereignis auf dem Threadpool aus. Gewartet wird per Schleife und erst dann „await“ auf die fertige Aufgabe: Ein echtes
-    // await würde den aufzeichnenden Kontext des Tests erfassen und dort nie fortgesetzt.
-    private async Task RaiseMusicChangedOnAnotherThreadAsync()
-    {
-        var raise = Task.Run(() => _music.RaiseChanged());
-        Assert.True(SpinWait.SpinUntil(() => raise.IsCompleted, TimeSpan.FromSeconds(10)));
-        await raise;
-    }
-
-    [Fact]
-    public async Task PreviewState_DoesNotCountAsAnUnsavedChange_AndKeepsTheSavedMessage()
-    {
-        NoContext();
-        var vm = CreateViewModel();
-        _ui.AudioFileToPick = CreateMusicFile();
-        vm.PickKisscamMusicCommand.Execute(null);
-        await vm.KisscamMusicCheck;
-        await vm.ApplyCommand.ExecuteAsync(null);
-        Assert.False(string.IsNullOrEmpty(vm.SaveStatusMessage));
-        Assert.False(vm.HasUnsavedChanges);
-
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.False(vm.HasUnsavedChanges);
-        Assert.False(string.IsNullOrEmpty(vm.SaveStatusMessage));
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.False(vm.HasUnsavedChanges);
-        Assert.False(string.IsNullOrEmpty(vm.SaveStatusMessage));
     }
 
     // ------------------------------------------------------------------ Vorschau-Verhalten
@@ -1406,6 +1651,10 @@ public sealed class AdminHeartTabTests : IDisposable
     [InlineData(nameof(AdminViewModel.HeartPreviewWarningText))]
     [InlineData(nameof(AdminViewModel.HasHeartPreviewWarning))]
     [InlineData(nameof(AdminViewModel.HeartPreviewBadgeText))]
+    [InlineData(nameof(AdminViewModel.KisscamMusicStatus))]
+    [InlineData(nameof(AdminViewModel.KisscamMusicHints))]
+    [InlineData(nameof(AdminViewModel.KisscamMusicHintsText))]
+    [InlineData(nameof(AdminViewModel.HasKisscamMusicHints))]
     public void TestAndPreviewProperties_AreViewState_NotSettings(string name)
     {
         var method = typeof(AdminViewModel).GetMethod("IsHeartViewStateProperty",
@@ -1419,30 +1668,27 @@ public sealed class AdminHeartTabTests : IDisposable
 
     // ---- Musik im Test
 
-    private async Task<AdminViewModel> OpenHeartPageWithMusicAsync()
+    private AdminViewModel OpenHeartPageWithMusic(params KisscamSong[] songs)
     {
-        var vm = OpenHeartPage();
-        _ui.AudioFileToPick = CreateMusicFile();
-        vm.PickKisscamMusicCommand.Execute(null);
-        await vm.KisscamMusicCheck;
-        return vm;
+        _library.Set(songs.Length > 0 ? songs : [Song("kiss.mp3", enabled: true, start: 7, volume: 50)]);
+        return OpenHeartPage();
     }
 
     [Fact]
-    public async Task Music_PlaysAtTheStart_FadesOutAtTheEnd_AndIsNotStoppedBrutally()
+    public void Music_PlaysAtTheStart_FadesOutAtTheEnd_AndIsNotStoppedBrutally()
     {
         NoContext();
-        var vm = await OpenHeartPageWithMusicAsync();
+        var vm = OpenHeartPageWithMusic();
         vm.KisscamSeconds = 4;
-        vm.KisscamMusicVolumePercent = 35;
+        vm.KisscamMusicVolumePercent = 70;
 
         vm.ToggleKisscamTestCommand.Execute(null);
 
         var play = Assert.Single(_music.Plays);
-        Assert.Equal(vm.KisscamMusicPath, play.Path);
-        Assert.Equal(35, play.Volume);
+        Assert.Equal(@"C:\Musik\kiss.mp3", play.Path);
+        Assert.Equal(35, play.Volume); // 70 % × 50 %
         Assert.True(play.Loop);
-        Assert.False(vm.ToggleKisscamMusicPreviewCommand.CanExecute(null)); // der Test hat den Player
+        Assert.Equal(TimeSpan.FromSeconds(7), play.StartAt);
 
         AdvanceSeconds(3);
         Assert.Empty(_music.FadeOuts);
@@ -1452,14 +1698,30 @@ public sealed class AdminHeartTabTests : IDisposable
         _time.Advance(TimeSpan.FromMilliseconds(1600));
         Assert.False(vm.KisscamTestRunning);
         Assert.Equal(0, _music.StopCalls);
-        Assert.True(vm.ToggleKisscamMusicPreviewCommand.CanExecute(null));
     }
 
     [Fact]
-    public async Task Music_IsStopped_WhenTheTestIsAborted()
+    public void Music_Test_PicksRandomlyAmongTheEnabledPlayableSongs()
     {
         NoContext();
-        var vm = await OpenHeartPageWithMusicAsync();
+        var vm = OpenHeartPageWithMusic(
+            Song("a.mp3", enabled: true), Song("b.mp3"), Song("c.mp3", enabled: true), Song("d.mp3", enabled: true, playable: false));
+
+        vm.KisscamRandom = new FixedRandom(1); // zweiter Kandidat: c.mp3 (b ist nicht angehakt, d nicht abspielbar)
+        vm.ToggleKisscamTestCommand.Execute(null);
+        Assert.Equal(@"C:\Musik\c.mp3", Assert.Single(_music.Plays).Path);
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+        vm.KisscamRandom = new FixedRandom(0);
+        vm.ToggleKisscamTestCommand.Execute(null);
+        Assert.Equal(@"C:\Musik\a.mp3", _music.Plays[1].Path); // Wiederholung eines früheren Songs ist erlaubt
+    }
+
+    [Fact]
+    public void Music_IsStopped_WhenTheTestIsAborted()
+    {
+        NoContext();
+        var vm = OpenHeartPageWithMusic();
         vm.ToggleKisscamTestCommand.Execute(null);
         Assert.Single(_music.Plays);
 
@@ -1471,10 +1733,10 @@ public sealed class AdminHeartTabTests : IDisposable
     }
 
     [Fact]
-    public async Task Music_IsStopped_WhenThePageIsLeft_OrTheWindowClosed()
+    public void Music_IsStopped_WhenThePageIsLeft_OrTheWindowClosed()
     {
         NoContext();
-        var vm = await OpenHeartPageWithMusicAsync();
+        var vm = OpenHeartPageWithMusic();
         vm.ToggleKisscamTestCommand.Execute(null);
         vm.FunPage = FunPage.Start;
         Assert.Equal(1, _music.StopCalls);
@@ -1486,10 +1748,10 @@ public sealed class AdminHeartTabTests : IDisposable
     }
 
     [Fact]
-    public async Task Music_IsStopped_WhenAMiddleFingerEndsTheTest()
+    public void Music_IsStopped_WhenAMiddleFingerEndsTheTest()
     {
         NoContext();
-        var vm = await OpenHeartPageWithMusicAsync();
+        var vm = OpenHeartPageWithMusic();
         vm.ToggleKisscamTestCommand.Execute(null);
 
         Run(0.5, []);
@@ -1500,30 +1762,46 @@ public sealed class AdminHeartTabTests : IDisposable
     }
 
     [Fact]
-    public async Task Test_StopsTheMusicListening_BeforePlayingItself()
+    public void Test_StopsASongPreview_BeforePlayingItself()
     {
         NoContext();
-        var vm = await OpenHeartPageWithMusicAsync();
-        vm.ToggleKisscamMusicPreviewCommand.Execute(null);
-        Assert.True(vm.KisscamMusicPreviewPlaying);
+        var vm = OpenHeartPageWithMusic();
+        var row = vm.KisscamSongs[0];
+        row.PreviewCommand.Execute(null);
+        Assert.True(row.IsPreviewing);
 
         vm.ToggleKisscamTestCommand.Execute(null);
 
-        Assert.False(vm.KisscamMusicPreviewPlaying);
-        Assert.Equal(2, _music.Plays.Count); // Anhören, dann der Test
+        Assert.False(row.IsPreviewing);
+        Assert.Equal(2, _music.Plays.Count); // Anspielen, dann der Test
         Assert.True(_music.IsPlaying);
     }
 
     [Fact]
-    public void Music_WithoutAFile_StaysSilent_AndAbortDoesNotStopTheSharedPlayer()
+    public void Music_WithoutAnEnabledSong_StaysSilent_AndAbortDoesNotStopTheSharedPlayer()
     {
         NoContext();
-        var vm = OpenHeartPage();
+        var vm = OpenHeartPageWithMusic(Song("a.mp3"), Song("b.mp3", enabled: true, playable: false));
         vm.ToggleKisscamTestCommand.Execute(null);
+        Assert.True(vm.KisscamTestRunning); // der Test läuft trotzdem
         vm.ToggleKisscamTestCommand.Execute(null);
 
         Assert.Empty(_music.Plays);
         Assert.Equal(0, _music.StopCalls);
+    }
+
+    [Fact]
+    public void Music_FailedPlay_InTheTest_LetsTheTestKeepRunning()
+    {
+        NoContext();
+        var vm = OpenHeartPageWithMusic();
+        _music.FailPlays = true;
+
+        vm.ToggleKisscamTestCommand.Execute(null);
+
+        Assert.True(vm.KisscamTestRunning);
+        vm.ToggleKisscamTestCommand.Execute(null);
+        Assert.Equal(0, _music.StopCalls); // der Test hat keine Musik mehr zu stoppen
     }
 
     // ---- Statuszeile
@@ -2005,46 +2283,51 @@ public sealed class AdminHeartTabTests : IDisposable
     }
 
     [StaFact]
-    public void Page_Music_ButtonsFollowTheState_AndShowTheMissingWarning()
+    public void Page_Music_ShowsTheFolderButtonsHintsAndTheSongList()
     {
-        // Wie in der Anwendung meldet die Dateiprüfung ihr Ergebnis über den Dispatcher (sonst ändert ein Thread des Pools Befehle der Knöpfe).
-        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+        NoContext();
         WithWindow((window, vm) =>
         {
             vm.FunPage = FunPage.Heart;
             ShowFunTab(window);
             var view = HeartView(window);
-            var pick = InView<Button>(view, "KisscamMusicPickButton");
-            var remove = InView<Button>(view, "KisscamMusicRemoveButton");
-            var preview = InView<Button>(view, "KisscamMusicPreviewButton");
-            var name = InView<TextBlock>(view, "KisscamMusicFileNameText");
-            var warning = InView<TextBlock>(view, "KisscamMusicMissingWarning");
-            Assert.Same(vm.PickKisscamMusicCommand, pick.Command);
-            Assert.Equal(AdminViewModel.KisscamNoMusicText, name.Text);
-            Assert.False(remove.IsEnabled);
-            Assert.False(preview.IsEnabled);
-            Assert.Equal(Visibility.Collapsed, warning.Visibility);
-            Assert.Equal(AdminViewModel.KisscamMusicMissingText, warning.Text);
+            var folder = InView<TextBlock>(view, "KisscamMusicFolderText");
+            var pick = InView<Button>(view, "KisscamMusicFolderPickButton");
+            var reset = InView<Button>(view, "KisscamMusicFolderResetButton");
+            var open = InView<Button>(view, "KisscamMusicFolderOpenButton");
+            var refresh = InView<Button>(view, "KisscamMusicRefreshButton");
+            var hints = InView<TextBlock>(view, "KisscamMusicHintsText");
+            var list = InView<ItemsControl>(view, "KisscamSongList");
+            Assert.Same(vm.ChooseKisscamMusicFolderCommand, pick.Command);
+            Assert.Same(vm.ResetKisscamMusicFolderCommand, reset.Command);
+            Assert.Same(vm.OpenKisscamMusicFolderCommand, open.Command);
+            Assert.Same(vm.RefreshKisscamMusicCommand, refresh.Command);
+            Assert.Equal(AppInfo.DefaultKisscamMusicFolder, folder.Text);
+            Assert.False(reset.IsEnabled); // schon der Standardordner
 
-            _ui.AudioFileToPick = CreateMusicFile("Titel.wav");
-            vm.KisscamMusicFileExists = _ => true;
+            // Leerer Ordner: Hinweis, keine Zeilen.
+            _library.Set(KisscamLibraryStatus.Ready, false);
+            view.UpdateLayout();
+            Assert.Equal(Visibility.Visible, hints.Visibility);
+            Assert.Equal(AdminViewModel.KisscamMusicEmptyText, hints.Text);
+            Assert.Empty(list.Items);
+
+            // Songs: Zeilen, Häkchen schreibt in die Bibliothek.
+            _library.Set(KisscamLibraryStatus.Ready, false, Song("Titel.wav", start: 5, duration: TimeSpan.FromSeconds(185)), Song("Lied.mp3"));
+            view.UpdateLayout();
+            Assert.Equal(2, list.Items.Count);
+            Assert.Equal(AdminViewModel.KisscamNoSongSelectedText, hints.Text);
+            var first = FindDescendants<CheckBox>(list).First();
+            Assert.False(first.IsChecked);
+            first.IsChecked = true;
+            Assert.Equal("Titel.wav", _library.Updates[^1].File);
+            Assert.True(_library.Updates[^1].Enabled);
+            Assert.Equal(Visibility.Collapsed, hints.Visibility); // jetzt ist ein Song gewählt
+
+            _ui.FolderToPick = Path.Combine(_dir, "Eigener Ordner");
             pick.Command.Execute(null);
-            WaitFor(vm.KisscamMusicCheck);
-
-            Assert.Equal("Titel.wav", name.Text);
-            Assert.True(remove.IsEnabled);
-            Assert.True(preview.IsEnabled);
-            Assert.Equal("Anhören", preview.Content);
-            preview.Command.Execute(null);
-            Assert.Equal("Stopp", preview.Content);
-
-            vm.KisscamMusicFileExists = _ => false;
-            vm.RemoveKisscamMusicCommand.Execute(null);
-            _ui.AudioFileToPick = Path.Combine(_dir, "fehlt.mp3");
-            pick.Command.Execute(null);
-            WaitFor(vm.KisscamMusicCheck);
-            Assert.Equal(Visibility.Visible, warning.Visibility);
-            Assert.False(preview.IsEnabled);
+            Assert.Equal(_ui.FolderToPick, folder.Text);
+            Assert.True(reset.IsEnabled);
         });
     }
 
