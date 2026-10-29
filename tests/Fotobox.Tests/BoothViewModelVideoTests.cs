@@ -299,6 +299,21 @@ public partial class BoothViewModelTests
         Assert.Equal(0, h.Camera.StartRecordingCalls);
     }
 
+    [Fact]
+    public void Escape_InRecording_HasNoEffect_ViaViewModel()
+    {
+        var h = RecordingHarness();   // Mindestlänge 0: Stopp wäre sofort möglich
+
+        Assert.False(h.ViewModel.TryCancel());
+        Assert.Equal(BoothState.Recording, h.Controller.State);
+        Assert.Equal(0, h.Camera.LastRecording!.StopCalls);
+
+        // Die Videotaste beendet weiterhin.
+        Assert.True(h.ViewModel.ExecuteVideoAction(h.ViewModel.HandleKey(Enter)));
+        Assert.NotEqual(BoothState.Recording, h.Controller.State);
+        Assert.Equal(1, h.Camera.LastRecording!.StopCalls);
+    }
+
     // ---- Video-Hinweiszeile
 
     [Fact]

@@ -249,7 +249,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             new KeyActionEditor(this, KeyAction.Admin, "Admin-Ansicht öffnen",
                 "Öffnet diese Einstellungen (nach PIN-Eingabe).", isRequired: true),
             new KeyActionEditor(this, KeyAction.Cancel, "Abbrechen",
-                "Bricht einen laufenden Countdown oder Druck ab.", isRequired: false),
+                "Bricht einen laufenden Countdown oder Druck ab. Eine laufende Videoaufnahme beendet sie nicht.", isRequired: false),
             new KeyActionEditor(this, KeyAction.VideoStart, "Video starten",
                 "Startet die Videoaufnahme (nur bei aktivem Videomodus). Dieselbe Taste bei Start und Beenden schaltet die Aufnahme um.",
                 isRequired: false),

@@ -41,7 +41,7 @@ Aktionen `VideoStartKeys`, `VideoStopKeys` (Tab „Tasten“). Standard: **Enter
 | Erfolgstext | höchstens `VideoSuccessTextMaxLength` 80 Zeichen | „Video gespeichert! 🎬“ |
 
 - `TryStopVideo` wirkt erst ab der Mindestlänge (`CanStopVideo`); davor, im Countdown und sonst `false`. Die Höchstdauer stoppt automatisch (`VideoStopReason.MaxDuration`).
-- **Abbrechen-Taste (Esc):** Im `VideoCountdown` bricht sie still ab (nichts aufgenommen), in `Recording` wirkt sie wie Stopp (Video wird gespeichert; vor der Mindestlänge wirkungslos).
+- **Abbrechen-Taste (Esc):** Im `VideoCountdown` bricht sie still ab (nichts aufgenommen), in `Recording` ist sie wirkungslos (die Aufnahme läuft weiter; beendet wird sie nur durch die Videotaste ab der Mindestlänge, die Höchstdauer oder das App-Ende, das ein Teilvideo speichert).
 - Gründe (`VideoStopReason`): `User`, `MaxDuration`, `Faulted`, `AppExit`.
 
 ## Kameraseite

@@ -824,6 +824,120 @@ public partial class BoothViewModelTests
         Assert.Equal(BoothState.Idle, rig.H.Controller.State);
     }
 
+    // ---- Video: Bart endet mit dem Videostart, Peace- und Herz-Aktionen sind gesperrt
+
+    [Fact]
+    public void Moustache_EndsOnVideoStart_AndDoesNotReturn()
+    {
+        var rig = new PeaceRig();
+        var video = rig.H.Settings.Current.Video;
+        video.CountdownSeconds = 2;
+        video.MinDurationSeconds = 0;
+        video.SuccessDisplaySeconds = 3;
+        Assert.True(rig.Do(PeaceAction.Moustache));
+        rig.Gestures.Last.RaiseUpdated([PeaceHandFixtures.Face(0.5, 0.3, 0.12)], []);
+        Assert.True(rig.Peace.MoustacheActive);
+        Assert.NotEmpty(rig.Peace.Moustaches);
+        Assert.NotNull(rig.Guest.Current);
+
+        Assert.True(rig.ViewModel.TryStartVideo());
+
+        // Sofort weg (kein Verschwinden-Effekt): im Video-Countdown ist die Erkennung aus.
+        Assert.Equal(BoothState.VideoCountdown, rig.H.Controller.State);
+        AssertMoustacheGone(rig);
+
+        // Auch über Aufnahme, Speichern und Anzeige des Erfolgstexts bleibt er weg.
+        rig.H.Time.Advance(TimeSpan.FromSeconds(1));
+        rig.H.Time.Advance(TimeSpan.FromSeconds(1));
+        Assert.True(SpinWait.SpinUntil(() => rig.H.Controller.State == BoothState.Recording, TimeSpan.FromSeconds(10)));
+        AssertMoustacheGone(rig);
+
+        Assert.True(rig.ViewModel.TryStopVideo());
+        Assert.Equal(BoothState.VideoSaved, rig.H.Controller.State);
+        AssertMoustacheGone(rig);
+
+        rig.H.Time.Advance(TimeSpan.FromSeconds(3));
+        rig.WaitForIdle();
+        Assert.Equal(PeaceMode.Watching, rig.Peace.Mode);
+        rig.Gestures.Last.RaiseUpdated([PeaceHandFixtures.Face(0.5, 0.3, 0.12)], []);
+        Assert.False(rig.Peace.MoustacheActive);
+        Assert.Empty(rig.Peace.Moustaches);
+        Assert.Null(rig.Guest.Current);
+    }
+
+    private static void AssertMoustacheGone(PeaceRig rig)
+    {
+        Assert.Equal(PeaceMode.Off, rig.Peace.Mode);
+        Assert.False(rig.Peace.MoustacheActive);
+        Assert.False(rig.Peace.HasMoustacheVisuals);
+        Assert.Empty(rig.Peace.Moustaches);
+        Assert.Null(rig.Guest.Current);
+        Assert.Equal(0, rig.Gestures.OpenRequests);
+    }
+
+    public enum NonIdleStage { VideoCountdown, Recording, StripPause }
+
+    [Theory]
+    [InlineData(NonIdleStage.VideoCountdown)]
+    [InlineData(NonIdleStage.Recording)]
+    [InlineData(NonIdleStage.StripPause)]
+    public void PeaceAndHeart_Ignored_InVideoCountdown_Recording_StripCountdown(NonIdleStage stage)
+    {
+        var rig = new PeaceRig();
+        var settings = rig.H.Settings.Current;
+        BoothState expected;
+        switch (stage)
+        {
+            case NonIdleStage.VideoCountdown:
+                settings.Video.CountdownSeconds = 3;
+                Assert.True(rig.ViewModel.TryStartVideo());
+                expected = BoothState.VideoCountdown;
+                break;
+            case NonIdleStage.Recording:
+                settings.Video.CountdownSeconds = 0;
+                settings.Video.MinDurationSeconds = 0;
+                Assert.True(rig.ViewModel.TryStartVideo());
+                expected = BoothState.Recording;
+                break;
+            default:
+                // Zwei Streifenfotos ohne Countdown: Nach dem ersten wartet der Ablauf in der Pause (Countdown, Wert 0).
+                rig.H.Composer.CountFor = _ => 2;
+                settings.Flow.CountdownSeconds = 0;
+                settings.Flow.PauseBetweenShotsSeconds = 5;
+                Assert.True(rig.ViewModel.TryTrigger());
+                Assert.True(SpinWait.SpinUntil(
+                    () => rig.H.Controller.State == BoothState.Countdown && rig.H.Controller.ShotIndex == 2, TimeSpan.FromSeconds(10)));
+                Assert.Equal(0, rig.H.Controller.CountdownValue);
+                expected = BoothState.Countdown;
+                break;
+        }
+        Assert.Equal(expected, rig.H.Controller.State);
+
+        Assert.False(rig.Do(PeaceAction.SelfDestruct));
+        Assert.False(rig.Do(PeaceAction.Photo));
+        Assert.False(rig.Do(PeaceAction.Moustache));
+        Assert.False(rig.ViewModel.OnHeartAction(KisscamRig.Trigger()));
+
+        Assert.Equal(expected, rig.H.Controller.State);
+        Assert.Equal(CountdownStyle.Normal, rig.H.Controller.CountdownStyle);
+        Assert.False(rig.Peace.MoustacheActive);
+        Assert.False(rig.ViewModel.IsSelfDestructCountdown);
+        Assert.False(rig.ViewModel.IsPeaceCountdown);
+        Assert.Null(rig.ViewModel.KisscamFrame);
+
+        // Aufräumen: den Durchgang beenden, damit keine Sitzung im Hintergrund weiterläuft.
+        if (stage == NonIdleStage.Recording)
+        {
+            Assert.True(rig.ViewModel.TryStopVideo());
+            rig.H.Time.Advance(TimeSpan.FromSeconds(60));
+        }
+        else
+        {
+            rig.CancelAndWait();
+        }
+        rig.WaitForIdle();
+    }
+
     [Fact]
     public void MiddleFinger_DoesNotTouchVideoOrPrint()
     {

@@ -101,8 +101,8 @@ Regeln:
 |---|---|---|
 | `TryCancelCountdown()` | `Countdown` (auch Pause zwischen Streifenfotos) | Fotos verworfen, still zurück zu `Idle`. |
 | `TryCancelPrint()` | `Preview`/`Printing`, sobald der Druck läuft | Storniert den Druck (siehe unten). |
-| `TryCancelVideo()` (privat) | `VideoCountdown`: still zurück; `Recording`: wie Stopp (speichern, erst ab Mindestlänge) | |
-| `TryCancel()` | Taste „Abbrechen“ (Esc) | Probiert die drei in dieser Reihenfolge. In Aufnahme/Verarbeitung des Fotos ignoriert. |
+| `TryCancelVideo()` (privat) | `VideoCountdown`: still zurück | In `Recording` bewusst wirkungslos (nur Videotaste, Höchstdauer oder App-Ende beenden die Aufnahme). |
+| `TryCancel()` | Taste „Abbrechen“ (Esc) | Probiert die drei in dieser Reihenfolge. In Aufnahme/Verarbeitung des Fotos und in `Recording` ignoriert. |
 | `Cancel()` | App-Ende | Beendet laufenden Durchgang; bei Video wird gespeichert (blockiert bis zu 12 s). |
 
 ### Druckabbruch im Detail
