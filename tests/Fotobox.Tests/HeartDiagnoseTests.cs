@@ -18,6 +18,7 @@ public sealed class HeartDiagnoseTests
             ShapeRoof = true,
             ShapeInverted = true,
             ShapeFingerHeart = true,
+            HoldMilliseconds = 1000,
             SensitivityPercent = sensitivity,
         };
     }

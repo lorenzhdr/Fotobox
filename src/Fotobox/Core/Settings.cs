@@ -638,8 +638,8 @@ public sealed class HeartSettings
     public bool ShapeInverted { get; set; }
     /// <summary>Fingerherz (Daumen und Zeigefinger einer Hand).</summary>
     public bool ShapeFingerHeart { get; set; }
-    /// <summary>So lange muss die Geste gehalten werden (Millisekunden).</summary>
-    public int HoldMilliseconds { get; set; } = 1000;
+    /// <summary>So lange muss die Geste gehalten werden (Millisekunden). Länger als bei Peace, weil eine Kisscam ein größerer Eingriff ist und kurz ineinandergelegte Hände nicht auslösen sollen.</summary>
+    public int HoldMilliseconds { get; set; } = 1800;
     /// <summary>Empfindlichkeit in Prozent (wie bei Peace; Standard 50).</summary>
     public int SensitivityPercent { get; set; } = 50;
     /// <summary>Fortschrittsanzeige am Herz während des Haltens.</summary>

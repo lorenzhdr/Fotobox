@@ -17,7 +17,7 @@ Stand: nach 2.5.2 (Branch `feature/herz-kisscam`, noch nicht veröffentlicht). D
 
 ## Funktion und Bedienung
 
-Formen zwei Gäste im `Idle` mit ihren Händen ein Herz (oder ein Gast mit beiden Händen; optional ein Fingerherz mit einer Hand) und halten es (Standard 1 s), startet die Aktion Kisscam:
+Formen zwei Gäste im `Idle` mit ihren Händen ein Herz (oder ein Gast mit beiden Händen; optional ein Fingerherz mit einer Hand) und halten es (Standard 1,8 s), startet die Aktion Kisscam:
 
 1. Ein Jumbotron-Rahmen (Lichterkette, Banner „KISS CAM“, vier Eckherzen) erscheint über dem Livebild, ein Hinweistext fordert die Gäste auf, sich einen Kusspartner zu suchen. Der Timer läuft (Standard 10 s, 3–60 s).
 2. In den letzten drei Sekunden ersetzen die großen Ziffern 3 – 2 – 1 den Text. Bei einem Timer von höchstens 3 s erscheinen von Anfang an nur die Ziffern, nie der Gasttext (der Admin weist unter dem Timer darauf hin: „Bei 3 Sekunden erscheint nur der Countdown 3 – 2 – 1, kein Text.“). Optional zoomt das Livebild auf die Herz-Gäste, optional läuft Musik.
@@ -33,7 +33,7 @@ Flacher, eigener Abschnitt (Wertebereiche in `SettingsLimits.Heart*`/`Kisscam*`)
 |---|---|---|---|
 | `Enabled` | an | | Herzerkennung insgesamt |
 | `ShapeClassic` / `ShapeRoof` / `ShapeInverted` / `ShapeFingerHeart` | an / an / aus / aus | | erkannte Formen; der Normalizer erzwingt mindestens eine (sonst Klassisch), im Admin ist die letzte gewählte nicht abwählbar |
-| `HoldMilliseconds` | 1000 | 300–3000 ms, Schritt 100 | Haltedauer |
+| `HoldMilliseconds` | 1800 | 300–3000 ms, Schritt 100 | Haltedauer |
 | `SensitivityPercent` | 50 | 10–95 | Empfindlichkeit (legt alle Schwellen und den Mindest-Handscore fest) |
 | `ShowHoldFeedback` | an | | Fortschrittsherz beim Halten |
 | `Action` | `Kisscam` | `HeartAction` | ausgelöste Aktion (nur hinten erweitern) |

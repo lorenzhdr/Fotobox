@@ -25,7 +25,7 @@ public sealed class HeartSettingsTests
         Assert.True(h.ShapeRoof);
         Assert.False(h.ShapeInverted);
         Assert.False(h.ShapeFingerHeart);
-        Assert.Equal(1000, h.HoldMilliseconds);
+        Assert.Equal(1800, h.HoldMilliseconds);
         Assert.Equal(50, h.SensitivityPercent);
         Assert.True(h.ShowHoldFeedback);
         Assert.Equal(HeartAction.Kisscam, h.Action);
@@ -290,7 +290,7 @@ public sealed class HeartSettingsTests
         Assert.True(h.Enabled);
         Assert.True(h.ShapeClassic);
         Assert.True(h.ShapeRoof);
-        Assert.Equal(1000, h.HoldMilliseconds);
+        Assert.Equal(1800, h.HoldMilliseconds);
         Assert.Equal(10, h.KisscamSeconds);
         Assert.Equal(HeartSettings.DefaultKisscamFilePrefix, h.KisscamFilePrefix);
     }
