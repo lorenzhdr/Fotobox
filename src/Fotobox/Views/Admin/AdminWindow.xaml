@@ -189,18 +189,7 @@
 
                             <TextBlock Text="Dauer der Fehleranzeige" Style="{StaticResource FieldLabel}" />
                             <local:NumberStepper Value="{Binding ErrorDisplaySeconds}" Minimum="{x:Static core:SettingsLimits.ErrorDisplayMin}" Maximum="{x:Static core:SettingsLimits.ErrorDisplayMax}" Suffix=" s" />
-
-                            <TextBlock Text="Drucken" Style="{StaticResource FieldLabel}" Margin="0,26,0,6" />
-                            <CheckBox Content="Fotos nach der Aufnahme drucken" IsChecked="{Binding PrintingEnabled}" />
-                            <TextBlock Text="Ist das Drucken ausgeschaltet, werden die Fotos nur gespeichert."
-                                       Style="{StaticResource Hint}" />
-
-                            <TextBlock Text="Erwartete Druckdauer" Style="{StaticResource FieldLabel}" />
-                            <local:NumberStepper Value="{Binding ExpectedPrintSeconds}" Minimum="{x:Static core:SettingsLimits.ExpectedPrintMin}" Maximum="{x:Static core:SettingsLimits.ExpectedPrintMax}" Step="10" Suffix=" s" />
-                            <TextBlock Text="{Binding ExpectedPrintHint}"
-                                       Style="{StaticResource Hint}" />
-                            <TextBlock Text="{Binding PrintTimeoutHint}" Style="{StaticResource Hint}" Foreground="{DynamicResource AccentBrush}"
-                                       Visibility="{Binding HasPrintTimeoutHint, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock Text="Das Drucken stellen Sie im Tab „Drucker“ ein." Style="{StaticResource Hint}" />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>
@@ -975,40 +964,63 @@
                         <StackPanel MaxWidth="620" HorizontalAlignment="Left">
                             <TextBlock Text="Drucker" Style="{StaticResource SectionTitle}" />
 
-                            <TextBlock Text="Drucker" Style="{StaticResource FieldLabel}" />
-                            <ComboBox ItemsSource="{Binding Printers}" SelectedItem="{Binding SelectedPrinter}"
-                                      DisplayMemberPath="Display" />
-
-                            <TextBlock Text="Papiergröße" Style="{StaticResource FieldLabel}" />
-                            <ComboBox ItemsSource="{Binding PaperSizes}" SelectedItem="{Binding SelectedPaper}"
-                                      DisplayMemberPath="Display" />
-                            <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="10" Padding="14,10" Margin="0,10,0,0">
-                                <TextBlock FontSize="13.5" TextWrapping="Wrap" Foreground="{DynamicResource AccentBrush}"
-                                           Text="Für randlosen Druck wählen Sie hier die randlose Papiergröße Ihres Fotodruckers (zum Beispiel „10 x 15 cm randlos“)." />
-                            </Border>
-
-                            <TextBlock Text="Ausrichtung" Style="{StaticResource FieldLabel}" />
-                            <ComboBox ItemsSource="{Binding Orientations}" SelectedItem="{Binding SelectedOrientation}"
-                                      DisplayMemberPath="Display" />
-
-                            <TextBlock Text="Anzahl der Kopien" Style="{StaticResource FieldLabel}" />
-                            <local:NumberStepper Value="{Binding Copies}" Minimum="{x:Static core:SettingsLimits.CopiesMin}" Maximum="{x:Static core:SettingsLimits.CopiesMax}" Suffix=" ×" />
-
-                            <TextBlock Text="Zeitlimit für den Druck" Style="{StaticResource FieldLabel}" />
-                            <local:NumberStepper Value="{Binding PrintTimeoutSeconds}" Minimum="{x:Static core:SettingsLimits.PrintTimeoutMin}" Maximum="{x:Static core:SettingsLimits.PrintTimeoutMax}" Step="10" Suffix=" s" />
-                            <TextBlock Text="Nach dieser Zeit meldet die Fotobox einen Druckfehler und ist wieder bereit."
+                            <CheckBox Content="Fotos nach der Aufnahme drucken" IsChecked="{Binding PrintingEnabled}" Margin="0,12,0,0"
+                                      FontWeight="SemiBold" AutomationProperties.Name="Fotos nach der Aufnahme drucken" />
+                            <TextBlock Text="Ist das Drucken ausgeschaltet, werden die Fotos nur gespeichert."
                                        Style="{StaticResource Hint}" />
-                            <TextBlock Text="{Binding PrintTimeoutHint}" Style="{StaticResource Hint}" Foreground="{DynamicResource AccentBrush}"
-                                       Visibility="{Binding HasPrintTimeoutHint, Converter={StaticResource BoolToVis}}" />
 
-                            <TextBlock Text="Testdruck" Style="{StaticResource FieldLabel}" Margin="0,26,0,6" />
-                            <StackPanel Orientation="Horizontal">
-                                <Button Content="Testseite drucken" Command="{Binding TestPrintCommand}" Style="{StaticResource PrimaryButton}" />
-                                <TextBlock Text="{Binding TestPrintStatus}" VerticalAlignment="Center" Margin="16,0,0,0"
-                                           FontSize="14" TextWrapping="Wrap" MaxWidth="360" />
+                            <!-- Alles Weitere ist bei ausgeschaltetem Drucken ausgegraut. -->
+                            <StackPanel x:Name="PrinterSettingsPanel" IsEnabled="{Binding PrintingEnabled}">
+                                <StackPanel.Style>
+                                    <Style TargetType="StackPanel">
+                                        <Style.Triggers>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter Property="Opacity" Value="0.55" />
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </StackPanel.Style>
+
+                                <TextBlock Text="Erwartete Druckdauer" Style="{StaticResource FieldLabel}" />
+                                <local:NumberStepper Value="{Binding ExpectedPrintSeconds}" Minimum="{x:Static core:SettingsLimits.ExpectedPrintMin}" Maximum="{x:Static core:SettingsLimits.ExpectedPrintMax}" Step="10" Suffix=" s" />
+                                <TextBlock Text="{Binding ExpectedPrintHint}"
+                                           Style="{StaticResource Hint}" />
+
+                                <TextBlock Text="Drucker" Style="{StaticResource FieldLabel}" />
+                                <ComboBox ItemsSource="{Binding Printers}" SelectedItem="{Binding SelectedPrinter}"
+                                          DisplayMemberPath="Display" />
+
+                                <TextBlock Text="Papiergröße" Style="{StaticResource FieldLabel}" />
+                                <ComboBox ItemsSource="{Binding PaperSizes}" SelectedItem="{Binding SelectedPaper}"
+                                          DisplayMemberPath="Display" />
+                                <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="10" Padding="14,10" Margin="0,10,0,0">
+                                    <TextBlock FontSize="13.5" TextWrapping="Wrap" Foreground="{DynamicResource AccentBrush}"
+                                               Text="Für randlosen Druck wählen Sie hier die randlose Papiergröße Ihres Fotodruckers (zum Beispiel „10 x 15 cm randlos“)." />
+                                </Border>
+
+                                <TextBlock Text="Ausrichtung" Style="{StaticResource FieldLabel}" />
+                                <ComboBox ItemsSource="{Binding Orientations}" SelectedItem="{Binding SelectedOrientation}"
+                                          DisplayMemberPath="Display" />
+
+                                <TextBlock Text="Anzahl der Kopien" Style="{StaticResource FieldLabel}" />
+                                <local:NumberStepper Value="{Binding Copies}" Minimum="{x:Static core:SettingsLimits.CopiesMin}" Maximum="{x:Static core:SettingsLimits.CopiesMax}" Suffix=" ×" />
+
+                                <TextBlock Text="Zeitlimit für den Druck" Style="{StaticResource FieldLabel}" />
+                                <local:NumberStepper Value="{Binding PrintTimeoutSeconds}" Minimum="{x:Static core:SettingsLimits.PrintTimeoutMin}" Maximum="{x:Static core:SettingsLimits.PrintTimeoutMax}" Step="10" Suffix=" s" />
+                                <TextBlock Text="Nach dieser Zeit meldet die Fotobox einen Druckfehler und ist wieder bereit."
+                                           Style="{StaticResource Hint}" />
+                                <TextBlock Text="{Binding PrintTimeoutHint}" Style="{StaticResource Hint}" Foreground="{DynamicResource AccentBrush}"
+                                           Visibility="{Binding HasPrintTimeoutHint, Converter={StaticResource BoolToVis}}" />
+
+                                <TextBlock Text="Testdruck" Style="{StaticResource FieldLabel}" Margin="0,26,0,6" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Testseite drucken" Command="{Binding TestPrintCommand}" Style="{StaticResource PrimaryButton}" />
+                                    <TextBlock Text="{Binding TestPrintStatus}" VerticalAlignment="Center" Margin="16,0,0,0"
+                                               FontSize="14" TextWrapping="Wrap" MaxWidth="360" />
+                                </StackPanel>
+                                <TextBlock Text="Druckt eine Testseite mit Rahmen und Raster in der gewählten Papiergröße (mit den aktuellen, noch nicht gespeicherten Einstellungen)."
+                                           Style="{StaticResource Hint}" />
                             </StackPanel>
-                            <TextBlock Text="Druckt eine Testseite mit Rahmen und Raster in der gewählten Papiergröße (mit den aktuellen, noch nicht gespeicherten Einstellungen)."
-                                       Style="{StaticResource Hint}" />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>
@@ -1113,9 +1125,10 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Border Style="{StaticResource Card}">
                         <StackPanel MaxWidth="680" HorizontalAlignment="Left">
-                            <TextBlock Text="Speicher" Style="{StaticResource SectionTitle}" />
+                            <TextBlock Text="Fotos speichern" Style="{StaticResource SectionTitle}" />
+                            <TextBlock Text="Videos werden im Tab „Video“ eingestellt." Style="{StaticResource Hint}" />
 
-                            <TextBlock Text="Speicherordner" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Text="Speicherordner der Fotos" Style="{StaticResource FieldLabel}" />
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -1142,7 +1155,7 @@
                                            VerticalAlignment="Center" MinWidth="60" />
                             </StackPanel>
 
-                            <TextBlock Text="Dateipräfix" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Text="Dateipräfix der Fotos" Style="{StaticResource FieldLabel}" />
                             <TextBox Text="{Binding FilePrefix, UpdateSourceTrigger=PropertyChanged}" MaxLength="{x:Static core:SettingsLimits.FilePrefixMaxLength}" MaxWidth="320"
                                      HorizontalAlignment="Left" Width="320" />
                             <TextBlock Text="Dateien heißen zum Beispiel „Fotobox_20250101_120000.jpg“." Style="{StaticResource Hint}" />
@@ -1151,54 +1164,59 @@
                 </ScrollViewer>
             </TabItem>
 
-            <!-- ============================== Sicherheit ============================== -->
-            <TabItem Header="Sicherheit" Tag="&#xE72E;">
+            <!-- ============================== Sicherheit & Daten ============================== -->
+            <TabItem Header="Sicherheit &amp; Daten" Tag="&#xE72E;">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <Border Style="{StaticResource Card}">
-                        <StackPanel MaxWidth="420" HorizontalAlignment="Left">
-                            <TextBlock Text="Sicherheit" Style="{StaticResource SectionTitle}" />
-                            <TextBlock Text="{Binding AdminKeysDisplay, StringFormat='Mit {0} öffnen Sie diese Einstellungen. Der Zugang ist durch eine PIN geschützt.'}"
-                                       Style="{StaticResource Hint}" />
+                    <StackPanel MaxWidth="560" HorizontalAlignment="Left">
+                        <!-- PIN -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="PIN" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="{Binding AdminKeysDisplay, StringFormat='Mit {0} öffnen Sie diese Einstellungen. Der Zugang ist durch eine PIN geschützt.'}"
+                                           Style="{StaticResource Hint}" />
 
-                            <TextBlock Text="{Binding Source={x:Static core:PinRules.LengthText}, StringFormat='Neue PIN ({0})'}" Style="{StaticResource FieldLabel}" />
-                            <PasswordBox x:Name="NewPinBox" PasswordChanged="OnNewPinChanged" />
-                            <TextBlock Text="Neue PIN wiederholen" Style="{StaticResource FieldLabel}" />
-                            <PasswordBox x:Name="RepeatPinBox" PasswordChanged="OnRepeatPinChanged" />
+                                <TextBlock Text="{Binding Source={x:Static core:PinRules.LengthText}, StringFormat='Neue PIN ({0})'}" Style="{StaticResource FieldLabel}" />
+                                <PasswordBox x:Name="NewPinBox" PasswordChanged="OnNewPinChanged" HorizontalAlignment="Left" Width="360" />
+                                <TextBlock Text="Neue PIN wiederholen" Style="{StaticResource FieldLabel}" />
+                                <PasswordBox x:Name="RepeatPinBox" PasswordChanged="OnRepeatPinChanged" HorizontalAlignment="Left" Width="360" />
 
-                            <Button Content="PIN ändern" Command="{Binding ChangePinCommand}" Margin="0,18,0,0"
-                                    HorizontalAlignment="Left" Style="{StaticResource PrimaryButton}" />
-                            <TextBlock Text="{Binding PinStatus}" FontSize="14" TextWrapping="Wrap" Margin="0,12,0,0" />
-                            <TextBlock Style="{StaticResource Hint}"
-                                       Text="Die PIN wird sofort geändert. Haben Sie die Felder ausgefüllt und klicken auf „Übernehmen“ oder „Speichern &amp; schließen“, wird die neue PIN ebenfalls übernommen." />
+                                <Button Content="PIN ändern" Command="{Binding ChangePinCommand}" Margin="0,18,0,0"
+                                        HorizontalAlignment="Left" Style="{StaticResource PrimaryButton}" />
+                                <TextBlock Text="{Binding PinStatus}" FontSize="14" TextWrapping="Wrap" Margin="0,12,0,0" />
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Die PIN wird sofort geändert. Haben Sie die Felder ausgefüllt und klicken auf „Übernehmen“ oder „Speichern &amp; schließen“, wird die neue PIN ebenfalls übernommen." />
+                            </StackPanel>
+                        </Border>
 
-                            <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,28,0,0" Padding="0,22,0,0">
-                                <StackPanel>
-                                    <TextBlock Text="Standardwerte" Style="{StaticResource SectionTitle}" />
-                                    <TextBlock Style="{StaticResource Hint}"
-                                               Text="Setzt alle Einstellungen außer der PIN zurück. Fotos und Overlay-Dateien bleiben erhalten. Die Änderung gilt erst nach „Übernehmen“ oder „Speichern &amp; schließen“." />
-                                    <Button Content="Standardwerte wiederherstellen …" Command="{Binding ResetToDefaultsCommand}"
-                                            HorizontalAlignment="Left" Margin="0,14,0,0"
-                                            AutomationProperties.Name="Standardwerte wiederherstellen" />
+                        <!-- Einstellungen teilen -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Einstellungen teilen" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Exportiert die aktuellen Einstellungen in eine Datei, die Sie auf einer anderen Fotobox+ importieren können. Kamera, Drucker, Speicherorte, Mikrofon, Bildschirm und das Overlay-Bild sind nicht enthalten. Ein Import ersetzt alle anderen Einstellungen im Entwurf und gilt erst nach „Übernehmen“ oder „Speichern &amp; schließen“." />
+                                <CheckBox Content="PIN mit exportieren" IsChecked="{Binding ExportIncludePin}" Margin="0,14,0,0"
+                                          AutomationProperties.Name="PIN mit exportieren" />
+                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                    <Button Content="Exportieren …" Command="{Binding ExportSettingsCommand}"
+                                            AutomationProperties.Name="Einstellungen exportieren" />
+                                    <Button Content="Importieren …" Command="{Binding ImportSettingsCommand}" Margin="12,0,0,0"
+                                            AutomationProperties.Name="Einstellungen importieren" />
                                 </StackPanel>
-                            </Border>
+                            </StackPanel>
+                        </Border>
 
-                            <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,28,0,0" Padding="0,22,0,0">
-                                <StackPanel>
-                                    <TextBlock Text="Einstellungen teilen" Style="{StaticResource SectionTitle}" />
-                                    <TextBlock Style="{StaticResource Hint}"
-                                               Text="Exportiert die aktuellen Einstellungen in eine Datei, die Sie auf einer anderen Fotobox+ importieren können. Kamera, Drucker, Speicherorte, Mikrofon, Bildschirm und das Overlay-Bild sind nicht enthalten. Ein Import ersetzt alle anderen Einstellungen im Entwurf und gilt erst nach „Übernehmen“ oder „Speichern &amp; schließen“." />
-                                    <CheckBox Content="PIN mit exportieren" IsChecked="{Binding ExportIncludePin}" Margin="0,14,0,0"
-                                              AutomationProperties.Name="PIN mit exportieren" />
-                                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                                        <Button Content="Exportieren …" Command="{Binding ExportSettingsCommand}"
-                                                AutomationProperties.Name="Einstellungen exportieren" />
-                                        <Button Content="Importieren …" Command="{Binding ImportSettingsCommand}" Margin="12,0,0,0"
-                                                AutomationProperties.Name="Einstellungen importieren" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
-                    </Border>
+                        <!-- Standardwerte -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Standardwerte" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Setzt alle Einstellungen außer der PIN zurück. Fotos und Overlay-Dateien bleiben erhalten. Die Änderung gilt erst nach „Übernehmen“ oder „Speichern &amp; schließen“." />
+                                <Button Content="Standardwerte wiederherstellen …" Command="{Binding ResetToDefaultsCommand}"
+                                        HorizontalAlignment="Left" Margin="0,14,0,0"
+                                        AutomationProperties.Name="Standardwerte wiederherstellen" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 

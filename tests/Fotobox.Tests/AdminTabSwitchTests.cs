@@ -51,7 +51,7 @@ public class AdminTabSwitchTests
                 foreach (var header in new[]
                          {
                              "Gastansicht", "Tasten", "Kamera", "Video", "Gastansicht", "Layout", "Gastansicht", "Kamera",
-                             "Darstellung", "Gastansicht", "Speicher", "Gastansicht", "Sicherheit",
+                             "Darstellung", "Gastansicht", "Speicher", "Gastansicht", "Sicherheit & Daten",
                          })
                 {
                     var item = items.Single(t => t.Header as string == header);
