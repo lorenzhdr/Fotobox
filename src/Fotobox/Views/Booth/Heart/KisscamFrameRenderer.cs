@@ -24,6 +24,9 @@ public static class KisscamFrameRenderer
     /// <summary>Herz im Einheitsquadrat (Breite 1, Höhe 0,95), zwei Lappen und Spitze unten.</summary>
     private static readonly Geometry HeartUnit = CreateHeart();
 
+    /// <summary>Dieselbe Herzform (eingefroren, Einheitsquadrat, Höhe 0,95) für weitere Zeichner, z. B. die Haltefortschrittsanzeige.</summary>
+    internal static Geometry HeartGeometry => HeartUnit;
+
     /// <summary>
     /// Zeichnet den Rahmen in <paramref name="area"/>. <paramref name="dpi"/> = Auflösung der Zielfläche (96 für das Livebild bzw. eine
     /// <see cref="RenderTargetBitmap"/> mit 96 dpi), bestimmt nur die Pixelausrichtung des Textes. Wirft bei gültigen Eingaben nie.

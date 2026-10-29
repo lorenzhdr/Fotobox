@@ -4,8 +4,10 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Fotobox.Core;
 using Fotobox.Core.Fun;
+using Fotobox.Core.Heart;
 using Fotobox.Core.Peace;
 using Fotobox.Services.Camera;
+using Fotobox.Services.Storage;
 
 namespace Fotobox.ViewModels.Booth;
 
@@ -46,6 +48,15 @@ public sealed class BoothViewModel : ObservableObject
     private bool _selfDestructPending;
     private bool _explosionOver;
     private readonly DispatcherTimer _explosionTimer;
+    // Herz/Kisscam: Musik, Rahmen und Zoom-Ausschnitt des laufenden Durchgangs; „pending“ = Kisscam-Countdown gesehen (Musik läuft).
+    private readonly IMusicPlayer? _music;
+
+    /// <summary>Hat die Gastansicht einen Musikspieler (DI)? Für Tests der Zusammensetzung.</summary>
+    internal bool HasMusic => _music is not null;
+
+    private bool _kisscamPending;
+    private PhotoFrame? _kisscamFrame;
+    private NormRect? _kisscamRegion;
 
     /// <summary>So lange bleibt die Alarm-Ansicht nach dem Blitz sichtbar, damit die Explosion zu Ende spielt.</summary>
     private static readonly TimeSpan ExplosionDuration = TimeSpan.FromMilliseconds(1200);
@@ -56,16 +67,28 @@ public sealed class BoothViewModel : ObservableObject
 
     /// <param name="fun">Zielerfassung der gesamten Gastansicht (DI); ohne Angabe eine untätige Instanz (Tests).</param>
     /// <param name="peace">Peaceerkennung der Gastansicht (DI, mit dem Bart-Zustand für die Foto-Planung); ohne Angabe eine untätige Instanz (Tests).</param>
+    /// <param name="music">Musik der Kisscam (DI); ohne Angabe läuft die Kisscam stumm.</param>
     public BoothViewModel(BoothController controller, ICameraService camera, ISettingsStore settings,
-        FunOverlayViewModel? fun = null, PeaceOverlayViewModel? peace = null)
+        FunOverlayViewModel? fun = null, PeaceOverlayViewModel? peace = null, IMusicPlayer? music = null)
     {
         Controller = controller;
         Camera = camera;
         Settings = settings;
         Fun = fun ?? FunOverlayViewModel.CreateInert();
         Peace = peace ?? PeaceOverlayViewModel.CreateInert();
+        _music = music;
         Peace.ActionRequested += (_, trigger) => OnPeaceAction(trigger);
         Peace.MiddleFingerTriggered += (_, _) => OnMiddleFinger();
+        Peace.HeartTriggered += (_, trigger) => OnHeartAction(trigger);
+        Peace.PropertyChanged += (_, e) =>
+        {
+            // Die Fortschrittsanzeige am Herz folgt dem besten Herz der Erkennung.
+            if (e.PropertyName == nameof(PeaceOverlayViewModel.Heart))
+            {
+                OnPropertyChanged(nameof(ShowHeartFeedback));
+                OnPropertyChanged(nameof(HeartFeedback));
+            }
+        };
         Fun.PropertyChanged += (_, e) =>
         {
             // Der Fun-Text ersetzt die Hinweiszeile an derselben Stelle (unten = Foto-Hinweis, oben = Video-Hinweis).
@@ -94,12 +117,17 @@ public sealed class BoothViewModel : ObservableObject
         {
             // Der Stil wird hier gelesen, bevor der Aufruf auf den UI-Thread wechselt: Er gilt nur bis zum Ende des Durchgangs.
             var selfDestruct = controller.CountdownStyle == CountdownStyle.SelfDestruct;
+            var kisscam = controller.CountdownStyle == CountdownStyle.Kisscam;
             OnUi(() =>
             {
                 if (selfDestruct)
+                {
                     RaiseExplosion();
-                else
-                    FlashRequested?.Invoke(this, EventArgs.Empty);
+                    return;
+                }
+                if (kisscam)
+                    EndKisscamMusic();
+                FlashRequested?.Invoke(this, EventArgs.Empty);
             });
         };
         camera.StatusChanged += (_, _) => OnUi(Refresh);
@@ -155,7 +183,8 @@ public sealed class BoothViewModel : ObservableObject
     public bool IsCountdown => Controller.State == BoothState.Countdown;
     public string CountdownText => Controller.CountdownValue > 0 ? Controller.CountdownValue.ToString() : "";
     /// <summary>Zwischen zwei Streifenfotos: kein Countdown-Wert, nächste Aufnahme folgt.</summary>
-    public bool IsPause => IsCountdown && Controller.CountdownValue == 0 && Controller.CountdownStyle != CountdownStyle.SelfDestruct;
+    public bool IsPause => IsCountdown && Controller.CountdownValue == 0
+        && Controller.CountdownStyle is not (CountdownStyle.SelfDestruct or CountdownStyle.Kisscam);
 
     /// <summary>Darstellung des Countdowns des laufenden Durchgangs (Normal, Peace oder Selbstzerstörung).</summary>
     public CountdownStyle CountdownStyle => Controller.CountdownStyle;
@@ -174,6 +203,37 @@ public sealed class BoothViewModel : ObservableObject
     public bool ShowSelfDestruct =>
         Controller.CountdownStyle == CountdownStyle.SelfDestruct
         && (Controller.State == BoothState.Countdown || (Controller.State == BoothState.Capturing && !_explosionOver));
+
+    // ---- Herz / Kisscam
+
+    private HeartSettings HeartConfig => Settings.Current.Heart ?? new HeartSettings();
+
+    /// <summary>Kisscam-Countdown läuft (Jumbotron-Rahmen; Gasttext bzw. in den letzten Sekunden die großen Ziffern).</summary>
+    public bool IsKisscamCountdown => IsCountdown && Controller.CountdownStyle == CountdownStyle.Kisscam;
+
+    /// <summary>Jumbotron-Rahmen sichtbar: im Kisscam-Countdown und beim Auslösen, bis das Foto fertig ist.</summary>
+    public bool ShowKisscamFrame =>
+        Controller.CountdownStyle == CountdownStyle.Kisscam && Controller.State is BoothState.Countdown or BoothState.Capturing;
+
+    /// <summary>Gasttext sichtbar: im Kisscam-Countdown, bis die letzten <see cref="SettingsLimits.KisscamFinalDigitsSeconds"/> Sekunden die Ziffern zeigen.</summary>
+    public bool ShowKisscamText => IsKisscamCountdown && Controller.CountdownValue > SettingsLimits.KisscamFinalDigitsSeconds;
+
+    /// <summary>Gasttext mit der live herunterzählenden Restzeit (<c>{Sekunden}</c>).</summary>
+    public string KisscamText => KisscamTextFormatter.Format(HeartConfig.KisscamText, Controller.CountdownValue);
+
+    /// <summary>Rahmen des laufenden Kisscam-Durchgangs (nur solange <see cref="ShowKisscamFrame"/>).</summary>
+    public PhotoFrame? KisscamFrame => ShowKisscamFrame ? _kisscamFrame : null;
+
+    /// <summary>Digitalzoom auf die Herz-Gäste (normiert, ungespiegelt) – null = kein Zoom; nur solange <see cref="ShowKisscamFrame"/>.</summary>
+    public NormRect? KisscamZoomRegion => ShowKisscamFrame ? _kisscamRegion : null;
+
+    /// <summary>Herz mit Haltefortschritt zwischen den Händen sichtbar (Leerlauf, eingeschaltet, ein Herz im Bild).</summary>
+    public bool ShowHeartFeedback =>
+        IsIdle && HeartConfig is { Enabled: true, ShowHoldFeedback: true } && Peace.Heart is not null;
+
+    /// <summary>Das Herz der Erkennung für die Fortschrittsanzeige (ungespiegelt, normiert).</summary>
+    public HeartView? HeartFeedback => Peace.Heart;
+
     public bool ShowShotInfo => Controller.ShotCount > 1 && Controller.State is BoothState.Countdown or BoothState.Capturing;
     public string ShotInfoText => ShowShotInfo ? $"Foto {Controller.ShotIndex} von {Controller.ShotCount}" : "";
 
@@ -323,8 +383,11 @@ public sealed class BoothViewModel : ObservableObject
         && !(Fun.TextVisible && Fun.TextPosition == FunTextPosition.Top);
 
     public bool IsVideoCountdown => Controller.State == BoothState.VideoCountdown;
-    /// <summary>Countdown-Anzeige (Zahl, Abdunklung) für Foto- und Videodurchgang.</summary>
-    public bool ShowCountdown => IsCountdown || IsVideoCountdown;
+    /// <summary>
+    /// Countdown-Anzeige (Zahl, Abdunklung) für Foto- und Videodurchgang. In der Kisscam entfällt sie, solange der Gasttext läuft
+    /// (<see cref="ShowKisscamText"/>): Die Abdunklung würde den Jumbotron-Rahmen verdecken; in den letzten Sekunden kommen die Ziffern.
+    /// </summary>
+    public bool ShowCountdown => (IsCountdown && !ShowKisscamText) || IsVideoCountdown;
     /// <summary>Video-Countdown ohne Zahl: Vorbereitung bzw. Kamera-Start (kann bei Zeitüberschreitungen bis ~25 s dauern).</summary>
     public bool IsVideoStarting => IsVideoCountdown && Controller.CountdownValue == 0;
 
@@ -689,6 +752,7 @@ public sealed class BoothViewModel : ObservableObject
         _isShutDown = true;
         _layoutPreviewTimer.Stop();
         _explosionTimer.Stop();
+        StopMusic();
         Fun.SetActive(false, new FunSettings(), false);
         UpdatePeace(); // Shutdown schaltet die Peaceerkennung aus
         Controller.Cancel();
@@ -736,6 +800,7 @@ public sealed class BoothViewModel : ObservableObject
         UpdateFun();
         UpdatePeace();
         UpdateSelfDestructSound();
+        UpdateKisscamMusic();
         OnPropertyChanged(string.Empty);
 
         var value = Controller.CountdownValue;
@@ -775,6 +840,58 @@ public sealed class BoothViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Verlässt der Zustand den Kisscam-Countdown ohne Aufnahme (Abbrechen per Taste oder Mittelfinger, Fehler), verstummt die Musik
+    /// sofort und die Kisscam-Merker verfallen. Geht es in die Aufnahme, blendet <see cref="EndKisscamMusic"/> sie beim Blitz aus.
+    /// </summary>
+    private void UpdateKisscamMusic()
+    {
+        if (IsKisscamCountdown)
+        {
+            _kisscamPending = true;
+            return;
+        }
+
+        if (_kisscamPending && Controller.State is BoothState.Idle or BoothState.Error or BoothState.Starting)
+        {
+            _kisscamPending = false;
+            StopMusic();
+            AppLog.Info("Kisscam abgebrochen.");
+        }
+
+        if (Controller.CountdownStyle != CountdownStyle.Kisscam && Controller.State is BoothState.Idle or BoothState.Error or BoothState.Starting)
+        {
+            _kisscamFrame = null;
+            _kisscamRegion = null;
+        }
+    }
+
+    /// <summary>Der Blitz der Kisscam: Die Musik blendet in 0,8 s aus.</summary>
+    private void EndKisscamMusic()
+    {
+        _kisscamPending = false;
+        try
+        {
+            _music?.FadeOut(TimeSpan.FromMilliseconds(800));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Kisscam-Musik konnte nicht ausgeblendet werden.", ex);
+        }
+    }
+
+    private void StopMusic()
+    {
+        try
+        {
+            _music?.Stop();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Kisscam-Musik konnte nicht beendet werden.", ex);
+        }
+    }
+
     /// <summary>Der Blitz der Selbstzerstörung: Explosion (Bild und Ton) statt des weißen Blitzes.</summary>
     private void RaiseExplosion()
     {
@@ -803,6 +920,8 @@ public sealed class BoothViewModel : ObservableObject
     /// und solange ein Bart (auch dessen Verschwinden-Animation) zu sehen ist, bleibt die Erkennung im Countdown an
     /// (<see cref="PeaceMode.FollowMoustache"/>, mit Händen nur wenn es etwas aufzuheben gibt); in Aufnahme, Vorschau und Druck folgt sie
     /// nur dem Bart (nur Gesichter, nie Hände); ohne das Feature (<see cref="MiddleFingerSettings.Enabled"/> aus) bleibt alles wie zuvor.
+    /// Herz: Die Erkennung läuft, sobald Peace oder <see cref="HeartSettings.Enabled"/> an ist (bei ausgeschaltetem Peace ohne Peace-Gesten);
+    /// im Kisscam-Countdown zählt sie als Mittelfinger-Ziel (<see cref="MiddleFingerTargets.Kisscam"/>).
     /// </summary>
     private void UpdatePeace()
     {
@@ -819,12 +938,21 @@ public sealed class BoothViewModel : ObservableObject
             MiddleFingerSettings? middleFinger = state is BoothState.Idle or BoothState.Countdown
                 ? Settings.Current.MiddleFinger ?? new MiddleFingerSettings()
                 : null;
-            var external = state == BoothState.Countdown && Controller.CountdownStyle == CountdownStyle.SelfDestruct
-                ? MiddleFingerTargets.SelfDestruct
-                : MiddleFingerTargets.None;
+            var external = MiddleFingerTargets.None;
+            if (state == BoothState.Countdown)
+            {
+                external = Controller.CountdownStyle switch
+                {
+                    CountdownStyle.SelfDestruct => MiddleFingerTargets.SelfDestruct,
+                    CountdownStyle.Kisscam => MiddleFingerTargets.Kisscam,
+                    _ => MiddleFingerTargets.None,
+                };
+            }
 
+            // Herz und Peace sind unabhängig voneinander ein- und ausschaltbar; die Erkennung läuft, sobald eines davon an ist.
+            var heart = Settings.Current.Heart ?? new HeartSettings();
             var mode = PeaceMode.Off;
-            if (!_isShutDown && peace.Enabled && !IsAdminOpen && Camera.Status == CameraStatus.Running)
+            if (!_isShutDown && (peace.Enabled || heart.Enabled) && !IsAdminOpen && Camera.Status == CameraStatus.Running)
             {
                 mode = state switch
                 {
@@ -837,7 +965,7 @@ public sealed class BoothViewModel : ObservableObject
                     _ => PeaceMode.Off,
                 };
             }
-            Peace.SetMode(mode, peace, MirrorPreview, middleFinger, external);
+            Peace.SetMode(mode, peace, MirrorPreview, middleFinger, external, heart, peaceGestures: peace.Enabled);
         }
         catch (Exception ex)
         {
@@ -884,8 +1012,10 @@ public sealed class BoothViewModel : ObservableObject
     /// Ein Mittelfinger wurde gehalten: hebt Peace-Effekte auf. Eine laufende Selbstzerstörung (Countdown) bricht still ab wie mit
     /// der Abbrechen-Taste (nur <see cref="BoothController.TryCancelCountdown"/>, nie Video oder Druck; ist schon die Aufnahme
     /// gestartet, läuft das Foto weiter), alle sichtbaren Bärte verschwinden (0,3-s-Animation, der Bart-Zustand fürs Foto ist sofort
-    /// leer). Andere Countdowns (normal, Peace-Foto, Auto-Foto zum Bart) laufen weiter. Ohne Effekt bei Shutdown, offener
-    /// Admin-Ansicht und ausgeschalteter Erkennung.
+    /// leer). Andere Countdowns (normal, Peace-Foto, Auto-Foto zum Bart) laufen weiter. Die Peace-Wirkungen gelten nur bei
+    /// <see cref="MiddleFingerSettings.ActionCancelPeace"/>. Mit <see cref="MiddleFingerSettings.ActionCancelKisscam"/> bricht er einen
+    /// laufenden Kisscam-Countdown ab (wie die Abbrechen-Taste, ohne Foto). Ohne Effekt bei Shutdown, offener Admin-Ansicht und
+    /// ausgeschalteter Erkennung.
     /// </summary>
     /// <returns>true, wenn etwas aufgehoben wurde.</returns>
     internal bool OnMiddleFinger()
@@ -896,22 +1026,105 @@ public sealed class BoothViewModel : ObservableObject
             if (_isShutDown || IsAdminOpen || middleFinger is not { Enabled: true, HasAnyAction: true })
                 return false;
 
-            var selfDestruct = Controller.State == BoothState.Countdown
+            var selfDestruct = middleFinger.ActionCancelPeace
+                && Controller.State == BoothState.Countdown
                 && Controller.CountdownStyle == CountdownStyle.SelfDestruct
                 && Controller.TryCancelCountdown();
-            var moustache = Peace.VanishMoustaches();
+            var moustache = middleFinger.ActionCancelPeace && Peace.VanishMoustaches();
+            var kisscam = middleFinger.ActionCancelKisscam
+                && Controller.State == BoothState.Countdown
+                && Controller.CountdownStyle == CountdownStyle.Kisscam
+                && Controller.TryCancelCountdown();
 
-            AppLog.Info(selfDestruct && moustache ? "Mittelfinger: Selbstzerstörung abgebrochen, Bart entfernt."
+            AppLog.Info(kisscam ? "Mittelfinger: Kisscam abgebrochen."
+                : selfDestruct && moustache ? "Mittelfinger: Selbstzerstörung abgebrochen, Bart entfernt."
                 : selfDestruct ? "Mittelfinger: Selbstzerstörung abgebrochen."
                 : moustache ? "Mittelfinger: Bart entfernt."
                 : "Mittelfinger: nichts aufzuheben.");
-            return selfDestruct || moustache;
+            return selfDestruct || moustache || kisscam;
         }
         catch (Exception ex)
         {
             AppLog.Warn("Mittelfinger-Aktion konnte nicht ausgeführt werden.", ex);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Ein Herz wurde gehalten: führt die gewählte Herz-Aktion aus. Gesperrt wie <see cref="OnPeaceAction"/> bei offener Admin-Ansicht,
+    /// startender Kamera, Shutdown und außerhalb des Leerlaufs. Neue Aktionen (<see cref="HeartAction"/>) kommen als weiterer Fall hinzu.
+    /// </summary>
+    /// <returns>true, wenn die Aktion gestartet wurde.</returns>
+    internal bool OnHeartAction(HeartTrigger trigger)
+    {
+        try
+        {
+            if (_isShutDown || IsAdminOpen || IsCameraBusy || Controller.State != BoothState.Idle)
+                return false;
+
+            switch (trigger.Action)
+            {
+                case HeartAction.Kisscam:
+                    return StartKisscam(trigger);
+                default:
+                    AppLog.Info($"Herzerkennung: Aktion {trigger.Action} ist nicht verfügbar.");
+                    return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Herz-Aktion konnte nicht ausgeführt werden.", ex);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Startet die Kisscam: langer Countdown mit Jumbotron-Rahmen, dann ein Einzelfoto mit Rahmen (eigenes Präfix, optional auf die
+    /// Herz-Gäste herangezoomt). Rahmen und Ausschnitt werden vor dem Start gemerkt, weil der Zustandswechsel die Anzeige sofort
+    /// aktualisiert.
+    /// </summary>
+    private bool StartKisscam(HeartTrigger trigger)
+    {
+        var heart = HeartConfig;
+        var region = heart.KisscamZoomEnabled
+            ? KisscamZoom.Plan(trigger.HeartBox, trigger.FaceBoxes, heart.KisscamZoomPercent)
+            : null;
+        var banner = string.IsNullOrWhiteSpace(heart.KisscamBannerText) ? HeartSettings.DefaultKisscamBannerText : heart.KisscamBannerText;
+        var frame = new PhotoFrame(PhotoFrameKind.Kisscam, banner, heart.KisscamColor);
+
+        _kisscamFrame = frame;
+        _kisscamRegion = region;
+        var started = Controller.TryTrigger(new TriggerOptions
+        {
+            SingleShotOnly = true,
+            CountdownSeconds = heart.KisscamSeconds,
+            Style = CountdownStyle.Kisscam,
+            CropRegion = region,
+            FilePrefix = SettingsNormalizer.SanitizePrefix(heart.KisscamFilePrefix, HeartSettings.DefaultKisscamFilePrefix),
+            Frame = frame,
+        });
+        if (!started)
+        {
+            _kisscamFrame = null;
+            _kisscamRegion = null;
+            return false;
+        }
+
+        ResetLayoutSelection();
+        var music = !string.IsNullOrWhiteSpace(heart.KisscamMusicPath);
+        if (music)
+        {
+            try
+            {
+                _music?.Play(heart.KisscamMusicPath, heart.KisscamMusicVolumePercent, loop: true);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Kisscam-Musik konnte nicht gestartet werden.", ex);
+            }
+        }
+        AppLog.Info($"Kisscam gestartet ({heart.KisscamSeconds} s, Zoom {(region is null ? "aus" : $"{heart.KisscamZoomPercent} %")}, Musik {(music ? "an" : "aus")}).");
+        return true;
     }
 
     private bool TriggerPeacePhoto(int countdownSeconds, CountdownStyle style)
