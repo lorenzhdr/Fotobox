@@ -1696,6 +1696,11 @@
                                             <TextBlock Style="{StaticResource Hint}"
                                                        Text="So lange rastet die Zielmarke ein, bevor der Text erscheint. Die Mindest-Verweildauer davor (Karte Erkennung) bestimmt, wann eine Person überhaupt anvisiert wird." />
 
+                                            <TextBlock Text="Maximale Neustarts beim Einrasten" Style="{StaticResource FieldLabel}" />
+                                            <local:NumberStepper Value="{Binding FunMaxLockOnRestarts}" Minimum="{x:Static core:SettingsLimits.FunLockOnRestartsMin}" Maximum="{x:Static core:SettingsLimits.FunLockOnRestartsMax}" Step="1" />
+                                            <TextBlock Style="{StaticResource Hint}"
+                                                       Text="Kommt während des Einrastens jemand dazu, startet die Animation für alle neu – höchstens so oft. 0 = Spätkommer rasten einzeln ein." />
+
                                             <TextBlock Text="Intensität der Einrast-Animation" Style="{StaticResource FieldLabel}" />
                                             <local:NumberStepper Value="{Binding FunLockOnIntensityPercent}" Minimum="{x:Static core:SettingsLimits.FunLockOnIntensityMin}" Maximum="{x:Static core:SettingsLimits.FunLockOnIntensityMax}" Step="{x:Static core:SettingsLimits.FunLockOnIntensityStep}" Suffix=" %" />
                                             <TextBlock Style="{StaticResource Hint}"

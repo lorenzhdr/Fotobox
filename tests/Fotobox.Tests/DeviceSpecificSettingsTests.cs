@@ -102,6 +102,7 @@ public sealed class DeviceSpecificSettingsTests
         "Fun.DwellMilliseconds",
         "Fun.LockOnMilliseconds",
         "Fun.LockOnIntensityPercent",
+        "Fun.MaxLockOnRestarts",
         "Fun.AnalysesPerSecond",
         "Fun.SoundEnabled",
         // Peace

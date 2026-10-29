@@ -75,6 +75,7 @@ public sealed class AdminFunTabTests : IDisposable
         Assert.Equal(800, vm.FunDwellMilliseconds);
         Assert.Equal(1200, vm.FunLockOnMilliseconds);
         Assert.Equal(50, vm.FunLockOnIntensityPercent);
+        Assert.Equal(3, vm.FunMaxLockOnRestarts);
         Assert.Equal(5, vm.FunAnalysesPerSecond);
         Assert.False(vm.FunSoundEnabled);
     }
@@ -106,6 +107,7 @@ public sealed class AdminFunTabTests : IDisposable
         vm.FunDwellMilliseconds = 1500;
         vm.FunLockOnMilliseconds = 2500;
         vm.FunLockOnIntensityPercent = 85;
+        vm.FunMaxLockOnRestarts = 5;
         vm.FunAnalysesPerSecond = 8;
         vm.FunSoundEnabled = true;
 
@@ -132,6 +134,7 @@ public sealed class AdminFunTabTests : IDisposable
         Assert.Equal(1500, fun.DwellMilliseconds);
         Assert.Equal(2500, fun.LockOnMilliseconds);
         Assert.Equal(85, fun.LockOnIntensityPercent);
+        Assert.Equal(5, fun.MaxLockOnRestarts);
         Assert.Equal(8, fun.AnalysesPerSecond);
         Assert.True(fun.SoundEnabled);
     }
@@ -211,6 +214,7 @@ public sealed class AdminFunTabTests : IDisposable
         vm.FunSwapTriggers = false;
         vm.FunLockOnMilliseconds = 3000;
         vm.FunLockOnIntensityPercent = 90;
+        vm.FunMaxLockOnRestarts = 7;
         vm.FunSoundEnabled = true;
 
         await vm.ApplyCommand.ExecuteAsync(null);
@@ -227,6 +231,7 @@ public sealed class AdminFunTabTests : IDisposable
         Assert.Equal(90, saved.CooldownSeconds);
         Assert.Equal(3000, saved.LockOnMilliseconds);
         Assert.Equal(90, saved.LockOnIntensityPercent);
+        Assert.Equal(7, saved.MaxLockOnRestarts);
         Assert.True(saved.RepeatEnabled);
         Assert.Equal(45, saved.RepeatSeconds);
         Assert.False(saved.SwapTriggers);
@@ -279,6 +284,7 @@ public sealed class AdminFunTabTests : IDisposable
         vm.FunSwapTriggers = false;
         vm.FunLockOnMilliseconds = 4000;
         vm.FunLockOnIntensityPercent = 5;
+        vm.FunMaxLockOnRestarts = 9;
         vm.FunSoundEnabled = true;
         _ui.ConfirmResult = true;
         var raised = new List<string?>();
@@ -307,6 +313,7 @@ public sealed class AdminFunTabTests : IDisposable
         Assert.Equal(defaults.SwapTriggers, fun.SwapTriggers);
         Assert.Equal(1200, fun.LockOnMilliseconds);
         Assert.Equal(50, fun.LockOnIntensityPercent);
+        Assert.Equal(3, fun.MaxLockOnRestarts);
         Assert.False(fun.SoundEnabled);
         Assert.Equal("hash:4711", vm.Draft.Security.PinHash);
 
@@ -318,6 +325,7 @@ public sealed class AdminFunTabTests : IDisposable
         Assert.True(vm.FunEnabled);
         Assert.Equal(1200, vm.FunLockOnMilliseconds);
         Assert.Equal(50, vm.FunLockOnIntensityPercent);
+        Assert.Equal(3, vm.FunMaxLockOnRestarts);
         Assert.Equal(TargetColor.Red, vm.FunColor);
         Assert.Equal(string.Empty, vm.FunSingularText);
         Assert.Equal(HintStyle.Pill, vm.SelectedFunHintStyle.Style);
@@ -449,8 +457,8 @@ public sealed class AdminFunTabTests : IDisposable
             Assert.Equal(2, Cards(root, "FunTextStyle").Count);
             Assert.Equal(3, FindDescendants<TargetStyleSketch>(root).Count());
             Assert.Equal(3, FindDescendants<LockOnSketch>(root).Count());
-            // Zehn Zahlenfelder: fünf bei „Erkennung“, Dauer und Intensität der Einrast-Animation bei „Aussehen“ sowie Anzeigedauer, Pause und Wiederholungsabstand beim Text.
-            Assert.Equal(10, FindDescendants<NumberStepper>((DependencyObject)window.FindName("FunPersonsPage")).Count());
+            // Elf Zahlenfelder: fünf bei „Erkennung“, Dauer, maximale Neustarts und Intensität der Einrast-Animation bei „Aussehen“ sowie Anzeigedauer, Pause und Wiederholungsabstand beim Text.
+            Assert.Equal(11, FindDescendants<NumberStepper>((DependencyObject)window.FindName("FunPersonsPage")).Count());
             Assert.Contains(FindDescendants<ToggleButton>(root),
                 c => System.Windows.Automation.AutomationProperties.GetName(c) == "Personentausch löst aus");
             Assert.Contains(FindDescendants<ToggleButton>(root),

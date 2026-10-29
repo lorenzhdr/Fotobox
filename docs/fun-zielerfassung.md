@@ -1,6 +1,6 @@
 # Fun „Zielerfassung“
 
-Stand: 2.5.1. Dieses Dokument beschreibt die Zielerfassung („Personen im Livebild markieren“) vollständig: Einstellungen, Erkennung, Zustandsmaschine, Töne, Darstellung und Admin-Seite. Es richtet sich an Entwickler und KI-Agenten; Pfade sind relativ zum Repo-Root.
+Stand: 2.5.1, Einrast-Logik ab 2.7.0 (Einrasten für alle gemeinsam). Dieses Dokument beschreibt die Zielerfassung („Personen im Livebild markieren“) vollständig: Einstellungen, Erkennung, Zustandsmaschine, Töne, Darstellung und Admin-Seite. Es richtet sich an Entwickler und KI-Agenten; Pfade sind relativ zum Repo-Root.
 
 ## Überblick
 
@@ -50,6 +50,7 @@ Wertebereiche stehen einzig in `SettingsLimits.Fun*` (`src/Fotobox/Core/Settings
 | `DwellMilliseconds` | 800 | 0–3000 ms | Verweildauer bis zur Bestätigung |
 | `LockOnMilliseconds` | 1200 | 500–5000 ms, UI-Schritt 100 | Dauer des Einrastens bis zum Text |
 | `LockOnIntensityPercent` | 50 | 0–100 %, UI-Schritt 5 | Auffälligkeit der Einrast-Animation und der Töne |
+| `MaxLockOnRestarts` | 3 | 0–10 | Wie oft das Einrasten für alle neu startet, wenn währenddessen jemand dazukommt (0 = Spätkommer rasten einzeln ein) |
 | `AnalysesPerSecond` | 5 | 1–10 | Analyserate (Rechenlast) |
 | `SoundEnabled` | aus | | Signaltöne |
 
@@ -180,7 +181,7 @@ stateDiagram-v2
 | Phase | Bedeutung |
 |---|---|
 | `Watching` | Beobachten; Auslöser möglich |
-| `LockingOn` | Neu bestätigte Ziele rasten ein (Dauer `LockOnMilliseconds`); die betroffenen Ziele tragen `IsLockingOn` |
+| `LockingOn` | Bestätigte Ziele rasten ein (Dauer `LockOnMilliseconds`); die betroffenen Ziele tragen `IsLockingOn` |
 | `ShowingText` | Der Text steht `TextSeconds` lang |
 | `Cooldown` | Pause (`CooldownSeconds`); eine dort erschienene Gruppe rastet erst nach dem Ende ein, ein Zuwachs löst sofort aus |
 
@@ -196,16 +197,21 @@ Eine Episode endet, wenn 2 s lang niemand da war (`EpisodeEndAfterEmpty`) **und*
 |---|---|---|
 | Erstauftauchen | Episode beginnt (Höchstzahl 0) in `Watching` | Alle bestätigten Ziele rasten ein |
 | Cooldown-Nachholen | Episode begann im Cooldown, danach `Watching` und Anzahl ≤ Höchstzahl | Alle Ziele rasten nach dem Cooldown ein |
-| Zuwachs | Anzahl > bisherige Höchstzahl der Episode (auch im Cooldown) | Nur die neuen Ziele rasten ein |
+| Zuwachs | Anzahl > bisherige Höchstzahl der Episode (auch im Cooldown) | Alle Anwesenden rasten gemeinsam ein (siehe unten) |
 | Personentausch (`SwapTriggers`) | Eine neu bestätigte Spur ist in dieser Episode noch nicht in `_known` | wie Zuwachs, auch bei gleicher Anzahl |
 | Wiederholung (`RepeatEnabled`) | `Watching`, Gruppe noch anwesend, `jetzt ≥ Textende + RepeatSeconds` (frühestens nach dem Cooldown) | Alle Ziele rasten erneut ein |
 
-Verhalten je Phase beim Zuwachs: In `ShowingText` läuft der Text unverändert weiter; die Neuen bekommen nur einen Rahmen und werden vorgemerkt (`_pending`). In `LockingOn` rasten sie mit ein (das Ende verlängert sich bis `jetzt + Einrastdauer`, falls später). Sonst wird neu eingerastet.
+Verhalten je Phase beim Zuwachs: Es rasten immer **alle** bestätigten Personen gemeinsam ein (jede in ihrer eigenen Box, gleicher Startzeitpunkt `LockStartedAt`), nie nur die Neuen.
+
+- `ShowingText`: Der Text läuft unverändert weiter; die Neuen bekommen nur einen Rahmen und werden vorgemerkt (`_pending`). Nach dem Textende rasten alle Anwesenden gemeinsam neu ein (ein `Acquire`-Ton), danach folgt eine neue Meldung mit der Gesamtzahl.
+- `LockingOn`: Die Animation startet für alle bestätigten Personen neu (`_phaseEnd = jetzt + Einrastdauer`). Pro Neustart genau ein `Acquire`-Ton; mehrere Neue im selben Analysedurchgang sind ein Neustart. `Lock` und `Text` kommen einmal am Ende. Begrenzung: höchstens `MaxLockOnRestarts` Neustarts je Einrastrunde (Zähler `_restartsThisRound`, zurückgesetzt bei jedem Rundenbeginn, überlebt `Configure`). Danach rasten Spätkommer einzeln ein (das Ende verlängert sich nur bis `jetzt + Einrastdauer`, falls später, jeweils mit eigenem `Acquire`); bei 0 gilt das von Anfang an. Jeder Neustart steht im Log („Zielerfassung: Einrasten startet für N Personen neu …“).
+- `Watching`/`Cooldown` (Zuwachs, Tausch): Alle Anwesenden rasten gemeinsam ein, danach folgt die Meldung mit der Gesamtzahl.
+- Geht jemand während des Einrastens, gibt es keinen Neustart; die Animation läuft weiter. Die Meldung zählt am Ende die tatsächlich eingerasteten Personen (Fallback bei keiner eingerasteten Person, etwa bei ausgeschaltetem Personentausch: die Zahl der Anwesenden, mindestens 1).
 
 ### Textregeln
 
 - Der Text bleibt während der Anzeige fest: kein Verlängern, kein Umschalten du/ihr; die Personenzahl gilt ab Textbeginn (`_textCount`).
-- Wer während des Texts dazukommt, bekommt nur einen Rahmen und wird vorgemerkt. Am Textende rasten nur die noch anwesenden Vorgemerkten ein (neue Meldung ohne Cooldown), sonst folgt der Cooldown.
+- Wer während des Texts dazukommt, bekommt nur einen Rahmen und wird vorgemerkt. Am Textende rasten – sind Vorgemerkte noch da – alle Anwesenden gemeinsam neu ein (neue Meldung mit der Gesamtzahl ohne Cooldown), sonst folgt der Cooldown.
 - Die Beschriftung „TARGET n“ wird von links nach rechts nach der Spiegelung vergeben.
 - Eine Änderung der Einrast-Dauer mitten im Einrasten rechnet das Ende neu (ab dem letzten Beginn); die Engine hängt nie am alten Ende.
 
@@ -270,7 +276,7 @@ Der Tab „Fun“ ist der letzte Tab. Er hat eine Startseite mit Kacheln (`FunPa
 - **Live-Vorschau** nur bei gewähltem Tab (`AdminViewModel.IsFunTabSelected`), auch wenn Fun aus ist, mit den Entwurfswerten. Eine eigene `FunOverlayViewModel`-Instanz fordert die Erkennung an (überholt die Gastansicht).
 - **„Animation testen“** (`TestFunPreviewCommand`) simuliert ein Ziel – ohne Kamera.
 - **Statuszeile** (`FunPreviewStatusFormatter`): „N Personen erkannt · X,Y Analysen/s · Methode: Ganzkörper (KI) bzw. Gesicht (Windows)“; davor „Erkennung wird geladen …“ bzw. „Die Erkennung ist nicht verfügbar.“; eine zweite Zeile in der Warnfarbe nennt den Grund des Ausweichens auf die Gesichtserkennung. Ein Hinweis erscheint, wenn keine Kamera läuft.
-- **Karten:** Erkennung (Verfahren, Umfang, **Analysen pro Sekunde** mit ⓘ-Tooltip, Empfindlichkeit, Mindestgröße, Höchstzahl, Verweildauer), Aussehen (Stil, Farbe, Animation, „Dauer der Einrast-Animation“ 500–5000 ms, „Intensität der Einrast-Animation“ 0–100 % in 5er-Schritten), Text (Einzahl/Mehrzahl, Position, Stil, Anzeigedauer, Pause, „Personentausch löst aus“, „Bei gleicher Gruppe wiederholen“/„Wiederholen alle“), Ton. Skizzen: `TargetStyleSketch`, `LockOnSketch`.
+- **Karten:** Erkennung (Verfahren, Umfang, **Analysen pro Sekunde** mit ⓘ-Tooltip, Empfindlichkeit, Mindestgröße, Höchstzahl, Verweildauer), Aussehen (Stil, Farbe, Animation, „Dauer der Einrast-Animation“ 500–5000 ms, „Maximale Neustarts beim Einrasten“ 0–10, „Intensität der Einrast-Animation“ 0–100 % in 5er-Schritten), Text (Einzahl/Mehrzahl, Position, Stil, Anzeigedauer, Pause, „Personentausch löst aus“, „Bei gleicher Gruppe wiederholen“/„Wiederholen alle“), Ton. Skizzen: `TargetStyleSketch`, `LockOnSketch`.
 - **ⓘ-Tooltip „Analysen pro Sekunde“:** Der Info-Knopf (`InfoBadge`, Text `AdminInfoTexts.FunAnalysesPerSecond`, auch als `AutomationProperties.HelpText`) erklärt: Wie oft das (verkleinerte) Livebild auf Personen untersucht wird; höher = Marken folgen schneller, aber mehr CPU; niedriger = weniger Leistung, träger; Empfehlung 5 (auf schwachen PCs 2–3, mehr als 5 bringt meist kaum Verbesserung); Tipp: Zeigt die Statuszeile dauerhaft weniger Analysen/s als eingestellt, ist der PC ausgelastet – Wert senken. Der Text muss zum Verhalten von `PersonDetectionService.OnFrame` passen.
 - „Standardwerte wiederherstellen“ setzt `Fun` zurück.
 
