@@ -20,8 +20,8 @@ public interface IAccelerationService : IModelPlacement, IAsyncDisposable
     event EventHandler? StateChanged;
 
     /// <summary>
-    /// Startet einmalig im Hintergrund (Threadpool): Katalog, Geräteliste, Plan; im Modus Auto ohne passenden Cache zusätzlich die
-    /// Hintergrundmessung. Mehrfache Aufrufe liefern dieselbe Aufgabe. Wirft nie; blockiert den Aufrufer nicht.
+    /// Startet einmalig im Hintergrund (Threadpool): Katalog, Geräteliste, Plan; im Modus Auto ohne passenden Cache (und bei Grafikkarte/KI-Einheit, solange das Gerät
+    /// noch nicht im Messprozess geprüft wurde) zusätzlich die Hintergrundmessung. Mehrfache Aufrufe liefern dieselbe Aufgabe. Wirft nie; blockiert den Aufrufer nicht.
     /// </summary>
     Task StartAsync();
 
@@ -134,7 +134,9 @@ public sealed class AccelerationService : IAccelerationService
                 AppLog.Info("Beschleunigung: Ausführungsanbieter im Katalog: " + string.Join(", ", providers.Select(p => $"{p.Name} ({p.ReadyState})")));
             var fingerprint = CurrentFingerprint(devices, providers);
             BenchmarkResult? cached = null;
-            if (_startedMode == AcceleratorMode.Auto && devices.Any(d => !d.IsCpu))
+            // Auch die Modi Grafikkarte/KI-Einheit lesen den Cache: Ein Gerät wird nur genutzt, wenn die Messung (im Messprozess) es schon als
+            // brauchbar ausgewiesen hat; sonst läuft dieser Start auf der CPU und das Gerät wird im Hintergrund geprüft.
+            if (_startedMode != AcceleratorMode.Cpu && devices.Any(d => !d.IsCpu))
             {
                 cached = AccelerationCache.TryRead(CachePath, fingerprint);
                 AppLog.Info(cached is null
@@ -194,6 +196,16 @@ public sealed class AccelerationService : IAccelerationService
             }
         }
         _lateModels.Clear();
+
+        // Modelle, die auf dem gewählten Gerät schon in der Messung gescheitert sind (auch abgestürzt): CPU, Grund im Status.
+        if (decision.Failures is { Count: > 0 } failures)
+        {
+            foreach (var failure in failures)
+            {
+                fallbacks.Add(new AccelerationFallback(failure.Model, failure.Device.Name, "Die Messung ist gescheitert: " + failure.Reason, false, _time.GetUtcNow()));
+                fellBack.Add(failure.Model);
+            }
+        }
 
         _state = _state with
         {
@@ -377,15 +389,32 @@ public sealed class AccelerationService : IAccelerationService
             {
                 var fingerprint = CurrentFingerprint(devices, SafeProviders());
                 if (AccelerationCache.TryWrite(CachePath, fingerprint, result))
-                    AppLog.Info("Beschleunigung: Messwerte gespeichert (gelten ab dem nächsten Start im Modus Auto).");
+                    AppLog.Info("Beschleunigung: Messwerte gespeichert (gelten ab dem nächsten Start).");
             }
 
             UpdateState(s =>
             {
                 var recommended = false;
-                if (!result.Cancelled && _startedMode == AcceleratorMode.Auto && _plan is { } plan)
-                    recommended = !AccelerationPlanner.SamePlan(plan, AccelerationPlanner.FromBenchmark(result, devices));
-                return s with { LastBenchmark = result.Cancelled ? s.LastBenchmark : result, RestartRecommended = recommended || (result.Cancelled && s.RestartRecommended) };
+                var notice = s.Notice;
+                if (!result.Cancelled && _startedMode != AcceleratorMode.Cpu && _plan is { } plan)
+                {
+                    // Was ein Start mit diesen Messwerten täte (Auto: schnellstes Gerät, Grafikkarte/KI-Einheit: gewähltes Gerät, wenn es bestand).
+                    var next = AccelerationPlanner.Decide(_startedMode, _startedGpuKey, devices, result);
+                    recommended = !AccelerationPlanner.SamePlan(plan, next.Plan);
+                    if (_startedMode != AcceleratorMode.Auto)
+                    {
+                        var chosen = next.Plan.Values.FirstOrDefault(d => d is { IsCpu: false });
+                        notice = recommended && chosen is not null
+                            ? $"Die Prüfung ist abgeschlossen – ab dem nächsten Start nutzt die Erkennung „{chosen.Name}“."
+                            : next.Notice;
+                    }
+                }
+                return s with
+                {
+                    LastBenchmark = result.Cancelled ? s.LastBenchmark : result,
+                    RestartRecommended = recommended || (result.Cancelled && s.RestartRecommended),
+                    Notice = notice,
+                };
             });
             return result;
         }

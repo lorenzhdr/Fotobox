@@ -312,7 +312,14 @@ public sealed partial class AdminViewModel
     {
         get
         {
-            if (!_accel.PlanReady || _accel.Mode != AcceleratorMode.Auto)
+            if (!_accel.PlanReady)
+                return null;
+            // Grafikkarte/KI-Einheit werden erst genutzt, wenn eine Messung sie als brauchbar ausgewiesen hat (der Dienst nennt das im Hinweis).
+            if (_accel.Mode is AcceleratorMode.Gpu or AcceleratorMode.Npu)
+                return _accel.BenchmarkRunning && _accel.BenchmarkIsBackground
+                    ? "Das gewählte Gerät wird im Hintergrund geprüft. Bis dahin läuft die Erkennung auf dem Prozessor."
+                    : null;
+            if (_accel.Mode != AcceleratorMode.Auto)
                 return null;
             if (_accel.PlanFromCache && _accel.LastBenchmark is { } cached)
                 return $"Die Zuordnung beruht auf der letzten Messung ({AccelerationDisplay.FormatTime(cached.MeasuredAt)}).";
@@ -363,7 +370,7 @@ public sealed partial class AdminViewModel
 
     /// <summary>
     /// „Wirkt nach einem Neustart“: sobald der Entwurf vom laufenden Stand abweicht (Modus, Grafikkarte), der Dienst eine nötige
-    /// Änderung meldet (gespeicherte Änderung, Installation) oder im Modus Auto neue Messwerte einen anderen Plan ergäben.
+    /// Änderung meldet (gespeicherte Änderung, Installation) oder neue Messwerte (Auto, Grafikkarte, KI-Einheit) einen anderen Plan ergäben.
     /// Vor dem fertigen Plan zählt der gespeicherte Stand (der Dienst kennt den laufenden Modus noch nicht).
     /// </summary>
     public string? PerformanceRestartHint
@@ -387,7 +394,7 @@ public sealed partial class AdminViewModel
             }
             if (_installNeedsRestart)
                 return PerformanceInstalledRestartText;
-            if (draft.Accelerator == AcceleratorMode.Auto && _accel.Mode == AcceleratorMode.Auto && _accel.RestartRecommended)
+            if (_accel.Mode != AcceleratorMode.Cpu && draft.Accelerator == _accel.Mode && _accel.RestartRecommended)
                 return PerformanceRestartRecommendedText;
             return null;
         }

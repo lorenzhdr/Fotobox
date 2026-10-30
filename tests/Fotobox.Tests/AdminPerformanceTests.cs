@@ -371,6 +371,33 @@ public sealed class AdminPerformanceTests : IDisposable
     }
 
     [Fact]
+    public void RestartHint_ForGpuMode_FollowsTheRecommendationAfterTheBackgroundCheck()
+    {
+        _store.Current.Performance.Accelerator = AcceleratorMode.Gpu;
+        var service = new FakeAccelerationService(FakeAccelerationService.Ready(AccelDevices.WithCpu(_gpu), AcceleratorMode.Gpu));
+        var vm = Create(service);
+        Assert.False(vm.HasPerformanceRestartHint);
+
+        // Die Grafikkarte wurde im Hintergrund geprüft: ab dem nächsten Start wird sie genutzt.
+        service.Update(s => s with { RestartRecommended = true });
+
+        Assert.Equal(AdminViewModel.PerformanceRestartRecommendedText, vm.PerformanceRestartHint);
+    }
+
+    [Fact]
+    public void SourceText_ForGpuMode_NamesTheBackgroundCheck()
+    {
+        _store.Current.Performance.Accelerator = AcceleratorMode.Gpu;
+        var service = new FakeAccelerationService(FakeAccelerationService.Ready(AccelDevices.WithCpu(_gpu), AcceleratorMode.Gpu));
+        var vm = Create(service);
+        Assert.Null(vm.AccelerationSourceText);
+
+        service.Update(s => s with { BenchmarkRunning = true, BenchmarkIsBackground = true });
+
+        Assert.Contains("geprüft", vm.AccelerationSourceText);
+    }
+
+    [Fact]
     public async Task RestartHint_AfterSavingAChangedMode_StaysUntilRestart()
     {
         var service = ReadyService(_gpu);

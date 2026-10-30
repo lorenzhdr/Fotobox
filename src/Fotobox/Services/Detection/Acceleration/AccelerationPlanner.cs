@@ -7,8 +7,12 @@ using Fotobox.Core;
 
 namespace Fotobox.Services.Detection.Acceleration;
 
-/// <summary>Ergebnis der Planung: je Modell das Gerät (null = CPU).</summary>
-internal sealed record PlanDecision(IReadOnlyDictionary<ModelId, AcceleratorDevice?> Plan, string? Notice, bool NeedsMeasurement, bool FromCache);
+/// <summary>Ein Modell, das auf dem gewählten Gerät schon in der Messung gescheitert ist (läuft deshalb auf der CPU), mit Grund.</summary>
+internal sealed record PlanFailure(ModelId Model, AcceleratorDevice Device, string Reason);
+
+/// <summary>Ergebnis der Planung: je Modell das Gerät (null = CPU); <paramref name="Failures"/> = in der Messung gescheiterte Modelle des gewählten Geräts.</summary>
+internal sealed record PlanDecision(IReadOnlyDictionary<ModelId, AcceleratorDevice?> Plan, string? Notice, bool NeedsMeasurement, bool FromCache,
+    IReadOnlyList<PlanFailure>? Failures = null);
 
 /// <summary>Entscheidet reine Logik ohne Hardware: welches Modell bei welchem Modus auf welches Gerät kommt.</summary>
 internal static class AccelerationPlanner
@@ -33,7 +37,7 @@ internal static class AccelerationPlanner
             {
                 var gpu = AcceleratorSelector.SelectGpu(devices, gpuKey);
                 if (gpu is not null)
-                    return new PlanDecision(AllOn(gpu), null, false, false);
+                    return ForChosenDevice(gpu, "Die Grafikkarte", cached);
                 var notice = gpuKey is null
                     ? "Es wurde keine Grafikkarte gefunden – die Erkennung läuft auf der CPU."
                     : "Die gewählte Grafikkarte wurde nicht gefunden – die Erkennung läuft auf der CPU.";
@@ -44,7 +48,7 @@ internal static class AccelerationPlanner
             {
                 var npu = AcceleratorSelector.SelectNpu(devices);
                 if (npu is not null)
-                    return new PlanDecision(AllOn(npu), null, false, false);
+                    return ForChosenDevice(npu, "Die KI-Einheit (NPU)", cached);
                 return new PlanDecision(AllOn(null), "Es wurde keine KI-Einheit (NPU) gefunden – die Erkennung läuft auf der CPU.", false, false);
             }
 
@@ -56,6 +60,49 @@ internal static class AccelerationPlanner
                     return new PlanDecision(AllOn(null), null, true, false);
                 return new PlanDecision(FromBenchmark(cached, devices), null, false, true);
         }
+    }
+
+    /// <summary>
+    /// Ausdrücklich gewähltes Gerät (Grafikkarte/NPU): Es wird im Hauptprozess nur geladen, wenn die Messung im Messprozess (Cache mit
+    /// gleichem Fingerabdruck) das Modell darauf erfolgreich geschafft hat. Fehlt jede Messung → dieser Start auf der CPU, im Hintergrund
+    /// wird geprüft (<see cref="PlanDecision.NeedsMeasurement"/>). Gescheitert (auch abgestürzt) → CPU mit Grund, ohne bei jedem Start neu
+    /// zu messen (der Admin kann mit „Jetzt messen“ wiederholen). Anders als im Modus Auto zählt hier keine Mindestgeschwindigkeit.
+    /// </summary>
+    private static PlanDecision ForChosenDevice(AcceleratorDevice device, string label, BenchmarkResult? cached)
+    {
+        var plan = new Dictionary<ModelId, AcceleratorDevice?>();
+        var failures = new List<PlanFailure>();
+        var unverified = false;
+        foreach (var model in AllModels)
+        {
+            var entry = cached?.Find(device.Key, model);
+            if (entry is null)
+            {
+                unverified = true;
+                plan[model] = null;
+            }
+            else if (entry.Succeeded)
+            {
+                plan[model] = device;
+            }
+            else
+            {
+                plan[model] = null;
+                failures.Add(new PlanFailure(model, device, string.IsNullOrWhiteSpace(entry.Error) ? "Messung fehlgeschlagen" : entry.Error));
+            }
+        }
+
+        if (unverified)
+        {
+            return new PlanDecision(AllOn(null), $"{label} wird zuerst geprüft und ab dem nächsten Start genutzt.", NeedsMeasurement: true, FromCache: cached is not null);
+        }
+        if (failures.Count > 0)
+        {
+            return new PlanDecision(plan,
+                $"{label} hat die Prüfung nicht bestanden – die Erkennung läuft auf dem Prozessor. Mit „Jetzt messen“ können Sie die Prüfung wiederholen.",
+                NeedsMeasurement: false, FromCache: true, failures);
+        }
+        return new PlanDecision(plan, null, NeedsMeasurement: false, FromCache: true);
     }
 
     private static Dictionary<ModelId, AcceleratorDevice?> AllOn(AcceleratorDevice? device) =>
@@ -102,7 +149,8 @@ internal static class AccelerationPlanner
 internal static class AccelerationCache
 {
     public const string FileName = "beschleunigung.json";
-    private const int CurrentFormat = 1;
+    // 2: Die Messwerte entstehen im Messprozess (ältere, im Hauptprozess gemessene Dateien gelten nicht als dort erfolgreich geprüft).
+    private const int CurrentFormat = 2;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

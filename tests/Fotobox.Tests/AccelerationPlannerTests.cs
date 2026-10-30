@@ -122,18 +122,64 @@ public sealed class AccelerationPlannerTests
     }
 
     [Fact]
-    public void Decide_Gpu_UsesTheChosenOrStrongestGpu()
+    public void Decide_Gpu_UsesTheChosenOrStrongestGpu_OnceItWasMeasuredSuccessfully()
     {
         var weak = AccelDevices.Gpu("Schwach", discrete: false, index: 1, device: 1);
         var strong = AccelDevices.Gpu("Stark", discrete: true, index: 0, device: 2);
         var devices = AccelDevices.WithCpu(weak, strong);
+        var measured = AccelDevices.Result((AcceleratorDevice.CpuDevice, 10, 10, 10, 10), (weak, 20, 20, 20, 20), (strong, 5, 5, 5, 5));
 
-        var auto = AccelerationPlanner.Decide(AcceleratorMode.Gpu, null, devices, null);
-        var chosen = AccelerationPlanner.Decide(AcceleratorMode.Gpu, weak.Key, devices, null);
+        var auto = AccelerationPlanner.Decide(AcceleratorMode.Gpu, null, devices, measured);
+        var chosen = AccelerationPlanner.Decide(AcceleratorMode.Gpu, weak.Key, devices, measured);
 
         Assert.All(AccelerationPlanner.AllModels, m => Assert.Same(strong, auto.Plan[m]));
-        Assert.All(AccelerationPlanner.AllModels, m => Assert.Same(weak, chosen.Plan[m]));
+        Assert.All(AccelerationPlanner.AllModels, m => Assert.Same(weak, chosen.Plan[m])); // auch langsamer als die CPU: ausdrücklich gewählt
         Assert.Null(auto.Notice);
+        Assert.False(auto.NeedsMeasurement);
+        Assert.True(auto.FromCache);
+    }
+
+    [Fact]
+    public void Decide_Gpu_NotMeasuredYet_UsesTheCpu_AndAsksForAMeasurement()
+    {
+        var gpu = AccelDevices.Gpu("Karte", discrete: true, index: 0, device: 1);
+        var other = AccelDevices.Gpu("Andere", device: 2);
+        var devices = AccelDevices.WithCpu(gpu, other);
+
+        var noCache = AccelerationPlanner.Decide(AcceleratorMode.Gpu, null, devices, null);
+        var otherOnly = AccelerationPlanner.Decide(AcceleratorMode.Gpu, null, devices,
+            AccelDevices.Result((AcceleratorDevice.CpuDevice, 10, 10, 10, 10), (other, 5, 5, 5, 5))); // nur ein anderes Gerät wurde geprüft
+
+        foreach (var decision in new[] { noCache, otherOnly })
+        {
+            Assert.All(AccelerationPlanner.AllModels, m => Assert.Null(decision.Plan[m]));
+            Assert.True(decision.NeedsMeasurement);
+            Assert.Equal("Die Grafikkarte wird zuerst geprüft und ab dem nächsten Start genutzt.", decision.Notice);
+        }
+    }
+
+    [Fact]
+    public void Decide_Gpu_FailedInTheMeasurement_UsesTheCpuWithReason_WithoutMeasuringAgain()
+    {
+        var gpu = AccelDevices.Gpu("Karte", discrete: true, index: 0, device: 1);
+        var devices = AccelDevices.WithCpu(gpu);
+        // Yolox ging, Palm nicht (z. B. Messprozess abgestürzt): Nur das gescheiterte Modell fällt zurück.
+        var measured = new BenchmarkResult(DateTimeOffset.UtcNow,
+        [
+            new BenchmarkEntry(gpu.Key, gpu.Name, ModelId.Yolox, 100, 5, null),
+            new BenchmarkEntry(gpu.Key, gpu.Name, ModelId.YuNet, 100, 5, null),
+            new BenchmarkEntry(gpu.Key, gpu.Name, ModelId.Palm, 0, 0, "Messprozess abgestürzt (Exit-Code 0xC0000409)"),
+            new BenchmarkEntry(gpu.Key, gpu.Name, ModelId.Landmark, 100, 5, null),
+        ]);
+
+        var decision = AccelerationPlanner.Decide(AcceleratorMode.Gpu, null, devices, measured);
+
+        Assert.Same(gpu, decision.Plan[ModelId.Yolox]);
+        Assert.Null(decision.Plan[ModelId.Palm]);
+        Assert.False(decision.NeedsMeasurement);
+        Assert.Contains("nicht bestanden", decision.Notice);
+        var failure = Assert.Single(decision.Failures!);
+        Assert.Equal((ModelId.Palm, "Messprozess abgestürzt (Exit-Code 0xC0000409)"), (failure.Model, failure.Reason));
     }
 
     [Fact]
@@ -155,14 +201,19 @@ public sealed class AccelerationPlannerTests
     }
 
     [Fact]
-    public void Decide_Npu_UsesFirstNpu_OrFallsBackWithNotice()
+    public void Decide_Npu_UsesFirstNpu_WhenMeasured_OrFallsBackWithNotice()
     {
         var npu = AccelDevices.Npu("KI-Einheit");
+        var measured = AccelDevices.Result((AcceleratorDevice.CpuDevice, 10, 10, 10, 10), (npu, 5, 5, 5, 5));
 
-        var found = AccelerationPlanner.Decide(AcceleratorMode.Npu, null, AccelDevices.WithCpu(AccelDevices.Gpu("Karte"), npu), null);
+        var found = AccelerationPlanner.Decide(AcceleratorMode.Npu, null, AccelDevices.WithCpu(AccelDevices.Gpu("Karte"), npu), measured);
+        var unmeasured = AccelerationPlanner.Decide(AcceleratorMode.Npu, null, AccelDevices.WithCpu(AccelDevices.Gpu("Karte"), npu), null);
         var missing = AccelerationPlanner.Decide(AcceleratorMode.Npu, null, AccelDevices.WithCpu(AccelDevices.Gpu("Karte")), null);
 
         Assert.All(AccelerationPlanner.AllModels, m => Assert.Same(npu, found.Plan[m]));
+        Assert.All(AccelerationPlanner.AllModels, m => Assert.Null(unmeasured.Plan[m]));
+        Assert.True(unmeasured.NeedsMeasurement);
+        Assert.Contains("KI-Einheit", unmeasured.Notice);
         Assert.All(AccelerationPlanner.AllModels, m => Assert.Null(missing.Plan[m]));
         Assert.Contains("NPU", missing.Notice);
     }
@@ -312,7 +363,7 @@ public sealed class AccelerationPlannerTests
             File.WriteAllText(path, "{\"Format\":99,\"Fingerprint\":\"abc\",\"Entries\":[]}");
             Assert.Null(AccelerationCache.TryRead(path, "abc"));
 
-            File.WriteAllText(path, "{\"Format\":1,\"Fingerprint\":\"abc\",\"Entries\":[{\"DeviceKey\":\"cpu\",\"DeviceName\":\"CPU\",\"Model\":\"Unbekannt\",\"LoadMs\":1,\"AverageMs\":1}]}");
+            File.WriteAllText(path, "{\"Format\":2,\"Fingerprint\":\"abc\",\"Entries\":[{\"DeviceKey\":\"cpu\",\"DeviceName\":\"CPU\",\"Model\":\"Unbekannt\",\"LoadMs\":1,\"AverageMs\":1}]}");
             Assert.Null(AccelerationCache.TryRead(path, "abc"));
         }
         finally

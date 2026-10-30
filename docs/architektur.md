@@ -19,7 +19,7 @@ Alle Abhängigkeiten sind Interfaces in `src/Fotobox/Core/Interfaces.cs`. Dadurc
 
 | Lebensdauer | Dienste |
 |---|---|
-| Singleton | `TimeProvider.System`, `ISettingsStore` (`JsonSettingsStore`), `IPinService`, `ICameraService` (`WinRtCameraService`), `ILayoutComposer`, `IPrintService`, `IPhotoStorage`, `IVideoStorage`, `IDisplayService`, `IPersonDetectionService`, `IFunSoundPlayer`, `IMusicPlayer` (`MusicPlayer`, Kisscam-Musik), `IKisscamMusicLibrary` (`KisscamMusicLibrary`, Musikordner und Config; `Dispose` speichert höchstens 1 s lang), `IAcceleratorCatalog` (`AcceleratorCatalog`), `IAcceleratorBenchmark` (`AcceleratorBenchmark`), `IAccelerationService`/`IModelPlacement` (`AccelerationService`, ein Objekt unter beiden Schnittstellen; `beschleunigung.md`), `IGpuPreferenceStore` (`RegistryGpuPreferenceStore`), `GpuPreferenceRegistry`, `IGestureDetectionService`, `GuestMoustacheState`, `IPhotoDecorator` (`MoustachePhotoDecorator`), `IAdminLauncher`, `BoothController`, `BoothViewModel`, `BoothWindow` |
+| Singleton | `TimeProvider.System`, `ISettingsStore` (`JsonSettingsStore`), `IPinService`, `ICameraService` (`WinRtCameraService`), `ILayoutComposer`, `IPrintService`, `IPhotoStorage`, `IVideoStorage`, `IDisplayService`, `IPersonDetectionService`, `IFunSoundPlayer`, `IMusicPlayer` (`MusicPlayer`, Kisscam-Musik), `IKisscamMusicLibrary` (`KisscamMusicLibrary`, Musikordner und Config; `Dispose` speichert höchstens 1 s lang), `IAcceleratorCatalog` (`AcceleratorCatalog`), `IAcceleratorBenchmark` (`OutOfProcessBenchmark`, Messung im eigenen Prozess), `IAccelerationService`/`IModelPlacement` (`AccelerationService`, ein Objekt unter beiden Schnittstellen; `beschleunigung.md`), `IGpuPreferenceStore` (`RegistryGpuPreferenceStore`), `GpuPreferenceRegistry`, `IGestureDetectionService`, `GuestMoustacheState`, `IPhotoDecorator` (`MoustachePhotoDecorator`), `IAdminLauncher`, `BoothController`, `BoothViewModel`, `BoothWindow` |
 | Transient | `FunOverlayViewModel`, `PeaceOverlayViewModel` (Gastansicht und Admin-Vorschau brauchen je eine eigene Instanz; nur die Gastansicht bekommt `GuestMoustacheState`) |
 
 Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale Konstruktorparameter.
@@ -198,7 +198,8 @@ Alles, was blockieren kann, hat ein Timeout und einen definierten Fehlerpfad zur
 | Beschleunigung: Geräteliste | Katalog registrieren 10 s (äußere Frist 12 s); danach nur CPU | `AccelerationTimeouts.Discovery` |
 | Beschleunigung: Plan abwarten | Detektor wartet beim ersten Laden höchstens 3 s, sonst CPU | `AccelerationTimeouts.PlanWait` |
 | Beschleunigung: Laden auf dem Gerät | 10 s je Detektor (alle seine Modelle), danach Rückfall auf die CPU | `AccelerationTimeouts.DeviceLoad` |
-| Beschleunigung: Messung | 20 s je Gerät, 60 s gesamt; Hintergrundmessung startet 10 s nach dem Start | `BenchmarkPerDevice`, `BenchmarkTotal`, `BackgroundBenchmarkDelay` |
+| Beschleunigung: Messung (eigener Messprozess) | 20 s je Gerät, 60 s gesamt, danach Kill des Prozesses samt Kindern; Hintergrundmessung startet 10 s nach dem Start; Absturz → Gerät fehlgeschlagen, Rest in neuem Prozess | `BenchmarkPerDevice`, `BenchmarkTotal`, `BackgroundBenchmarkDelay` |
+| Beschleunigung: Wachhund des Messprozesses | bis zum ersten Gerät 30 s, je Gerät 20 s + 10 s, zwischen Geräten 10 s, nach „fertig“ 3 s, dann Kill; Job-Objekt beendet Waisen | `AccelerationTimeouts.BenchmarkChild…` |
 | Beschleunigung: Installation der Hersteller-Anbieter | 10 min | `AccelerationTimeouts.Install` |
 | Admin-Tab „Leistung“: Status der Ausführungsanbieter | 5 s (WinRT-Aufruf auf dem Threadpool), danach „Status unbekannt“ | `AdminViewModel.ProviderStatesTimeout` |
 | Peace: Analyse | 2 s | `PeaceDetectionService.AnalysisTimeout` |

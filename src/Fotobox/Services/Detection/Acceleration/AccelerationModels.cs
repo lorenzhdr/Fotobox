@@ -78,8 +78,8 @@ public sealed record AccelerationFallback(ModelId Model, string DeviceName, stri
 
 /// <summary>
 /// Momentaufnahme des Beschleunigungsdienstes für die Statusanzeige. <see cref="RestartRequired"/>: Einstellung oder
-/// Ausführungsanbieter wurden seit dem Start geändert (wirkt erst nach Neustart). <see cref="RestartRecommended"/>: Auto-Modus, die
-/// letzte Messung ergäbe einen anderen Plan als der laufende.
+/// Ausführungsanbieter wurden seit dem Start geändert (wirkt erst nach Neustart). <see cref="RestartRecommended"/>: Modus Auto, Grafikkarte
+/// oder KI-Einheit; die letzte Messung ergäbe einen anderen Plan als der laufende.
 /// </summary>
 public sealed record AccelerationState(
     AcceleratorMode Mode,
@@ -133,6 +133,17 @@ public static class AccelerationTimeouts
     /// <summary>Messung: je Gerät (alle vier Modelle) und insgesamt.</summary>
     public static readonly TimeSpan BenchmarkPerDevice = TimeSpan.FromSeconds(20);
     public static readonly TimeSpan BenchmarkTotal = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Messprozess (Wachhund des Hauptprozesses): bis zum ersten gemeldeten Gerät (Prozessstart + Geräteliste), über die Frist je Gerät hinaus
+    /// (<see cref="BenchmarkPerDevice"/> + diese Reserve) und zwischen zwei Geräten; danach wird der Messprozess beendet (Kill samt Prozessbaum).
+    /// </summary>
+    public static readonly TimeSpan BenchmarkChildStartup = TimeSpan.FromSeconds(30);
+    public static readonly TimeSpan BenchmarkChildDeviceReserve = TimeSpan.FromSeconds(10);
+    public static readonly TimeSpan BenchmarkChildBetweenDevices = TimeSpan.FromSeconds(10);
+
+    /// <summary>So lange wartet der Hauptprozess nach der Meldung „fertig“ auf das Ende des Messprozesses, danach Kill (ein nativer Abbau kann hängen).</summary>
+    public static readonly TimeSpan BenchmarkChildExit = TimeSpan.FromSeconds(3);
 
     /// <summary>Installation der Hersteller-Ausführungsanbieter (Download).</summary>
     public static readonly TimeSpan Install = TimeSpan.FromMinutes(10);

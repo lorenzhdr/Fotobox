@@ -224,7 +224,8 @@ public partial class App : Application
         // Beschleunigung der KI-Erkennung über Windows ML (GPU/NPU mit Rückfall auf die CPU). Die Konstruktoren tun nichts Natives; erst
         // App.OnStartup startet den Dienst (Katalog, Plan, Messung). Der Container gibt den Dienst beim Beenden frei (bricht nur ab).
         services.AddSingleton<IAcceleratorCatalog, AcceleratorCatalog>();
-        services.AddSingleton<IAcceleratorBenchmark, AcceleratorBenchmark>();
+        // Messung in einem eigenen Prozess (derselbe Programmpfad): Ein Treiberabsturz beim Messen reißt die Fotobox nicht mit.
+        services.AddSingleton<IAcceleratorBenchmark>(_ => new OutOfProcessBenchmark(Environment.ProcessPath));
         services.AddSingleton<IAccelerationService>(sp => new AccelerationService(
             sp.GetRequiredService<ISettingsStore>(),
             sp.GetRequiredService<IAcceleratorCatalog>(),

@@ -15,6 +15,21 @@ public static class AcceleratorSelector
     public static string BuildKey(string epName, uint vendorId, uint deviceId, string? description) =>
         string.Create(CultureInfo.InvariantCulture, $"{Normalize(epName)}|{vendorId:x4}|{deviceId:x4}|{Normalize(description)}");
 
+    /// <summary>Hersteller-Id des „Microsoft Basic Render Driver“ (WARP, Software-Rasterizer von Windows).</summary>
+    internal const uint SoftwareAdapterVendorId = 0x1414;
+
+    /// <summary>Geräte-Id des WARP-Adapters.</summary>
+    internal const uint SoftwareAdapterDeviceId = 0x8C;
+
+    /// <summary>
+    /// Ist das Gerät ein Software-Grafikadapter (WARP / „Microsoft Basic Render Driver“)? DirectML läuft darauf auf der CPU, ist langsam
+    /// und kann abstürzen; er gehört nie in die Geräteliste. Erkennung über Hersteller-/Geräte-Id (beide, denn 0x1414 hat auch echte
+    /// Microsoft-Geräte) oder über die Beschreibung.
+    /// </summary>
+    public static bool IsSoftwareAdapter(uint vendorId, uint deviceId, string? description) =>
+        (vendorId == SoftwareAdapterVendorId && deviceId == SoftwareAdapterDeviceId)
+        || (description?.Contains("Basic Render Driver", StringComparison.OrdinalIgnoreCase) ?? false);
+
     private static string Normalize(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))

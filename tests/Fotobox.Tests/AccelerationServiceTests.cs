@@ -54,6 +54,20 @@ public sealed class AccelerationServiceTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Legt den Cache so an, wie ihn eine erfolgreiche Messung im Messprozess hinterlässt: Ein gewähltes Gerät (Modus Grafikkarte/KI-Einheit)
+    /// wird im Hauptprozess nur geladen, wenn es dort schon geprüft wurde.
+    /// </summary>
+    private async Task PrimeCacheAsync(params AcceleratorDevice[] devices) =>
+        await PrimeCacheAsync(AccelDevices.Result([(AcceleratorDevice.CpuDevice, 10, 10, 10, 10), .. devices.Select(d => (d, (double?)5, (double?)5, (double?)5, (double?)5))]), devices);
+
+    private async Task PrimeCacheAsync(BenchmarkResult result, params AcceleratorDevice[] devices)
+    {
+        var primer = Create(Settings(AcceleratorMode.Auto), new FakeAcceleratorCatalog(AccelDevices.WithCpu(devices)), new FakeAcceleratorBenchmark(result));
+        await primer.StartAsync();
+        await WaitUntil(() => primer.State.LastBenchmark is not null && !primer.State.BenchmarkRunning);
+    }
+
     private BenchmarkResult GpuTwiceAsFast() => AccelDevices.Result(
         (AcceleratorDevice.CpuDevice, 10, 10, 10, 10),
         (_gpu, 5, 5, 5, 5));
@@ -78,6 +92,7 @@ public sealed class AccelerationServiceTests : IDisposable
     [Fact]
     public async Task Gpu_Mode_UsesTheStrongestGpu_ForEveryModel()
     {
+        await PrimeCacheAsync(_weakGpu, _gpu);
         var service = Create(Settings(AcceleratorMode.Gpu), new FakeAcceleratorCatalog(AccelDevices.WithCpu(_weakGpu, _gpu)), new FakeAcceleratorBenchmark());
 
         await service.StartAsync();
@@ -91,6 +106,7 @@ public sealed class AccelerationServiceTests : IDisposable
     [Fact]
     public async Task Gpu_Mode_ChosenKeyIsHonoured()
     {
+        await PrimeCacheAsync(_weakGpu, _gpu);
         var service = Create(Settings(AcceleratorMode.Gpu, _weakGpu.Key), new FakeAcceleratorCatalog(AccelDevices.WithCpu(_weakGpu, _gpu)), new FakeAcceleratorBenchmark());
 
         await service.StartAsync();
@@ -114,6 +130,7 @@ public sealed class AccelerationServiceTests : IDisposable
     public async Task Npu_Mode_UsesTheNpu_OrFallsBackWithNotice()
     {
         var npu = AccelDevices.Npu("Test-KI-Einheit");
+        await PrimeCacheAsync(_gpu, npu);
         var withNpu = Create(Settings(AcceleratorMode.Npu), new FakeAcceleratorCatalog(AccelDevices.WithCpu(_gpu, npu)), new FakeAcceleratorBenchmark());
         var withoutNpu = Create(Settings(AcceleratorMode.Npu), new FakeAcceleratorCatalog(AccelDevices.WithCpu(_gpu)), new FakeAcceleratorBenchmark());
 
@@ -261,7 +278,7 @@ public sealed class AccelerationServiceTests : IDisposable
         Assert.False(benchmark.LastLowPriority); // von der Oberfläche: normale Priorität
         await WaitUntil(() => last is not null);
         Assert.True(File.Exists(Path.Combine(_dir, AccelerationCache.FileName)));
-        Assert.False(service.State.RestartRecommended); // nur im Modus Auto
+        Assert.False(service.State.RestartRecommended); // Modus CPU: nichts zu empfehlen
     }
 
     [Fact]
@@ -299,11 +316,90 @@ public sealed class AccelerationServiceTests : IDisposable
         Assert.False(service.State.BenchmarkRunning);
     }
 
+    // ------------------------------------------------------------------ Grafikkarte/KI-Einheit: erst im Messprozess geprüft
+
+    [Fact]
+    public async Task Gpu_Mode_NeverMeasured_StartsOnCpu_MeasuresInBackground_AndRecommendsARestart()
+    {
+        var benchmark = new FakeAcceleratorBenchmark(AccelDevices.Result((AcceleratorDevice.CpuDevice, 10, 10, 10, 10), (_gpu, 20, 20, 20, 20))); // langsamer: zählt im expliziten Modus trotzdem
+        var service = Create(Settings(AcceleratorMode.Gpu), new FakeAcceleratorCatalog(AccelDevices.WithCpu(_gpu)), benchmark);
+
+        await service.StartAsync();
+
+        Assert.Null(service.GetDevice(ModelId.Yolox)); // dieser Start: CPU
+        Assert.Contains("zuerst geprüft", service.State.Notice);
+        Assert.All(service.State.Plan, p => Assert.Equal(AcceleratorKind.Cpu, p.Kind));
+        await WaitUntil(() => service.State.LastBenchmark is not null && !service.State.BenchmarkRunning);
+        Assert.Equal(1, benchmark.Calls);
+        Assert.True(benchmark.LastLowPriority);
+        Assert.True(service.State.RestartRecommended);
+        Assert.Contains("ab dem nächsten Start", service.State.Notice);
+        Assert.Null(service.GetDevice(ModelId.Yolox)); // der laufende Plan ändert sich nicht
+
+        // Nächster Start: geprüft, also wird das Gerät geladen; keine neue Messung.
+        var nextBenchmark = new FakeAcceleratorBenchmark();
+        var next = Create(Settings(AcceleratorMode.Gpu), new FakeAcceleratorCatalog(AccelDevices.WithCpu(_gpu)), nextBenchmark);
+        await next.StartAsync();
+        Assert.Same(_gpu, next.GetDevice(ModelId.Yolox));
+        Assert.Null(next.State.Notice);
+        await Task.Delay(100);
+        Assert.Equal(0, nextBenchmark.Calls);
+    }
+
+    [Fact]
+    public async Task Gpu_Mode_MeasurementFailedOrCrashed_StaysOnCpu_WithTheReason_AndDoesNotMeasureEveryStart()
+    {
+        var crashed = AccelDevices.Result((AcceleratorDevice.CpuDevice, 10, 10, 10, 10), (_gpu, null, null, null, null));
+        await PrimeCacheAsync(crashed, _gpu);
+
+        var benchmark = new FakeAcceleratorBenchmark();
+        var service = Create(Settings(AcceleratorMode.Gpu), new FakeAcceleratorCatalog(AccelDevices.WithCpu(_gpu)), benchmark);
+        await service.StartAsync();
+
+        Assert.Null(service.GetDevice(ModelId.Yolox));
+        Assert.Contains("nicht bestanden", service.State.Notice);
+        Assert.Equal(4, service.State.Fallbacks.Count);
+        Assert.All(service.State.Fallbacks, f => Assert.Contains("Testfehler", f.Reason));
+        Assert.All(service.State.Plan, p => Assert.True(p.FellBack));
+        await Task.Delay(100);
+        Assert.Equal(0, benchmark.Calls);
+    }
+
+    [Fact]
+    public async Task Gpu_Mode_UserMeasurementThatPasses_RecommendsARestart()
+    {
+        var crashed = AccelDevices.Result((AcceleratorDevice.CpuDevice, 10, 10, 10, 10), (_gpu, null, null, null, null));
+        await PrimeCacheAsync(crashed, _gpu);
+        var benchmark = new FakeAcceleratorBenchmark(GpuTwiceAsFast());
+        var service = Create(Settings(AcceleratorMode.Gpu), new FakeAcceleratorCatalog(AccelDevices.WithCpu(_gpu)), benchmark);
+        await service.StartAsync();
+        Assert.False(service.State.RestartRecommended);
+
+        await service.RunBenchmarkAsync();
+
+        Assert.True(service.State.RestartRecommended);
+        Assert.Contains("ab dem nächsten Start", service.State.Notice);
+    }
+
+    [Fact]
+    public async Task Npu_Mode_NeverMeasured_StartsOnCpu_WithNotice()
+    {
+        var npu = AccelDevices.Npu("Test-KI-Einheit");
+        var service = Create(Settings(AcceleratorMode.Npu), new FakeAcceleratorCatalog(AccelDevices.WithCpu(npu)), new FakeAcceleratorBenchmark());
+
+        await service.StartAsync();
+
+        Assert.Null(service.GetDevice(ModelId.Palm));
+        Assert.Contains("KI-Einheit", service.State.Notice);
+        Assert.Contains("zuerst geprüft", service.State.Notice);
+    }
+
     // ------------------------------------------------------------------ Rückfälle und Plan-Zugriff
 
     [Fact]
     public async Task ReportFallback_MovesTheModelToCpuInTheState_RaisesEvent_AndKeepsTheReason()
     {
+        await PrimeCacheAsync(_gpu);
         var service = Create(Settings(AcceleratorMode.Gpu), new FakeAcceleratorCatalog(AccelDevices.WithCpu(_gpu)), new FakeAcceleratorBenchmark());
         await service.StartAsync();
         var raised = 0;
@@ -334,6 +430,7 @@ public sealed class AccelerationServiceTests : IDisposable
     [Fact]
     public async Task GetDevice_PlanNotReadyInTime_ReturnsNull_AndLaterShowsUpAsFallback()
     {
+        await PrimeCacheAsync(_gpu);
         var gate = new TaskCompletionSource();
         var catalog = new FakeAcceleratorCatalog(AccelDevices.WithCpu(_gpu)) { DiscoverGate = gate.Task };
         var service = Create(Settings(AcceleratorMode.Gpu), catalog, new FakeAcceleratorBenchmark(), planWait: TimeSpan.FromMilliseconds(50));

@@ -95,6 +95,8 @@ public sealed class AcceleratorCatalog : IAcceleratorCatalog
 
         // Ohne Download: nur die schon installierten zertifizierten Anbieter, normalerweise einige Millisekunden.
         var operation = catalog.RegisterCertifiedAsync();
+        if (operation is null)
+            return;
         try
         {
             if (!operation.AsTask(ct).Wait(AccelerationTimeouts.Discovery, ct))
@@ -118,7 +120,7 @@ public sealed class AcceleratorCatalog : IAcceleratorCatalog
         IReadOnlyList<OrtEpDevice> epDevices;
         try
         {
-            epDevices = OrtEnv.Instance().GetEpDevices();
+            epDevices = OrtEnv.Instance().GetEpDevices() ?? [];
         }
         catch (Exception ex)
         {
@@ -130,6 +132,8 @@ public sealed class AcceleratorCatalog : IAcceleratorCatalog
         var mapped = new List<(AcceleratorDevice Device, int Adapter)>();
         foreach (var ep in epDevices)
         {
+            if (ep is null)
+                continue;
             try
             {
                 var device = FromEpDevice(ep, out var adapter);
@@ -157,6 +161,8 @@ public sealed class AcceleratorCatalog : IAcceleratorCatalog
     {
         adapterNumber = int.MaxValue;
         var hardware = ep.HardwareDevice;
+        if (hardware is null)
+            return null;
         var kind = hardware.Type switch
         {
             OrtHardwareDeviceType.GPU => AcceleratorKind.Gpu,
@@ -166,13 +172,21 @@ public sealed class AcceleratorCatalog : IAcceleratorCatalog
         if (kind is null)
             return null;
 
-        var hw = ToDictionary(hardware.Metadata.Entries);
-        var epMeta = ToDictionary(ep.EpMetadata.Entries);
+        var hw = ToDictionary(hardware.Metadata?.Entries);
+        var epMeta = ToDictionary(ep.EpMetadata?.Entries);
         hw.TryGetValue("Description", out var description);
+        var epName = ep.EpName ?? "";
         var vendor = string.IsNullOrWhiteSpace(hardware.Vendor) ? ep.EpVendor : hardware.Vendor;
         var name = !string.IsNullOrWhiteSpace(description)
             ? description.Trim()
             : $"{vendor} {(kind == AcceleratorKind.Gpu ? "GPU" : "NPU")}".Trim();
+
+        // Der Software-Rasterizer von Windows (WARP) taugt nicht als Beschleuniger (langsam, kann im Treiber abstürzen).
+        if (AcceleratorSelector.IsSoftwareAdapter(hardware.VendorId, hardware.DeviceId, description) || AcceleratorSelector.IsSoftwareAdapter(0, 0, name))
+        {
+            AppLog.Info($"Beschleunigung: Software-Grafikadapter ignoriert ({name}).");
+            return null;
+        }
 
         if (hw.TryGetValue("DxgiAdapterNumber", out var adapterText) && int.TryParse(adapterText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var adapter))
             adapterNumber = adapter;
@@ -183,10 +197,10 @@ public sealed class AcceleratorCatalog : IAcceleratorCatalog
         var videoMemory = hw.TryGetValue("DxgiVideoMemory", out var memoryText) ? ParseMemoryMegabytes(memoryText) : 0;
 
         return new AcceleratorDevice(
-            AcceleratorSelector.BuildKey(ep.EpName, hardware.VendorId, hardware.DeviceId, description),
+            AcceleratorSelector.BuildKey(epName, hardware.VendorId, hardware.DeviceId, description),
             name,
             kind.Value,
-            ep.EpName,
+            epName,
             IsDiscrete: hw.TryGetValue("Discrete", out var discrete) && ParseBool(discrete),
             HighPerformanceIndex: highPerformanceIndex,
             VideoMemory: videoMemory,
@@ -224,11 +238,16 @@ public sealed class AcceleratorCatalog : IAcceleratorCatalog
         return megabytes >= long.MaxValue ? long.MaxValue : (long)megabytes;
     }
 
-    private static Dictionary<string, string> ToDictionary(IEnumerable<KeyValuePair<string, string>> entries)
+    private static Dictionary<string, string> ToDictionary(IEnumerable<KeyValuePair<string, string>>? entries)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (entries is null)
+            return result;
         foreach (var entry in entries)
-            result[entry.Key] = entry.Value;
+        {
+            if (entry.Key is not null && entry.Value is not null)
+                result[entry.Key] = entry.Value;
+        }
         return result;
     }
 
@@ -253,27 +272,39 @@ public sealed class AcceleratorCatalog : IAcceleratorCatalog
             var catalog = ExecutionProviderCatalog.GetDefault();
             if (catalog is null)
                 return [];
-            var result = new List<ProviderState>();
-            foreach (var provider in catalog.FindAllProviders())
-            {
-                try
-                {
-                    // PackageId kann bei nicht installierten Anbietern fehlen (null).
-                    result.Add(new ProviderState(provider.Name, provider.PackageId?.FullName ?? "", provider.ReadyState.ToString(),
-                        provider.ReadyState == ExecutionProviderReadyState.Ready));
-                }
-                catch (Exception ex)
-                {
-                    AppLog.Warn("Beschleunigung: Ein Ausführungsanbieter des Katalogs war nicht lesbar.", ex);
-                }
-            }
-            return result;
+            // FindAllProviders() kann null liefern (so auf einem Computer ohne Anbieter geschehen): dann ist die Liste einfach leer.
+            return MapProviders(catalog.FindAllProviders(), provider =>
+                // PackageId kann bei nicht installierten Anbietern fehlen (null).
+                new ProviderState(provider.Name ?? "", provider.PackageId?.FullName ?? "", provider.ReadyState.ToString(),
+                    provider.ReadyState == ExecutionProviderReadyState.Ready));
         }
         catch (Exception ex)
         {
             AppLog.Warn("Beschleunigung: Der Zustand der Ausführungsanbieter war nicht abrufbar.", ex);
             return [];
         }
+    }
+
+    /// <summary>Bildet die Anbieter des Katalogs ab; eine fehlende Liste, leere Einträge und nicht lesbare Anbieter werden übersprungen (ohne WinRT testbar).</summary>
+    internal static IReadOnlyList<ProviderState> MapProviders<T>(IEnumerable<T>? providers, Func<T, ProviderState> map) where T : class
+    {
+        var result = new List<ProviderState>();
+        if (providers is null)
+            return result;
+        foreach (var provider in providers)
+        {
+            if (provider is null)
+                continue;
+            try
+            {
+                result.Add(map(provider));
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Beschleunigung: Ein Ausführungsanbieter des Katalogs war nicht lesbar.", ex);
+            }
+        }
+        return result;
     }
 
     public async Task<ProviderInstallResult> InstallVendorProvidersAsync(IProgress<double>? progress = null, CancellationToken ct = default)
@@ -301,7 +332,7 @@ public sealed class AcceleratorCatalog : IAcceleratorCatalog
                 }
             }, CancellationToken.None).ConfigureAwait(false);
 
-            var names = installed?.Select(p => p.Name).ToList() ?? [];
+            var names = installed?.Where(p => p is not null).Select(p => p.Name ?? "").ToList() ?? [];
             AppLog.Info($"Beschleunigung: Ausführungsanbieter registriert: {(names.Count == 0 ? "keine neuen" : string.Join(", ", names))}.");
             return new ProviderInstallResult(true, names.Count == 0 ? "Es gibt keine weiteren Ausführungsanbieter für diesen Computer." : "Die Ausführungsanbieter wurden installiert.", names);
         }
