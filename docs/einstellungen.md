@@ -24,6 +24,7 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Peace` | `PeaceSettings` | Peaceerkennung (Easter Egg) |
 | `MiddleFinger` | `MiddleFingerSettings` | Mittelfingererkennung (Easter Egg) |
 | `Heart` | `HeartSettings` | Herzerkennung und Kisscam (Easter Egg, `fun-herz-kisscam.md`) |
+| `Performance` | `PerformanceSettings` | Beschleuniger der KI-Erkennung (CPU/GPU/NPU/Auto), gewählte Grafikkarte, Windows-Grafikeinstellung (`beschleunigung.md`); komplett gerätespezifisch |
 
 ### Wichtige Felder mit Standard und Bereich
 
@@ -115,10 +116,13 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Heart.KisscamFilePrefix` | `Kisscam` | ≤ 40 Zeichen, nie leer |
 | `Heart.KisscamMusicFolder` | null (Standard `Musik\Fotobox+\Kisscam`) | ≤ `KisscamMusicFolderMaxLength` 1024, gerätespezifisch; Songwerte (Häkchen, Startzeit 0–3599 s, Song-Lautstärke 10–100 % in 5er-Schritten) stehen nicht hier, sondern in `kisscam-musik.json` im Musikordner (`KisscamSongStartSeconds*`, `KisscamSongVolume*`, `KisscamMusicMaxSongs` 500 in `SettingsLimits`) |
 | `Heart.KisscamMusicVolumePercent` | 80 | 0–100 in 5er-Schritten |
+| `Performance.Accelerator` | `Auto` | Enum `AcceleratorMode` (`Auto, Cpu, Gpu, Npu`); undefiniert → `Auto`; gerätespezifisch, wirkt nach Neustart |
+| `Performance.GpuDeviceKey` | null (leistungsstärkste Grafikkarte) | ≤ `GpuDeviceKeyMaxLength` 200, ohne Steuerzeichen, getrimmt; sonst/leer → null; gerätespezifisch |
+| `Performance.PreferHighPerformanceGpu` | an | setzt die Windows-Grafikeinstellung „Hohe Leistung“ für die Fotobox; gerätespezifisch |
 
 Die Bedeutung der Fun-, Video-, Kamera- und Druckfelder erklären die jeweiligen Detaildateien. `Tasten`-Felder: `architektur.md`.
 
-Enums werden in Dateien als Namen geschrieben. Neue Enum-Werte nur hinten anfügen (`HintStyle`, `TargetBoxStyle`, `TargetColor`, `MoustacheStyle`, `CameraControlKind`, `FunPage`, `HeartShape`, `HeartAction`, `KisscamColor` …). `MiddleFingerTargets` ist ein Flags-Enum (`None`, `Moustache`, `SelfDestruct`, `Kisscam`).
+Enums werden in Dateien als Namen geschrieben. Neue Enum-Werte nur hinten anfügen (`HintStyle`, `TargetBoxStyle`, `TargetColor`, `MoustacheStyle`, `CameraControlKind`, `FunPage`, `HeartShape`, `HeartAction`, `KisscamColor`, `AcceleratorMode` …). `MiddleFingerTargets` ist ein Flags-Enum (`None`, `Moustache`, `SelfDestruct`, `Kisscam`).
 
 ## `JsonSettingsStore` (`src/Fotobox/Services/Storage/JsonSettingsStore.cs`)
 

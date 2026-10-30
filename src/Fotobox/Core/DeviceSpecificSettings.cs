@@ -2,7 +2,7 @@ namespace Fotobox.Core;
 
 /// <summary>
 /// Die geräte- und pfadabhängigen Einstellungen, die nie exportiert und nie importiert werden (der Zielrechner behält seine
-/// eigenen): Kamera (Gerät, Auflösung, Reglerwerte und Profile; der Flimmerschutz <c>Camera.Powerline</c> ist übertragbar), Drucker/Papier, Foto- und Videoordner, Mikrofon, Monitor der Gastansicht, Zoom der Admin-Ansicht und Musikordner der Kisscam. Einzige Quelle für diese
+/// eigenen): Kamera (Gerät, Auflösung, Reglerwerte und Profile; der Flimmerschutz <c>Camera.Powerline</c> ist übertragbar), Drucker/Papier, Foto- und Videoordner, Mikrofon, Monitor der Gastansicht, Zoom der Admin-Ansicht, Musikordner der Kisscam und Leistung der KI-Erkennung (Beschleuniger, Grafikkarte, Grafikeinstellung). Einzige Quelle für diese
 /// Felder; ein Test erzwingt, dass jedes neue Feld von <see cref="AppSettings"/> entweder hier oder in dessen Liste
 /// der übertragbaren Felder eingeordnet wird.
 /// </summary>
@@ -29,6 +29,9 @@ public static class DeviceSpecificSettings
         "Appearance.GuestMonitorName",
         "Appearance.AdminZoomPercent",
         "Heart.KisscamMusicFolder",
+        "Performance.Accelerator",
+        "Performance.GpuDeviceKey",
+        "Performance.PreferHighPerformanceGpu",
     ];
 
     /// <summary>Setzt alle gerätespezifischen Felder auf den Standard eines neuen Abschnitts (nicht gewählt = <c>null</c>). Fehlende Abschnitte werden übersprungen.</summary>
@@ -68,6 +71,12 @@ public static class DeviceSpecificSettings
         }
         if (s.Heart is { } heart)
             heart.KisscamMusicFolder = null;
+        if (s.Performance is { } performance)
+        {
+            performance.Accelerator = AcceleratorMode.Auto;
+            performance.GpuDeviceKey = null;
+            performance.PreferHighPerformanceGpu = true;
+        }
     }
 
     /// <summary>Kopiert die gerätespezifischen Felder von <paramref name="source"/> nach <paramref name="target"/>; alles andere bleibt unverändert.</summary>
@@ -99,5 +108,9 @@ public static class DeviceSpecificSettings
         target.Appearance.AdminZoomPercent = source.Appearance.AdminZoomPercent;
 
         target.Heart.KisscamMusicFolder = source.Heart.KisscamMusicFolder;
+
+        target.Performance.Accelerator = source.Performance.Accelerator;
+        target.Performance.GpuDeviceKey = source.Performance.GpuDeviceKey;
+        target.Performance.PreferHighPerformanceGpu = source.Performance.PreferHighPerformanceGpu;
     }
 }

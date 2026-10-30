@@ -57,6 +57,12 @@ public enum HeartShape { Classic, Roof, Inverted, FingerHeart }
 public enum HeartAction { Kisscam }
 /// <summary>Kisscam: Farbschema des Jumbotron-Rahmens. Nur hinten erweitern.</summary>
 public enum KisscamColor { PinkRed, Red, Gold, Purple, BlackWhite }
+/// <summary>
+/// Beschleuniger der KI-Erkennung (Windows ML): Auto = per Messung das schnellste Gerät je Modell (Cache, sonst CPU bis zur Messung),
+/// Cpu = alles auf dem Prozessor, Gpu = gewählte bzw. leistungsstärkste Grafikkarte, Npu = erste KI-Einheit. Fehlt das Gerät oder
+/// scheitert es, läuft die Erkennung auf der CPU. Nur hinten erweitern.
+/// </summary>
+public enum AcceleratorMode { Auto, Cpu, Gpu, Npu }
 
 /// <summary>Gemeinsame Wertebereiche für Admin-UI, Validierung und Normalisierung.</summary>
 public static class SettingsLimits
@@ -177,6 +183,8 @@ public static class SettingsLimits
     public const int KisscamMusicMaxSongs = 500;
     /// <summary>Admin-Ansicht: Zoom des Inhaltsbereichs in Prozent (5er-Schritte, Standard 80); Tab-Leiste und Fußleiste bleiben bei 100 %.</summary>
     public const int AdminZoomMin = 60, AdminZoomMax = 100, AdminZoomStep = 5, AdminZoomDefault = 80;
+    /// <summary>Leistung: längster gespeicherter Geräteschlüssel der gewählten Grafikkarte (<see cref="PerformanceSettings.GpuDeviceKey"/>); längere Werte werden verworfen (gekürzt passte der Schlüssel nie).</summary>
+    public const int GpuDeviceKeyMaxLength = 200;
 }
 
 /// <summary>
@@ -267,6 +275,7 @@ public sealed class AppSettings
     public PeaceSettings Peace { get; set; } = new();
     public MiddleFingerSettings MiddleFinger { get; set; } = new();
     public HeartSettings Heart { get; set; } = new();
+    public PerformanceSettings Performance { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -741,4 +750,27 @@ public sealed class InputSettings
     public const string DefaultAdminKey = "Ctrl+Alt+A";
     public const string DefaultCancelKey = "Escape";
     public const string DefaultVideoKey = "Enter";
+}
+
+/// <summary>
+/// Leistung der KI-Erkennung: auf welchem Gerät (CPU, Grafikkarte, KI-Einheit) die Modelle laufen. Alle Felder sind gerätespezifisch
+/// (hängen von der Hardware ab): Sie werden nicht exportiert und beim Import nicht überschrieben. Änderungen wirken erst nach einem
+/// Neustart der Fotobox.
+/// </summary>
+public sealed class PerformanceSettings
+{
+    /// <summary>Gewünschter Beschleuniger (Standard <see cref="AcceleratorMode.Auto"/>). Gerätespezifisch.</summary>
+    public AcceleratorMode Accelerator { get; set; } = AcceleratorMode.Auto;
+
+    /// <summary>
+    /// Stabiler Schlüssel der gewählten Grafikkarte (siehe <c>AcceleratorDevice.Key</c>); null = leistungsstärkste Grafikkarte.
+    /// Wirkt nur bei <see cref="AcceleratorMode.Gpu"/>. Gerätespezifisch.
+    /// </summary>
+    public string? GpuDeviceKey { get; set; }
+
+    /// <summary>
+    /// Setzt für die Fotobox in den Windows-Grafikeinstellungen „Hohe Leistung“ (nutzt bei Hybridgrafik die starke Grafikkarte).
+    /// Wirkt ab dem nächsten Start. Gerätespezifisch.
+    /// </summary>
+    public bool PreferHighPerformanceGpu { get; set; } = true;
 }

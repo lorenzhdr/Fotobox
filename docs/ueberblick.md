@@ -81,7 +81,7 @@ Pro Aktion sind bis zu 8 Tasten möglich (`SettingsLimits.KeysPerActionMax`). Sy
 | `src/Fotobox/Services/Display` | Monitoraufzählung per Win32 (`Win32DisplayService`, `DisplayNative`). |
 | `src/Fotobox/Services/Layout` | Komposition der Druckseite (Einzel, Streifen in zwei Varianten, Overlay; `LayoutMath`). |
 | `src/Fotobox/Services/Storage` | Settings-Store (`JsonSettingsStore`), `SettingsNormalizer`, `SettingsTransfer`/`SettingsJson`, `PinService`, `PhotoStorage`, `VideoStorage`, `FolderProbe`. |
-| `src/Fotobox/Services/Detection` | Personenerkennung (YOLOX per ONNX, Windows `FaceDetector`); `Detection/Peace`: Gesichts- und Handerkennung (YuNet, MediaPipe). |
+| `src/Fotobox/Services/Detection` | Personenerkennung (YOLOX per ONNX, Windows `FaceDetector`); `Detection/Peace`: Gesichts- und Handerkennung (YuNet, MediaPipe); `Detection/Acceleration`: Beschleunigung der ONNX-Modelle über Windows ML (Geräteliste, Messung, Plan, Rückfall auf die CPU; `beschleunigung.md`). |
 | `src/Fotobox/Services/Peace` | Foto-Verzierer (Bart im Foto: `MoustachePhotoDecorator`). |
 | `src/Fotobox/Core/Music` | UI-freie Logik der Kisscam-Musik (Config, Codec, Zeitformat, Songs, Snapshot, `KisscamSongPicker`). |
 | `src/Fotobox/Services/Audio` | Tonausgabe (`FunSoundPlayer`) und Kisscam-Musik (`MusicPlayer`, `KisscamMusicLibrary`, `KisscamMusicFileSystem`). |

@@ -17,7 +17,8 @@ namespace Fotobox.Services.Detection.Peace;
 public sealed partial class PeaceDetectionService : IGestureDetectionService
 {
     public static readonly TimeSpan AnalysisTimeout = TimeSpan.FromSeconds(2);
-    public static readonly TimeSpan InitTimeout = TimeSpan.FromSeconds(20);
+    /// <summary>Frist für das Laden einer Stufe: Plan abwarten + Laden auf dem Gerät + Rückfall auf die CPU + Reserve (<see cref="Acceleration.AccelerationTimeouts.ServiceInit"/>).</summary>
+    public static readonly TimeSpan InitTimeout = Acceleration.AccelerationTimeouts.ServiceInit;
     public static readonly TimeSpan DisposeWait = TimeSpan.FromMilliseconds(1500);
     public const int MaxCopyWidth = 1920;
     public const int FailureLimit = 3;

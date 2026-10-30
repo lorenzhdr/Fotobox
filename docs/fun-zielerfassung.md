@@ -92,14 +92,14 @@ flowchart TD
 
 ### Ganzkörper: `YoloxPersonDetector`
 
-Modell `yolox_nano.onnx` (YOLOX-Nano, Lizenzhinweise in `THIRD-PARTY-NOTICES.txt`), Ausführung mit ONNX Runtime 1.31.0 auf der CPU.
+Modell `yolox_nano.onnx` (YOLOX-Nano, Lizenzhinweise in `THIRD-PARTY-NOTICES.txt`), Ausführung mit ONNX Runtime (aus `Microsoft.Windows.AI.MachineLearning`, derzeit 1.28.3) wahlweise auf der CPU oder – laut Plan des `AccelerationService` – auf einer Grafikkarte/KI-Einheit mit Rückfall auf die CPU (`beschleunigung.md`; die Sessions baut `OnnxSessionFactory`, geladen wird über `AcceleratedSession`).
 
 | Aspekt | Wert / Verhalten |
 |---|---|
-| Session-Optionen | `IntraOpNumThreads` = 2, `InterOpNumThreads` = 1, `ORT_ENABLE_ALL`; `session.intra_op.allow_spinning` = 0 und `session.inter_op.allow_spinning` = 0 |
+| Session-Optionen (CPU; ein Gerät hängt zusätzlich seinen Ausführungsanbieter an) | `IntraOpNumThreads` = 2, `InterOpNumThreads` = 1, `ORT_ENABLE_ALL`; `session.intra_op.allow_spinning` = 0 und `session.inter_op.allow_spinning` = 0 |
 | Warum kein Spinning | Die ORT-Threads schlafen zwischen den Analysen statt aktiv zu warten. Gemessen auf dem ARM64-Entwicklungsrechner bei 5 Analysen/s: CPU ca. 60 % → 46 % eines Kerns, je Analyse ca. +10 ms; die Ergebnisse bleiben gleich |
 | Eingabegröße | aus den Modell-Metadaten (quadratisch), sonst `YoloxPreprocessor.DefaultInputSize` = 416 |
-| Aufwärmlauf | Direkt beim Laden läuft ein `Run` mit Nullpuffer innerhalb der Ladefrist (`InitTimeout` 15 s im Detektor). Der erste Lauf ist deutlich langsamer (Speicher-Arena, Kernel-Initialisierung); in der 2-s-Frist der ersten Analyse würde er einen Timeout auslösen, und schon ein Analyse-Timeout schaltet `Body` dauerhaft auf `Face` um. Ein Fehler im Aufwärmlauf gilt als Ladefehler; der Puffer wird weiterverwendet |
+| Aufwärmlauf | Direkt beim Laden läuft ein `Run` mit Nullpuffer innerhalb der Ladefrist (`InitTimeout` im Detektor, 28 s = Plan 3 s + Gerät 10 s + CPU-Rückfall 15 s; dieser Lauf läuft auf dem Gerät, auf dem die Session gebaut wurde). Der erste Lauf ist deutlich langsamer (Speicher-Arena, Kernel-Initialisierung); in der 2-s-Frist der ersten Analyse würde er einen Timeout auslösen, und schon ein Analyse-Timeout schaltet `Body` dauerhaft auf `Face` um. Ein Fehler im Aufwärmlauf gilt als Ladefehler; der Puffer wird weiterverwendet |
 | Freigabe | `DisposeAsync` wartet höchstens 3 s (`DisposeWait`), danach gibt der laufende Aufruf nach seinem Ende selbst frei |
 
 **Vorverarbeitung** (`YoloxPreprocessor`): Letterbox – das Seitenverhältnis bleibt, bilinear skaliert (Pixelmitten wie OpenCV `INTER_LINEAR`), **oben links** eingefügt, der Rest mit 114 gefüllt; Kanalreihenfolge **BGR**, Werte 0–255 ohne Normalisierung, Layout CHW (1 × 3 × S × S). Das Skalierungsverhältnis `r = min(S/Höhe, S/Breite)` wird für das Decoding zurückgegeben.
@@ -282,7 +282,7 @@ Der Tab „Fun“ ist der letzte Tab. Er hat eine Startseite mit Kacheln (`FunPa
 
 ## Größe, Leistung, Grenzen
 
-- ONNX Runtime 1.31.0 und das Modell machen den Publish je Architektur ca. 21 MB größer; die VC++-Runtime muss app-lokal neben `onnxruntime.dll` liegen (siehe `docs/build-release.md`). Fehlt sie, schlägt das Laden des Modells fehl und der Dienst fällt auf die Gesichtserkennung zurück.
+- ONNX Runtime (über Windows ML, samt DirectML) und das Modell machen den Publish je Architektur deutlich größer (siehe `docs/build-release.md`). Schlägt das Laden des Modells fehl (auch auf der CPU), fällt der Dienst auf die Gesichtserkennung zurück; ein Fehlschlag nur auf dem Gerät (GPU/NPU) führt dagegen zuerst zum Rückfall dieses Modells auf die CPU, nicht zur Gesichtserkennung.
 - Gemessen auf dem ARM64-Entwicklungsrechner: ca. 45–55 ms je YOLOX-Analyse (ORT, 2 Threads, 416er Eingabe); die Last auf schwachen x64-Geräten ist ungemessen.
 - Bekannte Grenzen (YOLOX erkennt teilweise verdeckte Personen schwach, Wanduhr statt monotoner Zeit, Fehlzuordnungen bei schneller Bewegung u. a.): `docs/bekannte-grenzen.md`.
 
