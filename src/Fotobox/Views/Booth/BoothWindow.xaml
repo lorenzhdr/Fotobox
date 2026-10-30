@@ -332,6 +332,11 @@
         <booth:GuestHint Position="Top" Text="{Binding VideoHintText}" HintStyle="{Binding VideoHintStyle}"
                          Visibility="{Binding ShowVideoHint, Converter={StaticResource BoolToVis}}" />
 
+        <!-- Stopp-Hinweis unten im Bild: nur in der laufenden Aufnahme, sobald das Beenden möglich ist (im Stil des Video-Hinweises).
+             Der Foto-Hinweis ist dann aus; das Aufnahme-Overlay oben links liegt weiter hinten im Raster und bleibt davon unberührt. -->
+        <booth:GuestHint Text="{Binding VideoStopHintText}" HintStyle="{Binding VideoStopHintStyle}"
+                         Visibility="{Binding ShowVideoStopHint, Converter={StaticResource BoolToVis}}" />
+
         <!-- Fun-Text der Zielerfassung (HUD oder Hinweis-Stil); ersetzt an gleicher Stelle den Foto- bzw. Video-Hinweis -->
         <booth:FunText IsShown="{Binding Fun.TextVisible}" Text="{Binding Fun.Text}"
                        Position="{Binding Fun.TextPosition}" TextStyle="{Binding Fun.TextStyle}"

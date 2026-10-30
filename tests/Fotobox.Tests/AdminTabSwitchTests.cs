@@ -72,9 +72,10 @@ public class AdminTabSwitchTests
                     var presenter = FindContentHost(tabs);
                     Assert.NotNull(presenter);
                     Assert.Same(item.Content, presenter!.Content);
-                    // Der sichtbare Inhalt gehört wirklich zum Tab: Die Gast-Vorschau gibt es nur in „Gastansicht“.
+                    // Der sichtbare Inhalt gehört wirklich zum Tab: Die Gast-Vorschau gibt es nur in „Gastansicht“ (zwei Zeilen);
+                    // der Tab „Video“ hat die kleine Vorschau des Stopp-Hinweises.
                     var hints = FindDescendants<GuestHint>(presenter).ToList();
-                    Assert.Equal(header == "Gastansicht" ? 2 : 0, hints.Count);
+                    Assert.Equal(header == "Gastansicht" ? 2 : header == "Video" ? 1 : 0, hints.Count);
                     Assert.Empty(errors);
                 }
             }

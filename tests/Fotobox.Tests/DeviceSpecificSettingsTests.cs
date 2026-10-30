@@ -75,6 +75,8 @@ public sealed class DeviceSpecificSettingsTests
         "Video.ShowRemaining",
         "Video.SuccessDisplaySeconds",
         "Video.SuccessText",
+        "Video.ShowStopHint",
+        "Video.StopHintText",
         "Video.Quality",
         "Video.RecordAudio",
         "Video.DateSubfolder",

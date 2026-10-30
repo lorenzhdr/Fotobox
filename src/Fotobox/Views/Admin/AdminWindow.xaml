@@ -248,6 +248,77 @@
                                         <TextBlock Text="Warnung vor dem Ende ab … Sekunden (0 = aus)" Style="{StaticResource FieldLabel}" />
                                         <local:NumberStepper Value="{Binding VideoWarningSeconds}" Minimum="{x:Static core:SettingsLimits.VideoWarningMin}" Maximum="{x:Static core:SettingsLimits.VideoWarningMax}" Step="5" Suffix=" s" />
                                         <TextBlock Text="Ab dieser Restzeit weist die Gastansicht darauf hin, dass die Aufnahme gleich endet." Style="{StaticResource Hint}" />
+
+                                        <!-- Stopp-Hinweis unten im Bild, im Stil des Video-Hinweises (Tab „Gastansicht“) -->
+                                        <CheckBox Content="Stopp-Hinweis anzeigen" IsChecked="{Binding VideoShowStopHint}" Margin="0,18,0,0"
+                                                  AutomationProperties.Name="Stopp-Hinweis anzeigen" />
+                                        <TextBlock Style="{StaticResource Hint}"
+                                                   Text="Unten im Bild steht dann, wie Gäste die Aufnahme beenden. Der Hinweis erscheint erst ab der Mindestlänge, denn vorher wirkt die Taste nicht, und hat denselben Stil wie der Video-Hinweis (Tab „Gastansicht“)." />
+                                        <StackPanel IsEnabled="{Binding VideoShowStopHint}">
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsEnabled" Value="False">
+                                                            <Setter Property="Opacity" Value="0.55" />
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+
+                                            <TextBlock Text="Text des Stopp-Hinweises" Style="{StaticResource FieldLabel}" />
+                                            <Grid HorizontalAlignment="Left" Width="520">
+                                                <TextBox x:Name="VideoStopHintBox" Text="{Binding VideoStopHintText, UpdateSourceTrigger=PropertyChanged}"
+                                                         MaxLength="{x:Static core:SettingsLimits.HintTextMaxLength}"
+                                                         AutomationProperties.Name="Text des Stopp-Hinweises" />
+                                                <!-- Platzhalter: der Standardtext, solange das Feld leer ist -->
+                                                <TextBlock x:Name="VideoStopHintPlaceholder" Text="{Binding VideoStopHintTextPlaceholder}" IsHitTestVisible="False"
+                                                           Foreground="{DynamicResource MutedBrush}" FontSize="15"
+                                                           VerticalAlignment="Center" Margin="12,0,12,0">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding VideoStopHintText}" Value="">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Grid>
+                                            <TextBlock Style="{StaticResource Hint}"
+                                                       Text="Leer lassen für den Standardtext. Platzhalter: {Taste} (die Stopp-Tasten für den Satz, bei Leertaste und Eingabetaste mit Artikel, z. B. „die Eingabetaste“), {Stopptaste_1}, {Stopptaste_2} … (einzelne Taste, nur der Name) und {Stopptasten} (alle Tasten für „Video beenden“). Ohne Taste für „Video beenden“ entfällt der Hinweis." />
+                                            <TextBlock Text="{Binding VideoStopHintProblemsText}" Style="{StaticResource Hint}" Foreground="{DynamicResource DangerBrush}"
+                                                       Visibility="{Binding HasVideoStopHintProblems, Converter={StaticResource BoolToVis}}" />
+
+                                            <TextBlock Text="Vorschau" Style="{StaticResource FieldLabel}" />
+                                            <!-- Die Gastansicht im Maßstab 1:4 (1920 × 1080), nur mit dem Stopp-Hinweis unten -->
+                                            <Border Width="480" Height="270" HorizontalAlignment="Left" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                                    AutomationProperties.Name="Vorschau des Stopp-Hinweises">
+                                                <Viewbox Stretch="Uniform">
+                                                    <Grid Width="1920" Height="1080" ClipToBounds="True">
+                                                        <Grid.Background>
+                                                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                                <GradientStop Color="#566077" Offset="0" />
+                                                                <GradientStop Color="#232A3B" Offset="1" />
+                                                            </LinearGradientBrush>
+                                                        </Grid.Background>
+                                                        <Ellipse Width="270" Height="270" Fill="#2EFFFFFF" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,170,0,0" />
+                                                        <Ellipse Width="780" Height="620" Fill="#2EFFFFFF" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,470,0,0" />
+                                                        <Border VerticalAlignment="Bottom" Height="320">
+                                                            <Border.Background>
+                                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                                    <GradientStop Color="#00000000" Offset="0" />
+                                                                    <GradientStop Color="#B0000000" Offset="1" />
+                                                                </LinearGradientBrush>
+                                                            </Border.Background>
+                                                        </Border>
+                                                        <booth:GuestHint x:Name="VideoStopHintPreview" Text="{Binding VideoStopHintPreviewText}" HintStyle="{Binding VideoHintStyle}"
+                                                                         Visibility="{Binding ShowVideoStopHintPreview, Converter={StaticResource BoolToVis}}" />
+                                                    </Grid>
+                                                </Viewbox>
+                                            </Border>
+                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
 

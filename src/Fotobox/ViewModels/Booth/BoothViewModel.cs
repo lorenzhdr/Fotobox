@@ -71,7 +71,7 @@ public sealed class BoothViewModel : ObservableObject
 
     /// <summary>Geparste Tastenbelegung (Reihenfolge der Auslöser-Tasten bleibt für den Hinweistext erhalten).</summary>
     private sealed record KeyMap(IReadOnlyList<KeyChord> Trigger, HashSet<KeyChord> Admin, HashSet<KeyChord> Cancel,
-        IReadOnlyList<KeyChord> VideoStart, HashSet<KeyChord> VideoStop);
+        IReadOnlyList<KeyChord> VideoStart, IReadOnlyList<KeyChord> VideoStop);
 
     /// <param name="fun">Zielerfassung der gesamten Gastansicht (DI); ohne Angabe eine untätige Instanz (Tests).</param>
     /// <param name="peace">Peaceerkennung der Gastansicht (DI, mit dem Bart-Zustand für die Foto-Planung); ohne Angabe eine untätige Instanz (Tests).</param>
@@ -393,6 +393,24 @@ public sealed class BoothViewModel : ObservableObject
     public bool ShowVideoHint => IdleWithCamera && !IsLayoutPreviewVisible && VideoHintText.Length > 0
         && !(Fun.TextVisible && Fun.TextPosition == FunTextPosition.Top);
 
+    /// <summary>
+    /// Text des Stopp-Hinweises während der Aufnahme (unten im Bild): eigener Text mit Platzhaltern, sonst
+    /// <see cref="VideoSettings.DefaultStopHintText"/>; leer ohne Stopptaste oder bei ausgeschaltetem Videomodus.
+    /// </summary>
+    public string VideoStopHintText =>
+        VideoEnabled ? HintTextFormatter.FormatVideoStop(VideoConfig.StopHintText, GetKeyMap().VideoStop) : "";
+
+    /// <summary>Darstellung des Stopp-Hinweises: derselbe Stil wie der Video-Hinweis (<see cref="VideoHintStyle"/>).</summary>
+    public HintStyle VideoStopHintStyle => VideoHintStyle;
+
+    /// <summary>
+    /// Stopp-Hinweis sichtbar: nur in der laufenden Aufnahme, sobald das Beenden wirkt (<see cref="BoothController.CanStopVideo"/>,
+    /// ab der Mindestlänge), Schalter an und Text nicht leer. Die Aktualisierung kommt vom Sekundentakt der Aufnahme
+    /// (<see cref="BoothController.Changed"/> → <c>Refresh</c>).
+    /// </summary>
+    public bool ShowVideoStopHint =>
+        IsRecording && VideoConfig.ShowStopHint && Controller.CanStopVideo && VideoStopHintText.Length > 0;
+
     public bool IsVideoCountdown => Controller.State == BoothState.VideoCountdown;
     /// <summary>
     /// Countdown-Anzeige (Zahl, Abdunklung) für Foto- und Videodurchgang. In der Kisscam entfällt sie, solange der Gasttext läuft
@@ -650,7 +668,7 @@ public sealed class BoothViewModel : ObservableObject
 
         // Video-Tasten haben keinen Ersatzwert: leer = keine Taste belegt.
         map = new KeyMap(trigger, [.. admin], [.. ParseKeys(input?.CancelCountdownKeys)],
-            ParseKeys(input?.VideoStartKeys), [.. ParseKeys(input?.VideoStopKeys)]);
+            ParseKeys(input?.VideoStartKeys), ParseKeys(input?.VideoStopKeys));
         _keyMap = map;
         return map;
     }
@@ -715,8 +733,8 @@ public sealed class BoothViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Bricht den Countdown (Foto oder Video) oder einen laufenden Druck ab bzw. beendet eine Videoaufnahme (sonst false).
-    /// Bei offener Admin-Ansicht wirkungslos.
+    /// Bricht den Countdown (Foto oder Video) oder einen laufenden Druck ab (sonst false). Eine laufende Videoaufnahme beendet
+    /// sie nie (dafür gibt es <see cref="TryStopVideo"/>). Bei offener Admin-Ansicht wirkungslos.
     /// </summary>
     public bool TryCancel() => !IsAdminOpen && Controller.TryCancel();
 

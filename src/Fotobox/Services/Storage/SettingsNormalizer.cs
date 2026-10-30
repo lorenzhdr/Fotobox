@@ -141,6 +141,7 @@ internal static class SettingsNormalizer
 
         var successText = CleanLine(v.SuccessText, SettingsLimits.VideoSuccessTextMaxLength);
         v.SuccessText = string.IsNullOrEmpty(successText) ? null : successText;
+        v.StopHintText = SanitizeHintText(v.StopHintText);
 
         // Id exakt lassen (Geräte-Id); zu lang → verwerfen, denn gekürzt passte sie nie. Name nur zur Anzeige, gehört zur Id.
         var microphoneId = v.MicrophoneId;

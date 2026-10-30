@@ -1,6 +1,6 @@
 # Videomodus
 
-Stand: 2.5.1. Pfade relativ zum Repo-Root. Kameradienst: [kamera.md](kamera.md); Zustandsmaschine: [architektur.md](architektur.md); Einstellungen: [einstellungen.md](einstellungen.md).
+Stand: 2.8.0. Pfade relativ zum Repo-Root. Kameradienst: [kamera.md](kamera.md); Zustandsmaschine: [architektur.md](architektur.md); Einstellungen: [einstellungen.md](einstellungen.md).
 
 ## Überblick
 
@@ -13,7 +13,7 @@ Eigene Start-/Stopptaste (Standard Enter) → Countdown → Aufnahme (mit Ton, M
 | `src/Fotobox/Services/Camera/WinRtVideoRecording.cs` | eine laufende Aufnahme, Beenden, `Faulted`, MP4-Profil |
 | `src/Fotobox/Services/Camera/VideoBitrate.cs` | Bitrate, Speicherplatzschätzung |
 | `src/Fotobox/Services/Storage/VideoStorage.cs` | Zielordner, Platzprüfung, `.tmp.mp4`, `CommitAsync` |
-| `src/Fotobox/Views/Booth/BoothWindow.xaml`, `ViewModels/Booth/BoothViewModel.cs` | Overlay, Hinweiszeile |
+| `src/Fotobox/Views/Booth/BoothWindow.xaml`, `ViewModels/Booth/BoothViewModel.cs` | Overlay, Hinweiszeilen, Stopp-Hinweis |
 | `src/Fotobox/Views/Admin/AdminWindow.xaml` | Tabs „Video“ und „Speicher“ (Karte „Videos speichern“) |
 
 ## Zustände
@@ -73,12 +73,13 @@ Gegenstück zu `PhotoStorage` (siehe [druck.md](druck.md#photostorage)).
 
 - **Video-Hinweiszeile oben** (`GuestHint.Position = Top`, nur bei aktivem Videomodus, im Leerlauf): `GuestScreenSettings.VideoHintText`/`VideoHintStyle`; leer = automatischer Text aus den Video-Starttasten, Platzhalter `{Videotaste_N}`, `{Videotasten}`, `{Klick}` (Letzterer ab 2.5.1 auch im Video-Hinweis). Der Fun-Text ersetzt sie nur, wenn er an gleicher Position steht.
 - **Aufnahme-Overlay** (oben links, dunkle Kapseln, nur Opacity-Animationen): REC-Punkt (blinkt, `ShowRecDot`), Laufzeit (`ShowElapsed`), Restzeit (`ShowRemaining`, entfällt während der Warnung), **Warnung** („Noch 10 s“, groß, pulsierend, ab `WarningSeconds`) und **„🔇 ohne Ton“**, wenn Ton gewünscht, aber nicht verfügbar (`UsesAudio && !RecordingHasAudio`).
+- **Stopp-Hinweis unten** (ab 2.8.0, `VideoSettings.ShowStopHint`, Standard an): „Drücke die Eingabetaste, um die Videoaufnahme zu beenden“. Sichtbar nur im Zustand `Recording` und erst, wenn das Beenden wirkt (`BoothController.CanStopVideo`, ab `MinDurationSeconds`), nicht in `VideoSaving`/`VideoSaved`; er entfällt ohne Taste in `VideoStopKeys` oder bei ausgeschaltetem Videomodus. `BoothViewModel.ShowVideoStopHint`/`VideoStopHintText`/`VideoStopHintStyle` (= `GuestScreen.VideoHintStyle`, kein eigener Stilschalter) sind an ein `GuestHint` unten gebunden (der Foto-Hinweis ist in der Aufnahme aus, das Aufnahme-Overlay oben links bleibt unberührt); der Wechsel zur Sichtbarkeit kommt über den Sekundentakt der Aufnahme (`Changed` → `Refresh`). Text `VideoSettings.StopHintText` (leer/`null` = `DefaultStopHintText`, höchstens `HintTextMaxLength`); Platzhalter (`HintTextFormatter.FormatVideoStop`/`FindVideoStopProblems`): `{Taste}` = die Stopptasten für den Satz (eine Taste: „die Leertaste“/„die Eingabetaste“ mit Artikel, andere nur der Name; mehrere wie im automatischen Video-Text ohne Artikel, „A, B oder C“, höchstens 3), `{Stopptaste_N}` (einzelne Taste) und `{Stopptasten}` (alle, „A oder B“). `{Klick}` und Foto-/Videotasten-Platzhalter gelten hier nicht (leer, Hinweis im Admin). Der Hinweis gelangt nicht ins Video (`MediaCapture` nimmt direkt auf).
 - Video-Countdown, „Video wird gespeichert …“, Erfolgsanzeige (`VideoSavedText`, `SuccessDisplaySeconds`).
 - Die Laufzeit wird bei jedem Lesen aus der Zeit berechnet (`TimeProvider`), `Changed` im Sekundentakt.
 
 ## Admin-Tabs „Video“ und „Speicher“
 
-Haken „Videomodus aktiv“ (alles Weitere ist sonst ausgegraut), Höchstdauer (mit Text zur geschätzten Dateigröße), Countdown, Mindestlänge, Anzeigeoptionen (Aufnahmepunkt, Laufzeit, Restzeit, Warnung), Erfolgstext/-dauer, „Ton aufnehmen“ samt Mikrofonwahl (Mikrofonliste über `GetMicrophonesAsync`, fehlendes Mikrofon als „nicht angeschlossen“). **Seit 2.5.2:** Speicherordner (ändern/öffnen/Standardordner), Unterordner pro Tag, Videoqualität und Dateipräfix mit Beispielname stehen im Tab „Speicher“ in der Karte „Videos speichern“ (bei ausgeschaltetem Videomodus ausgegraut; der Tab „Video“ verweist darauf). Video-Hinweistext und -Stil im Tab „Gastansicht“; Tasten im Tab „Tasten“.
+Haken „Videomodus aktiv“ (alles Weitere ist sonst ausgegraut), Höchstdauer (mit Text zur geschätzten Dateigröße), Countdown, Mindestlänge, Anzeigeoptionen (Aufnahmepunkt, Laufzeit, Restzeit, Warnung), Erfolgstext/-dauer, **Stopp-Hinweis** (ab 2.8.0: Haken „Stopp-Hinweis anzeigen“ in der Karte „Anzeige während der Aufnahme“, Textfeld mit überlagertem Standardtext bei leerem Feld, Platzhalter-Erklärung, rote Problemzeile und kleine Vorschau 1920 × 1080 im aktuellen Video-Hinweisstil; Länge wird in `ValidateVideo` geprüft, leerer Text wird als `null` gespeichert, „Standardwerte wiederherstellen“ setzt beides zurück), „Ton aufnehmen“ samt Mikrofonwahl (Mikrofonliste über `GetMicrophonesAsync`, fehlendes Mikrofon als „nicht angeschlossen“). **Seit 2.5.2:** Speicherordner (ändern/öffnen/Standardordner), Unterordner pro Tag, Videoqualität und Dateipräfix mit Beispielname stehen im Tab „Speicher“ in der Karte „Videos speichern“ (bei ausgeschaltetem Videomodus ausgegraut; der Tab „Video“ verweist darauf). Video-Hinweistext und -Stil im Tab „Gastansicht“; Tasten im Tab „Tasten“.
 
 ## Fristen
 

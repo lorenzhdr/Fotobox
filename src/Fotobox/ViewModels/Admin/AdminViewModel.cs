@@ -2417,9 +2417,60 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
     public bool HasVideoHintProblems => VideoHintProblems.Count > 0;
 
+    // ---- Stopp-Hinweis (unten im Bild während der Aufnahme, Stil = Video-Hinweis)
+
+    private List<KeyChord> VideoStopChords() => Editor(KeyAction.VideoStop).Keys.Select(k => k.Chord).ToList();
+
+    /// <summary>Stopp-Hinweis während der Aufnahme anzeigen (ab der Mindestlänge, solange „Video beenden“ eine Taste hat).</summary>
+    public bool VideoShowStopHint
+    {
+        get => _draft.Video.ShowStopHint;
+        set
+        {
+            if (SetProperty(_draft.Video.ShowStopHint, value, v => _draft.Video.ShowStopHint = v))
+                RaiseHintPreview();
+        }
+    }
+
+    /// <summary>Eigener Text des Stopp-Hinweises mit Platzhaltern; leer = <see cref="VideoStopHintTextPlaceholder"/>.</summary>
+    public string VideoStopHintText
+    {
+        get => _draft.Video.StopHintText ?? string.Empty;
+        set
+        {
+            if (SetProperty(_draft.Video.StopHintText ?? string.Empty, value ?? string.Empty,
+                    v => _draft.Video.StopHintText = string.IsNullOrWhiteSpace(v) ? null : v))
+                RaiseHintPreview();
+        }
+    }
+
+    /// <summary>Der Text, der bei leerem Feld gilt (Platzhalter im Eingabefeld).</summary>
+    public string VideoStopHintTextPlaceholder => VideoSettings.DefaultStopHintText;
+
+    /// <summary>Der Stopp-Hinweis, wie die Gastansicht ihn mit dem aktuellen Entwurf zeigt (leer ohne Taste für „Video beenden“).</summary>
+    public string VideoStopHintPreviewText =>
+        HintTextFormatter.FormatVideoStop(_draft.Video.StopHintText, VideoStopChords());
+
+    /// <summary>Die Vorschau zeigt den Stopp-Hinweis: Videomodus und Schalter an, Text nicht leer.</summary>
+    public bool ShowVideoStopHintPreview =>
+        _draft.Video.Enabled && _draft.Video.ShowStopHint && VideoStopHintPreviewText.Length > 0;
+
+    /// <summary>Hinweise zu den Platzhaltern im Stopp-Hinweistext (leer = alles in Ordnung).</summary>
+    public IReadOnlyList<string> VideoStopHintProblems =>
+        HintTextFormatter.FindVideoStopProblems(_draft.Video.StopHintText, Editor(KeyAction.VideoStop).Keys.Count);
+
+    public string VideoStopHintProblemsText => string.Join(Environment.NewLine, VideoStopHintProblems);
+
+    public bool HasVideoStopHintProblems => VideoStopHintProblems.Count > 0;
+
     /// <summary>Text, Hinweise und Vorschau neu lesen (nach Änderung der Texte, der Auslöse- oder Video-Tasten, der Maus-Einstellung oder des Videomodus).</summary>
     private void RaiseHintPreview()
     {
+        OnPropertyChanged(nameof(VideoStopHintPreviewText));
+        OnPropertyChanged(nameof(ShowVideoStopHintPreview));
+        OnPropertyChanged(nameof(VideoStopHintProblems));
+        OnPropertyChanged(nameof(VideoStopHintProblemsText));
+        OnPropertyChanged(nameof(HasVideoStopHintProblems));
         OnPropertyChanged(nameof(HintPreviewText));
         OnPropertyChanged(nameof(HintProblems));
         OnPropertyChanged(nameof(HintProblemsText));
@@ -3290,6 +3341,9 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
         if ((_draft.GuestScreen.VideoHintText?.Length ?? 0) > SettingsLimits.HintTextMaxLength)
             errors.Add($"Der Video-Hinweistext darf höchstens {SettingsLimits.HintTextMaxLength} Zeichen lang sein.");
+
+        if ((v.StopHintText?.Length ?? 0) > SettingsLimits.HintTextMaxLength)
+            errors.Add($"Der Stopp-Hinweistext darf höchstens {SettingsLimits.HintTextMaxLength} Zeichen lang sein.");
 
         var prefix = v.FilePrefix;
         if (string.IsNullOrWhiteSpace(prefix))

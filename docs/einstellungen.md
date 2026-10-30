@@ -67,6 +67,8 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Video.WarningSeconds` | 10 | 0–120 (0 = aus) |
 | `Video.SuccessDisplaySeconds` | 3 | 1–60 |
 | `Video.SuccessText` | „Video gespeichert! 🎬“ | ≤ 80 Zeichen |
+| `Video.ShowStopHint` | an | – |
+| `Video.StopHintText` | leer (Standard „Drücke {Taste}, um die Videoaufnahme zu beenden“) | ≤ `HintTextMaxLength` (100) Zeichen, Platzhalter `{Taste}`, `{Stopptaste_N}`, `{Stopptasten}` |
 | `Video.Quality` | `High` | `High, Medium, Low` |
 | `Video.RecordAudio` | an | – |
 | `Video.MicrophoneId` / `MicrophoneName` | null (Windows-Standard) | Id ≤ 512, Name ≤ 200 |

@@ -9,7 +9,9 @@ namespace Fotobox.Core;
 /// Auslöse-Tasten oder aus einer eigenen Vorlage mit Platzhaltern <c>{Fototaste_1}</c>, <c>{Fototaste_2}</c> …, <c>{Fototasten}</c>
 /// und <c>{Klick}</c> (Groß-/Kleinschreibung egal). UI-frei, damit Gastansicht und Admin-Vorschau denselben Text zeigen.
 /// Die Video-Hinweiszeile („Drücke die Eingabetaste für ein Video 🎬“) nutzt dieselben Regeln mit <c>{Videotaste_N}</c> und
-/// <c>{Videotasten}</c>; beide Platzhaltersätze und <c>{Klick}</c> gelten in beiden Zeilen.
+/// <c>{Videotasten}</c>; beide Platzhaltersätze und <c>{Klick}</c> gelten in beiden Zeilen. Der Stopp-Hinweis während der
+/// Videoaufnahme („Drücke die Eingabetaste, um die Videoaufnahme zu beenden“) hat einen eigenen Satz: <c>{Taste}</c>,
+/// <c>{Stopptaste_N}</c>, <c>{Stopptasten}</c>.
 /// </summary>
 public static class HintTextFormatter
 {
@@ -22,6 +24,7 @@ public static class HintTextFormatter
     // Ein Platzhalter: geschweifte Klammern ohne weitere Klammern darin.
     private static readonly Regex PlaceholderPattern = new(@"\{([^{}]*)\}", RegexOptions.CultureInvariant);
     private static readonly Regex KeyNumberPattern = new(@"^(Fototaste|Videotaste)_(\d+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex StopKeyNumberPattern = new(@"^Stopptaste_(\d+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex WhitespaceRun = new(@"\s+", RegexOptions.CultureInvariant);
     private static readonly Regex SpaceBeforePunctuation = new(@" +([,.!?])", RegexOptions.CultureInvariant);
 
@@ -108,13 +111,122 @@ public static class HintTextFormatter
         return result.Length == 0 ? BuildAutomaticVideo(videoKeys) : result;
     }
 
+    /// <summary>
+    /// Der automatische Stopp-Hinweis der Videoaufnahme: <see cref="VideoSettings.DefaultStopHintText"/> mit eingesetztem
+    /// <c>{Taste}</c>, z. B. „Drücke die Eingabetaste, um die Videoaufnahme zu beenden“. Ohne Stopptaste: leer (kein Hinweis).
+    /// </summary>
+    public static string BuildAutomaticVideoStop(IReadOnlyList<KeyChord> stopKeys) =>
+        stopKeys.Count == 0 ? "" : FormatVideoStop(VideoSettings.DefaultStopHintText, stopKeys);
+
+    /// <summary>
+    /// Wie <see cref="FormatVideo"/> für den Stopp-Hinweis während der Aufnahme (unten im Bild). Platzhalter:
+    /// <c>{Taste}</c> = die Stopptasten für den Satz (eine Taste: „die Leertaste“/„die Eingabetaste“ mit Artikel, sonst nur der Name;
+    /// mehrere Tasten wie in <see cref="BuildAutomaticVideo"/> ohne Artikel, „A, B oder C“, höchstens
+    /// <see cref="AutomaticKeysMax"/> Namen), <c>{Stopptaste_N}</c> (einzelne Taste, nur der Name) und <c>{Stopptasten}</c> (alle,
+    /// „A oder B“). Foto-/Videotasten-Platzhalter und <c>{Klick}</c> (die Maus beendet nie ein Video) gelten hier nicht und
+    /// werden leer; unbekannte <c>{…}</c> bleiben wörtlich stehen. Ohne Vorlage (null, leer, nur Leerraum) oder wenn nach dem
+    /// Einsetzen nichts übrig bleibt, gilt <see cref="VideoSettings.DefaultStopHintText"/>. Ohne Stopptaste: leer
+    /// (der Hinweis entfällt).
+    /// </summary>
+    public static string FormatVideoStop(string? template, IReadOnlyList<KeyChord> stopKeys)
+    {
+        if (stopKeys.Count == 0)
+            return "";
+
+        var result = string.IsNullOrWhiteSpace(template) ? "" : SubstituteStop(template, stopKeys);
+        return result.Length == 0 ? SubstituteStop(VideoSettings.DefaultStopHintText, stopKeys) : result;
+    }
+
+    /// <summary>
+    /// Hinweise für den Admin zum Stopp-Hinweistext (leer = alles in Ordnung): <c>{Stopptaste_N}</c> mit N über der Anzahl der
+    /// Stopptasten (<paramref name="stopKeyCount"/>), Foto-/Videotasten-Platzhalter und <c>{Klick}</c> (gibt es in dieser Zeile
+    /// nicht) sowie unbekannte Platzhalter. Jeder Platzhalter wird nur einmal gemeldet.
+    /// </summary>
+    public static IReadOnlyList<string> FindVideoStopProblems(string? template, int stopKeyCount)
+    {
+        var problems = new List<string>();
+        if (string.IsNullOrWhiteSpace(template))
+            return problems;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match m in PlaceholderPattern.Matches(template))
+        {
+            if (!seen.Add(m.Value))
+                continue;
+
+            var name = m.Groups[1].Value;
+            if (name.Equals("Klick", StringComparison.OrdinalIgnoreCase))
+            {
+                problems.Add($"{m.Value} gibt es in dieser Zeile nicht (die Maus beendet kein Video) und bleibt leer.");
+            }
+            else if (TryGetStopKeyNumber(name, out var number))
+            {
+                if (number > stopKeyCount)
+                    problems.Add($"{m.Value} ist nicht belegt ({DescribeKeyCount(stopKeyCount, "Stopptaste")}) und bleibt leer.");
+            }
+            else if (IsKnownName(name) || TryGetKeyNumber(name, out _, out _))
+            {
+                problems.Add($"{m.Value} gibt es in dieser Zeile nicht (hier gelten {{Taste}}, {{Stopptaste_N}} und {{Stopptasten}}) und bleibt leer.");
+            }
+            else if (!name.Equals("Taste", StringComparison.OrdinalIgnoreCase) && !name.Equals("Stopptasten", StringComparison.OrdinalIgnoreCase))
+            {
+                problems.Add($"Unbekannter Platzhalter {m.Value} wird unverändert angezeigt.");
+            }
+        }
+        return problems;
+    }
+
+    private static string SubstituteStop(string template, IReadOnlyList<KeyChord> stopKeys) =>
+        Substitute(template, name => ResolveStop(name, stopKeys));
+
+    /// <summary>Wert des Platzhalters im Stopp-Hinweis; null = unbekannter Name.</summary>
+    private static string? ResolveStop(string name, IReadOnlyList<KeyChord> stopKeys)
+    {
+        if (name.Equals("Taste", StringComparison.OrdinalIgnoreCase))
+        {
+            if (stopKeys.Count == 0)
+                return "";
+            if (stopKeys.Count == 1)
+            {
+                var single = stopKeys[0];
+                return single == SpaceKey ? "die Leertaste" : single == EnterKey ? "die Eingabetaste" : single.DisplayName;
+            }
+            return JoinNames(stopKeys.Take(AutomaticKeysMax).Select(k => k.DisplayName).ToList());
+        }
+        if (TryGetStopKeyNumber(name, out var number))
+            return number <= stopKeys.Count ? stopKeys[number - 1].DisplayName : "";
+        if (name.Equals("Stopptasten", StringComparison.OrdinalIgnoreCase))
+            return JoinNames(stopKeys.Select(k => k.DisplayName).ToList());
+        // Gehört zu den anderen Zeilen, gilt hier aber nicht: leer statt wörtlich.
+        if (IsKnownName(name) || TryGetKeyNumber(name, out _, out _))
+            return "";
+        return null;
+    }
+
+    /// <summary><c>Stopptaste_N</c> mit N ≥ 1; zu große Zahlen gelten als gültig, aber nie belegt.</summary>
+    private static bool TryGetStopKeyNumber(string name, out int number)
+    {
+        number = 0;
+        var match = StopKeyNumberPattern.Match(name);
+        if (!match.Success)
+            return false;
+
+        if (!int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out number))
+            number = int.MaxValue;
+        return number >= 1;
+    }
+
     /// <summary>Setzt die Platzhalter ein und bereinigt Leerraum; das Ergebnis kann leer sein.</summary>
-    private static string Substitute(string template, IReadOnlyList<KeyChord> photoKeys, IReadOnlyList<KeyChord> videoKeys, bool click)
+    private static string Substitute(string template, IReadOnlyList<KeyChord> photoKeys, IReadOnlyList<KeyChord> videoKeys, bool click) =>
+        Substitute(template, name => Resolve(name, photoKeys, videoKeys, click));
+
+    /// <summary>Setzt die Platzhalter über <paramref name="resolve"/> ein (null = unbekannt) und bereinigt Leerraum.</summary>
+    private static string Substitute(string template, Func<string, string?> resolve)
     {
         var values = new List<string>();
         var marked = PlaceholderPattern.Replace(template, m =>
         {
-            var value = Resolve(m.Groups[1].Value, photoKeys, videoKeys, click);
+            var value = resolve(m.Groups[1].Value);
             if (value is null)
                 return m.Value;   // unbekannt: wörtlich lassen
             if (value.Length == 0)

@@ -445,6 +445,13 @@ public sealed class VideoSettings
     public int SuccessDisplaySeconds { get; set; } = 3;
     /// <summary>Text nach erfolgreichem Speichern; null/leer = <see cref="DefaultSuccessText"/>.</summary>
     public string? SuccessText { get; set; }
+    /// <summary>
+    /// Hinweis unten im Bild während der Aufnahme („Drücke die Eingabetaste, um die Videoaufnahme zu beenden“), sobald das
+    /// Beenden möglich ist (ab <see cref="MinDurationSeconds"/>). Stil wie der Video-Hinweis der Gastansicht.
+    /// </summary>
+    public bool ShowStopHint { get; set; } = true;
+    /// <summary>Eigener Text des Stopp-Hinweises (Platzhalter <c>{Taste}</c>, <c>{Stopptaste_N}</c>, <c>{Stopptasten}</c>); null/leer = <see cref="DefaultStopHintText"/>.</summary>
+    public string? StopHintText { get; set; }
     public VideoQuality Quality { get; set; } = VideoQuality.High;
     public bool RecordAudio { get; set; } = true;
     /// <summary>Mikrofon (DeviceInformation.Id); null = Windows-Standardmikrofon.</summary>
@@ -458,6 +465,7 @@ public sealed class VideoSettings
 
     public const string DefaultFilePrefix = "Fotobox+_Video";
     public const string DefaultSuccessText = "Video gespeichert! 🎬";
+    public const string DefaultStopHintText = "Drücke {Taste}, um die Videoaufnahme zu beenden";
 
     /// <summary>
     /// Muss die Kamera neu gestartet werden, damit <paramref name="other"/> gilt? Nur wenn sich ändert, ob bzw. welches
