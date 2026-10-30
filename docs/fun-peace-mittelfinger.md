@@ -61,7 +61,7 @@ Abgeleitet (`[JsonIgnore]`): `HasAnyAction`; `MinHandScore` linear aus der Empfi
 | `hand_landmark_sparse_Nx3x224x224.onnx` | 21 Handpunkte | wie oben |
 | `face_detection_yunet_2026may.onnx` | Gesichter + 5 Punkte | YuNet, OpenCV Zoo, MIT |
 
-Nachweise stehen in `THIRD-PARTY-NOTICES.txt` (Repo-Root, wird mitgeliefert). Der Publish wird je Architektur um ca. 15,6 MB größer. Alle laufen mit ONNX Runtime auf der CPU.
+Nachweise stehen in `THIRD-PARTY-NOTICES.txt` (Repo-Root, wird mitgeliefert). Der Publish wird je Architektur um ca. 15,6 MB größer. Alle laufen mit ONNX Runtime (über Windows ML) – nach Einstellung und Messung auf der CPU, einer Grafikkarte oder einer KI-Einheit, jedes Modell einzeln mit Rückfall auf die CPU (`beschleunigung.md`). Die Sessions baut `OnnxSessionFactory`; die Detektoren laden über `AcceleratedSession` und bekommen ihren Plan über `IModelPlacement` (Konstruktorparameter `placement`, null = CPU).
 
 ## `PeaceDetectionService` (`IGestureDetectionService`, Singleton)
 

@@ -1,15 +1,16 @@
 ## Fotobox+ {{VERSION}}
 
-### Neu in 2.7.0
+### Neu in 2.8.0
 
-- **Kisscam-Musik aus einem Ordner:** Statt einer einzelnen Datei gibt es jetzt den Musikordner `Musik\Fotobox+\Kisscam`. Er wird beim Start angelegt (ein vorhandener Ordner wird weiterverwendet) und lässt sich im Admin-Tab „Fun“ → „Herz“ ändern, öffnen und aktualisieren. Alle MP3-, WAV-, M4A- und WMA-Dateien im Ordner erscheinen in einer Liste; neu hineinkopierte Songs tauchen automatisch auf. Ist der Ordner leer, weist die Liste darauf hin.
-- **Mehrere Songs, zufällige Wahl:** Songs werden in der Liste angehakt (neue Songs sind zunächst nicht ausgewählt). Bei jeder Kisscam – und bei „Kisscam testen“ – spielt zufällig einer der ausgewählten Songs. Ist keiner ausgewählt, läuft die Kisscam ohne Musik.
-- **Startzeit und Lautstärke je Song:** Für jeden Song lässt sich festlegen, ab welcher Stelle er spielt (Standard 0:00), und wie laut er im Verhältnis zur Gesamtlautstärke ist. „Anspielen“ spielt den Song ab dieser Stelle so lange wie die Kisscam; mit „Position übernehmen“ wird die gerade gehörte Stelle zur Startzeit. Die Liste zeigt die Länge jedes Songs und warnt, wenn die Startzeit hinter dem Ende liegt oder eine Datei sich nicht abspielen lässt.
-- **Einstellungen im Musikordner:** Auswahl, Startzeiten und Song-Lautstärken stehen in der Datei `kisscam-musik.json` im Musikordner und werden bei jeder Änderung sofort gespeichert. Wird der Ordner auf einen anderen PC kopiert, kommt die Auswahl mit. Die bisher gewählte Einzeldatei wird nicht übernommen – den Song einfach in den neuen Ordner kopieren und anhaken.
-- **Zielerfassung rastet gemeinsam ein:** Kommt während der Einrast-Animation jemand dazu, startet die Animation für alle gleichzeitig neu (jede Person in ihrer eigenen Markierung), und erst danach erscheint die Meldung mit der Gesamtzahl. Wie oft neu gestartet wird, lässt sich im Tab „Zielerfassung“ unter „Maximale Neustarts beim Einrasten“ einstellen (ab Werk 3). Wer während der Meldung oder der Pause danach dazukommt, löst ebenfalls ein gemeinsames Einrasten aller aus.
-- **Videos laufen ungestört durch:** Esc beendet eine laufende Videoaufnahme nicht mehr – das geht nur mit der Videotaste (Standard Eingabetaste) oder durch die Maximaldauer. Den Video-Countdown bricht Esc weiterhin ab. Während Video-Countdown und Aufnahme sind wie bisher keine Fun-Funktionen aktiv, und Peace- sowie Herzerkennung lösen nur aus, wenn die Fotobox bereit ist (nicht im Countdown und nicht zwischen den Bildern eines Streifenfotos).
+- **Hardwarebeschleunigung der KI-Erkennung:** Zielerfassung, Peace-, Mittelfinger- und Herzerkennung laufen jetzt wahlweise auf der Grafikkarte (GPU) oder einer NPU statt nur auf dem Prozessor. Grundlage ist Windows ML mit DirectML; es funktioniert mit Grafikkarten von NVIDIA, AMD und Intel sowie mit Snapdragon-Grafik. Läuft ein Gerät nicht sauber, fällt die Erkennung automatisch auf den Prozessor zurück – nichts bleibt hängen.
+- **Neuer Admin-Tab „Leistung“:** Auswahl „Automatisch“ (ab Werk), „Nur CPU“, „Grafikkarte“ (mit Liste der erkannten Karten) oder „NPU“. „Automatisch“ misst beim ersten Start im Hintergrund, welches Gerät schneller ist als der Prozessor, und merkt sich das Ergebnis; die Messung wiederholt sich nach Hardware- oder Treiberwechsel. Statuszeile, Messtabelle und der Knopf „Jetzt messen“ zeigen, was aktiv ist. Änderungen wirken nach einem Neustart der App. Die Einstellung gilt nur für das jeweilige Gerät.
+- **Messung im eigenen Prozess:** Gerätemessungen laufen in einem getrennten Prozess. Stürzt ein Grafiktreiber dabei ab, bleibt die Fotobox unberührt und nutzt weiter den Prozessor. Die Windows-Softwaregrafik wird nie als Gerät verwendet.
+- **Leistungsstärkste Grafikkarte für die ganze App:** Ein eigener Schalter („Windows-Grafikeinstellung“, ab Werk an) legt die Fotobox in den Windows-Grafikeinstellungen auf „Hohe Leistung“. So nutzt sie auf Laptops mit zwei Grafikeinheiten die starke Grafikkarte statt der internen. Der Schalter ändert nur den eigenen Eintrag und wirkt ab dem nächsten Start.
+- **Zusätzliche Beschleuniger (optional):** Der Knopf „Beschleuniger installieren“ lädt über Windows ML herstellerspezifische Beschleuniger (z. B. für NVIDIA oder Snapdragon-NPUs) nach. Das braucht Internet und geschieht nie automatisch; danach ist ein Neustart nötig.
+- **Hinweis zum Video-Stoppen:** Während einer Videoaufnahme zeigt die Gastansicht unten, wie sich die Aufnahme beenden lässt – ab Werk „Drücke die Eingabetaste, um die Videoaufnahme zu beenden“, sobald die Mindestlänge erreicht ist. Im Admin-Tab „Video“ unter „Anzeige während der Aufnahme“ lässt sich der Hinweis ausschalten und der Text ändern (Platzhalter `{Taste}`, `{Stopptaste_N}` und `{Stopptasten}`), mit Vorschau im gewählten Hinweisstil. Der Hinweis ist nicht im Video zu sehen.
+- **Hinweis:** Die Beschleunigung ist mit automatischen Tests und auf einem Snapdragon-Laptop geprüft; auf NVIDIA-Grafikkarten und NPUs noch nicht. Bei Problemen genügt „Nur CPU“ im Tab „Leistung“.
 
-Alle Neuerungen von 2.6.0 und den Versionen davor stehen unten unter „Ältere Versionen“.
+Alle Neuerungen von 2.7.0 und den Versionen davor stehen unten unter „Ältere Versionen“.
 
 ### Welche Datei passt zu meinem PC?
 
@@ -40,7 +41,16 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer der Fotobox 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
 
 <details>
-<summary>Änderungen der Versionen 0.0.0-beta bis 2.6.0 anzeigen</summary>
+<summary>Änderungen der Versionen 0.0.0-beta bis 2.7.0 anzeigen</summary>
+
+#### [Fotobox+ 2.7.0](https://github.com/lorenzhdr/Fotobox/tree/v2.7.0) · 29.10.2026
+
+- **Kisscam-Musik aus einem Ordner:** Statt einer einzelnen Datei gibt es jetzt den Musikordner `Musik\Fotobox+\Kisscam`. Er wird beim Start angelegt (ein vorhandener Ordner wird weiterverwendet) und lässt sich im Admin-Tab „Fun“ → „Herz“ ändern, öffnen und aktualisieren. Alle MP3-, WAV-, M4A- und WMA-Dateien im Ordner erscheinen in einer Liste; neu hineinkopierte Songs tauchen automatisch auf. Ist der Ordner leer, weist die Liste darauf hin.
+- **Mehrere Songs, zufällige Wahl:** Songs werden in der Liste angehakt (neue Songs sind zunächst nicht ausgewählt). Bei jeder Kisscam – und bei „Kisscam testen“ – spielt zufällig einer der ausgewählten Songs. Ist keiner ausgewählt, läuft die Kisscam ohne Musik.
+- **Startzeit und Lautstärke je Song:** Für jeden Song lässt sich festlegen, ab welcher Stelle er spielt (Standard 0:00), und wie laut er im Verhältnis zur Gesamtlautstärke ist. „Anspielen“ spielt den Song ab dieser Stelle so lange wie die Kisscam; mit „Position übernehmen“ wird die gerade gehörte Stelle zur Startzeit. Die Liste zeigt die Länge jedes Songs und warnt, wenn die Startzeit hinter dem Ende liegt oder eine Datei sich nicht abspielen lässt.
+- **Einstellungen im Musikordner:** Auswahl, Startzeiten und Song-Lautstärken stehen in der Datei `kisscam-musik.json` im Musikordner und werden bei jeder Änderung sofort gespeichert. Wird der Ordner auf einen anderen PC kopiert, kommt die Auswahl mit. Die bisher gewählte Einzeldatei wird nicht übernommen – den Song einfach in den neuen Ordner kopieren und anhaken.
+- **Zielerfassung rastet gemeinsam ein:** Kommt während der Einrast-Animation jemand dazu, startet die Animation für alle gleichzeitig neu (jede Person in ihrer eigenen Markierung), und erst danach erscheint die Meldung mit der Gesamtzahl. Wie oft neu gestartet wird, lässt sich im Tab „Zielerfassung“ unter „Maximale Neustarts beim Einrasten“ einstellen (ab Werk 3). Wer während der Meldung oder der Pause danach dazukommt, löst ebenfalls ein gemeinsames Einrasten aller aus.
+- **Videos laufen ungestört durch:** Esc beendet eine laufende Videoaufnahme nicht mehr – das geht nur mit der Videotaste (Standard Eingabetaste) oder durch die Maximaldauer. Den Video-Countdown bricht Esc weiterhin ab. Während Video-Countdown und Aufnahme sind wie bisher keine Fun-Funktionen aktiv, und Peace- sowie Herzerkennung lösen nur aus, wenn die Fotobox bereit ist (nicht im Countdown und nicht zwischen den Bildern eines Streifenfotos).
 
 #### [Fotobox+ 2.6.0](https://github.com/lorenzhdr/Fotobox/tree/v2.6.0) · 29.10.2026
 

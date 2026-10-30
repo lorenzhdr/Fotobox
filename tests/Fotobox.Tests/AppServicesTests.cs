@@ -87,6 +87,7 @@ public class AppServicesTests
         Assert.False(booth.Fun.IsInert);
         var launcher = Assert.IsType<Fotobox.Views.Admin.AdminLauncher>(provider.GetRequiredService<IAdminLauncher>());
         Assert.True(launcher.HasFunServices);
+        Assert.True(launcher.HasAccelerationService);
     }
 
     [Fact]

@@ -16,6 +16,12 @@ public static class AppLog
     private static readonly object Gate = new();
     private static string? _directory;
 
+    /// <summary>
+    /// Umleitung der Logzeilen (Ebene, Text samt Ausnahme) statt in die Datei. Nur der Messprozess der Beschleunigung setzt sie
+    /// (er schickt die Zeilen über seine Ausgabe an den Hauptprozess, damit nie zwei Prozesse in dieselbe Datei schreiben).
+    /// </summary>
+    internal static Action<string, string>? Sink { get; set; }
+
     /// <summary>Setzt den Log-Ordner (null = %LOCALAPPDATA%\Fotobox\logs) und legt ihn an. Wirft nie.</summary>
     public static void Initialize(string? directory = null)
     {
@@ -102,6 +108,12 @@ public static class AppLog
     {
         try
         {
+            if (Sink is { } sink)
+            {
+                sink(level, ex is null ? message : message + " " + ex.GetType().Name + ": " + ex.Message);
+                return;
+            }
+
             var now = DateTime.Now;
             var sb = new StringBuilder();
             sb.Append(FormatTimestamp(now)).Append(" [").Append(level).Append("] [T")

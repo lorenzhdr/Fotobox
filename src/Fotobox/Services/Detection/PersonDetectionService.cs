@@ -17,7 +17,8 @@ using Detection = Fotobox.Core.Fun.Detection;
 public sealed class PersonDetectionService : IPersonDetectionService
 {
     public static readonly TimeSpan AnalysisTimeout = TimeSpan.FromSeconds(2);
-    public static readonly TimeSpan InitTimeout = TimeSpan.FromSeconds(20);
+    /// <summary>Frist für das Laden eines Detektors: Plan abwarten + Laden auf dem Gerät + Rückfall auf die CPU + Reserve (<see cref="Acceleration.AccelerationTimeouts.ServiceInit"/>).</summary>
+    public static readonly TimeSpan InitTimeout = Acceleration.AccelerationTimeouts.ServiceInit;
     /// <summary>So lange wartet das Freigeben eines Detektors auf eine noch laufende Analyse, bevor es ihn (selbst sicher) entsorgt.</summary>
     public static readonly TimeSpan RetireWait = TimeSpan.FromMilliseconds(1500);
     public static readonly TimeSpan DetectorDisposeWait = TimeSpan.FromSeconds(4);

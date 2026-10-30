@@ -133,6 +133,9 @@ public class AppSettingsTests
         Assert.True(v.ShowRemaining);
         Assert.Equal(3, v.SuccessDisplaySeconds);
         Assert.Null(v.SuccessText);
+        Assert.True(v.ShowStopHint);
+        Assert.Null(v.StopHintText);
+        Assert.Equal("Drücke {Taste}, um die Videoaufnahme zu beenden", VideoSettings.DefaultStopHintText);
         Assert.Equal(VideoQuality.High, v.Quality);
         Assert.True(v.RecordAudio);
         Assert.Null(v.MicrophoneId);

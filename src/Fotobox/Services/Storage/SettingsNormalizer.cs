@@ -38,6 +38,7 @@ internal static class SettingsNormalizer
         s.Peace ??= new PeaceSettings();
         s.MiddleFinger ??= new MiddleFingerSettings();
         s.Heart ??= new HeartSettings();
+        s.Performance ??= new PerformanceSettings();
 
         NormalizeCamera(s.Camera);
 
@@ -77,6 +78,7 @@ internal static class SettingsNormalizer
         NormalizePeace(s.Peace);
         NormalizeMiddleFinger(s.MiddleFinger);
         NormalizeHeart(s.Heart);
+        NormalizePerformance(s.Performance);
 
         // PinIterations wird bewusst nicht geklemmt: Ein anderer Wert passte nicht mehr zum gespeicherten Hash (siehe PinService).
 
@@ -141,6 +143,7 @@ internal static class SettingsNormalizer
 
         var successText = CleanLine(v.SuccessText, SettingsLimits.VideoSuccessTextMaxLength);
         v.SuccessText = string.IsNullOrEmpty(successText) ? null : successText;
+        v.StopHintText = SanitizeHintText(v.StopHintText);
 
         // Id exakt lassen (Geräte-Id); zu lang → verwerfen, denn gekürzt passte sie nie. Name nur zur Anzeige, gehört zur Id.
         var microphoneId = v.MicrophoneId;
@@ -354,6 +357,21 @@ internal static class SettingsNormalizer
             || musicFolder.Any(char.IsControl))
             musicFolder = null;
         h.KisscamMusicFolder = musicFolder;
+    }
+
+    /// <summary>
+    /// Leistung: undefinierter Beschleuniger → Auto. Der Geräteschlüssel wird getrimmt; leer, mit Steuerzeichen oder länger als
+    /// <see cref="SettingsLimits.GpuDeviceKeyMaxLength"/> → null (leistungsstärkste Grafikkarte; gekürzt passte der Schlüssel nie).
+    /// </summary>
+    private static void NormalizePerformance(PerformanceSettings p)
+    {
+        if (!Enum.IsDefined(p.Accelerator))
+            p.Accelerator = AcceleratorMode.Auto;
+
+        var key = p.GpuDeviceKey?.Trim();
+        if (string.IsNullOrEmpty(key) || key.Length > SettingsLimits.GpuDeviceKeyMaxLength || key.Any(char.IsControl))
+            key = null;
+        p.GpuDeviceKey = key;
     }
 
     /// <summary>Rundet kaufmännisch auf ein Vielfaches von <paramref name="step"/> und klemmt auf [<paramref name="min"/>, <paramref name="max"/>].</summary>

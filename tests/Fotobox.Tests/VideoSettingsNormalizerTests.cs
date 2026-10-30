@@ -153,6 +153,18 @@ public sealed class VideoSettingsNormalizerTests : IDisposable
     }
 
     [Fact]
+    public void StopHintText_IsCleanedTruncated_AndWhitespaceBecomesNull()
+    {
+        Assert.Null(Normalized(s => s.Video.StopHintText = "   ").Video.StopHintText);
+        Assert.Null(Normalized(s => s.Video.StopHintText = "").Video.StopHintText);
+        Assert.Null(Normalized(s => s.Video.StopHintText = null).Video.StopHintText);
+        Assert.Equal("Stopp  mit {Taste}", Normalized(s => s.Video.StopHintText = "  Stopp\r\nmit {Taste} ").Video.StopHintText);
+
+        var longText = Normalized(s => s.Video.StopHintText = new string('x', SettingsLimits.HintTextMaxLength + 30)).Video.StopHintText;
+        Assert.Equal(SettingsLimits.HintTextMaxLength, longText!.Length);
+    }
+
+    [Fact]
     public void VideoFilePrefix_IsSanitized_AndEmptyBecomesVideoDefault()
     {
         Assert.Equal("Fotobox+_Video", Normalized(s => s.Video.FilePrefix = "").Video.FilePrefix);

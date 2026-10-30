@@ -52,6 +52,10 @@ Details: `fun-zielerfassung.md`, `fun-peace-mittelfinger.md`, `fun-herz-kisscam.
 
 Admin-Tab „Kamera“, Karte „Bildeinstellungen“: Hardware-Regler der Webcam (Zoom, Pan, Tilt, Helligkeit, Kontrast, Farbton, Belichtung, Gegenlicht, Fokus, Weißabgleich, Belichtungskorrektur) mit Live-Wirkung, Flimmerschutz (50/60 Hz) und benannten Profilen je Kamera. Details: `kamera.md`.
 
+### Leistung (Hardwarebeschleunigung)
+
+Admin-Tab „Leistung“: Auswahl, auf welchem Gerät die KI-Erkennung rechnet (Automatisch per Messung, nur Prozessor, Grafikkarte, KI-Beschleuniger), Betriebsstand, Messung per Knopfdruck, Installation zusätzlicher Hersteller-Beschleuniger und die Windows-Grafikeinstellung „Hohe Leistung“. Änderungen wirken nach einem Neustart. Details: `beschleunigung.md`.
+
 ### Einstellungen teilen
 
 Admin-Tab „Sicherheit & Daten“: Export und Import der Einstellungen als JSON-Datei (ohne gerätespezifische Werte wie Kamera, Drucker, Ordner), optional mit PIN. Dazu „Standardwerte wiederherstellen“. Details: `einstellungen.md`.
@@ -81,7 +85,7 @@ Pro Aktion sind bis zu 8 Tasten möglich (`SettingsLimits.KeysPerActionMax`). Sy
 | `src/Fotobox/Services/Display` | Monitoraufzählung per Win32 (`Win32DisplayService`, `DisplayNative`). |
 | `src/Fotobox/Services/Layout` | Komposition der Druckseite (Einzel, Streifen in zwei Varianten, Overlay; `LayoutMath`). |
 | `src/Fotobox/Services/Storage` | Settings-Store (`JsonSettingsStore`), `SettingsNormalizer`, `SettingsTransfer`/`SettingsJson`, `PinService`, `PhotoStorage`, `VideoStorage`, `FolderProbe`. |
-| `src/Fotobox/Services/Detection` | Personenerkennung (YOLOX per ONNX, Windows `FaceDetector`); `Detection/Peace`: Gesichts- und Handerkennung (YuNet, MediaPipe). |
+| `src/Fotobox/Services/Detection` | Personenerkennung (YOLOX per ONNX, Windows `FaceDetector`); `Detection/Peace`: Gesichts- und Handerkennung (YuNet, MediaPipe); `Detection/Acceleration`: Beschleunigung der ONNX-Modelle über Windows ML (Geräteliste, Messung, Plan, Rückfall auf die CPU; `beschleunigung.md`). |
 | `src/Fotobox/Services/Peace` | Foto-Verzierer (Bart im Foto: `MoustachePhotoDecorator`). |
 | `src/Fotobox/Core/Music` | UI-freie Logik der Kisscam-Musik (Config, Codec, Zeitformat, Songs, Snapshot, `KisscamSongPicker`). |
 | `src/Fotobox/Services/Audio` | Tonausgabe (`FunSoundPlayer`) und Kisscam-Musik (`MusicPlayer`, `KisscamMusicLibrary`, `KisscamMusicFileSystem`). |

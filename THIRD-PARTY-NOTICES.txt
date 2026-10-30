@@ -24,8 +24,33 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 
-2. ONNX Runtime (Microsoft.ML.OnnxRuntime)
-------------------------------------------
+2. ONNX Runtime, Windows ML und DirectML (NuGet-Paket Microsoft.Windows.AI.MachineLearning)
+---------------------------------------------------------------------------------------
+Die KI-Erkennung nutzt ONNX Runtime über Windows ML (Microsoft.Windows.AI.MachineLearning;
+bis Version 2.7.0 über das Paket Microsoft.ML.OnnxRuntime). Das Paket liefert onnxruntime.dll,
+DirectML.dll und Microsoft.Windows.AI.MachineLearning.dll unverändert mit.
+The AI detection uses ONNX Runtime through Windows ML (Microsoft.Windows.AI.MachineLearning;
+up to version 2.7.0 through the package Microsoft.ML.OnnxRuntime). The package ships
+onnxruntime.dll, DirectML.dll and Microsoft.Windows.AI.MachineLearning.dll unmodified.
+
+Windows ML und DirectML: Copyright (c) Microsoft Corporation. Alle Rechte vorbehalten. / All rights reserved.
+Quelle / Source: https://github.com/microsoft/windowsml, https://github.com/microsoft/DirectML
+Lizenz / License: "MICROSOFT SOFTWARE LICENSE TERMS - Microsoft Windows ML Runtime", vollständig in
+Lizenzen\WindowsML-Lizenz.txt (unverändert aus dem NuGet-Paket; unmodified from the NuGet package).
+Die Weitergabe der vom Paket mitgelieferten Dateien ist dort unter "Distributable Code" geregelt.
+Mit der Nutzung von Fotobox+ gelten für diese Dateien (onnxruntime.dll, DirectML.dll,
+Microsoft.Windows.AI.MachineLearning*.dll) die Microsoft-Lizenzbedingungen in Lizenzen\WindowsML-Lizenz.txt.
+Redistribution of the files shipped by the package is governed there under "Distributable Code".
+By using Fotobox+ you agree that these files (onnxruntime.dll, DirectML.dll,
+Microsoft.Windows.AI.MachineLearning*.dll) are subject to the Microsoft license terms in
+Lizenzen\WindowsML-Lizenz.txt. Dritthersteller-Ausführungsanbieter, die Windows ML zur Laufzeit
+herunterlädt (z. B. für NPUs und Grafikkarten), unterliegen den Lizenzen ihrer Hersteller:
+https://learn.microsoft.com/windows/ai/new-windows-ml/supported-execution-providers
+Third-party execution providers that Windows ML downloads at run time (e.g. for NPUs and GPUs) are
+subject to their vendors' licenses (see the link above). Die Hinweise zu Drittkomponenten stehen in
+Lizenzen\WindowsML-ThirdPartyNotices.txt. / Third-party notices: Lizenzen\WindowsML-ThirdPartyNotices.txt.
+
+ONNX Runtime
 Quelle / Source: https://github.com/microsoft/onnxruntime
 Copyright (c) Microsoft Corporation
 

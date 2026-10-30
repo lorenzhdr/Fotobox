@@ -1,6 +1,7 @@
 using System.IO;
 using Fotobox.Core;
 using Fotobox.Core.Fun;
+using Fotobox.Services.Detection.Acceleration;
 using Microsoft.ML.OnnxRuntime;
 
 namespace Fotobox.Services.Detection;
@@ -9,29 +10,33 @@ namespace Fotobox.Services.Detection;
 using Detection = Fotobox.Core.Fun.Detection;
 
 /// <summary>
-/// Ganzkörper-Personenerkennung mit YOLOX-Nano (ONNX Runtime, CPU). Die <see cref="InferenceSession"/> wird lazy auf dem Threadpool
+/// Ganzkörper-Personenerkennung mit YOLOX-Nano (ONNX Runtime; CPU, oder GPU/NPU über Windows ML laut Plan des <see cref="IModelPlacement"/>
+/// mit Rückfall auf die CPU, siehe <see cref="AcceleratedSession"/>). Die <see cref="InferenceSession"/> wird lazy auf dem Threadpool
 /// geladen. Sie wird nie während eines laufenden <c>Run</c> freigegeben (<see cref="DeferredReleaseGate"/>): Ein
 /// <see cref="DisposeAsync"/> wartet bis zu 3 s; läuft der Aufruf dann noch, gibt er die Session nach seinem Ende selbst frei.
 /// </summary>
 public sealed class YoloxPersonDetector : IPersonDetector
 {
-    public static readonly TimeSpan InitTimeout = TimeSpan.FromSeconds(15);
+    /// <summary>Gesamtfrist des Ladens: Plan abwarten + Laden auf dem Gerät + Rückfall auf die CPU (<see cref="AccelerationTimeouts.DetectorInit"/>).</summary>
+    public static readonly TimeSpan InitTimeout = AccelerationTimeouts.DetectorInit;
     public static readonly TimeSpan DisposeWait = TimeSpan.FromSeconds(3);
 
     private readonly string _modelPath;
+    private readonly IModelPlacement? _placement;
     private readonly DeferredReleaseGate _gate;
     private readonly object _initLock = new();
     private readonly object _runLock = new();
     private Task? _initTask;
-    private InferenceSession? _session;
+    private AcceleratedSession? _model;
     private string _inputName = "images";
     private int _inputSize = YoloxPreprocessor.DefaultInputSize;
     private float[]? _inputBuffer;
     private int _disposeStarted;
 
-    public YoloxPersonDetector(string? modelPath = null)
+    public YoloxPersonDetector(string? modelPath = null, IModelPlacement? placement = null)
     {
         _modelPath = modelPath ?? DefaultModelPath;
+        _placement = placement;
         _gate = new DeferredReleaseGate(ReleaseSession);
     }
 
@@ -65,47 +70,35 @@ public sealed class YoloxPersonDetector : IPersonDetector
             if (!File.Exists(_modelPath))
                 throw new FileNotFoundException("Die Modelldatei der Personenerkennung fehlt.", _modelPath);
 
-            using var options = new SessionOptions
-            {
-                IntraOpNumThreads = 2,
-                InterOpNumThreads = 1,
-                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
-            };
-            // Die ORT-Threads schlafen zwischen den Analysen (im Leerlauf 5/s), statt aktiv zu warten: spart CPU, Ergebnisse bleiben gleich.
-            options.AddSessionConfigEntry("session.intra_op.allow_spinning", "0");
-            options.AddSessionConfigEntry("session.inter_op.allow_spinning", "0");
-            var session = new InferenceSession(_modelPath, options);
-            try
-            {
-                var inputName = session.InputNames[0];
-                var size = YoloxPreprocessor.DefaultInputSize;
-                if (session.InputMetadata.TryGetValue(inputName, out var meta) && meta.Dimensions.Length == 4
-                    && meta.Dimensions[2] > 0 && meta.Dimensions[2] == meta.Dimensions[3])
-                    size = meta.Dimensions[2];
-
-                // Aufwärmlauf: Der erste Run ist deutlich langsamer (Speicher-Arena, Kernel-Initialisierung). Er soll in der großzügigen
-                // Ladefrist (InitTimeout) laufen statt in der 2-s-Frist der ersten Analyse, denn schon ein Analyse-Timeout schaltet
-                // dauerhaft auf die Gesichtserkennung um. Ein Fehler hier gilt als Ladefehler; der Puffer wird von RunCore weiterverwendet.
-                var warmup = new float[YoloxPreprocessor.RequiredLength(size)];
-                using (var input = OrtValue.CreateTensorValueFromMemory(OrtMemoryInfo.DefaultInstance, warmup.AsMemory(), [1L, 3L, size, size]))
-                using (var runOptions = new RunOptions())
-                    session.Run(runOptions, [inputName], [input], [session.OutputNames[0]]).Dispose();
-
-                _inputName = inputName;
-                _inputSize = size;
-                _inputBuffer = warmup;
-                _session = session;
-            }
-            catch
-            {
-                session.Dispose();
-                throw;
-            }
+            var model = AcceleratedSession.Load(ModelId.Yolox, _modelPath, _placement, new DeviceBudget(AccelerationTimeouts.DeviceLoad), PrepareSession, out var state);
+            _inputName = state.InputName;
+            _inputSize = state.Size;
+            _inputBuffer = state.Buffer;
+            _model = model;
         }
         finally
         {
             _gate.Exit();
         }
+    }
+
+    /// <summary>Liest Eingabename und -größe aus dem Modell und macht den Aufwärmlauf (auf dem Gerät bzw. der CPU, auf der die Session gebaut wurde).</summary>
+    private static (string InputName, int Size, float[] Buffer) PrepareSession(InferenceSession session)
+    {
+        var inputName = session.InputNames[0];
+        var size = YoloxPreprocessor.DefaultInputSize;
+        if (session.InputMetadata.TryGetValue(inputName, out var meta) && meta.Dimensions.Length == 4
+            && meta.Dimensions[2] > 0 && meta.Dimensions[2] == meta.Dimensions[3])
+            size = meta.Dimensions[2];
+
+        // Aufwärmlauf: Der erste Run ist deutlich langsamer (Speicher-Arena, Kernel-Initialisierung). Er soll in der großzügigen
+        // Ladefrist (InitTimeout) laufen statt in der 2-s-Frist der ersten Analyse, denn schon ein Analyse-Timeout schaltet
+        // dauerhaft auf die Gesichtserkennung um. Ein Fehler hier gilt als Ladefehler; der Puffer wird von RunCore weiterverwendet.
+        var warmup = new float[YoloxPreprocessor.RequiredLength(size)];
+        using (var input = OrtValue.CreateTensorValueFromMemory(OrtMemoryInfo.DefaultInstance, warmup.AsMemory(), [1L, 3L, size, size]))
+        using (var runOptions = new RunOptions())
+            session.Run(runOptions, [inputName], [input], [session.OutputNames[0]]).Dispose();
+        return (inputName, size, warmup);
     }
 
     public async Task<IReadOnlyList<Detection>> DetectAsync(DetectionFrame frame, double minConfidence, CancellationToken ct = default)
@@ -123,21 +116,25 @@ public sealed class YoloxPersonDetector : IPersonDetector
             throw new ObjectDisposedException(nameof(YoloxPersonDetector));
         try
         {
-            var session = _session ?? throw new InvalidOperationException("Die Personenerkennung ist nicht initialisiert.");
+            var model = _model ?? throw new InvalidOperationException("Die Personenerkennung ist nicht initialisiert.");
             lock (_runLock)
             {
-                var size = _inputSize;
-                var buffer = _inputBuffer;
-                if (buffer is null || buffer.Length != YoloxPreprocessor.RequiredLength(size))
-                    _inputBuffer = buffer = new float[YoloxPreprocessor.RequiredLength(size)];
+                // Der Delegat baut seine Eingabe selbst auf: Fällt die Session zur Laufzeit auf die CPU zurück, wird er wiederholt.
+                return model.Run(session =>
+                {
+                    var size = _inputSize;
+                    var buffer = _inputBuffer;
+                    if (buffer is null || buffer.Length != YoloxPreprocessor.RequiredLength(size))
+                        _inputBuffer = buffer = new float[YoloxPreprocessor.RequiredLength(size)];
 
-                var ratio = YoloxPreprocessor.Preprocess(frame, buffer, size);
-                using var input = OrtValue.CreateTensorValueFromMemory(OrtMemoryInfo.DefaultInstance, buffer.AsMemory(), [1L, 3L, size, size]);
-                using var runOptions = new RunOptions();
-                using var results = session.Run(runOptions, [_inputName], [input], [session.OutputNames[0]]);
-                var output = results[0];
-                var shape = output.GetTensorTypeAndShape().Shape;
-                return YoloxDecoder.Decode(output.GetTensorDataAsSpan<float>(), shape, ratio, frame.Width, frame.Height, minConfidence);
+                    var ratio = YoloxPreprocessor.Preprocess(frame, buffer, size);
+                    using var input = OrtValue.CreateTensorValueFromMemory(OrtMemoryInfo.DefaultInstance, buffer.AsMemory(), [1L, 3L, size, size]);
+                    using var runOptions = new RunOptions();
+                    using var results = session.Run(runOptions, [_inputName], [input], [session.OutputNames[0]]);
+                    var output = results[0];
+                    var shape = output.GetTensorTypeAndShape().Shape;
+                    return YoloxDecoder.Decode(output.GetTensorDataAsSpan<float>(), shape, ratio, frame.Width, frame.Height, minConfidence);
+                });
             }
         }
         finally
@@ -149,8 +146,7 @@ public sealed class YoloxPersonDetector : IPersonDetector
     /// <summary>Nur über das <see cref="DeferredReleaseGate"/>: erst wenn kein Aufruf mehr läuft.</summary>
     private void ReleaseSession()
     {
-        var session = Interlocked.Exchange(ref _session, null);
-        session?.Dispose();
+        Interlocked.Exchange(ref _model, null)?.Dispose();
         _inputBuffer = null;
     }
 

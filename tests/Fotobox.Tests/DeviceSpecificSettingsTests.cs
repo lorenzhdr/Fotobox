@@ -75,6 +75,8 @@ public sealed class DeviceSpecificSettingsTests
         "Video.ShowRemaining",
         "Video.SuccessDisplaySeconds",
         "Video.SuccessText",
+        "Video.ShowStopHint",
+        "Video.StopHintText",
         "Video.Quality",
         "Video.RecordAudio",
         "Video.DateSubfolder",
@@ -179,7 +181,7 @@ public sealed class DeviceSpecificSettingsTests
     }
 
     [Fact]
-    public void Paths_AreTheEighteenAgreedDeviceFields()
+    public void Paths_AreTheTwentyOneAgreedDeviceFields()
     {
         Assert.Equal(
             new[]
@@ -188,6 +190,7 @@ public sealed class DeviceSpecificSettingsTests
                 "Camera.ControlProfiles", "Camera.ControlValues", "Camera.ControlsDeviceId",
                 "Camera.DeviceId", "Camera.ResolutionHeight", "Camera.ResolutionWidth",
                 "Heart.KisscamMusicFolder",
+                "Performance.Accelerator", "Performance.GpuDeviceKey", "Performance.PreferHighPerformanceGpu",
                 "Printer.PaperHeightMm", "Printer.PaperSizeName", "Printer.PaperWidthMm", "Printer.PrinterName",
                 "Storage.PhotoFolder",
                 "Video.Folder", "Video.MicrophoneId", "Video.MicrophoneName",
@@ -286,6 +289,29 @@ public sealed class DeviceSpecificSettingsTests
         Assert.Equal(65, target.Appearance.AdminZoomPercent);
     }
 
+    [Fact]
+    public void Performance_IsDeviceSpecific_ClearedToDefaults_AndCopied()
+    {
+        var s = new AppSettings();
+        s.Performance.Accelerator = AcceleratorMode.Gpu;
+        s.Performance.GpuDeviceKey = "ep|0001|0002|karte";
+        s.Performance.PreferHighPerformanceGpu = false;
+        DeviceSpecificSettings.Clear(s);
+        Assert.Equal(AcceleratorMode.Auto, s.Performance.Accelerator);
+        Assert.Null(s.Performance.GpuDeviceKey);
+        Assert.True(s.Performance.PreferHighPerformanceGpu);
+
+        var source = new AppSettings();
+        source.Performance.Accelerator = AcceleratorMode.Npu;
+        source.Performance.GpuDeviceKey = "schluessel";
+        source.Performance.PreferHighPerformanceGpu = false;
+        var target = new AppSettings();
+        DeviceSpecificSettings.CopyFrom(source, target);
+        Assert.Equal(AcceleratorMode.Npu, target.Performance.Accelerator);
+        Assert.Equal("schluessel", target.Performance.GpuDeviceKey);
+        Assert.False(target.Performance.PreferHighPerformanceGpu);
+    }
+
     /// <summary>Alle Blattfelder (öffentlich les-/schreibbar) der übertragbaren Abschnitte; verschachtelte Objekte werden durchlaufen, Texte und Listen sind Blätter.</summary>
     private static IEnumerable<string> LeafPaths()
     {
@@ -347,6 +373,8 @@ public sealed class DeviceSpecificSettingsTests
                     { new() { Kind = CameraControlKind.Zoom, Value = 2.5 }, new() { Kind = CameraControlKind.Focus, Auto = true } }
                 : type == typeof(List<CameraControlProfile>) ? new List<CameraControlProfile>
                     { new() { Name = "Profil", DeviceId = "wert-" + path, Values = [new() { Kind = CameraControlKind.Hue, Value = 3 }] } }
+                : type == typeof(AcceleratorMode) ? (object)AcceleratorMode.Npu
+                : type == typeof(bool) ? (object)false
                 : type == typeof(string) ? (object)("wert-" + path)
                 : type == typeof(int) ? (object)1234
                 : type == typeof(double) ? (object)12.5

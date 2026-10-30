@@ -163,13 +163,18 @@ public sealed class SettingsTransferTests : IDisposable
         s.Appearance.GuestMonitorName = "Monitor-Name-4711";
         s.Appearance.AdminZoomPercent = 65;
         s.Heart.KisscamMusicFolder = @"D:\Eigene\Musik-Pfad";
+        s.Performance.Accelerator = AcceleratorMode.Npu;
+        s.Performance.GpuDeviceKey = "gpu-schluessel-4711";
+        s.Performance.PreferHighPerformanceGpu = false;
     }
 
-    /// <summary>Gerätefeld nach Export/Import: leer (null/leere Liste) bzw. beim Admin-Zoom der Standard (eine Zahl, nie null).</summary>
+    /// <summary>Gerätefeld nach Export/Import: leer (null/leere Liste) bzw. beim Admin-Zoom und den Leistungsfeldern der Standard (nie null).</summary>
     private static bool IsClearedDeviceValue(string path, object? value) =>
         value is null
         || value is System.Collections.IList { Count: 0 }
-        || (path == "Appearance.AdminZoomPercent" && value is int zoom && zoom == SettingsLimits.AdminZoomDefault);
+        || (path == "Appearance.AdminZoomPercent" && value is int zoom && zoom == SettingsLimits.AdminZoomDefault)
+        || (path == "Performance.Accelerator" && value is AcceleratorMode.Auto)
+        || (path == "Performance.PreferHighPerformanceGpu" && value is true);
 
     [Fact]
     public void AdminZoom_IsNotExported_AndNotOverwrittenByImport()
@@ -196,7 +201,7 @@ public sealed class SettingsTransferTests : IDisposable
     private static readonly string[] DeviceValues =
     [
         "kamera-geraet-4711", "kamera-controls-4711", "Profil-Name-4711", "777.5", "Drucker-Wohnzimmer", "Papier-Spezial", "Fotos-Pfad", "mikrofon-id-4711", "Mikrofon-Name-4711",
-        "Videos-Pfad", "Musik-Pfad", "MONITOR-4711", "Monitor-Name-4711", "101.6", "152.4", "1920", "1080",
+        "Videos-Pfad", "Musik-Pfad", "gpu-schluessel-4711", "MONITOR-4711", "Monitor-Name-4711", "101.6", "152.4", "1920", "1080",
     ];
 
     /// <summary>JSON der übertragbaren Abschnitte ohne Gerätefelder, Version und PIN (normalisiert) – zum Vergleichen.</summary>
@@ -345,7 +350,13 @@ public sealed class SettingsTransferTests : IDisposable
         var defaults = new AppSettings();
 
         foreach (var section in SettingsSections.PortableSections)
+        {
+            // Ein Abschnitt, dessen Felder alle gerätespezifisch sind (Leistung), ist nach dem Leeren der Gerätefelder immer gleich.
+            var prefix = section.Name + ".";
+            if (section.PropertyType.GetProperties().All(p => DeviceSpecificSettings.Paths.Contains(prefix + p.Name)))
+                continue;
             Assert.NotEqual(SectionJson(defaults, section.Name), SectionJson(fixture, section.Name));
+        }
     }
 
     [Fact]

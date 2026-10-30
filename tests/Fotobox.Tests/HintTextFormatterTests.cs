@@ -327,4 +327,100 @@ public class HintTextFormatterTests
             "Unbekannter Platzhalter {Videotaster} wird unverändert angezeigt.",
         ], HintTextFormatter.FindVideoProblems("{Videotaste_0} {Videotaster}", 1));
     }
+
+    // ---- Stopp-Hinweis der Videoaufnahme
+
+    [Fact]
+    public void FormatVideoStop_Default_UsesArticleForEnterAndSpace()
+    {
+        Assert.Equal("Drücke die Eingabetaste, um die Videoaufnahme zu beenden", HintTextFormatter.FormatVideoStop(null, [Enter]));
+        Assert.Equal("Drücke die Leertaste, um die Videoaufnahme zu beenden", HintTextFormatter.FormatVideoStop(null, [Space]));
+        Assert.Equal("Drücke F5, um die Videoaufnahme zu beenden", HintTextFormatter.FormatVideoStop(null, [F5]));
+        Assert.Equal("Drücke Strg+F5, um die Videoaufnahme zu beenden", HintTextFormatter.FormatVideoStop(null, [K(Key.F5, ModifierKeys.Control)]));
+    }
+
+    [Fact]
+    public void FormatVideoStop_Taste_WithSeveralKeys_JoinsWithOder_WithoutArticle_AtMostThree()
+    {
+        Assert.Equal("Drücke Eingabetaste oder F5, um die Videoaufnahme zu beenden", HintTextFormatter.FormatVideoStop(null, [Enter, F5]));
+        Assert.Equal("Drücke Leertaste, Eingabetaste oder F5, um die Videoaufnahme zu beenden",
+            HintTextFormatter.FormatVideoStop(null, [Space, Enter, F5, F6]));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void FormatVideoStop_EmptyTemplate_UsesDefaultText(string? template) =>
+        Assert.Equal(HintTextFormatter.BuildAutomaticVideoStop([Enter]), HintTextFormatter.FormatVideoStop(template, [Enter]));
+
+    [Fact]
+    public void FormatVideoStop_WithoutStopKeys_IsEmpty()
+    {
+        Assert.Equal("", HintTextFormatter.FormatVideoStop(null, []));
+        Assert.Equal("", HintTextFormatter.FormatVideoStop("Ende mit {Taste}", []));
+        Assert.Equal("", HintTextFormatter.BuildAutomaticVideoStop([]));
+    }
+
+    [Fact]
+    public void FormatVideoStop_NumberedAndAllKeyPlaceholders_CaseInsensitive()
+    {
+        Assert.Equal("Stopp: Eingabetaste", HintTextFormatter.FormatVideoStop("Stopp: {Stopptaste_1}", [Enter, F5]));
+        Assert.Equal("Stopp: F5 / Eingabetaste oder F5", HintTextFormatter.FormatVideoStop("Stopp: {STOPPTASTE_2} / {stopptasten}", [Enter, F5]));
+        Assert.Equal("Alle: Leertaste, Eingabetaste, F5 oder F6, vierte: F6",
+            HintTextFormatter.FormatVideoStop("Alle: {Stopptasten}, vierte: {Stopptaste_4}", [Space, Enter, F5, F6]));
+    }
+
+    [Fact]
+    public void FormatVideoStop_UnassignedNumber_BecomesEmpty_AndOnlyUnassignedFallsBackToDefault()
+    {
+        Assert.Equal("Ende mit Eingabetaste!", HintTextFormatter.FormatVideoStop("Ende mit {Stopptaste_1} {Stopptaste_2} !", [Enter]));
+        Assert.Equal("Drücke die Eingabetaste, um die Videoaufnahme zu beenden", HintTextFormatter.FormatVideoStop("{Stopptaste_5}", [Enter]));
+    }
+
+    [Fact]
+    public void FormatVideoStop_ClickAndPhotoVideoPlaceholders_AreEmpty_UnknownStaysLiteral()
+    {
+        Assert.Equal("Stopp: die Eingabetaste!", HintTextFormatter.FormatVideoStop("Stopp: {Taste} {Klick} {Fototaste_1} {Videotasten} !", [Enter]));
+        Assert.Equal("Ende {Foo}", HintTextFormatter.FormatVideoStop("Ende {Foo}", [Enter]));
+    }
+
+    [Fact]
+    public void FindVideoStopProblems_ValidTemplate_HasNoProblems()
+    {
+        Assert.Empty(HintTextFormatter.FindVideoStopProblems(null, 1));
+        Assert.Empty(HintTextFormatter.FindVideoStopProblems("  ", 0));
+        Assert.Empty(HintTextFormatter.FindVideoStopProblems("{Taste} {Stopptaste_1} {Stopptasten} {taste}", 1));
+    }
+
+    [Fact]
+    public void FindVideoStopProblems_ReportsClick_PhotoVideoKeys_Unknown_AndTooLargeNumber_OncePerPlaceholder()
+    {
+        var problems = HintTextFormatter.FindVideoStopProblems(
+            "{Klick} {Klick} {Videotaste_1} {Fototasten} {Foo} {Stopptaste_3} {Stopptaste_0}", 2);
+
+        Assert.Equal(
+        [
+            "{Klick} gibt es in dieser Zeile nicht (die Maus beendet kein Video) und bleibt leer.",
+            "{Videotaste_1} gibt es in dieser Zeile nicht (hier gelten {Taste}, {Stopptaste_N} und {Stopptasten}) und bleibt leer.",
+            "{Fototasten} gibt es in dieser Zeile nicht (hier gelten {Taste}, {Stopptaste_N} und {Stopptasten}) und bleibt leer.",
+            "Unbekannter Platzhalter {Foo} wird unverändert angezeigt.",
+            "{Stopptaste_3} ist nicht belegt (es sind 2 Stopptasten belegt) und bleibt leer.",
+            "Unbekannter Platzhalter {Stopptaste_0} wird unverändert angezeigt.",
+        ], problems);
+    }
+
+    [Fact]
+    public void FindVideoStopProblems_NoStopKey_SaysSo()
+    {
+        Assert.Equal(["{Stopptaste_1} ist nicht belegt (es ist keine Stopptaste belegt) und bleibt leer."],
+            HintTextFormatter.FindVideoStopProblems("{Stopptaste_1}", 0));
+    }
+
+    [Fact]
+    public void ExistingFormatters_StillTreatStopPlaceholdersAsUnknown()
+    {
+        Assert.Equal("{Stopptaste_1} {Taste}", HintTextFormatter.Format("{Stopptaste_1} {Taste}", [Space], false));
+        Assert.Equal(["Unbekannter Platzhalter {Stopptasten} wird unverändert angezeigt."], HintTextFormatter.FindProblems("{Stopptasten}", 1));
+    }
 }

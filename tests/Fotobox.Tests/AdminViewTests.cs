@@ -695,6 +695,12 @@ public class AdminViewTests
             var names = FindDescendants<System.Windows.Controls.Primitives.ToggleButton>(root)
                 .Select(c => System.Windows.Automation.AutomationProperties.GetName(c)).ToList();
             Assert.Contains("Videomodus aktiv", names);
+            Assert.Contains("Stopp-Hinweis anzeigen", names);
+            Assert.Contains("Text des Stopp-Hinweises", ControlNames<System.Windows.Controls.TextBox>(root));
+            var stopPreview = Assert.Single(FindDescendants<GuestHint>(root));
+            Assert.Equal(HintPosition.Bottom, stopPreview.Position);
+            Assert.Equal("Drücke die Eingabetaste, um die Videoaufnahme zu beenden", stopPreview.Text);
+            Assert.Equal(System.Windows.Visibility.Visible, stopPreview.Visibility);
             var combos = FindDescendants<System.Windows.Controls.ComboBox>(root)
                 .Select(c => System.Windows.Automation.AutomationProperties.GetName(c)).ToList();
             Assert.DoesNotContain("Videoqualität", combos);   // steht jetzt im Tab „Speicher“
@@ -884,6 +890,38 @@ public class AdminViewTests
             vm.VideoSuccessText = "Danke!";
 
             Assert.Equal(System.Windows.Visibility.Collapsed, placeholder.Visibility);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_VideoTab_StopHint_PlaceholderOnlyWhileEmpty_FieldFollowsSwitch_PreviewFollowsStyleAndText()
+    {
+        WithWindow((window, vm) =>
+        {
+            var root = ShowTab(window, "Video");
+            var placeholder = (System.Windows.Controls.TextBlock)window.FindName("VideoStopHintPlaceholder");
+            var box = (System.Windows.Controls.TextBox)window.FindName("VideoStopHintBox");
+            var preview = (GuestHint)window.FindName("VideoStopHintPreview");
+            Assert.Equal(VideoSettings.DefaultStopHintText, placeholder.Text);
+            Assert.Equal(System.Windows.Visibility.Visible, placeholder.Visibility);
+            Assert.True(box.IsEnabled);
+
+            vm.VideoStopHintText = "Stopp: {Taste}";
+            Assert.Equal(System.Windows.Visibility.Collapsed, placeholder.Visibility);
+            Assert.Equal("Stopp: die Eingabetaste", preview.Text);
+
+            vm.VideoHintStyle = HintStyle.Banner;
+            Assert.Equal(HintStyle.Banner, preview.HintStyle);
+
+            vm.VideoShowStopHint = false;
+            Assert.False(box.IsEnabled);
+            Assert.Equal(System.Windows.Visibility.Collapsed, preview.Visibility);
+
+            vm.VideoShowStopHint = true;
+            vm.VideoStopHintText = "";
+            Assert.Equal(System.Windows.Visibility.Visible, placeholder.Visibility);
+            Assert.Equal(System.Windows.Visibility.Visible, preview.Visibility);
+            Assert.True(root.ActualHeight > 0);
         });
     }
 

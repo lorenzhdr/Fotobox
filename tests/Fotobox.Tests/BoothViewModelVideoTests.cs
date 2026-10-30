@@ -399,6 +399,112 @@ public partial class BoothViewModelTests
         Assert.Contains(nameof(BoothViewModel.ShowVideoHint), changed);
     }
 
+    // ---- Stopp-Hinweis während der Aufnahme
+
+    [Fact]
+    public void StopHint_IsHiddenBeforeMinLength_ShownFromThenOn_AndHiddenAfterStop()
+    {
+        var h = RecordingHarness(v => v.MinDurationSeconds = 2);
+        Assert.False(h.ViewModel.ShowVideoStopHint);   // gleich nach dem Start: Stopp wirkt noch nicht
+
+        h.Time.Advance(OneSecond);
+        Assert.False(h.Controller.CanStopVideo);
+        Assert.False(h.ViewModel.ShowVideoStopHint);
+
+        h.Time.Advance(OneSecond);
+        Assert.True(h.Controller.CanStopVideo);
+        Assert.True(h.ViewModel.ShowVideoStopHint);
+        Assert.Equal("Drücke die Eingabetaste, um die Videoaufnahme zu beenden", h.ViewModel.VideoStopHintText);
+
+        Assert.True(h.ViewModel.TryStopVideo());
+        Assert.False(h.ViewModel.ShowVideoStopHint);
+    }
+
+    [Fact]
+    public void StopHint_NotifiesWhenStopBecomesPossible_ViaSecondTick()
+    {
+        var h = RecordingHarness(v => v.MinDurationSeconds = 2);
+        var changed = new List<string?>();
+        h.ViewModel.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        h.Time.Advance(OneSecond);
+        h.Time.Advance(OneSecond);
+
+        // Der Sekundentakt der Aufnahme löst Refresh() aus (alle Eigenschaften neu lesen), auch für den Stopp-Hinweis.
+        Assert.Contains(string.Empty, changed);
+        Assert.True(h.ViewModel.ShowVideoStopHint);
+    }
+
+    [Fact]
+    public void StopHint_IsHiddenInIdle_AndDuringCountdown_AndAfterTheRecording()
+    {
+        var h = VideoHarness(v => v.CountdownSeconds = 3);
+        Assert.False(h.ViewModel.ShowVideoStopHint);   // Leerlauf
+
+        Assert.True(h.ViewModel.TryStartVideo());
+        Assert.Equal(BoothState.VideoCountdown, h.Controller.State);
+        Assert.False(h.ViewModel.ShowVideoStopHint);   // Countdown
+
+        for (var i = 0; i < 3; i++)
+            h.Time.Advance(OneSecond);
+        Assert.True(SpinWait.SpinUntil(() => h.Controller.State == BoothState.Recording, TimeSpan.FromSeconds(5)));
+        Assert.True(h.ViewModel.ShowVideoStopHint);    // Mindestlänge 0
+
+        Assert.True(h.ViewModel.TryStopVideo());
+        Assert.NotEqual(BoothState.Recording, h.Controller.State);
+        Assert.False(h.ViewModel.ShowVideoStopHint);   // VideoSaving/VideoSaved
+    }
+
+    [Fact]
+    public void StopHint_IsHidden_WhenSwitchOff_WithoutStopKeys_OrWithVideoModeOff()
+    {
+        var h = RecordingHarness();
+        Assert.True(h.ViewModel.ShowVideoStopHint);
+
+        h.Settings.Current.Video.ShowStopHint = false;
+        Assert.False(h.ViewModel.ShowVideoStopHint);
+
+        h.Settings.Current.Video.ShowStopHint = true;
+        Assert.True(h.ViewModel.ShowVideoStopHint);
+
+        h.Settings.Current.Input.VideoStopKeys = [];
+        h.Settings.RaiseSettingsChanged();
+        Assert.Equal("", h.ViewModel.VideoStopHintText);
+        Assert.False(h.ViewModel.ShowVideoStopHint);
+
+        h.Settings.Current.Input.VideoStopKeys = ["Enter"];
+        h.Settings.RaiseSettingsChanged();
+        Assert.True(h.ViewModel.ShowVideoStopHint);
+
+        h.Settings.Current.Video.Enabled = false;
+        Assert.False(h.ViewModel.ShowVideoStopHint);
+    }
+
+    [Fact]
+    public void StopHint_UsesVideoHintStyle_AndCustomText_WithStopKeyPlaceholders()
+    {
+        var h = RecordingHarness();
+        h.Settings.Current.GuestScreen.VideoHintStyle = HintStyle.Neon;
+        h.Settings.Current.Input.VideoStopKeys = ["F6", "Space"];
+        h.Settings.Current.Video.StopHintText = "Zum Beenden {Taste} ({Stopptaste_1}, {Stopptasten})";
+        h.Settings.RaiseSettingsChanged();
+
+        Assert.Equal(HintStyle.Neon, h.ViewModel.VideoStopHintStyle);
+        Assert.Equal("Zum Beenden F6 oder Leertaste (F6, F6 oder Leertaste)", h.ViewModel.VideoStopHintText);
+        Assert.True(h.ViewModel.ShowVideoStopHint);
+    }
+
+    [Fact]
+    public void StopHint_WithSingleSpaceKey_UsesArticle_AndEmptyTextMeansDefault()
+    {
+        var h = RecordingHarness();
+        h.Settings.Current.Input.VideoStopKeys = ["Space"];
+        h.Settings.Current.Video.StopHintText = null;
+        h.Settings.RaiseSettingsChanged();
+
+        Assert.Equal("Drücke die Leertaste, um die Videoaufnahme zu beenden", h.ViewModel.VideoStopHintText);
+    }
+
     // ---- Countdown
 
     [Fact]

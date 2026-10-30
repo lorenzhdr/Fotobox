@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Fotobox.Core;
+using Fotobox.Services.Detection.Acceleration;
 using Fotobox.ViewModels.Admin;
 using Fotobox.Views.Admin;
 using Xunit;
@@ -77,7 +78,7 @@ public class AdminVisualRenderTests
         public FrameworkElement Root => (FrameworkElement)Window.Content;
         public Brush Background => (Brush)Window.FindResource("BgBrush");
 
-        public Rig(AdminThemeMode mode, Action<AdminViewModel>? prepare = null)
+        public Rig(AdminThemeMode mode, Action<AdminViewModel>? prepare = null, IAccelerationService? acceleration = null)
         {
             SynchronizationContext.SetSynchronizationContext(null);
             Directory.CreateDirectory(_dir);
@@ -85,7 +86,7 @@ public class AdminVisualRenderTests
             ViewModel = new AdminViewModel(store, new AdminViewModelTests.FakePinService(store),
                 new AdminViewModelTests.FakeCamera(), new AdminViewModelTests.FakePrint(), new AdminViewModelTests.FakeUi(),
                 new TrackingTimeProvider(), new AdminViewModelTests.FakeDisplays(AdminViewModelTests.AdminMonitors.Primary),
-                new FakeDetectionService(), new FakeSoundPlayer(), new FakeGestureService());
+                new FakeDetectionService(), new FakeSoundPlayer(), new FakeGestureService(), acceleration: acceleration);
             ViewModel.Draft.Appearance.AdminTheme = mode;
             prepare?.Invoke(ViewModel);
             Window = new AdminWindow(ViewModel);
@@ -115,9 +116,9 @@ public class AdminVisualRenderTests
 
     /// <summary>Wählt den Tab, legt ihn aus und speichert den ganzen Inhalt des ScrollViewers (Karten) auf dem Fensterhintergrund.</summary>
     private static string RenderTab(string dir, string tab, string name, AdminThemeMode mode, Action<AdminViewModel>? prepare = null,
-        Action<Rig, FrameworkElement>? extra = null, string? scope = null)
+        Action<Rig, FrameworkElement>? extra = null, string? scope = null, IAccelerationService? acceleration = null)
     {
-        using var rig = new Rig(mode, prepare);
+        using var rig = new Rig(mode, prepare, acceleration);
         rig.SelectTab(tab);
         DependencyObject searchRoot = rig.Root;
         if (scope is not null)
@@ -165,6 +166,63 @@ public class AdminVisualRenderTests
             SavePng(rig.Root, 1100, 750, Path.Combine(dir, $"admin_appearance_window80_{ThemeName(mode)}.png"), rig.Background));
 
         Assert.True(Directory.GetFiles(dir, $"admin_*_{ThemeName(mode)}.png").Length >= 6);
+    }
+
+    /// <summary>Tab „Leistung“ mit erfundenen Geräten: laufende Zuordnung mit Rückfall, Messtabelle, Anbieter und Neustart-Hinweis.</summary>
+    [Trait("Category", "Visual")]
+    [StaTheory]
+    [InlineData(AdminThemeMode.Light)]
+    [InlineData(AdminThemeMode.Dark)]
+    public void Render_AdminPerformanceTab(AdminThemeMode mode)
+    {
+        var dir = RenderDir();
+        if (dir is null)
+            return;
+
+        var strong = AccelDevices.Gpu("Beispielkarte Pro", discrete: true, index: 0, memory: 12288, device: 1);
+        var integrated = AccelDevices.Gpu("Beispielgrafik Integriert", discrete: false, index: 1, memory: 512, device: 2);
+        var devices = AccelDevices.WithCpu(strong, integrated);
+        var plan = new List<ModelPlacement>
+        {
+            new(ModelId.Yolox, strong.Name, AcceleratorKind.Gpu, strong.Key, false),
+            new(ModelId.YuNet, "CPU", AcceleratorKind.Cpu, AcceleratorDevice.CpuKey, false),
+            new(ModelId.Palm, "CPU", AcceleratorKind.Cpu, AcceleratorDevice.CpuKey, true),
+            new(ModelId.Landmark, strong.Name, AcceleratorKind.Gpu, strong.Key, false),
+        };
+        var benchmark = AccelDevices.Result(
+            (AcceleratorDevice.CpuDevice, 11.8, 7.4, 6.1, 5.9),
+            (strong, 5.2, 8.0, 3.4, 2.9),
+            (integrated, 9.6, null, 5.8, 6.3));
+        var state = FakeAccelerationService.Ready(devices, plan: plan) with
+        {
+            PlanFromCache = true,
+            LastBenchmark = benchmark,
+            RestartRecommended = true,
+            Fallbacks = [new AccelerationFallback(
+                ModelId.Palm, strong.Name, "Das Modell konnte nicht geladen werden.", false, DateTimeOffset.UtcNow)],
+        };
+        var service = new FakeAccelerationService(state)
+        {
+            Providers = () =>
+            [
+                new ProviderState("Beispiel-Beschleuniger A", "pkg.a", "Ready", true),
+                new ProviderState("Beispiel-Beschleuniger B", "pkg.b", "NotReady", false),
+            ],
+        };
+
+        RenderTab(dir, "Leistung", "performance", mode, vm =>
+        {
+            vm.InitializeAsync().GetAwaiter().GetResult();
+        }, extra: (rig, _) =>
+            SavePng(rig.Root, 1100, 750, Path.Combine(dir, $"admin_performance_window_{ThemeName(mode)}.png"), rig.Background),
+            acceleration: service);
+        RenderTab(dir, "Leistung", "performance_changed", mode, vm =>
+        {
+            vm.InitializeAsync().GetAwaiter().GetResult();
+            vm.IsAcceleratorGpu = true;
+        }, acceleration: new FakeAccelerationService(FakeAccelerationService.Ready(AccelDevices.WithCpu(strong))));
+
+        Assert.True(Directory.GetFiles(dir, $"admin_performance*_{ThemeName(mode)}.png").Length == 3);
     }
 
     [Trait("Category", "Visual")]

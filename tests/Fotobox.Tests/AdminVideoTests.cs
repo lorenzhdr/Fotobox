@@ -904,6 +904,117 @@ public sealed class AdminVideoTests : IDisposable
         Assert.Equal("Video Eingabetaste oder klicke", vm.VideoHintPreviewText);
     }
 
+    // ------------------------------------------------------------------ Stopp-Hinweis
+
+    [Fact]
+    public void StopHint_Defaults_ShowSwitchOn_EmptyField_AndStandardTextInPreview()
+    {
+        var vm = CreateViewModel();
+
+        Assert.True(vm.VideoShowStopHint);
+        Assert.Equal(string.Empty, vm.VideoStopHintText);
+        Assert.Equal(VideoSettings.DefaultStopHintText, vm.VideoStopHintTextPlaceholder);
+        Assert.Equal("Drücke die Eingabetaste, um die Videoaufnahme zu beenden", vm.VideoStopHintPreviewText);
+        Assert.True(vm.ShowVideoStopHintPreview);
+        Assert.False(vm.HasVideoStopHintProblems);
+    }
+
+    [Fact]
+    public void StopHint_EmptyText_IsStoredAsNull_AndWhitespaceToo()
+    {
+        var vm = CreateViewModel();
+
+        vm.VideoStopHintText = "Stopp: {Taste}";
+        Assert.Equal("Stopp: {Taste}", vm.Draft.Video.StopHintText);
+        Assert.Equal("Stopp: die Eingabetaste", vm.VideoStopHintPreviewText);
+
+        vm.VideoStopHintText = "";
+        Assert.Null(vm.Draft.Video.StopHintText);
+        vm.VideoStopHintText = "   ";
+        Assert.Null(vm.Draft.Video.StopHintText);
+        Assert.Equal("Drücke die Eingabetaste, um die Videoaufnahme zu beenden", vm.VideoStopHintPreviewText);
+    }
+
+    [Fact]
+    public void StopHint_Preview_FollowsStopKeys_Switch_AndVideoMode_AndNotifies()
+    {
+        var vm = CreateViewModel();
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        Keys(vm, KeyAction.VideoStop).Keys[0].RemoveCommand.Execute(null);
+        Assert.Equal(string.Empty, vm.VideoStopHintPreviewText);   // ohne Stopptaste entfällt der Hinweis
+        Assert.False(vm.ShowVideoStopHintPreview);
+        Assert.Contains(nameof(AdminViewModel.VideoStopHintPreviewText), raised);
+        Assert.Contains(nameof(AdminViewModel.ShowVideoStopHintPreview), raised);
+
+        vm.BeginKeyCapture(KeyAction.VideoStop);
+        vm.CaptureKey(Chord(Key.F7));
+        Assert.Equal("Drücke F7, um die Videoaufnahme zu beenden", vm.VideoStopHintPreviewText);
+        Assert.True(vm.ShowVideoStopHintPreview);
+
+        vm.VideoShowStopHint = false;
+        Assert.False(vm.ShowVideoStopHintPreview);
+        vm.VideoShowStopHint = true;
+        Assert.True(vm.ShowVideoStopHintPreview);
+
+        vm.VideoEnabled = false;
+        Assert.False(vm.ShowVideoStopHintPreview);
+    }
+
+    [Fact]
+    public void StopHint_Problems_ReportClick_PhotoVideoKeys_Unknown_AndTooLargeNumber()
+    {
+        var vm = CreateViewModel();
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.VideoStopHintText = "{Klick} {Videotaste_1} {Foo} {Stopptaste_2}";
+
+        Assert.True(vm.HasVideoStopHintProblems);
+        Assert.Equal(4, vm.VideoStopHintProblems.Count);
+        Assert.Contains(vm.VideoStopHintProblems, p => p.StartsWith("{Klick} gibt es in dieser Zeile nicht"));
+        Assert.Contains(vm.VideoStopHintProblems, p => p.StartsWith("{Videotaste_1} gibt es in dieser Zeile nicht"));
+        Assert.Contains(vm.VideoStopHintProblems, p => p.StartsWith("Unbekannter Platzhalter {Foo}"));
+        Assert.Contains(vm.VideoStopHintProblems, p => p.StartsWith("{Stopptaste_2} ist nicht belegt"));
+        Assert.Contains(nameof(AdminViewModel.VideoStopHintProblemsText), raised);
+        Assert.Contains(nameof(AdminViewModel.HasVideoStopHintProblems), raised);
+        Assert.Equal(string.Join(Environment.NewLine, vm.VideoStopHintProblems), vm.VideoStopHintProblemsText);
+
+        vm.VideoStopHintText = "{Taste}";
+        Assert.False(vm.HasVideoStopHintProblems);
+    }
+
+    [Fact]
+    public void StopHint_TooLongText_IsRejected()
+    {
+        var vm = CreateViewModel();
+        vm.Draft.Video.StopHintText = new string('x', SettingsLimits.HintTextMaxLength + 1);
+
+        Assert.Contains(vm.Validate(), e => e.Contains("Stopp-Hinweistext"));
+
+        vm.Draft.Video.StopHintText = new string('x', SettingsLimits.HintTextMaxLength);
+        Assert.DoesNotContain(vm.Validate(), e => e.Contains("Stopp-Hinweistext"));
+    }
+
+    [Fact]
+    public void StopHint_IsSaved_AndEmptyFieldSavesNull()
+    {
+        var vm = CreateViewModel();
+        vm.VideoShowStopHint = false;
+        vm.VideoStopHintText = "Beenden: {Taste}";
+        vm.SaveCommand.Execute(null);
+
+        Assert.False(_store.Current.Video.ShowStopHint);
+        Assert.Equal("Beenden: {Taste}", _store.Current.Video.StopHintText);
+
+        var again = CreateViewModel();   // neue Sitzung mit dem gespeicherten Text
+        Assert.Equal("Beenden: {Taste}", again.VideoStopHintText);
+        again.VideoStopHintText = "";
+        again.SaveCommand.Execute(null);
+        Assert.Null(_store.Current.Video.StopHintText);
+    }
+
     // ------------------------------------------------------------------ Standardwerte wiederherstellen
 
     [Fact]
@@ -922,6 +1033,8 @@ public sealed class AdminVideoTests : IDisposable
         vm.VideoFilePrefix = "Clip";
         vm.VideoHintText = "Eigener Text";
         vm.VideoHintStyle = HintStyle.Banner;
+        vm.VideoShowStopHint = false;
+        vm.VideoStopHintText = "Eigener Stopp";
         Keys(vm, KeyAction.VideoStart).Keys[0].RemoveCommand.Execute(null);
         _ui.ConfirmResult = true;
 
@@ -954,6 +1067,11 @@ public sealed class AdminVideoTests : IDisposable
         Assert.Equal(HintStyle.Pill, vm.VideoHintStyle);
         Assert.Equal(string.Empty, vm.VideoHintText);
         Assert.Equal("Drücke die Eingabetaste für ein Video 🎬", vm.VideoHintPreviewText);
+        Assert.True(video.ShowStopHint);
+        Assert.Null(video.StopHintText);
+        Assert.True(vm.VideoShowStopHint);
+        Assert.Equal(string.Empty, vm.VideoStopHintText);
+        Assert.Equal("Drücke die Eingabetaste, um die Videoaufnahme zu beenden", vm.VideoStopHintPreviewText);
     }
 
     [Fact]

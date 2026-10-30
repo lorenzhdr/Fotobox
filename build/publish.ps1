@@ -6,7 +6,8 @@
     Je Architektur (x64, arm64):
       1. dotnet publish (Release, self-contained) nach artifacts/publish/<arch>
       2. VC++-Runtime: app-lokale Kopie der Microsoft.VC14x.CRT-DLLs (msvcp140*.dll, vcruntime140*.dll ...) in den
-         Publish-Ordner, weil onnxruntime.dll sie braucht und self-contained .NET sie nicht mitliefert
+         Publish-Ordner, weil native DLLs sie brauchen können und self-contained .NET sie nicht mitliefert
+         (Stand Windows ML: Die mitgelieferten DLLs importieren sie nicht mehr, die Prüfung in Schritt 3 warnt sonst)
       3. Statische Prüfung: Architektur nativer Dateien und Auflösbarkeit ihrer Import-Abhängigkeiten
       4. ZIP:       artifacts/FotoboxPlus-<Version>-<arch>-portable.zip
 
@@ -21,8 +22,8 @@
 .PARAMETER RequireVcRuntime
     Die VC++-Runtime muss gefunden werden (Visual Studio mit vswhere, Ordner VC\Redist\MSVC\<Version>\<arch>) und neu
     genug sein (msvcp140.dll mindestens 14.40 und mindestens die Linker-Version von onnxruntime.dll). Sonst Abbruch
-    mit Fehler. Ohne den Schalter nur eine Warnung: Das Paket enthält dann keine VC++-Runtime und die KI-Erkennung
-    (ONNX Runtime) startet auf PCs ohne installierte VC++ Redistributable nicht.
+    mit Fehler. Ohne den Schalter nur eine Warnung: Das Paket enthält dann keine VC++-Runtime; importiert eine native
+    DLL sie (die Abhängigkeitsprüfung warnt dann), startet sie auf PCs ohne installierte VC++ Redistributable nicht.
 
 .EXAMPLE
     pwsh build/publish.ps1 -Version 0.0.1
@@ -218,7 +219,7 @@ function Copy-VcRuntime {
     if (-not $crtDir) {
         $msg = "Keine VC++-Runtime ($Arch) gefunden (Visual Studio mit 'VC\Redist\MSVC\<Version>\$Arch\Microsoft.VC14*.CRT' via vswhere)."
         if ($Require) { throw "$msg -RequireVcRuntime ist gesetzt." }
-        Write-Warning "$msg Das Paket enthält dann keine VC++-Runtime: Auf PCs ohne installierte VC++ Redistributable steht die KI-Erkennung (ONNX Runtime) nicht zur Verfügung."
+        Write-Warning "$msg Das Paket enthält dann keine VC++-Runtime (die mitgelieferten nativen DLLs importieren sie derzeit nicht; sonst warnt die Abhängigkeitsprüfung)."
         return $false
     }
 
@@ -237,7 +238,7 @@ function Copy-VcRuntime {
     if ($crtVersion -lt $needed) {
         $msg = "Die gefundene VC++-Runtime ($Arch) ist zu alt: msvcp140.dll $crtVersion, benötigt wird mindestens $needed."
         if ($Require) { throw "$msg -RequireVcRuntime ist gesetzt." }
-        Write-Warning "$msg Sie wird nicht kopiert; auf PCs ohne installierte VC++ Redistributable steht die KI-Erkennung nicht zur Verfügung."
+        Write-Warning "$msg Sie wird nicht kopiert (die mitgelieferten nativen DLLs importieren sie derzeit nicht; sonst warnt die Abhängigkeitsprüfung)."
         return $false
     }
 
