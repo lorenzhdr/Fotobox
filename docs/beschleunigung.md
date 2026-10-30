@@ -18,7 +18,7 @@ Alle Felder sind **gerätespezifisch** (`DeviceSpecificSettings`; nie exportiert
 
 ## Ablauf beim Start
 
-`App.OnStartup` startet den `AccelerationService` **vor** der PIN-Abfrage im Hintergrund (`StartAsync`, Threadpool, blockiert nie):
+`App.OnStartup` startet den `AccelerationService` **vor** der PIN-Abfrage im Hintergrund (`StartAsync`, Threadpool, blockiert nie). War die `settings.json` nicht lesbar (`ISettingsStore.LoadFailed`), geschieht das erst nach erfolgreicher PIN-Abfrage bzw. Wiederholung, damit nicht die Standardwerte statt der echten Einstellungen gelten:
 
 1. `AcceleratorCatalog.DiscoverAsync`: `ExecutionProviderCatalog.GetDefault()?.RegisterCertifiedAsync()` (nur bereits vorhandene Ausführungsanbieter, **ohne Download**, normalerweise Millisekunden; Frist 10 s, danach `Cancel()`), dann `OrtEnv.GetEpDevices()`. Daraus entsteht die Geräteliste: die CPU immer, dazu GPUs und NPUs. Jeder Fehler oder Timeout ergibt nur die CPU plus Logwarnung.
 2. Plan je Modell (`AccelerationPlanner.Decide`, reine Logik):

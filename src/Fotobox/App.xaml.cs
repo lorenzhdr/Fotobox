@@ -105,8 +105,10 @@ public partial class App : Application
         {
             _services = BuildServices();
 
-            // Vor der PIN-Abfrage: Katalog und Plan entstehen im Hintergrund, während der Gast bzw. Admin noch die PIN einrichtet.
-            StartAcceleration(_services);
+            // Vor der PIN-Abfrage: Katalog und Plan entstehen im Hintergrund, während noch die PIN eingerichtet wird. Nur bei lesbarer
+            // settings.json; sonst würden die Standardwerte gelten, obwohl nach „Wiederholen“ andere Einstellungen geladen werden.
+            if (!_services.GetRequiredService<ISettingsStore>().LoadFailed)
+                StartAcceleration(_services);
 
             var adminLauncher = _services.GetRequiredService<IAdminLauncher>();
             if (!adminLauncher.EnsurePinConfigured(null))
@@ -116,6 +118,7 @@ public partial class App : Application
                 return;
             }
 
+            StartAcceleration(_services); // nach einem Ladefehler der settings.json erst jetzt (idempotent)
             StartKisscamMusicLibrary(_services);
 
             var boothWindow = _services.GetRequiredService<BoothWindow>();
@@ -151,8 +154,13 @@ public partial class App : Application
     // Beschleunigung der KI-Erkennung (Windows ML): Katalog, Geräteliste und Plan entstehen im Hintergrund (Threadpool, mit Fristen) und
     // blockieren den Start nie; die Detektoren warten beim ersten Laden höchstens kurz auf den Plan. Die Windows-Grafikeinstellung
     // „Hohe Leistung“ wird gemäß Einstellung gesetzt bzw. entfernt (wirkt ab dem nächsten Start).
+    private static bool _accelerationStarted;
+
     private static void StartAcceleration(IServiceProvider services)
     {
+        if (_accelerationStarted)
+            return;
+        _accelerationStarted = true;
         try
         {
             var store = services.GetRequiredService<ISettingsStore>();

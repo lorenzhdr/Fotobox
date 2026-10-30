@@ -28,7 +28,7 @@ Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale 
 
 1. Single-Instance-Mutex `Local\Fotobox-SingleInstance`. Läuft schon eine Instanz, erscheint ein Hinweis und die App endet. Lässt sich der Mutex nicht anlegen, wird geloggt, eine Fehlermeldung gezeigt und mit Code 1 beendet.
 2. `AppLog.Initialize`, danach drei globale Handler: `DispatcherUnhandledException` (loggt, `Handled = true`), `AppDomain.UnhandledException` (loggt, flusht), `TaskScheduler.UnobservedTaskException` (loggt, `SetObserved`).
-3. `ShutdownMode = OnExplicitShutdown`, DI-Container bauen, dann `StartAcceleration` (startet `IAccelerationService.StartAsync` auf dem Threadpool und setzt die Windows-Grafikeinstellung; blockiert nie, `beschleunigung.md`), `IAdminLauncher.EnsurePinConfigured(null)`: bei nicht lesbarer `settings.json` Wiederholen/Beenden, ohne PIN der Erststart-Dialog. Wird abgebrochen, endet die App.
+3. `ShutdownMode = OnExplicitShutdown`, DI-Container bauen, dann `StartAcceleration` (startet `IAccelerationService.StartAsync` auf dem Threadpool und setzt die Windows-Grafikeinstellung; blockiert nie, `beschleunigung.md`; bei nicht lesbarer `settings.json` erst nach der PIN-Abfrage), `IAdminLauncher.EnsurePinConfigured(null)`: bei nicht lesbarer `settings.json` Wiederholen/Beenden, ohne PIN der Erststart-Dialog. Wird abgebrochen, endet die App.
 4. `BoothWindow` anzeigen, `ShutdownMode = OnMainWindowClose`, Bart-Texturen vorberechnen (nur bei aktivem Peace mit Aktion Bart, auch nach jedem `SettingsChanged`).
 5. Jede Ausnahme im Start führt zu Log, Fehlermeldung und `Shutdown(1)`, damit kein fensterloser Prozess (und Mutex) am Leben bleibt.
 
