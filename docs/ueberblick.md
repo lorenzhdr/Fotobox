@@ -52,6 +52,10 @@ Details: `fun-zielerfassung.md`, `fun-peace-mittelfinger.md`, `fun-herz-kisscam.
 
 Admin-Tab „Kamera“, Karte „Bildeinstellungen“: Hardware-Regler der Webcam (Zoom, Pan, Tilt, Helligkeit, Kontrast, Farbton, Belichtung, Gegenlicht, Fokus, Weißabgleich, Belichtungskorrektur) mit Live-Wirkung, Flimmerschutz (50/60 Hz) und benannten Profilen je Kamera. Details: `kamera.md`.
 
+### Leistung (Hardwarebeschleunigung)
+
+Admin-Tab „Leistung“: Auswahl, auf welchem Gerät die KI-Erkennung rechnet (Automatisch per Messung, nur Prozessor, Grafikkarte, KI-Beschleuniger), Betriebsstand, Messung per Knopfdruck, Installation zusätzlicher Hersteller-Beschleuniger und die Windows-Grafikeinstellung „Hohe Leistung“. Änderungen wirken nach einem Neustart. Details: `beschleunigung.md`.
+
 ### Einstellungen teilen
 
 Admin-Tab „Sicherheit & Daten“: Export und Import der Einstellungen als JSON-Datei (ohne gerätespezifische Werte wie Kamera, Drucker, Ordner), optional mit PIN. Dazu „Standardwerte wiederherstellen“. Details: `einstellungen.md`.

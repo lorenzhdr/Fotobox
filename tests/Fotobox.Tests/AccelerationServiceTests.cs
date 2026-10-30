@@ -153,6 +153,9 @@ public sealed class AccelerationServiceTests : IDisposable
         await next.StartAsync();
 
         Assert.True(next.State.PlanFromCache);
+        // Die Messtabelle aus dem Cache steht für den Admin-Tab „Leistung“ sofort bereit.
+        Assert.NotNull(next.State.LastBenchmark);
+        Assert.NotEmpty(next.State.LastBenchmark!.Entries);
         Assert.Same(_gpu, next.GetDevice(ModelId.Yolox));
         Assert.Same(_gpu, next.GetDevice(ModelId.Landmark));
         await Task.Delay(100);

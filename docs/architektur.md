@@ -200,6 +200,7 @@ Alles, was blockieren kann, hat ein Timeout und einen definierten Fehlerpfad zur
 | Beschleunigung: Laden auf dem Gerät | 10 s je Detektor (alle seine Modelle), danach Rückfall auf die CPU | `AccelerationTimeouts.DeviceLoad` |
 | Beschleunigung: Messung | 20 s je Gerät, 60 s gesamt; Hintergrundmessung startet 10 s nach dem Start | `BenchmarkPerDevice`, `BenchmarkTotal`, `BackgroundBenchmarkDelay` |
 | Beschleunigung: Installation der Hersteller-Anbieter | 10 min | `AccelerationTimeouts.Install` |
+| Admin-Tab „Leistung“: Status der Ausführungsanbieter | 5 s (WinRT-Aufruf auf dem Threadpool), danach „Status unbekannt“ | `AdminViewModel.ProviderStatesTimeout` |
 | Peace: Analyse | 2 s | `PeaceDetectionService.AnalysisTimeout` |
 | Peace: Dienst-Dispose | höchstens 1,5 s | `PeaceDetectionService.DisposeWait` |
 | Bart im Foto | Texturbudget 1,0 s, insgesamt 2,2 s | `MoustachePhotoDecorator.TextureBudget`/`OverallBudget` |

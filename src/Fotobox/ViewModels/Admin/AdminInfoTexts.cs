@@ -59,4 +59,18 @@ public static class AdminInfoTexts
         "Empfehlung: 5 (Standard), auf schwachen PCs 3.\n" +
         "\n" +
         "Tipp: Zeigt die Statuszeile der Vorschau dauerhaft weniger Analysen/s als eingestellt, ist der PC ausgelastet. Senken Sie dann den Wert.";
+
+    /// <summary>Beschriftung des Symbols für Bildschirmleser (Hardwarebeschleunigung).</summary>
+    public const string AccelerationName = "Info: Hardwarebeschleunigung";
+
+    // AccelerationPlanner: Auto wählt je Modell das gemessen schnellste Gerät, aber nur bei mindestens 15 % Vorsprung vor der CPU;
+    // Einstellungen wirken erst nach einem Neustart; AcceleratedSession: Rückfall auf die CPU bei Ladefehler und Laufzeitfehler.
+    public const string Acceleration =
+        "Die Erkennung (Zielerfassung, Gesichter, Hände) kann auf dem Prozessor (CPU), einer Grafikkarte (GPU) oder einem KI-Beschleuniger (NPU) laufen.\n" +
+        "\n" +
+        "Die Modelle sind klein: Eine Grafikkarte ist nicht automatisch schneller als der Prozessor, weil das Übertragen der Bilder Zeit kostet. Deshalb misst „Automatisch (empfohlen)“ jedes Gerät aus und nimmt je Modell das schnellste – nur, wenn es deutlich (mindestens 15 %) schneller als der Prozessor ist.\n" +
+        "\n" +
+        "Eine Änderung wirkt erst nach einem Neustart der Fotobox. Scheitert ein Gerät beim Laden oder im Betrieb (z. B. nach einem Grafiktreiber-Fehler), läuft die Erkennung automatisch auf dem Prozessor weiter; der Grund steht im Betriebsstand.\n" +
+        "\n" +
+        "Empfehlung: Automatisch.";
 }

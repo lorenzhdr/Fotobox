@@ -1276,6 +1276,250 @@
                 </ScrollViewer>
             </TabItem>
 
+            <!-- ============================== Leistung ============================== -->
+            <TabItem x:Name="PerformanceTab" Header="Leistung" Tag="&#xEC4A;">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel MaxWidth="740" HorizontalAlignment="Left">
+                        <!-- Hardwarebeschleunigung -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Hardwarebeschleunigung" Style="{StaticResource SectionTitle}" />
+                                    <Button x:Name="AccelerationInfo" Style="{StaticResource InfoBadge}" Margin="10,6,0,0"
+                                            ToolTip="{x:Static vm:AdminInfoTexts.Acceleration}"
+                                            AutomationProperties.Name="{x:Static vm:AdminInfoTexts.AccelerationName}"
+                                            AutomationProperties.HelpText="{x:Static vm:AdminInfoTexts.Acceleration}" />
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource Hint}" Margin="0,2,0,14"
+                                           Text="Bestimmt, auf welchem Gerät die Erkennung (Zielerfassung, Gesichter, Hände) rechnet. Änderungen wirken nach einem Neustart der Fotobox." />
+
+                                <RadioButton GroupName="AcceleratorMode" Style="{StaticResource ChoiceRadio}"
+                                             IsChecked="{Binding IsAcceleratorAuto}" AutomationProperties.Name="Automatisch (empfohlen)">
+                                    <StackPanel>
+                                        <TextBlock Text="Automatisch (empfohlen)" FontWeight="SemiBold" FontSize="15" />
+                                        <TextBlock Text="Misst die vorhandenen Geräte aus und nimmt je Funktion das schnellste." Style="{StaticResource Hint}" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="AcceleratorMode" Style="{StaticResource ChoiceRadio}"
+                                             IsChecked="{Binding IsAcceleratorCpu}" AutomationProperties.Name="Nur Prozessor (CPU)">
+                                    <StackPanel>
+                                        <TextBlock Text="Nur Prozessor (CPU)" FontWeight="SemiBold" FontSize="15" />
+                                        <TextBlock Text="Läuft auf jedem Computer und braucht keine besondere Hardware." Style="{StaticResource Hint}" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="AcceleratorMode" Style="{StaticResource ChoiceRadio}" Margin="0,0,0,6"
+                                             IsChecked="{Binding IsAcceleratorGpu}" AutomationProperties.Name="Grafikkarte (GPU)">
+                                    <StackPanel>
+                                        <TextBlock Text="Grafikkarte (GPU)" FontWeight="SemiBold" FontSize="15" />
+                                        <TextBlock Text="Nutzt die gewählte Grafikkarte; fällt bei Problemen auf den Prozessor zurück." Style="{StaticResource Hint}" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <ComboBox ItemsSource="{Binding GpuOptions}" SelectedItem="{Binding SelectedGpuOption}"
+                                          DisplayMemberPath="Display" IsEnabled="{Binding IsGpuListEnabled}"
+                                          Margin="16,0,0,0" AutomationProperties.Name="Grafikkarte" />
+                                <TextBlock Text="{Binding GpuHintText}" Style="{StaticResource Hint}" Margin="16,6,0,0"
+                                           Visibility="{Binding HasGpuHint, Converter={StaticResource BoolToVis}}" />
+                                <RadioButton GroupName="AcceleratorMode" Style="{StaticResource ChoiceRadio}" Margin="0,10,0,0"
+                                             IsChecked="{Binding IsAcceleratorNpu}" IsEnabled="{Binding IsNpuSelectable}"
+                                             AutomationProperties.Name="KI-Beschleuniger (NPU)">
+                                    <StackPanel>
+                                        <TextBlock Text="KI-Beschleuniger (NPU)" FontWeight="SemiBold" FontSize="15" />
+                                        <TextBlock Text="Nutzt eine in den Computer eingebaute KI-Einheit, sofern vorhanden." Style="{StaticResource Hint}" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <TextBlock Text="{Binding NpuHintText}" Style="{StaticResource Hint}" Margin="16,0,0,0"
+                                           Visibility="{Binding HasNpuHint, Converter={StaticResource BoolToVis}}" />
+
+                                <TextBlock Text="{Binding PerformanceRestartHint}" Margin="0,16,0,0" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource WarningBrush}"
+                                           Visibility="{Binding HasPerformanceRestartHint, Converter={StaticResource BoolToVis}}" />
+
+                                <TextBlock Text="Aktueller Betriebsstand" Style="{StaticResource FieldLabel}" Margin="0,22,0,6" />
+                                <TextBlock Text="{Binding AccelerationPendingText}" Style="{StaticResource Hint}" Margin="0"
+                                           Visibility="{Binding HasAccelerationPendingText, Converter={StaticResource BoolToVis}}" />
+                                <ItemsControl ItemsSource="{Binding AccelerationStatusLines}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="0,0,0,6">
+                                                <TextBlock x:Name="Line" Text="{Binding Text}" FontSize="14" TextWrapping="Wrap"
+                                                           Foreground="{DynamicResource TextBrush}" />
+                                                <TextBlock x:Name="Detail" Text="{Binding Detail}" FontSize="13" TextWrapping="Wrap"
+                                                           Foreground="{DynamicResource WarningBrush}" Margin="0,2,0,0"
+                                                           Visibility="{Binding HasDetail, Converter={StaticResource BoolToVis}}" />
+                                            </StackPanel>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsFallback}" Value="True">
+                                                    <Setter TargetName="Line" Property="Foreground" Value="{DynamicResource WarningBrush}" />
+                                                </DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="{Binding AccelerationNotice}" FontSize="14" TextWrapping="Wrap" Margin="0,4,0,0"
+                                           Foreground="{DynamicResource WarningBrush}"
+                                           Visibility="{Binding HasAccelerationNotice, Converter={StaticResource BoolToVis}}" />
+                                <TextBlock Text="{Binding AccelerationSourceText}" Style="{StaticResource Hint}"
+                                           Visibility="{Binding HasAccelerationSourceText, Converter={StaticResource BoolToVis}}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Messung -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Messung" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Misst jedes Gerät mit allen Erkennungsmodellen und zeigt die mittlere Laufzeit je Durchgang; kleinere Werte sind schneller. Das dauert bis zu einer Minute." />
+                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                    <Button Content="Jetzt messen" Command="{Binding StartBenchmarkCommand}" Style="{StaticResource PrimaryButton}"
+                                            AutomationProperties.Name="Jetzt messen" />
+                                    <Button Content="Abbrechen" Command="{Binding CancelBenchmarkCommand}" Margin="12,0,0,0"
+                                            Visibility="{Binding IsBenchmarkRunning, Converter={StaticResource BoolToVis}}"
+                                            AutomationProperties.Name="Messung abbrechen" />
+                                </StackPanel>
+                                <StackPanel Margin="0,12,0,0" Visibility="{Binding IsBenchmarkRunning, Converter={StaticResource BoolToVis}}">
+                                    <ProgressBar Height="8" Minimum="0" Maximum="100" Value="{Binding BenchmarkPercent, Mode=OneWay}" BorderThickness="0"
+                                                 Foreground="{DynamicResource AccentBrush}" Background="{DynamicResource TrackBrush}"
+                                                 AutomationProperties.Name="Fortschritt der Messung" />
+                                    <TextBlock Text="{Binding BenchmarkProgressText}" Style="{StaticResource Hint}" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding BenchmarkBackgroundText}" Style="{StaticResource Hint}"
+                                           Visibility="{Binding HasBenchmarkBackgroundText, Converter={StaticResource BoolToVis}}" />
+                                <TextBlock Text="{Binding BenchmarkStatusText}" FontSize="14" TextWrapping="Wrap" Margin="0,10,0,0"
+                                           Visibility="{Binding HasBenchmarkStatusText, Converter={StaticResource BoolToVis}}" />
+
+                                <TextBlock Style="{StaticResource Hint}" Margin="0,14,0,0"
+                                           Text="Noch keine Messung vorhanden. Klicken Sie auf „Jetzt messen“."
+                                           Visibility="{Binding HasNoBenchmarkTable, Converter={StaticResource BoolToVis}}" />
+                                <StackPanel x:Name="BenchmarkTable" Margin="0,16,0,0"
+                                            Visibility="{Binding HasBenchmarkTable, Converter={StaticResource BoolToVis}}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="230" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <ItemsControl Grid.Column="1" ItemsSource="{Binding BenchmarkColumns}" Focusable="False">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <UniformGrid Rows="1" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding}" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap"
+                                                               TextAlignment="Center" Margin="4,0" Foreground="{DynamicResource TextBrush}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding BenchmarkRows}" Focusable="False" Margin="0,6,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="0,2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="230" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Model}" FontSize="14" TextWrapping="Wrap" VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource TextBrush}" />
+                                                    <ItemsControl Grid.Column="1" ItemsSource="{Binding Cells}" Focusable="False">
+                                                        <ItemsControl.ItemsPanel>
+                                                            <ItemsPanelTemplate>
+                                                                <UniformGrid Rows="1" />
+                                                            </ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Border x:Name="Cell" CornerRadius="8" Margin="4,0" Padding="6,5"
+                                                                        Background="{DynamicResource SubtleBrush}" ToolTip="{Binding ToolTip}">
+                                                                    <TextBlock x:Name="CellText" Text="{Binding Text}" FontSize="14" TextAlignment="Center"
+                                                                               Foreground="{DynamicResource TextBrush}" />
+                                                                </Border>
+                                                                <DataTemplate.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsFastest}" Value="True">
+                                                                        <Setter TargetName="Cell" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                                        <Setter TargetName="CellText" Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                                        <Setter TargetName="CellText" Property="FontWeight" Value="Bold" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding IsError}" Value="True">
+                                                                        <Setter TargetName="CellText" Property="Foreground" Value="{DynamicResource MutedBrush}" />
+                                                                    </DataTrigger>
+                                                                </DataTemplate.Triggers>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Text="{Binding BenchmarkTimeText}" Style="{StaticResource Hint}" Margin="0,10,0,0" />
+                                    <TextBlock Style="{StaticResource Hint}" Margin="0,2,0,0"
+                                               Text="Hervorgehoben ist das schnellste Gerät je Zeile. Ein Strich bedeutet: Auf diesem Gerät ließ sich das Modell nicht messen (Grund im Tooltip)." />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Zusätzliche Beschleuniger -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Zusätzliche Beschleuniger" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Windows kann herstellerspezifische Beschleuniger aus dem Internet laden, zum Beispiel NVIDIA TensorRT-RTX, Intel OpenVINO oder die NPU-Unterstützung von Qualcomm. Dafür ist eine Internetverbindung nötig, je nach Gerät sind es mehrere Hundert Megabyte, und Hersteller-Beschleuniger setzen Windows 11 24H2 oder neuer voraus. Erledigen Sie das am besten vorab, zum Beispiel zu Hause. Nach der Installation ist ein Neustart der Fotobox nötig. Die Grafikbeschleunigung über DirectML funktioniert auch ohne diese Installation." />
+
+                                <TextBlock Text="Verfügbare Beschleuniger" Style="{StaticResource FieldLabel}" />
+                                <ItemsControl ItemsSource="{Binding ProviderRows}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Name}" FontSize="14" TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}" />
+                                                <TextBlock x:Name="State" Grid.Column="1" Text="{Binding Status}" FontSize="14" Margin="16,0,0,0"
+                                                           Foreground="{DynamicResource MutedBrush}" />
+                                            </Grid>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsReady}" Value="True">
+                                                    <Setter TargetName="State" Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                    <Setter TargetName="State" Property="FontWeight" Value="SemiBold" />
+                                                </DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="{Binding ProviderStatusText}" Style="{StaticResource Hint}" Margin="0"
+                                           Visibility="{Binding HasProviderStatusText, Converter={StaticResource BoolToVis}}" />
+
+                                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                    <Button Content="Beschleuniger installieren" Command="{Binding InstallProvidersCommand}"
+                                            AutomationProperties.Name="Beschleuniger installieren" />
+                                    <Button Content="Abbrechen" Command="{Binding CancelInstallCommand}" Margin="12,0,0,0"
+                                            Visibility="{Binding IsInstalling, Converter={StaticResource BoolToVis}}"
+                                            AutomationProperties.Name="Installation abbrechen" />
+                                </StackPanel>
+                                <ProgressBar Height="8" Minimum="0" Maximum="100" Value="{Binding InstallPercent, Mode=OneWay}" BorderThickness="0" Margin="0,12,0,0"
+                                             Foreground="{DynamicResource AccentBrush}" Background="{DynamicResource TrackBrush}"
+                                             Visibility="{Binding IsInstalling, Converter={StaticResource BoolToVis}}"
+                                             AutomationProperties.Name="Fortschritt der Installation" />
+                                <TextBlock Text="{Binding InstallStatusText}" FontSize="14" TextWrapping="Wrap" Margin="0,10,0,0"
+                                           Visibility="{Binding HasInstallStatusText, Converter={StaticResource BoolToVis}}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Windows-Grafikeinstellung -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Windows-Grafikeinstellung" Style="{StaticResource SectionTitle}" />
+                                <CheckBox Content="Fotobox auf der leistungsstärksten Grafikkarte ausführen" IsChecked="{Binding PreferHighPerformanceGpu}"
+                                          Margin="0,12,0,0" AutomationProperties.Name="Fotobox auf der leistungsstärksten Grafikkarte ausführen" />
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Setzt in Windows (Einstellungen → System → Anzeige → Grafik) für dieses Programm „Hohe Leistung“. Das betrifft Darstellung und Kamera und hilft vor allem bei Computern mit zwei Grafikkarten, zum Beispiel Notebooks. Die Änderung wirkt ab dem nächsten Start der Fotobox. Haben Sie in Windows von Hand einen anderen Wert gesetzt, bleibt dieser unangetastet." />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <!-- ============================== Sicherheit & Daten ============================== -->
             <TabItem Header="Sicherheit &amp; Daten" Tag="&#xE72E;">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">

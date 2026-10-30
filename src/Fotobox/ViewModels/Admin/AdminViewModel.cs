@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Fotobox.Core;
 using Fotobox.Core.Music;
+using Fotobox.Services.Detection.Acceleration;
 using Fotobox.Services.Storage;
 using Fotobox.ViewModels.Booth;
 
@@ -192,7 +193,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     public AdminViewModel(ISettingsStore store, IPinService pin, ICameraService camera, IPrintService print, IAdminUi ui,
         TimeProvider? time = null, IDisplayService? displays = null,
         IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null, IGestureDetectionService? gestures = null,
-        IMusicPlayer? music = null, IKisscamMusicLibrary? library = null)
+        IMusicPlayer? music = null, IKisscamMusicLibrary? library = null, IAccelerationService? acceleration = null)
     {
         _time = time ?? TimeProvider.System;
         _music = music;
@@ -285,6 +286,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         TestMiddleFingerCancelCommand = new RelayCommand(StartMiddleFingerCancelTest);
 
         InitHeart(music, library);
+        InitPerformance(acceleration);
         InitCameraControls();
         Camera.StatusChanged += OnCameraStatusChanged;
         UpdateOverlay();
@@ -469,6 +471,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
                 or nameof(FunPage) or nameof(MiddleFingerStatusText) or nameof(MiddleFingerPeaceDisabledWarning)
                 or nameof(HasMiddleFingerPeaceDisabledWarning))
             && !IsHeartViewStateProperty(e.PropertyName)
+            && !IsPerformanceViewStateProperty(e.PropertyName)
             && e.PropertyName?.StartsWith("PeacePreview", StringComparison.Ordinal) != true
             && e.PropertyName?.StartsWith("MiddleFingerPreview", StringComparison.Ordinal) != true
             && e.PropertyName?.StartsWith("MiddleFingerDetected", StringComparison.Ordinal) != true
@@ -492,7 +495,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             Guard(LoadMicrophonesAsync(), "Mikrofonliste"),
             Guard(ApplyFontsAsync(FontCatalog.GetAsync()), "Schriftenliste"),
             Guard(RefreshPageSpecAsync(), "Seitengröße"),
-            Guard(RefreshControlsAsync(), "Kamera-Regler"));
+            Guard(RefreshControlsAsync(), "Kamera-Regler"),
+            Guard(LoadProviderStatesAsync(), "Anbieterliste"));
         // Das Overlay-Vorschaubild hat bereits der Konstruktor geladen.
         RaiseCameraStatus();
 
@@ -3182,6 +3186,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         EndKisscamTest(completed: false);
         ApplyKisscamMusicFolderToLibrary();
         RefreshHeartActionOptions();
+        RebuildPerformanceFromDraft();
         // Alle gebundenen Eigenschaften neu lesen (Werte kommen direkt aus dem Entwurf).
         OnPropertyChanged(string.Empty);
         // Ein ersetzter Flimmerschutz (Import) wirkt sofort wie eine Auswahl in der ComboBox.
@@ -3542,6 +3547,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         FunPreview.Dispose();
         DisposePeacePreview();
         DisposeHeart();
+        DisposePerformance();
         Camera.StatusChanged -= OnCameraStatusChanged;
         _lifetime.Cancel();
         _lifetime.Dispose();

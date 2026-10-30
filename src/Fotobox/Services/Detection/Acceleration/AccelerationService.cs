@@ -143,6 +143,12 @@ public sealed class AccelerationService : IAccelerationService
             }
 
             var decision = AccelerationPlanner.Decide(_startedMode, _startedGpuKey, devices, cached);
+            // Die Messtabelle des Caches steht im Admin-Tab „Leistung“ sofort zur Verfügung (nicht erst nach einer neuen Messung).
+            if (cached is not null)
+            {
+                lock (_stateLock)
+                    _state = _state with { LastBenchmark = cached };
+            }
             ApplyPlan(decision, devices);
             AppLog.Info("Beschleunigung: Plan " + DescribePlan(decision.Plan) + (decision.Notice is null ? "" : " – " + decision.Notice));
             if (decision.NeedsMeasurement)

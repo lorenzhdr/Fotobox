@@ -18,7 +18,13 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Windows.AI.MachineLearning" Version="2.5.96" />
+    <PackageReference Include="Microsoft.Windows.AI.MachineLearning" Version="2.5.96" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <!-- Lizenzbedingungen der mitgelieferten Windows-ML-/DirectML-Dateien (Weitergabe als „Distributable Code“) liegen dem Paket bei. -->
+  <ItemGroup>
+    <None Include="$(PkgMicrosoft_Windows_AI_MachineLearning)\license.txt" Link="Lizenzen\WindowsML-Lizenz.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(PkgMicrosoft_Windows_AI_MachineLearning)\ThirdPartyNotices.txt" Link="Lizenzen\WindowsML-ThirdPartyNotices.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
