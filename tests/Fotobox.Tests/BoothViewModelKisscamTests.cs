@@ -521,40 +521,69 @@ public partial class BoothViewModelTests
     // ---- Anzeige
 
     [Fact]
-    public void Display_ShowsTheGuestTextAboveThreeSeconds_AndTheDigitsInTheLastThree()
+    public void Display_ShowsTheGuestTextAndTheDigitsThroughoutTheWholeCountdown_WithoutShade()
     {
         var rig = new KisscamRig(configure: h => h.KisscamSeconds = 6);
         var vm = rig.ViewModel;
         Assert.False(vm.ShowKisscamFrame);
         Assert.False(vm.ShowKisscamText);
+        Assert.False(vm.ShowCountdown);
+        Assert.False(vm.ShowCountdownShade);
 
         Assert.True(rig.Do());
         Assert.True(vm.IsKisscamCountdown);
         Assert.True(vm.ShowKisscamFrame);
-        Assert.True(vm.ShowKisscamText);
-        Assert.False(vm.ShowCountdown); // keine Abdunklung über dem Rahmen
-        Assert.False(vm.ShowNormalCountdownDigits);
         Assert.False(vm.IsPeaceCountdown);
         Assert.False(vm.IsSelfDestructCountdown);
-        Assert.Contains("6", vm.KisscamText);
-        Assert.Contains("Sekunden", vm.KisscamText);
+        Assert.False(vm.IsPause);
+        Assert.False(vm.ShowShotInfo);
 
-        rig.Seconds(2); // 4
-        Assert.True(vm.ShowKisscamText);
-        Assert.False(vm.ShowCountdown);
-        Assert.Contains("4", vm.KisscamText);
+        // Von der ersten bis zur letzten Sekunde: Text unten, große Ziffern, nie die Abdunklung.
+        for (var expected = 6; expected >= 1; expected--)
+        {
+            Assert.Equal(expected, rig.H.Controller.CountdownValue);
+            Assert.True(vm.ShowKisscamText, $"Text bei {expected}");
+            Assert.True(vm.ShowCountdown, $"Countdown bei {expected}");
+            Assert.True(vm.ShowNormalCountdownDigits, $"Ziffern bei {expected}");
+            Assert.False(vm.ShowCountdownShade, $"keine Abdunklung bei {expected}");
+            Assert.Equal(expected.ToString(), vm.CountdownText);
+            Assert.Contains(expected.ToString(), vm.KisscamText);
+            Assert.Contains("Sekunden", vm.KisscamText);
+            Assert.True(vm.ShowKisscamFrame); // Rahmen bleibt
+            if (expected > 1)
+                rig.Seconds(1);
+        }
+    }
 
-        rig.Seconds(1); // 3: letzte Sekunden
+    [Fact]
+    public void Display_ShortKisscam_ShowsTheTextToo()
+    {
+        var rig = new KisscamRig(configure: h => h.KisscamSeconds = 3);
+        var vm = rig.ViewModel;
+
+        Assert.True(rig.Do());
+
         Assert.Equal(3, rig.H.Controller.CountdownValue);
-        Assert.False(vm.ShowKisscamText);
-        Assert.True(vm.ShowCountdown);
+        Assert.True(vm.ShowKisscamText);
         Assert.True(vm.ShowNormalCountdownDigits);
-        Assert.Equal("3", vm.CountdownText);
-        Assert.True(vm.ShowKisscamFrame); // Rahmen bleibt
+        Assert.False(vm.ShowCountdownShade);
+    }
 
-        rig.Seconds(1);
-        Assert.Equal("2", vm.CountdownText);
+    [Fact]
+    public void Display_NormalCountdown_StillHasTheShade_AndNoKisscamText()
+    {
+        var h = new Harness();
+        h.Settings.Current.Flow.CountdownSeconds = 3;
+
+        Assert.True(h.ViewModel.TryTrigger());
+
+        var vm = h.ViewModel;
+        Assert.True(vm.IsCountdown);
         Assert.True(vm.ShowCountdown);
+        Assert.True(vm.ShowCountdownShade);
+        Assert.True(vm.ShowNormalCountdownDigits);
+        Assert.False(vm.ShowKisscamText);
+        Assert.False(vm.ShowKisscamFrame);
     }
 
     [Fact]
@@ -664,18 +693,67 @@ public partial class BoothViewModelTests
         Assert.NotNull(overlay.Frame);
         Assert.True(overlay.ShowText);
         Assert.Contains("5", overlay.Text);
-        Assert.Equal(System.Windows.Visibility.Collapsed, digits.Visibility);
+        Assert.Equal(System.Windows.Visibility.Visible, digits.Visibility); // Ziffern von Anfang an
+        Assert.Equal(360, ((System.Windows.Controls.TextBlock)digits).FontSize); // etwas kleiner als beim normalen Countdown (460)
 
-        rig.Seconds(2); // 3: Ziffern statt Text
+        rig.Seconds(2); // 3: Text und Ziffern bleiben
         Layout();
-        Assert.False(overlay.ShowText);
+        Assert.True(overlay.ShowText);
+        Assert.Contains("3", overlay.Text);
         Assert.Equal(System.Windows.Visibility.Visible, overlay.Visibility);
         Assert.Equal(System.Windows.Visibility.Visible, digits.Visibility);
     }
 
+    [StaFact]
+    public void BoothWindow_Kisscam_HasNoShade()
+    {
+        WpfCollection.EnsurePackUris();
+        var rig = new KisscamRig(configure: h => h.KisscamSeconds = 5);
+        var window = new BoothWindow(rig.ViewModel, new FakeAdminLauncher(), rig.H.Settings, new NoDisplays());
+        var digits = (System.Windows.Controls.TextBlock)window.FindName("CountdownBlock");
+        var content = (System.Windows.FrameworkElement)window.Content;
+        // Die Abdunklung ist das erste Border-Kind des Countdown-Rasters (Geschwister des Ziffern-Rasters).
+        var countdownGrid = (System.Windows.Controls.Grid)System.Windows.Media.VisualTreeHelper.GetParent(
+            System.Windows.Media.VisualTreeHelper.GetParent(digits));
+        var shade = countdownGrid.Children.OfType<System.Windows.Controls.Border>().First();
+
+        Assert.True(rig.Do());
+        content.Measure(new System.Windows.Size(1920, 1080));
+        content.Arrange(new System.Windows.Rect(0, 0, 1920, 1080));
+        content.UpdateLayout();
+
+        Assert.Equal(System.Windows.Visibility.Visible, countdownGrid.Visibility);
+        Assert.Equal(System.Windows.Visibility.Collapsed, shade.Visibility);
+        Assert.Equal(360, digits.FontSize);
+        Assert.IsType<System.Windows.Media.RadialGradientBrush>(shade.Background);
+    }
+
+    [StaFact]
+    public void BoothWindow_NormalCountdown_ShowsTheShade_AndFullSizeDigits()
+    {
+        WpfCollection.EnsurePackUris();
+        var h = new Harness();
+        h.Settings.Current.Flow.CountdownSeconds = 3;
+        var window = new BoothWindow(h.ViewModel, new FakeAdminLauncher(), h.Settings, new NoDisplays());
+        var digits = (System.Windows.Controls.TextBlock)window.FindName("CountdownBlock");
+        var content = (System.Windows.FrameworkElement)window.Content;
+        var countdownGrid = (System.Windows.Controls.Grid)System.Windows.Media.VisualTreeHelper.GetParent(
+            System.Windows.Media.VisualTreeHelper.GetParent(digits));
+        var shade = countdownGrid.Children.OfType<System.Windows.Controls.Border>().First();
+
+        Assert.True(h.ViewModel.TryTrigger());
+        content.Measure(new System.Windows.Size(1920, 1080));
+        content.Arrange(new System.Windows.Rect(0, 0, 1920, 1080));
+        content.UpdateLayout();
+
+        Assert.Equal(System.Windows.Visibility.Visible, countdownGrid.Visibility);
+        Assert.Equal(System.Windows.Visibility.Visible, shade.Visibility);
+        Assert.Equal(460, digits.FontSize);
+    }
+
     /// <summary>
     /// Sichtprüfung per Bilddatei, kein Test im engeren Sinn: Läuft nur mit <c>FOTOBOX_RENDER_DIR</c> (sonst sofort beendet). Rendert die
-    /// Gastansicht im Leerlauf mit Herz-Fortschritt, im Kisscam-Countdown (Text) und in den letzten Sekunden (Ziffern) auf einem
+    /// Gastansicht im Leerlauf mit Herz-Fortschritt, im Kisscam-Countdown (Text und Ziffern von Anfang an) und in den letzten Sekunden auf einem
     /// synthetischen Livebild.
     /// </summary>
     [StaFact]

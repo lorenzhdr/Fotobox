@@ -219,15 +219,15 @@ public sealed class BoothViewModel : ObservableObject
 
     private HeartSettings HeartConfig => Settings.Current.Heart ?? new HeartSettings();
 
-    /// <summary>Kisscam-Countdown läuft (Jumbotron-Rahmen; Gasttext bzw. in den letzten Sekunden die großen Ziffern).</summary>
+    /// <summary>Kisscam-Countdown läuft (Jumbotron-Rahmen, Gasttext und – ohne Abdunklung – die großen Ziffern).</summary>
     public bool IsKisscamCountdown => IsCountdown && Controller.CountdownStyle == CountdownStyle.Kisscam;
 
     /// <summary>Jumbotron-Rahmen sichtbar: im Kisscam-Countdown und beim Auslösen, bis das Foto fertig ist.</summary>
     public bool ShowKisscamFrame =>
         Controller.CountdownStyle == CountdownStyle.Kisscam && Controller.State is BoothState.Countdown or BoothState.Capturing;
 
-    /// <summary>Gasttext sichtbar: im Kisscam-Countdown, bis die letzten <see cref="SettingsLimits.KisscamFinalDigitsSeconds"/> Sekunden die Ziffern zeigen.</summary>
-    public bool ShowKisscamText => IsKisscamCountdown && Controller.CountdownValue > SettingsLimits.KisscamFinalDigitsSeconds;
+    /// <summary>Gasttext sichtbar: den ganzen Kisscam-Countdown über, bis das Foto ausgelöst wird (die Ziffern stehen zusätzlich darüber).</summary>
+    public bool ShowKisscamText => IsKisscamCountdown;
 
     /// <summary>Gasttext mit der live herunterzählenden Restzeit (<c>{Sekunden}</c>).</summary>
     public string KisscamText => KisscamTextFormatter.Format(HeartConfig.KisscamText, Controller.CountdownValue);
@@ -446,11 +446,13 @@ public sealed class BoothViewModel : ObservableObject
         IsRecording && VideoConfig.ShowStopHint && Controller.CanStopVideo && VideoStopHintText.Length > 0;
 
     public bool IsVideoCountdown => Controller.State == BoothState.VideoCountdown;
+    /// <summary>Countdown-Anzeige (Zahl, ggf. Abdunklung) für Foto- und Videodurchgang – auch in der Kisscam, dort die ganze Zeit.</summary>
+    public bool ShowCountdown => IsCountdown || IsVideoCountdown;
     /// <summary>
-    /// Countdown-Anzeige (Zahl, Abdunklung) für Foto- und Videodurchgang. In der Kisscam entfällt sie, solange der Gasttext läuft
-    /// (<see cref="ShowKisscamText"/>): Die Abdunklung würde den Jumbotron-Rahmen verdecken; in den letzten Sekunden kommen die Ziffern.
+    /// Radiale Abdunklung hinter dem Countdown. Entfällt in der Kisscam: Das Livebild bleibt hell, der Jumbotron-Rahmen wird nicht
+    /// überdeckt; die Ziffern stehen dort ohne Abdunklung.
     /// </summary>
-    public bool ShowCountdown => (IsCountdown && !ShowKisscamText) || IsVideoCountdown;
+    public bool ShowCountdownShade => ShowCountdown && !IsKisscamCountdown;
     /// <summary>Video-Countdown ohne Zahl: Vorbereitung bzw. Kamera-Start (kann bei Zeitüberschreitungen bis ~25 s dauern).</summary>
     public bool IsVideoStarting => IsVideoCountdown && Controller.CountdownValue == 0;
 

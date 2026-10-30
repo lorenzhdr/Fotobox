@@ -515,6 +515,7 @@ public partial class BoothViewModelTests
 
         Assert.True(h.ViewModel.IsVideoCountdown);
         Assert.True(h.ViewModel.ShowCountdown);
+        Assert.True(h.ViewModel.ShowCountdownShade); // Abdunklung wie bisher
         Assert.False(h.ViewModel.IsCountdown);
         Assert.Equal("3", h.ViewModel.CountdownText);
         Assert.False(h.ViewModel.IsVideoStarting);

@@ -171,8 +171,6 @@ public static class SettingsLimits
     public const int KisscamMusicVolumeMin = 0, KisscamMusicVolumeMax = 100, KisscamMusicVolumeStep = 5;
     /// <summary>Kisscam: längster Banner-Text (z. B. „KISS CAM“); längere Werte aus der settings.json werden beim Laden gekürzt.</summary>
     public const int KisscamBannerMaxLength = 30;
-    /// <summary>Kisscam: In den letzten so vielen Sekunden des Countdowns erscheinen große Ziffern.</summary>
-    public const int KisscamFinalDigitsSeconds = 3;
     /// <summary>Kisscam: längster gespeicherter Pfad des Musikordners; längere Werte aus der settings.json werden verworfen (gekürzt passte der Pfad nie).</summary>
     public const int KisscamMusicFolderMaxLength = 1024;
     /// <summary>Kisscam: Startzeit eines Songs in Sekunden (1-s-Schritte; 3599 = 59:59).</summary>

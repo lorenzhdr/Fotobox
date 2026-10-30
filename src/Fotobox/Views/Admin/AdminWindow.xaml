@@ -26,7 +26,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TabControl Grid.Row="0" SelectionChanged="OnTabSelectionChanged">
+        <TabControl x:Name="AdminTabs" Grid.Row="0" SelectionChanged="OnTabSelectionChanged">
 
             <!-- ============================== Kamera ============================== -->
             <TabItem Header="Kamera" Tag="&#xE722;">

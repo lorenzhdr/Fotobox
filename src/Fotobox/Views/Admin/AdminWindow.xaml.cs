@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 using Fotobox.Core;
 using Fotobox.ViewModels.Admin;
 
@@ -27,6 +28,7 @@ public partial class AdminWindow : Window
             RepeatPinBox.Clear();
         };
         Loaded += OnLoaded;
+        Loaded += (_, _) => BringSelectedTabIntoView();
         Closing += OnClosing;
         // Die Erkennung der Fun-Vorschau endet mit dem Fenster (nicht erst mit dem Dispose des Ansichtsmodells).
         Closed += (_, _) => viewModel.IsFunTabSelected = false;
@@ -150,6 +152,23 @@ public partial class AdminWindow : Window
             _viewModel.CancelKeyCapture();
         // Die Erkennung der Fun-Vorschau läuft nur, solange dieser Tab ausgewählt ist.
         _viewModel.IsFunTabSelected = ReferenceEquals(((TabControl)sender).SelectedItem, FunTab);
+        BringSelectedTabIntoView();
+    }
+
+    /// <summary>
+    /// Scrollt die Tab-Leiste (bei niedrigem Fenster scrollbar), bis der gewählte Tab sichtbar ist. Erst nach dem Layout
+    /// (Loaded-Priorität), damit auch beim Öffnen und beim Wechsel per Tastatur die Maße stehen.
+    /// </summary>
+    private void BringSelectedTabIntoView()
+    {
+        if (AdminTabs.SelectedItem is not TabItem item)
+            return;
+
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (ReferenceEquals(AdminTabs.SelectedItem, item))
+                item.BringIntoView();
+        }));
     }
 
     private void OnNewPinChanged(object sender, RoutedEventArgs e) =>

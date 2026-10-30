@@ -1190,30 +1190,7 @@ public sealed class AdminHeartTabTests : IDisposable
         Assert.False(string.IsNullOrEmpty(vm.SaveStatusMessage));
     }
 
-    [Fact]
-    public void TimerHint_AppearsOnlyForThreeSecondsOrLess_AndIsNoSettingsChange()
-    {
-        NoContext();
-        var vm = CreateViewModel();
-        Assert.False(vm.HasKisscamOnlyCountdownHint);
-        Assert.Equal("Bei 3 Sekunden erscheint nur der Countdown 3 – 2 – 1, kein Text.", AdminViewModel.KisscamOnlyCountdownHintText);
-        var raised = new List<string?>();
-        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
-
-        vm.KisscamSeconds = SettingsLimits.KisscamFinalDigitsSeconds;
-        Assert.True(vm.HasKisscamOnlyCountdownHint);
-        Assert.Contains(nameof(AdminViewModel.HasKisscamOnlyCountdownHint), raised);
-
-        vm.KisscamSeconds = SettingsLimits.KisscamFinalDigitsSeconds + 1;
-        Assert.False(vm.HasKisscamOnlyCountdownHint);
-
-        vm.KisscamSeconds = SettingsLimits.KisscamSecondsMin;
-        vm.KisscamSeconds = new HeartSettings().KisscamSeconds;
-        Assert.False(vm.HasUnsavedChanges);
-    }
-
     [Theory]
-    [InlineData(nameof(AdminViewModel.HasKisscamOnlyCountdownHint))]
     [InlineData(nameof(AdminViewModel.KisscamMusicStatus))]
     [InlineData(nameof(AdminViewModel.KisscamMusicHints))]
     [InlineData(nameof(AdminViewModel.KisscamMusicHintsText))]
@@ -1472,8 +1449,8 @@ public sealed class AdminHeartTabTests : IDisposable
         Assert.Equal(5, vm.KisscamTestSeconds);
         Assert.Equal("Noch 5 s", vm.KisscamTestText);
         Assert.True(vm.KisscamTestShowText);
-        Assert.False(vm.KisscamTestShowDigits);
-        Assert.Equal(string.Empty, vm.KisscamTestDigits);
+        Assert.True(vm.KisscamTestShowDigits); // Ziffern von Anfang an
+        Assert.Equal("5", vm.KisscamTestDigits);
         Assert.Equal(new PhotoFrame(PhotoFrameKind.Kisscam, "UNSER BANNER", KisscamColor.Gold), vm.KisscamTestFrame);
         Assert.False(vm.KisscamTestPhotoBadgeVisible);
 
@@ -1482,8 +1459,9 @@ public sealed class AdminHeartTabTests : IDisposable
         Assert.Equal("Noch 4 s", vm.KisscamTestText);
         Assert.True(vm.KisscamTestShowText);
 
-        AdvanceSeconds(1); // 3: ab hier die Ziffern
-        Assert.False(vm.KisscamTestShowText);
+        AdvanceSeconds(1); // 3: Text und Ziffern stehen nebeneinander
+        Assert.True(vm.KisscamTestShowText);
+        Assert.Equal("Noch 3 s", vm.KisscamTestText);
         Assert.True(vm.KisscamTestShowDigits);
         Assert.Equal("3", vm.KisscamTestDigits);
 
@@ -1491,6 +1469,7 @@ public sealed class AdminHeartTabTests : IDisposable
         Assert.Equal("2", vm.KisscamTestDigits);
         AdvanceSeconds(1);
         Assert.Equal("1", vm.KisscamTestDigits);
+        Assert.True(vm.KisscamTestShowText);
         Assert.True(vm.KisscamTestRunning);
 
         AdvanceSeconds(1); // 0: Auslösemoment, nur das Abzeichen
@@ -1513,7 +1492,7 @@ public sealed class AdminHeartTabTests : IDisposable
     }
 
     [Fact]
-    public void Test_WithAShortTimer_ShowsDigitsFromTheStart()
+    public void Test_WithAShortTimer_ShowsDigitsAndTextFromTheStart()
     {
         NoContext();
         var vm = OpenHeartPage();
@@ -1521,7 +1500,7 @@ public sealed class AdminHeartTabTests : IDisposable
 
         vm.ToggleKisscamTestCommand.Execute(null);
 
-        Assert.False(vm.KisscamTestShowText);
+        Assert.True(vm.KisscamTestShowText);
         Assert.True(vm.KisscamTestShowDigits);
         Assert.Equal("3", vm.KisscamTestDigits);
     }
@@ -2084,15 +2063,15 @@ public sealed class AdminHeartTabTests : IDisposable
             Assert.True(overlay.ShowText);
             Assert.Equal(vm.KisscamTestText, overlay.Text);
             Assert.Equal("BANNER", overlay.Frame!.BannerText);
-            Assert.Equal(Visibility.Collapsed, digits.Visibility);
+            Assert.Equal(Visibility.Visible, digits.Visibility); // Ziffern von Anfang an
             ((FrameworkElement)window.Content).UpdateLayout();
             var guestText = (TextBlock)overlay.FindName("GuestText");
             Assert.Equal(vm.KisscamTestText, guestText.Text);
             Assert.True(guestText.ActualHeight > 0);                                  // der Text liegt im Layout, unten in der Vorschau
             Assert.True(guestText.TranslatePoint(new Point(0, 0), overlay).Y > overlay.ActualHeight / 2);
 
-            AdvanceSeconds(2); // 3: Ziffern statt Text
-            Assert.False(overlay.ShowText);
+            AdvanceSeconds(2); // 3: Text und Ziffern bleiben
+            Assert.True(overlay.ShowText);
             Assert.Equal(Visibility.Visible, digits.Visibility);
             Assert.Equal("3", InView<TextBlock>(view, "HeartKisscamTestDigitsText").Text);
 
