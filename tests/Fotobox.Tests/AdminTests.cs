@@ -3807,7 +3807,7 @@ public sealed class AdminViewModelTests : IDisposable
         }
 
         public Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer, IProgress<string>? status = null,
-            CancellationToken ct = default, CancellationToken userCancel = default)
+            CancellationToken ct = default, CancellationToken userCancel = default, PrintBlockOptions? block = null)
         {
             PrintedPage = page;
             PrintedSettings = printer;

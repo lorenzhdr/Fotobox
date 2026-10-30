@@ -12,8 +12,10 @@ namespace Fotobox.Core;
 /// Printed: Druck fertig, Gast wird kurz aufgefordert, das Foto aus dem Drucker zu nehmen.
 /// PrintCancelled: Gast hat den Druck abgebrochen (bzw. der Abbruch ging nicht mehr), kurze ruhige Meldung statt Fehler.
 /// VideoCountdown → Recording → VideoSaving → VideoSaved: Videodurchgang (Fehler wie beim Foto über Error zurück nach Idle).
+/// PrinterBlocked: Druckersperre – der Drucker meldet ein Problem (z. B. Papier leer); die Box bleibt gesperrt, bis der Auftrag gedruckt ist
+/// oder die Sperre aufgehoben wird (<see cref="BoothController.ReleasePrinterBlock"/>). Neue Werte nur hinten anhängen.
 /// </summary>
-public enum BoothState { Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error, PrintCancelled, VideoCountdown, Recording, VideoSaving, VideoSaved }
+public enum BoothState { Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error, PrintCancelled, VideoCountdown, Recording, VideoSaving, VideoSaved, PrinterBlocked }
 
 /// <summary>
 /// Ablaufsteuerung eines Foto-Durchgangs (Countdown → Aufnahme → Layout → Speichern → Vorschau/Druck → „Fertig“).
@@ -86,6 +88,10 @@ public sealed class BoothController(
     private volatile bool _printActive;
     private volatile bool _printDone;
     private int _expectedPrintSeconds = new FlowSettings().ExpectedPrintSeconds;
+    // Druck-Timeout (Sekunden) des laufenden Drucks, Grundlage des Ladekreises (Untergrenze wie im Druckdienst).
+    private volatile int _printTimeoutSeconds = SettingsLimits.PrintTimeoutMin;
+    // Druckersperre des laufenden Drucks (null = kein Druck bzw. keine Sperrüberwachung).
+    private volatile PrintBlockRun? _printBlock;
     // Abbruchwunsch des Gastes für den Druck des laufenden Durchgangs (getrennt vom Sitzungs-Token, das den ganzen
     // Durchgang beendet) und der zugehörige Druck, damit ein bereits fertiger Druck nicht mehr „abgebrochen“ wird.
     private CancellationTokenSource? _printCancelCts;
@@ -214,6 +220,33 @@ public sealed class BoothController(
     /// <summary>Die erwartete Druckzeit ist abgelaufen, der Druck aber noch nicht fertig.</summary>
     public bool PrintOverdue =>
         _printActive && !_printDone && (time.GetUtcNow() - _printStart).TotalSeconds >= _expectedPrintSeconds;
+
+    /// <summary>
+    /// Der Ladekreis unter dem Fortschrittsbalken ist sichtbar: im Zustand <see cref="BoothState.Printing"/>, solange
+    /// <see cref="PrintOverdue"/> gilt. Er füllt sich (<see cref="PrintRingProgress"/>) von der erwarteten Druckzeit bis zum Druck-Timeout.
+    /// </summary>
+    public bool ShowPrintRing => _state == BoothState.Printing && PrintOverdue;
+
+    /// <summary>
+    /// Füllstand des Ladekreises 0..1: (verstrichene Zeit − erwartete Dauer) / (Druck-Timeout − erwartete Dauer), gedeckelt;
+    /// 0 außerhalb eines laufenden Drucks. Die UI aktualisiert sich über <see cref="Changed"/> (Takt während des Drucks).
+    /// </summary>
+    public double PrintRingProgress
+    {
+        get
+        {
+            if (_printDone || !_printActive) return 0;
+            var elapsed = (time.GetUtcNow() - _printStart).TotalSeconds;
+            var span = Math.Max(1, _printTimeoutSeconds - _expectedPrintSeconds);
+            return Math.Clamp((elapsed - _expectedPrintSeconds) / span, 0, 1);
+        }
+    }
+
+    /// <summary>
+    /// Ursache der Druckersperre im Zustand <see cref="BoothState.PrinterBlocked"/>; <see cref="PrinterAttention.None"/> = das Problem ist
+    /// behoben, der Auftrag wartet noch auf den Druck. Außerhalb der Sperre <see cref="PrinterAttention.None"/>. Änderungen kommen über <see cref="Changed"/>.
+    /// </summary>
+    public PrinterAttention BlockedReason => _printBlock is { } run ? run.Reason : PrinterAttention.None;
 
     public event EventHandler? StateChanged;
     /// <summary>Alle übrigen Eigenschaften (Countdown, Fotonummer, Status, Druckfortschritt …) haben sich geändert.</summary>
@@ -345,6 +378,9 @@ public sealed class BoothController(
     {
         if (!_printActive || _state is not (BoothState.Preview or BoothState.Printing))
             return false;
+        // Ab der Druckersperre ist Esc wirkungslos (der Auftrag bleibt in der Warteschlange; Ausweg ist nur die Admin-Ansicht).
+        if (_printBlock is { Blocked: true })
+            return false;
 
         var task = _printTask;
         var cts = _printCancelCts;
@@ -359,6 +395,32 @@ public sealed class BoothController(
         }
         catch (ObjectDisposedException) { return false; }
         AppLog.Info("Druck vom Gast abgebrochen (Abbruchwunsch).");
+        return true;
+    }
+
+    /// <summary>
+    /// Hebt die Druckersperre auf (Ausweg über die Admin-Ansicht): Das Warten auf den Druck endet, die Box geht ohne Fehleranzeige
+    /// zurück zu Idle. Der Auftrag bleibt in der Warteschlange und druckt nach dem Beheben des Problems von selbst. Nur im Zustand
+    /// <see cref="BoothState.PrinterBlocked"/> wirksam, sonst <c>false</c>.
+    /// </summary>
+    public bool ReleasePrinterBlock()
+    {
+        if (_state != BoothState.PrinterBlocked || _printBlock is not { Blocked: true, Over: false } run)
+            return false;
+
+        var cts = run.PrintCts;
+        if (cts is null)
+            return false;
+
+        run.Released = true;
+        try { cts.Cancel(); }
+        catch (ObjectDisposedException)
+        {
+            run.Released = false;
+            return false;
+        }
+
+        AppLog.Info("Druckersperre aufgehoben (Admin-Ansicht); der Auftrag bleibt in der Warteschlange.");
         return true;
     }
 
@@ -945,6 +1007,7 @@ public sealed class BoothController(
             {
                 _sessionCts = null;
                 _printTask = null;
+                RetirePrintBlock();
                 Interlocked.Exchange(ref _printCancelCts, null)?.Dispose();
                 cts.Dispose();
                 Volatile.Write(ref _busy, 0);
@@ -1074,6 +1137,7 @@ public sealed class BoothController(
         // Vorschau; der Druck läuft parallel dazu.
         PreviewImage = layout;
         Task<PrintResult>? printTask = null;
+        PrintBlockRun? blockRun = null;
         var userCancel = CancellationToken.None;
         if (cfg.Flow.PrintingEnabled)
         {
@@ -1081,22 +1145,30 @@ public sealed class BoothController(
             var printCancel = new CancellationTokenSource();
             _printCancelCts = printCancel;
             userCancel = printCancel.Token;
+            _printTimeoutSeconds = Math.Max(SettingsLimits.PrintTimeoutMin, cfg.Printer.TimeoutSeconds);
+            blockRun = new PrintBlockRun();
+            _printBlock = blockRun;
             _printStart = time.GetUtcNow();
             _printActive = true;
-            printTask = PrintGuardedAsync(layout, cfg.Printer, userCancel, ct);
+            printTask = PrintGuardedAsync(layout, cfg.Printer, userCancel, ct, blockRun);
             _printTask = printTask;
         }
         State = BoothState.Preview;
 
-        // Der Abbruchwunsch des Gastes beendet nur die Vorschau; das Sitzungs-Token bleibt unberührt.
+        // Der Abbruchwunsch des Gastes und eine Druckersperre beenden nur die Vorschau; das Sitzungs-Token bleibt unberührt.
         try
         {
-            using var previewCts = CancellationTokenSource.CreateLinkedTokenSource(ct, userCancel);
+            using var previewCts = CancellationTokenSource.CreateLinkedTokenSource(ct, userCancel,
+                blockRun?.PreviewSignal.Token ?? CancellationToken.None);
             await DelayAsync(cfg.Flow.PreviewSeconds, previewCts.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && userCancel.IsCancellationRequested)
         {
             AppLog.Info("Vorschau auf Wunsch des Gastes beendet (Druck abgebrochen).");
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && blockRun is { Blocked: true })
+        {
+            AppLog.Info("Vorschau wegen Druckersperre beendet.");
         }
 
         if (printTask is null)
@@ -1105,13 +1177,21 @@ public sealed class BoothController(
         if (!printTask.IsCompleted)
         {
             StatusMessage ??= "Wird gedruckt…";
-            State = BoothState.Printing;
-            await TrackPrintProgressAsync(printTask, ct);
+            State = blockRun is { Blocked: true } ? BoothState.PrinterBlocked : BoothState.Printing;
+            await TrackPrintProgressAsync(printTask, blockRun, ct);
         }
 
         var result = await printTask;
         ct.ThrowIfCancellationRequested();
         _printActive = false;
+
+        // Sperre über die Admin-Ansicht aufgehoben: ohne Fehleranzeige zurück zu Idle, der Auftrag bleibt in der Warteschlange.
+        if (blockRun is { Released: true } && result.Outcome == PrintOutcome.Cancelled)
+        {
+            AppLog.Info("Druckersperre aufgehoben: Durchgang endet ohne Fehleranzeige, der Auftrag bleibt in der Warteschlange.");
+            StatusMessage = null;
+            return null;
+        }
 
         if (result.Outcome is PrintOutcome.UserCancelled or PrintOutcome.UserCancelFailed)
         {
@@ -1130,6 +1210,8 @@ public sealed class BoothController(
 
         if (result.Success)
         {
+            if (blockRun is { Blocked: true })
+                AppLog.Info($"Druck nach Druckersperre abgeschlossen (Sperre dauerte {time.GetElapsedTime(blockRun.BlockedSince).TotalSeconds:0} s).");
             // Auch wenn der Druck schon während der Vorschau fertig wurde: Gast zum Abholen auffordern.
             _printDone = true;
             StatusMessage = null;
@@ -1151,7 +1233,7 @@ public sealed class BoothController(
     }
 
     /// <summary>Meldet während des Drucks im festen Takt den Fortschritt (<see cref="Changed"/>), bis der Druck endet.</summary>
-    private async Task TrackPrintProgressAsync(Task printTask, CancellationToken ct)
+    private async Task TrackPrintProgressAsync(Task printTask, PrintBlockRun? run, CancellationToken ct)
     {
         while (!printTask.IsCompleted && !ct.IsCancellationRequested)
         {
@@ -1160,7 +1242,100 @@ public sealed class BoothController(
             await Task.WhenAny(printTask, tick);
             tickCts.Cancel();
             if (!printTask.IsCompleted)
+            {
+                // Fängt eine Sperre ab, die zwischen Zustandswahl und Takt gemeldet wurde (die Meldung selbst kommt über den UI-Kontext).
+                SyncPrintBlockState(run);
                 Raise(Changed);
+            }
+        }
+    }
+
+    /// <summary>Wechselt von <see cref="BoothState.Printing"/> nach <see cref="BoothState.PrinterBlocked"/>, sobald eine Sperre gemeldet wurde (UI-Kontext).</summary>
+    private void SyncPrintBlockState(PrintBlockRun? run)
+    {
+        if (run is { Blocked: true } && ReferenceEquals(_printBlock, run) && _state == BoothState.Printing)
+            State = BoothState.PrinterBlocked;
+    }
+
+    /// <summary>
+    /// Handler der Sperrmeldungen des Druckdienstes (beliebiger Thread). Setzt Sperre und Ursache sofort (damit z. B. Esc und das harte
+    /// Limit sie schon sehen); der Zustandswechsel und das Ende der Vorschau laufen danach auf dem Kontext des Durchgangs.
+    /// </summary>
+    private void OnPrinterAttention(PrintBlockRun run, PrinterAttention attention, SynchronizationContext? context)
+    {
+        try
+        {
+            if (run.Over || (attention == PrinterAttention.None && !run.Blocked))
+                return;
+
+            var previous = run.Reason;
+            run.Reason = attention;
+            if (!run.Blocked)
+            {
+                run.BlockedSince = time.GetTimestamp();
+                run.Blocked = true;
+                AppLog.Warn($"Druckersperre: {attention}.");
+            }
+            else if (previous != attention)
+            {
+                AppLog.Info(attention == PrinterAttention.None
+                    ? "Druckersperre: Problem behoben, der Auftrag wartet auf den Druck."
+                    : $"Druckersperre: Ursache {attention}.");
+            }
+
+            void Apply()
+            {
+                if (run.Over)
+                    return;
+                try { run.PreviewSignal.Cancel(); }
+                catch (ObjectDisposedException) { }
+                SyncPrintBlockState(run);
+                Raise(Changed);
+            }
+
+            if (context is not null)
+                context.Post(static state => ((Action)state!)(), (Action)Apply);
+            else
+                _ = Task.Run(Apply);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Druckersperre konnte nicht gemeldet werden.", ex);
+        }
+    }
+
+    /// <summary>Beendet die Sperrüberwachung des Durchgangs: spätere Meldungen des Druckdienstes bleiben ohne Wirkung.</summary>
+    private void RetirePrintBlock()
+    {
+        var run = Interlocked.Exchange(ref _printBlock, null);
+        if (run is null)
+            return;
+        run.Over = true;
+        run.PreviewSignal.Dispose();
+    }
+
+    /// <summary>Zustand der Druckersperre eines Drucks (Meldungen kommen vom Druck-Thread, Lesen auf dem UI-Thread).</summary>
+    private sealed class PrintBlockRun
+    {
+        private int _reason;
+
+        /// <summary>Die Sperre wurde gemeldet (bleibt bis zum Ende des Drucks gesetzt, auch wenn die Ursache wieder wegfällt).</summary>
+        public volatile bool Blocked;
+        /// <summary>Der Admin hat die Sperre aufgehoben.</summary>
+        public volatile bool Released;
+        /// <summary>Der Druck ist vorbei bzw. der Durchgang beendet: Meldungen werden ignoriert.</summary>
+        public volatile bool Over;
+        /// <summary>Zeitstempel (<see cref="TimeProvider.GetTimestamp"/>) der ersten Sperrmeldung.</summary>
+        public long BlockedSince;
+        /// <summary>Beendet die Vorschau, sobald die Sperre gemeldet wurde.</summary>
+        public CancellationTokenSource PreviewSignal { get; } = new();
+        /// <summary>Quelle, die das Warten auf den Druck beendet (Aufheben der Sperre); gesetzt, solange <c>PrintGuardedAsync</c> läuft.</summary>
+        public volatile CancellationTokenSource? PrintCts;
+
+        public PrinterAttention Reason
+        {
+            get => (PrinterAttention)Volatile.Read(ref _reason);
+            set => Volatile.Write(ref _reason, (int)value);
         }
     }
 
@@ -1260,10 +1435,12 @@ public sealed class BoothController(
     /// geht an den Druckdienst; bestätigt der ihn nicht binnen <see cref="PrintCancelTimeout"/>, gilt
     /// <see cref="PrintOutcome.UserCancelFailed"/>. <paramref name="ct"/> beendet nur das Warten (der Auftrag bleibt).
     /// </summary>
-    private async Task<PrintResult> PrintGuardedAsync(BitmapSource page, PrinterSettings printer, CancellationToken userCancel, CancellationToken ct)
+    private async Task<PrintResult> PrintGuardedAsync(BitmapSource page, PrinterSettings printer, CancellationToken userCancel, CancellationToken ct,
+        PrintBlockRun run)
     {
         var limit = TimeSpan.FromSeconds(Math.Max(SettingsLimits.PrintTimeoutMin, printer.TimeoutSeconds)) + PrintHardLimitReserve;
         using var printCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        run.PrintCts = printCts;
         // Der Druck kann nach hartem Timeout noch weiterlaufen und später Status melden; sobald dieser Durchgang
         // vorbei ist, dürfen solche Meldungen den Status des nächsten Durchgangs nicht mehr überschreiben.
         var sessionOver = false;
@@ -1273,11 +1450,14 @@ public sealed class BoothController(
             if (!Volatile.Read(ref sessionOver) && !userCancel.IsCancellationRequested)
                 StatusMessage = message;
         });
+        // Die Sperrmeldung setzt ihr Flag sofort (nicht erst über den Kontext wie Progress<T>), siehe OnPrinterAttention.
+        var context = SynchronizationContext.Current;
+        var blockOptions = new PrintBlockOptions(new ImmediateProgress<PrinterAttention>(a => OnPrinterAttention(run, a, context)));
         Task<PrintResult>? task = null;
         try
         {
-            task = print.PrintAsync(page, printer, progress, printCts.Token, userCancel);
-            var work = task.WaitAsync(limit, time, ct);
+            task = print.PrintAsync(page, printer, progress, printCts.Token, userCancel, blockOptions);
+            var work = AwaitPrintAsync(task, limit, run, printCts.Token);
 
             // Bewusst ohne RunContinuationsAsynchronously: Die Frist unten startet im selben Zug wie der Abbruchwunsch.
             var cancelRequested = new TaskCompletionSource();
@@ -1296,6 +1476,13 @@ public sealed class BoothController(
             finally
             {
                 graceCts.Cancel();
+            }
+
+            // Zwischen Abbruchwunsch und Sperre geraten: In der Sperre wirkt der Abbruch nicht, der Auftrag bleibt – weiter warten.
+            if (run.Blocked)
+            {
+                AppLog.Info("Druckabbruch ignoriert: Der Druck ist inzwischen gesperrt (Drucker meldet ein Problem).");
+                return await work;
             }
 
             // Der Dienst hat sich nicht gemeldet: nicht länger warten (der Auftrag läuft evtl. weiter).
@@ -1327,7 +1514,32 @@ public sealed class BoothController(
         finally
         {
             Volatile.Write(ref sessionOver, true);
+            run.Over = true;
+            run.PrintCts = null;
         }
+    }
+
+    /// <summary>
+    /// Wartet auf den Druck mit hartem Limit. Ist das Limit abgelaufen, während eine Druckersperre aktiv ist, wird ohne Limit weiter
+    /// gewartet (Ausweg nur über <paramref name="token"/>: App-Ende bzw. Aufheben der Sperre); ein hängender Spooler ohne Sperre läuft weiter in <see cref="TimeoutException"/>.
+    /// </summary>
+    private async Task<PrintResult> AwaitPrintAsync(Task<PrintResult> task, TimeSpan limit, PrintBlockRun run, CancellationToken token)
+    {
+        try
+        {
+            return await task.WaitAsync(limit, time, token);
+        }
+        catch (TimeoutException) when (run.Blocked)
+        {
+            AppLog.Info("Hartes Druck-Limit erreicht, aber die Druckersperre ist aktiv – das Warten läuft ohne Frist weiter.");
+            return await task.WaitAsync(token);
+        }
+    }
+
+    /// <summary>Fortschrittsmeldung, die ihren Handler sofort auf dem meldenden Thread ausführt (anders als <see cref="Progress{T}"/>).</summary>
+    private sealed class ImmediateProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
     }
 
     /// <summary>Loggt, wenn ein per Zeitlimit aufgegebenes Speichern doch noch fertig wurde (die Datei erscheint dann nachträglich).</summary>

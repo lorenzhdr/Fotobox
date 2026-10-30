@@ -147,7 +147,7 @@ public sealed class AdminLauncher : IAdminLauncher
 
         var cameraChanged = handling.CameraChanged;
         AppLog.Info($"Admin-Ansicht geschlossen (gespeichert: {viewModel.SettingsSaved}, Kamera geändert: {cameraChanged}, beenden: {viewModel.ExitRequested}).");
-        return new AdminResult(viewModel.SettingsSaved, viewModel.ExitRequested, cameraChanged);
+        return new AdminResult(viewModel.SettingsSaved, viewModel.ExitRequested, cameraChanged, Opened: true);
     }
 
     /// <summary>Was nach dem Schließen der Admin-Ansicht mit der Kamera zu tun ist.</summary>

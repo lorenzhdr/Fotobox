@@ -1130,10 +1130,14 @@ public partial class BoothViewModelTests
 
         /// <summary>Gesetzt: Ein Abbruchwunsch des Gastes beendet <see cref="Pending"/> mit diesem Ergebnis.</summary>
         public PrintOutcome? CancelOutcome { get; set; }
+        /// <summary>Die Sperroptionen des letzten Aufrufs; über <see cref="PrintBlockOptions.Blocked"/> lässt sich eine Druckersperre melden.</summary>
+        public PrintBlockOptions? LastBlock { get; private set; }
 
         public Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer,
-            IProgress<string>? status = null, CancellationToken ct = default, CancellationToken userCancel = default)
+            IProgress<string>? status = null, CancellationToken ct = default, CancellationToken userCancel = default,
+            PrintBlockOptions? block = null)
         {
+            LastBlock = block;
             if (Pending is { } pending && CancelOutcome is { } outcome)
                 userCancel.Register(() => pending.TrySetResult(new PrintResult(outcome)));
             return Pending?.Task ?? Task.FromResult(new PrintResult(PrintOutcome.Completed));

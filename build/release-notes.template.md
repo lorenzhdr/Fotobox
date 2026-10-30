@@ -1,16 +1,14 @@
 ## Fotobox+ {{VERSION}}
 
-### Neu in 2.8.0
+### Neu in 2.9.0
 
-- **Hardwarebeschleunigung der KI-Erkennung:** Zielerfassung, Peace-, Mittelfinger- und Herzerkennung laufen jetzt wahlweise auf der Grafikkarte (GPU) oder einer NPU statt nur auf dem Prozessor. Grundlage ist Windows ML mit DirectML; es funktioniert mit Grafikkarten von NVIDIA, AMD und Intel sowie mit Snapdragon-Grafik. Läuft ein Gerät nicht sauber, fällt die Erkennung automatisch auf den Prozessor zurück – nichts bleibt hängen.
-- **Neuer Admin-Tab „Leistung“:** Auswahl „Automatisch“ (ab Werk), „Nur CPU“, „Grafikkarte“ (mit Liste der erkannten Karten) oder „NPU“. „Automatisch“ misst beim ersten Start im Hintergrund, welches Gerät schneller ist als der Prozessor, und merkt sich das Ergebnis; die Messung wiederholt sich nach Hardware- oder Treiberwechsel. Statuszeile, Messtabelle und der Knopf „Jetzt messen“ zeigen, was aktiv ist. Änderungen wirken nach einem Neustart der App. Die Einstellung gilt nur für das jeweilige Gerät.
-- **Messung im eigenen Prozess:** Gerätemessungen laufen in einem getrennten Prozess. Stürzt ein Grafiktreiber dabei ab, bleibt die Fotobox unberührt und nutzt weiter den Prozessor. Die Windows-Softwaregrafik wird nie als Gerät verwendet.
-- **Leistungsstärkste Grafikkarte für die ganze App:** Ein eigener Schalter („Windows-Grafikeinstellung“, ab Werk an) legt die Fotobox in den Windows-Grafikeinstellungen auf „Hohe Leistung“. So nutzt sie auf Laptops mit zwei Grafikeinheiten die starke Grafikkarte statt der internen. Der Schalter ändert nur den eigenen Eintrag und wirkt ab dem nächsten Start.
-- **Zusätzliche Beschleuniger (optional):** Der Knopf „Beschleuniger installieren“ lädt über Windows ML herstellerspezifische Beschleuniger (z. B. für NVIDIA oder Snapdragon-NPUs) nach. Das braucht Internet und geschieht nie automatisch; danach ist ein Neustart nötig.
-- **Hinweis zum Video-Stoppen:** Während einer Videoaufnahme zeigt die Gastansicht unten, wie sich die Aufnahme beenden lässt – ab Werk „Drücke die Eingabetaste, um die Videoaufnahme zu beenden“, sobald die Mindestlänge erreicht ist. Im Admin-Tab „Video“ unter „Anzeige während der Aufnahme“ lässt sich der Hinweis ausschalten und der Text ändern (Platzhalter `{Taste}`, `{Stopptaste_N}` und `{Stopptasten}`), mit Vorschau im gewählten Hinweisstil. Der Hinweis ist nicht im Video zu sehen.
-- **Hinweis:** Die Beschleunigung ist mit automatischen Tests und auf einem Snapdragon-Laptop geprüft; auf NVIDIA-Grafikkarten und NPUs noch nicht. Bei Problemen genügt „Nur CPU“ im Tab „Leistung“.
+- **Ladekreis bis zum Drucker-Timeout:** Ist der Fortschrittsbalken voll und das Foto noch nicht gedruckt, erscheint darunter ein goldener Ring, der sich bis zum eingestellten Drucker-Timeout füllt.
+- **Druckersperre statt Fehlermeldung:** Hat der Drucker kein Papier mehr (oder einen Papierstau, ist nicht erreichbar oder meldet einen Fehler), zeigt die Fotobox einen eigenen Bildschirm, z. B. „Papier leer – Bitte hol jemanden, der es auffüllt. Dein Foto wird danach automatisch gedruckt.“ Meldet der Drucker das Problem selbst, kommt die Meldung nach 5 Sekunden; meldet er nichts, beim Ablauf des Drucker-Timeouts.
+- **Foto kommt nach dem Beheben automatisch:** Der Druckauftrag bleibt in der Warteschlange und wird nicht mehr storniert. Sobald Papier nachgelegt ist, wird das Foto gedruckt und der „Fertig“-Bildschirm erscheint. Bis dahin sind neue Fotos und Videos gesperrt, damit sich keine weiteren Aufträge stauen.
+- **Sperre über die Admin-Ansicht aufheben:** Während der Sperre lässt sich die Admin-Ansicht (Strg + Alt + A, mit PIN) öffnen. Nach dem Schließen ist die Sperre aufgehoben; der Auftrag bleibt in der Warteschlange und druckt später. Esc wirkt in der Sperre nicht.
+- **Hinweis:** Die Druckersperre ist mit automatischen Tests geprüft, aber noch nicht mit einem echten Fotodrucker. Ob ein Drucker „Papier leer“ meldet, hängt vom Treiber ab; Drucker, die nie ein Druckende melden, gelten wie bisher nach dem Timeout als fertig.
 
-Alle Neuerungen von 2.7.0 und den Versionen davor stehen unten unter „Ältere Versionen“.
+Alle Neuerungen von 2.8.0 und den Versionen davor stehen unten unter „Ältere Versionen“.
 
 ### Welche Datei passt zu meinem PC?
 
@@ -32,7 +30,7 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 - Einstellungen und Protokolle liegen in `%LOCALAPPDATA%\Fotobox`, Fotos standardmäßig unter `Bilder\Fotobox+`, Videos unter `Videos\Fotobox+`, Kisscam-Musik unter `Musik\Fotobox+\Kisscam`. Alles bleibt erhalten, wenn der Programmordner gelöscht wird.
 - **Umstieg von einer Setup-Version (Installer):** Einstellungen (`%LOCALAPPDATA%\Fotobox`), Fotos und Videos bleiben erhalten und werden von der portablen Version automatisch weiterverwendet. Die alte Installation kann über Windows „Apps“ deinstalliert werden, das löscht keine Daten.
 - Beim ersten Start wird eine Admin-PIN festgelegt.
-- Standardtasten: **Leertaste** löst das Foto aus, **Eingabetaste** startet und beendet ein Video, **Esc** bricht den Countdown oder einen laufenden Druck ab (eine laufende Videoaufnahme nicht), **Strg + Alt + A** öffnet die Admin-Ansicht. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
+- Standardtasten: **Leertaste** löst das Foto aus, **Eingabetaste** startet und beendet ein Video, **Esc** bricht den Countdown oder einen laufenden Druck ab (eine laufende Videoaufnahme und die Druckersperre nicht), **Strg + Alt + A** öffnet die Admin-Ansicht. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
 
 ---
 
@@ -41,7 +39,17 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer der Fotobox 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
 
 <details>
-<summary>Änderungen der Versionen 0.0.0-beta bis 2.7.0 anzeigen</summary>
+<summary>Änderungen der Versionen 0.0.0-beta bis 2.8.0 anzeigen</summary>
+
+#### [Fotobox+ 2.8.0](https://github.com/lorenzhdr/Fotobox/tree/v2.8.0) · 30.10.2026
+
+- **Hardwarebeschleunigung der KI-Erkennung:** Zielerfassung, Peace-, Mittelfinger- und Herzerkennung laufen jetzt wahlweise auf der Grafikkarte (GPU) oder einer NPU statt nur auf dem Prozessor. Grundlage ist Windows ML mit DirectML; es funktioniert mit Grafikkarten von NVIDIA, AMD und Intel sowie mit Snapdragon-Grafik. Läuft ein Gerät nicht sauber, fällt die Erkennung automatisch auf den Prozessor zurück – nichts bleibt hängen.
+- **Neuer Admin-Tab „Leistung“:** Auswahl „Automatisch“ (ab Werk), „Nur CPU“, „Grafikkarte“ (mit Liste der erkannten Karten) oder „NPU“. „Automatisch“ misst beim ersten Start im Hintergrund, welches Gerät schneller ist als der Prozessor, und merkt sich das Ergebnis; die Messung wiederholt sich nach Hardware- oder Treiberwechsel. Statuszeile, Messtabelle und der Knopf „Jetzt messen“ zeigen, was aktiv ist. Änderungen wirken nach einem Neustart der App. Die Einstellung gilt nur für das jeweilige Gerät.
+- **Messung im eigenen Prozess:** Gerätemessungen laufen in einem getrennten Prozess. Stürzt ein Grafiktreiber dabei ab, bleibt die Fotobox unberührt und nutzt weiter den Prozessor. Die Windows-Softwaregrafik wird nie als Gerät verwendet.
+- **Leistungsstärkste Grafikkarte für die ganze App:** Ein eigener Schalter („Windows-Grafikeinstellung“, ab Werk an) legt die Fotobox in den Windows-Grafikeinstellungen auf „Hohe Leistung“. So nutzt sie auf Laptops mit zwei Grafikeinheiten die starke Grafikkarte statt der internen. Der Schalter ändert nur den eigenen Eintrag und wirkt ab dem nächsten Start.
+- **Zusätzliche Beschleuniger (optional):** Der Knopf „Beschleuniger installieren“ lädt über Windows ML herstellerspezifische Beschleuniger (z. B. für NVIDIA oder Snapdragon-NPUs) nach. Das braucht Internet und geschieht nie automatisch; danach ist ein Neustart nötig.
+- **Hinweis zum Video-Stoppen:** Während einer Videoaufnahme zeigt die Gastansicht unten, wie sich die Aufnahme beenden lässt – ab Werk „Drücke die Eingabetaste, um die Videoaufnahme zu beenden“, sobald die Mindestlänge erreicht ist. Im Admin-Tab „Video“ unter „Anzeige während der Aufnahme“ lässt sich der Hinweis ausschalten und der Text ändern (Platzhalter `{Taste}`, `{Stopptaste_N}` und `{Stopptasten}`), mit Vorschau im gewählten Hinweisstil. Der Hinweis ist nicht im Video zu sehen.
+- **Hinweis:** Die Beschleunigung ist mit automatischen Tests und auf einem Snapdragon-Laptop geprüft; auf NVIDIA-Grafikkarten und NPUs noch nicht. Bei Problemen genügt „Nur CPU“ im Tab „Leistung“.
 
 #### [Fotobox+ 2.7.0](https://github.com/lorenzhdr/Fotobox/tree/v2.7.0) · 29.10.2026
 

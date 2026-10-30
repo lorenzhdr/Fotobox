@@ -23,7 +23,7 @@ Die Gäste können (wenn der Admin mindestens zwei Layouts freigibt) im Leerlauf
 
 ### Druck
 
-Druck über Windows (`System.Printing`/XPS) auf einen frei wählbaren Drucker, Papiergröße, Ausrichtung und Kopienzahl einstellbar. Während des Drucks zeigt die Gastansicht einen Fortschrittsbalken (erwartete Dauer, Standard 240 s). Der Druck lässt sich mit der Abbrechen-Taste stornieren. Der Druck kann im Admin ganz abgeschaltet werden; dann werden Fotos nur gespeichert. Details: `druck.md`.
+Druck über Windows (`System.Printing`/XPS) auf einen frei wählbaren Drucker, Papiergröße, Ausrichtung und Kopienzahl einstellbar. Während des Drucks zeigt die Gastansicht einen Fortschrittsbalken (erwartete Dauer, Standard 240 s). Ist der Balken voll und der Druck noch nicht fertig, füllt sich darunter ein Ring bis zum Druck-Timeout. Der Druck lässt sich mit der Abbrechen-Taste stornieren. Meldet der Drucker ein Problem (Papier leer, Papierstau, offline, Aufmerksamkeit), erscheint ein Sperrbildschirm („Papier leer – bitte hol jemanden, der es auffüllt …“); die Box bleibt gesperrt (auch Esc wirkt nicht), bis das Foto gedruckt ist, oder der Betreiber die Admin-Ansicht (Strg+Alt+A + PIN) öffnet und schließt – dann endet die Sperre, der Auftrag bleibt in der Warteschlange. Der Druck kann im Admin ganz abgeschaltet werden; dann werden Fotos nur gespeichert. Details: `druck.md`.
 
 ### Video
 
@@ -66,7 +66,7 @@ Admin-Tab „Sicherheit & Daten“: Export und Import der Einstellungen als JSON
 |---|---|---|
 | Foto auslösen | Leertaste, linke und rechte Maustaste | Mausklicks einzeln abschaltbar (`TriggerOnLeftClick`/`TriggerOnRightClick`); Doppelklick zählt einmal. Die Maus startet nie ein Video. |
 | Admin öffnen | Strg+Alt+A | Frei belegbar. |
-| Abbrechen | Esc | Bricht Countdown (auch die Kisscam) still ab, bricht den Video-Countdown ab, storniert einen laufenden Druck. Eine laufende Videoaufnahme beendet sie nicht (dafür die Videotaste). |
+| Abbrechen | Esc | Bricht Countdown (auch die Kisscam) still ab, bricht den Video-Countdown ab, storniert einen laufenden Druck (nicht mehr in der Druckersperre). Eine laufende Videoaufnahme beendet sie nicht (dafür die Videotaste). |
 | Video starten/beenden | Enter | Gleiche Taste in Start und Stopp = Umschalten. |
 | Layout wechseln | Mausrad (im Leerlauf) | Nach oben = vorheriges Layout; `InvertMouseWheel` kehrt um. |
 

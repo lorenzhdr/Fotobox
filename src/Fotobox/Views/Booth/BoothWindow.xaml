@@ -5,6 +5,7 @@
         xmlns:booth="clr-namespace:Fotobox.Views.Booth"
         xmlns:peace="clr-namespace:Fotobox.Views.Booth.Peace"
         xmlns:heart="clr-namespace:Fotobox.Views.Booth.Heart"
+        xmlns:conv="clr-namespace:Fotobox.Views.Converters"
         Title="Fotobox+"
         WindowStyle="None" WindowState="Maximized" ResizeMode="NoResize"
         Background="#0B0D14" Cursor="None"
@@ -13,6 +14,8 @@
 
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <!-- Ladekreis unter dem Druckbalken: Fortschritt 0..1 → Bogen im Uhrzeigersinn ab 12 Uhr (Maße wie der Path in PrintRing). -->
+        <conv:RingProgressConverter x:Key="RingProgressToArc" Diameter="90" Thickness="9" />
 
         <SolidColorBrush x:Key="Gold" Color="#F5C26B" />
         <LinearGradientBrush x:Key="PillBackground" StartPoint="0,0" EndPoint="1,1">
@@ -478,7 +481,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
-                <RowDefinition Height="240" />
+                <RowDefinition Height="300" />
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="Dein Foto ✨" Foreground="{StaticResource Gold}"
                        HorizontalAlignment="Center" Margin="0,40,0,0" FontSize="54" FontWeight="SemiBold" />
@@ -491,8 +494,8 @@
             </Border>
 
             <!-- Druck: Hinweis und Fortschrittsbalken -->
-            <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Stretch" MaxWidth="1400"
-                        Margin="120,0,120,30"
+            <StackPanel Grid.Row="2" VerticalAlignment="Top" HorizontalAlignment="Stretch" MaxWidth="1400"
+                        Margin="120,12,120,0"
                         Visibility="{Binding ShowPrintInfo, Converter={StaticResource BoolToVis}}">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
@@ -512,6 +515,48 @@
                 </StackPanel>
                 <ProgressBar Style="{StaticResource PrintProgressBar}" Value="{Binding PrintProgress, Mode=OneWay}"
                              Margin="0,26,0,0" />
+                <!-- Ladekreis: füllt sich von der erwarteten Druckzeit bis zum Druck-Timeout (dann folgt die Sperrmeldung). -->
+                <Grid x:Name="PrintRing" Width="90" Height="90" HorizontalAlignment="Center" Margin="0,10,0,0"
+                      Visibility="{Binding ShowPrintRing, Converter={StaticResource BoolToVis}}"
+                      AutomationProperties.Name="Ladekreis">
+                    <Ellipse Stroke="#33FFFFFF" StrokeThickness="9" Margin="4.5" />
+                    <Path Width="90" Height="90" Stroke="{StaticResource Gold}" StrokeThickness="9"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="{Binding PrintRingProgress, Converter={StaticResource RingProgressToArc}}" />
+                </Grid>
+            </StackPanel>
+        </Grid>
+
+        <!-- Druckersperre: Der Drucker meldet ein Problem (z. B. Papier leer). Die Box bleibt gesperrt, bis der Auftrag gedruckt ist;
+             der Auftrag bleibt in der Warteschlange. Auswege: Problem beheben oder Admin-Ansicht (Personal). -->
+        <Grid x:Name="PrinterBlockedView" Style="{StaticResource FadeInOverlay}"
+              Visibility="{Binding ShowPrinterBlocked, Converter={StaticResource BoolToVis}}">
+            <Grid.Background>
+                <RadialGradientBrush>
+                    <GradientStop Color="#F21B1633" Offset="0" />
+                    <GradientStop Color="#FA0B0D14" Offset="1" />
+                </RadialGradientBrush>
+            </Grid.Background>
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="1400">
+                <TextBlock Text="🖨️" Foreground="White" FontSize="170" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding PrinterBlockedTitle}" Foreground="{StaticResource Gold}" FontSize="110"
+                           FontWeight="Bold" TextWrapping="Wrap" TextAlignment="Center"
+                           HorizontalAlignment="Center" Margin="0,12,0,0">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="50" ShadowDepth="0" Color="#F5C26B" Opacity="0.7" />
+                    </TextBlock.Effect>
+                </TextBlock>
+                <TextBlock Text="{Binding PrinterBlockedText}" Foreground="White" FontSize="52"
+                           FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center" Margin="0,32,0,0" />
+                <!-- dezent drehender Kreis: Die Box wartet, es hängt nichts -->
+                <Ellipse Style="{StaticResource SpinnerWhenVisible}" Width="48" Height="48" Stroke="{StaticResource Gold}"
+                         StrokeThickness="5" StrokeDashArray="3.5 4" StrokeDashCap="Round" Opacity="0.75"
+                         Margin="0,48,0,0" HorizontalAlignment="Center"
+                         RenderTransformOrigin="0.5,0.5">
+                    <Ellipse.RenderTransform>
+                        <RotateTransform Angle="0" />
+                    </Ellipse.RenderTransform>
+                </Ellipse>
             </StackPanel>
         </Grid>
 

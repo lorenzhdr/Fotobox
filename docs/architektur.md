@@ -52,7 +52,7 @@ Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale 
 
 ## Zustandsmaschine des `BoothController`
 
-Zustände (`BoothState`): `Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error, PrintCancelled` und für Video `VideoCountdown, Recording, VideoSaving, VideoSaved`.
+Zustände (`BoothState`): `Starting, Idle, Countdown, Capturing, Preview, Printing, Printed, Error, PrintCancelled` und für Video `VideoCountdown, Recording, VideoSaving, VideoSaved`, zuletzt angehängt `PrinterBlocked` (Druckersperre, siehe unten und `druck.md`).
 
 ```mermaid
 stateDiagram-v2
@@ -68,6 +68,11 @@ stateDiagram-v2
     Printing --> Printed: Druck erfolgreich
     Printing --> PrintCancelled: Nutzer-Abbruch
     Preview --> PrintCancelled: Nutzer-Abbruch
+    Preview --> PrinterBlocked: Sperre gemeldet (Vorschau endet sofort)
+    Printing --> PrinterBlocked: Sperre gemeldet
+    PrinterBlocked --> Printed: Auftrag fertig / verschwunden
+    PrinterBlocked --> Idle: Sperre aufgehoben (Admin)
+    PrinterBlocked --> Error: Auftrag gelöscht gemeldet
     Printed --> Idle: nach 5 s
     PrintCancelled --> Idle: nach 3 s
     Countdown --> Idle: Abbrechen (still)
@@ -92,7 +97,9 @@ Regeln:
 - Foto- und Videodurchgang teilen sich dasselbe Gate (`_busy`); es läuft nie beides zugleich. `TryTrigger`, `TryStartVideo` wirken nur in `Idle`.
 - Nach jedem Durchgang – auch bei Fehlern, Abbruch und Ausnahmen – landet der Controller wieder in `Idle` und gibt das Gate frei. Fehler zeigen `ErrorMessage` für `Flow.ErrorDisplaySeconds` im Zustand `Error`.
 - Ist `Flow.PrintingEnabled` aus, geht es nach der Vorschau direkt zu `Idle` (kein Druck, kein `Printed`).
-- Bei Druckfehler bleibt das Foto gespeichert; die Meldung lautet „Das Foto wurde gespeichert, aber der Druck ist fehlgeschlagen: …“.
+- Bei Druckfehler bleibt das Foto gespeichert; die Meldung lautet „Das Foto wurde gespeichert, aber der Druck ist fehlgeschlagen: …“. Druckerprobleme (Papier leer, Stau, offline, Aufmerksamkeit, allgemeines Fehlerflag) sind kein Druckfehler mehr, sondern führen in die Druckersperre; `Error` bleibt für ein gemeldetes Löschen des Auftrags und einen hängenden Schreibvorgang (`TimedOut`).
+- **`PrinterBlocked` (Druckersperre):** Meldet der Druckdienst eine Ursache (5 s am Stück bzw. Fristablauf, Details `druck.md`), wechselt der Controller aus `Preview` (die Vorschau endet sofort) oder `Printing` nach `PrinterBlocked`. `BlockedReason` (`PrinterAttention`) liefert die Ursache, `None` heißt „Problem behoben, Auftrag wartet noch“. Die Box bleibt gesperrt: `TryTrigger`, `TryStartVideo` und `TryCancelPrint` (Esc) sind wirkungslos. Ausgänge: Auftrag fertig oder verschwunden → `Printed`; gemeldetes Löschen → `Error`; `ReleasePrinterBlock()` → `Idle` ohne Fehleranzeige (Auftrag bleibt in der Warteschlange); App-Ende.
+- **Admin in der Sperre:** `BoothViewModel.CanOpenAdmin` erlaubt zusätzlich `PrinterBlocked`. Nach dem Schließen der Admin-Ansicht ruft `BoothWindow` `ReleasePrinterBlock()` auf, aber nur wenn `AdminResult.Opened` gesetzt ist (richtige PIN, Fenster wirklich gezeigt), kein Beenden der App angefordert wurde (`ExitRequested`) und der Controller noch in `PrinterBlocked` ist. Falsche oder abgebrochene PIN hebt die Sperre nicht auf.
 - `TryTrigger(TriggerOptions)` (`Layout`, `SingleShotOnly`, `CountdownSeconds` 0–30, `Style`): Weicht etwas von den gespeicherten Einstellungen ab, arbeitet der Durchgang auf einer Kopie (`AppSettings.Clone`); die gespeicherten Einstellungen werden nie verändert. `CountdownStyle` (Normal/Peace/SelfDestruct/Kisscam) gilt bis zum Durchgangsende (nach dem Blitz).
 - Weitere `TriggerOptions`: `CropRegion` (normierter Ausschnitt des ungespiegelten Rohfotos), `FilePrefix` (Dateipräfix des Durchgangs, bereits bereinigt) und `Frame` (`PhotoFrame`, Kisscam-Rahmen; erzwingt das Einzelfoto, Layout ohne Bildunterschrift/Overlay). Die **Klemmung der Countdown-Dauer hängt vom Stil ab**: 0–30 s (`PeacePhotoCountdown*`) bzw. bei `CountdownStyle.Kisscam` 3–60 s (`KisscamSeconds*`). Alle Abweichungen gelten nur für die Kopie des Durchgangs.
 - Pro Foto: Aufnahme → `PhotoDecorateTimeout` 3 s für den Foto-Verzierer (Bart) → Zuschnitt (`CropPhoto`, nur mit `CropRegion`; nach dem Verzieren, weil der Bartplaner mit den Koordinaten des ganzen Bildes rechnet) → Spiegeln (wenn `Camera.MirrorPhoto`; der Ausschnitt gilt für das ungespiegelte Foto, daher vorher) → Komposition, Speichern (30 s), Druck. Details: `fun-herz-kisscam.md`.
@@ -102,7 +109,8 @@ Regeln:
 | Methode | Wirkt in | Wirkung |
 |---|---|---|
 | `TryCancelCountdown()` | `Countdown` (auch Pause zwischen Streifenfotos) | Fotos verworfen, still zurück zu `Idle`. |
-| `TryCancelPrint()` | `Preview`/`Printing`, sobald der Druck läuft | Storniert den Druck (siehe unten). |
+| `TryCancelPrint()` | `Preview`/`Printing`, sobald der Druck läuft, **nicht** ab der Druckersperre | Storniert den Druck (siehe unten). Ab gesetztem Sperr-Flag wirkungslos (auch wenn der Zustand noch `Preview` ist). |
+| `ReleasePrinterBlock()` | nur `PrinterBlocked` | Hebt die Sperre auf (Admin), Auftrag bleibt in der Warteschlange, zurück zu `Idle`. |
 | `TryCancelVideo()` (privat) | `VideoCountdown`: still zurück | In `Recording` bewusst wirkungslos (nur Videotaste, Höchstdauer oder App-Ende beenden die Aufnahme). |
 | `TryCancel()` | Taste „Abbrechen“ (Esc) | Probiert die drei in dieser Reihenfolge. In Aufnahme/Verarbeitung des Fotos und in `Recording` ignoriert. |
 | `Cancel()` | App-Ende | Beendet laufenden Durchgang; bei Video wird gespeichert (blockiert bis zu 12 s). |
@@ -117,7 +125,7 @@ Regeln:
 4. `PrintOutcome.UserCancelFailed` → „Abbrechen nicht möglich / Der Druck ließ sich nicht mehr abbrechen – dein Foto kommt gleich.“
 5. Danach `Idle`. Der Durchgang selbst (das Foto ist gespeichert) wird nie abgebrochen.
 
-Bewusst gibt es keinen Hinweis „Esc zum Abbrechen“ in der Gastansicht. Der Fortschrittsbalken der Gastansicht rechnet über `Flow.ExpectedPrintSeconds` (Standard 240 s); nach Ablauf gilt `PrintOverdue`.
+Bewusst gibt es keinen Hinweis „Esc zum Abbrechen“ in der Gastansicht. Der Fortschrittsbalken der Gastansicht rechnet über `Flow.ExpectedPrintSeconds` (Standard 240 s); nach Ablauf gilt `PrintOverdue`, und unter dem Balken füllt sich der Ladekreis (`ShowPrintRing`, `PrintRingProgress` von der erwarteten Dauer bis zum Druck-Timeout).
 
 ## Gast-Layoutwahl
 
@@ -160,6 +168,8 @@ Bewusst gibt es keinen Hinweis „Esc zum Abbrechen“ in der Gastansicht. Der F
 
 Alles, was blockieren kann, hat ein Timeout und einen definierten Fehlerpfad zurück zu `Idle` (oder – im Admin – eine Meldung statt Hänger). Neue blockierende Aufrufe ebenfalls absichern.
 
+**Einzige bewusste Ausnahme: die Druckersperre (`PrinterBlocked`).** Sie wartet ohne Frist, weil der Drucker ein Problem meldet, das nur ein Mensch beheben kann (Papier, Stau), und ein Abbruch nach Frist den Auftrag verwaisen bzw. doppelt drucken würde. Auch das harte Limit des Controllers (Druck-Timeout + 30 s) gilt in der Sperre nicht (`AwaitPrintAsync`). Es bleibt trotzdem ein definierter Ausweg: Auftrag fertig oder aus der Warteschlange verschwunden, gemeldetes Löschen, Admin-Ansicht (`ReleasePrinterBlock`) und App-Ende (`ct`, geprüft alle 500 ms). Ein hängender `Write` (Spooler tot) ohne Sperre läuft weiter ins harte Limit und in die Fehleranzeige.
+
 ### Fristen
 
 | Bereich | Frist | Ort / Bemerkung |
@@ -170,6 +180,7 @@ Alles, was blockieren kann, hat ein Timeout und einen definierten Fehlerpfad zur
 | Speichern eines Fotos | 30 s | `BoothController.SaveTimeout` |
 | Foto-Verzierer (Bart) | 3 s (Gesichtssuche im Foto 1,5 s) | `BoothController.PhotoDecorateTimeout`, `MoustachePhotoDecorator.PhotoFaceTimeout` |
 | Druck | Druck-Timeout (Standard 300 s, mindestens erwartete Dauer + 60 s) + 30 s Reserve | `PrintHardLimitReserve`; die Druckfrist im Dienst läuft ab Beginn von `PrintCore` und greift davor |
+| Druckersperre: Bestätigung einer Ursache / allgemeines Fehlerflag | 5 s am Stück (`AttentionConfirm`) / 8 s bis `NeedsHelp` (`GenericErrorGrace`), zusammen ≈ 13 s | `PrintJobStateEvaluator`; **in der Sperre selbst keine Frist** (Ausnahme, siehe oben) |
 | Druck-Abbruch | 10 s Wartezeit, Job-ID-Suche 5 s | `PrintCancelTimeout`, `UserCancelFindWindow` |
 | Anzeige „Fertig“ / „Druck abgebrochen“ | 5 s / 3 s | `PrintedDisplay`, `PrintCancelledDisplay` |
 | Kamera: Erfassen eines Fotos | 2 s | `WinRtCameraService.CaptureTimeout` |

@@ -143,7 +143,7 @@ public sealed class PrintService : IPrintService
     }
 
     public async Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer, IProgress<string>? status = null,
-        CancellationToken ct = default, CancellationToken userCancel = default)
+        CancellationToken ct = default, CancellationToken userCancel = default, PrintBlockOptions? block = null)
     {
         try
         {
@@ -153,7 +153,7 @@ public sealed class PrintService : IPrintService
                 return new PrintResult(PrintOutcome.UserCancelled);
 
             var frozen = EnsureFrozen(page);
-            return await RunSta(() => PrintCore(frozen, printer, status, ct, userCancel)).ConfigureAwait(false);
+            return await RunSta(() => PrintCore(frozen, printer, status, ct, userCancel, block)).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -169,7 +169,7 @@ public sealed class PrintService : IPrintService
     // ---------------------------------------------------------------- Druck
 
     private static PrintResult PrintCore(BitmapSource page, PrinterSettings settings, IProgress<string>? status,
-        CancellationToken ct, CancellationToken userCancel)
+        CancellationToken ct, CancellationToken userCancel, PrintBlockOptions? block)
     {
         // Die Frist läuft ab Beginn des Druckvorgangs (inkl. Ticket und Schreiben), damit sie vor dem äußeren Limit
         // des Controllers (Frist + Reserve ab Aufruf) greift und die Kulanzregel unten überhaupt zum Zug kommt.
@@ -230,6 +230,13 @@ public sealed class PrintService : IPrintService
         long? userCancelSince = null;   // Zeitpunkt, an dem der Abbruchwunsch zuerst bemerkt wurde
         var queryFailures = 0;
 
+        // Druckersperre (nur mit block): Ursache + seit wann sie am Stück ansteht; ab der Sperre wartet die Schleife ohne Frist.
+        var attentionCause = PrinterAttention.None;
+        long? attentionSince = null;
+        var latched = false;                          // Sperre wurde gemeldet
+        var reported = PrinterAttention.None;         // zuletzt über block.Blocked gemeldete Ursache
+        var assumedCause = false;                     // Sperre durch Fristablauf ohne bestätigte Ursache (Papier leer angenommen)
+
         while (true)
         {
             if (ct.IsCancellationRequested)
@@ -264,20 +271,17 @@ public sealed class PrintService : IPrintService
                         AppLog.Info($"Druckauftrag „{jobName}“ abgeschlossen.");
                         return new PrintResult(PrintOutcome.Completed);
                     case PrintJobPhase.Failed:
-                        var message = decision.Message;
-                        if (decision.GenericError && trackedId is { } failedId)
-                        {
-                            // Sonst bliebe der Job in der Queue und käme später doch noch heraus (doppelter Druck).
-                            message += TryCancelJob(queue, failedId)
-                                ? " Der Auftrag wurde abgebrochen."
-                                : " Der Auftrag konnte nicht abgebrochen werden und bleibt evtl. in der Warteschlange.";
-                        }
-
-                        AppLog.Error($"Druckauftrag „{jobName}“ fehlgeschlagen: {message}");
-                        return new PrintResult(PrintOutcome.Failed, message);
+                        // Nur noch ein gemeldetes Löschen (die Warteschlange hat den Auftrag abgebrochen).
+                        AppLog.Error($"Druckauftrag „{jobName}“ fehlgeschlagen: {decision.Message}");
+                        return new PrintResult(PrintOutcome.Failed, decision.Message);
                 }
 
                 errorSince = decision.GenericError ? errorSince ?? Stopwatch.GetTimestamp() : null;
+                if (decision.Attention != attentionCause)
+                {
+                    attentionCause = decision.Attention;
+                    attentionSince = attentionCause == PrinterAttention.None ? null : Stopwatch.GetTimestamp();
+                }
                 if (decision.Message != lastStatus)
                 {
                     lastStatus = decision.Message;
@@ -287,7 +291,8 @@ public sealed class PrintService : IPrintService
 
             // Abbruchwunsch des Gastes: erst nach der Auswertung oben, damit ein inzwischen fertiger oder fehlgeschlagener
             // Auftrag sein reguläres Ergebnis behält. Ist der Auftrag noch unbekannt, wird bis zu 5 s weiter gesucht.
-            if (userCancel.IsCancellationRequested)
+            // Ab der Druckersperre wirkt der Abbruchwunsch nicht mehr (der Auftrag bleibt in der Warteschlange).
+            if (userCancel.IsCancellationRequested && !latched)
             {
                 userCancelSince ??= Stopwatch.GetTimestamp();
                 var step = PrintJobStateEvaluator.DecideUserCancel(
@@ -309,7 +314,61 @@ public sealed class PrintService : IPrintService
                 }
             }
 
-            if (total.Elapsed >= timeout)
+            var timedOut = total.Elapsed >= timeout;
+            var attentionFor = attentionSince is { } attentionStart ? Stopwatch.GetElapsedTime(attentionStart) : TimeSpan.Zero;
+            var statusPrinting = lastStatus == PrintJobStateEvaluator.StatusPrinting;
+
+            if (block is not null && !latched)
+            {
+                var blockDecision = PrintJobStateEvaluator.DecideBlock(attentionCause, attentionFor, timedOut, lastJobCompleted, statusPrinting);
+                if (blockDecision.Step == PrintBlockStep.CompletedByGrace)
+                {
+                    AppLog.Warn($"Druckauftrag „{jobName}“ wurde gesendet, der Drucker meldet aber kein Druckende – gilt als fertig.");
+                    return new PrintResult(PrintOutcome.Completed);
+                }
+
+                if (blockDecision.Step == PrintBlockStep.Block)
+                {
+                    latched = true;
+                    reported = blockDecision.Reason;
+                    assumedCause = blockDecision.ByTimeout && attentionCause == PrinterAttention.None;
+                    AppLog.Warn(blockDecision.ByTimeout
+                        ? $"Druckersperre für „{jobName}“: Frist abgelaufen ({lastStatus}) – Ursache {blockDecision.Reason}{(assumedCause ? " (angenommen)" : string.Empty)}."
+                        : $"Druckersperre für „{jobName}“: Ursache {blockDecision.Reason} steht seit {attentionFor.TotalSeconds:0} s an.");
+                    block.Blocked.Report(reported);
+                }
+            }
+            else if (block is not null)
+            {
+                // In der Sperre gibt es keine Frist: Ursache wechselt (neu bestätigt), verschwindet (None) oder der Auftrag wird fertig.
+                if (attentionCause == PrinterAttention.None)
+                {
+                    if (reported != PrinterAttention.None && !assumedCause)
+                    {
+                        reported = PrinterAttention.None;
+                        AppLog.Info($"Druckersperre für „{jobName}“: Ursache behoben, der Auftrag wartet auf den Druck.");
+                        block.Blocked.Report(reported);
+                    }
+
+                    // Ohne Ursache und vollständig gesendet, aber ohne Druckende (siehe Kulanzregel ohne Sperre): gilt als fertig.
+                    if (timedOut && lastJobCompleted && statusPrinting)
+                    {
+                        AppLog.Warn($"Druckauftrag „{jobName}“ wurde gesendet, der Drucker meldet aber kein Druckende – gilt als fertig.");
+                        return new PrintResult(PrintOutcome.Completed);
+                    }
+                }
+                else
+                {
+                    assumedCause = false;
+                    if (attentionCause != reported && attentionFor >= PrintJobStateEvaluator.AttentionConfirm)
+                    {
+                        reported = attentionCause;
+                        AppLog.Warn($"Druckersperre für „{jobName}“: neue Ursache {reported}.");
+                        block.Blocked.Report(reported);
+                    }
+                }
+            }
+            else if (timedOut)
             {
                 AppLog.Warn($"Zeitüberschreitung beim Druckauftrag „{jobName}“ (letzter Status: {lastStatus}).");
                 // Vollständig an den Drucker gesendet, aber kein Druckende gemeldet (manche IPP/WSD-Treiber):
@@ -329,7 +388,8 @@ public sealed class PrintService : IPrintService
             bool cancelled;
             try
             {
-                cancelled = userCancel.IsCancellationRequested
+                // In der Sperre bleibt der Abbruchwunsch unbeachtet, also zählt nur ct.
+                cancelled = userCancel.IsCancellationRequested || latched
                     ? ct.WaitHandle.WaitOne(PollInterval)
                     : WaitHandle.WaitAny([ct.WaitHandle, userCancel.WaitHandle], PollInterval) == 0;
             }

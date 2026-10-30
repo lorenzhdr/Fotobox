@@ -448,6 +448,10 @@ public sealed partial class BoothWindow : Window
             return;
         }
 
+        // Druckersperre: Das Schließen der (mit richtiger PIN geöffneten) Admin-Ansicht hebt sie auf; der Auftrag bleibt in der Warteschlange.
+        // Zuerst, damit die Sperre auch bei einem Fehler der folgenden Schritte nicht hängen bleibt.
+        _viewModel.ReleasePrinterBlockAfterAdmin(result);
+
         // Immer neu platzieren: deckt einen geänderten Monitor und ein Ein-/Ausstecken während der Admin-Ansicht ab.
         await RefreshPlacementAsync();
         Activate();
