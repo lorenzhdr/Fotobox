@@ -235,6 +235,8 @@ public partial class App : Application
         services.AddSingleton<IGpuPreferenceStore, RegistryGpuPreferenceStore>();
         services.AddSingleton(sp => new GpuPreferenceRegistry(sp.GetRequiredService<IGpuPreferenceStore>(), Environment.ProcessPath));
         services.AddSingleton<IFunSoundPlayer, FunSoundPlayer>();
+        // Countdown-Piepen und Kamera-Sound des Ablaufs (eigene Puffer, keine Warteschlange, nichts freizugeben).
+        services.AddSingleton<IBoothSoundPlayer, BoothSoundPlayer>();
         // Musik der Kisscam (eigener Musik-Thread, lazy); der Container gibt sie beim Beenden frei (Dispose wartet höchstens 1 s).
         services.AddSingleton<IMusicPlayer, MusicPlayer>();
         // Songs, Häkchen, Startzeiten und Lautstärken der Kisscam-Musik (Ordner und Config); Dateizugriffe nur im Hintergrund mit Frist,

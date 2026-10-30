@@ -27,6 +27,12 @@ public sealed class DeviceSpecificSettingsTests
         "Flow.ErrorDisplaySeconds",
         "Flow.PrintingEnabled",
         "Flow.ExpectedPrintSeconds",
+        "Flow.CountdownBeepEnabled",
+        "Flow.CountdownBeepSound",
+        "Flow.CountdownBeepVolumePercent",
+        "Flow.ShutterSoundEnabled",
+        "Flow.ShutterSound",
+        "Flow.ShutterVolumePercent",
         // Layout
         "Layout.Kind",
         "Layout.StripPhotoCount",

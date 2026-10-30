@@ -88,6 +88,13 @@ public class AppServicesTests
         var launcher = Assert.IsType<Fotobox.Views.Admin.AdminLauncher>(provider.GetRequiredService<IAdminLauncher>());
         Assert.True(launcher.HasFunServices);
         Assert.True(launcher.HasAccelerationService);
+
+        // Countdown-Piepen und Kamera-Sound: ein gemeinsamer Spieler für Gastansicht und Admin („Anhören“).
+        var boothSound = provider.GetRequiredService<IBoothSoundPlayer>();
+        Assert.IsType<Fotobox.Services.Audio.BoothSoundPlayer>(boothSound);
+        Assert.Same(boothSound, provider.GetRequiredService<IBoothSoundPlayer>());
+        Assert.True(booth.HasBoothSound);
+        Assert.True(launcher.HasBoothSound);
     }
 
     [Fact]
