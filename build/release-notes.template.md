@@ -1,14 +1,10 @@
 ## Fotobox+ {{VERSION}}
 
-### Neu in 2.9.0
+### Neu in 2.9.1
 
-- **Ladekreis bis zum Drucker-Timeout:** Ist der Fortschrittsbalken voll und das Foto noch nicht gedruckt, erscheint darunter ein goldener Ring, der sich bis zum eingestellten Drucker-Timeout füllt.
-- **Druckersperre statt Fehlermeldung:** Hat der Drucker kein Papier mehr (oder einen Papierstau, ist nicht erreichbar oder meldet einen Fehler), zeigt die Fotobox einen eigenen Bildschirm, z. B. „Papier leer – Bitte hol jemanden, der es auffüllt. Dein Foto wird danach automatisch gedruckt.“ Meldet der Drucker das Problem selbst, kommt die Meldung nach 5 Sekunden; meldet er nichts, beim Ablauf des Drucker-Timeouts.
-- **Foto kommt nach dem Beheben automatisch:** Der Druckauftrag bleibt in der Warteschlange und wird nicht mehr storniert. Sobald Papier nachgelegt ist, wird das Foto gedruckt und der „Fertig“-Bildschirm erscheint. Bis dahin sind neue Fotos und Videos gesperrt, damit sich keine weiteren Aufträge stauen.
-- **Sperre über die Admin-Ansicht aufheben:** Während der Sperre lässt sich die Admin-Ansicht (Strg + Alt + A, mit PIN) öffnen. Nach dem Schließen ist die Sperre aufgehoben; der Auftrag bleibt in der Warteschlange und druckt später. Esc wirkt in der Sperre nicht.
-- **Hinweis:** Die Druckersperre ist mit automatischen Tests geprüft, aber noch nicht mit einem echten Fotodrucker. Ob ein Drucker „Papier leer“ meldet, hängt vom Treiber ab; Drucker, die nie ein Druckende melden, gelten wie bisher nach dem Timeout als fertig.
+- **Schnurrbärte per Esc entfernen:** Im Leerlauf lässt die Abbrechen-Taste (ab Werk Esc) alle sichtbaren Schnurrbärte verschwinden – wie der Mittelfinger, aber auch ohne Mittelfingererkennung. Im Countdown bricht Esc wie bisher nur den Countdown ab; der Bart bleibt.
 
-Alle Neuerungen von 2.8.0 und den Versionen davor stehen unten unter „Ältere Versionen“.
+Alle Neuerungen von 2.9.0 und den Versionen davor stehen unten unter „Ältere Versionen“.
 
 ### Welche Datei passt zu meinem PC?
 
@@ -30,7 +26,7 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 - Einstellungen und Protokolle liegen in `%LOCALAPPDATA%\Fotobox`, Fotos standardmäßig unter `Bilder\Fotobox+`, Videos unter `Videos\Fotobox+`, Kisscam-Musik unter `Musik\Fotobox+\Kisscam`. Alles bleibt erhalten, wenn der Programmordner gelöscht wird.
 - **Umstieg von einer Setup-Version (Installer):** Einstellungen (`%LOCALAPPDATA%\Fotobox`), Fotos und Videos bleiben erhalten und werden von der portablen Version automatisch weiterverwendet. Die alte Installation kann über Windows „Apps“ deinstalliert werden, das löscht keine Daten.
 - Beim ersten Start wird eine Admin-PIN festgelegt.
-- Standardtasten: **Leertaste** löst das Foto aus, **Eingabetaste** startet und beendet ein Video, **Esc** bricht den Countdown oder einen laufenden Druck ab (eine laufende Videoaufnahme und die Druckersperre nicht), **Strg + Alt + A** öffnet die Admin-Ansicht. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
+- Standardtasten: **Leertaste** löst das Foto aus, **Eingabetaste** startet und beendet ein Video, **Esc** bricht den Countdown oder einen laufenden Druck ab (eine laufende Videoaufnahme und die Druckersperre nicht) und entfernt im Leerlauf sichtbare Schnurrbärte, **Strg + Alt + A** öffnet die Admin-Ansicht. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
 
 ---
 
@@ -39,7 +35,15 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer der Fotobox 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
 
 <details>
-<summary>Änderungen der Versionen 0.0.0-beta bis 2.8.0 anzeigen</summary>
+<summary>Änderungen der Versionen 0.0.0-beta bis 2.9.0 anzeigen</summary>
+
+#### [Fotobox+ 2.9.0](https://github.com/lorenzhdr/Fotobox/tree/v2.9.0) · 30.10.2026
+
+- **Ladekreis bis zum Drucker-Timeout:** Ist der Fortschrittsbalken voll und das Foto noch nicht gedruckt, erscheint darunter ein goldener Ring, der sich bis zum eingestellten Drucker-Timeout füllt.
+- **Druckersperre statt Fehlermeldung:** Hat der Drucker kein Papier mehr (oder einen Papierstau, ist nicht erreichbar oder meldet einen Fehler), zeigt die Fotobox einen eigenen Bildschirm, z. B. „Papier leer – Bitte hol jemanden, der es auffüllt. Dein Foto wird danach automatisch gedruckt.“ Meldet der Drucker das Problem selbst, kommt die Meldung nach 5 Sekunden; meldet er nichts, beim Ablauf des Drucker-Timeouts.
+- **Foto kommt nach dem Beheben automatisch:** Der Druckauftrag bleibt in der Warteschlange und wird nicht mehr storniert. Sobald Papier nachgelegt ist, wird das Foto gedruckt und der „Fertig“-Bildschirm erscheint. Bis dahin sind neue Fotos und Videos gesperrt, damit sich keine weiteren Aufträge stauen.
+- **Sperre über die Admin-Ansicht aufheben:** Während der Sperre lässt sich die Admin-Ansicht (Strg + Alt + A, mit PIN) öffnen. Nach dem Schließen ist die Sperre aufgehoben; der Auftrag bleibt in der Warteschlange und druckt später. Esc wirkt in der Sperre nicht.
+- **Hinweis:** Die Druckersperre ist mit automatischen Tests geprüft, aber noch nicht mit einem echten Fotodrucker. Ob ein Drucker „Papier leer“ meldet, hängt vom Treiber ab; Drucker, die nie ein Druckende melden, gelten wie bisher nach dem Timeout als fertig.
 
 #### [Fotobox+ 2.8.0](https://github.com/lorenzhdr/Fotobox/tree/v2.8.0) · 30.10.2026
 

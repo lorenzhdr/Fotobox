@@ -112,7 +112,7 @@ Regeln:
 | `TryCancelPrint()` | `Preview`/`Printing`, sobald der Druck läuft, **nicht** ab der Druckersperre | Storniert den Druck (siehe unten). Ab gesetztem Sperr-Flag wirkungslos (auch wenn der Zustand noch `Preview` ist). |
 | `ReleasePrinterBlock()` | nur `PrinterBlocked` | Hebt die Sperre auf (Admin), Auftrag bleibt in der Warteschlange, zurück zu `Idle`. |
 | `TryCancelVideo()` (privat) | `VideoCountdown`: still zurück | In `Recording` bewusst wirkungslos (nur Videotaste, Höchstdauer oder App-Ende beenden die Aufnahme). |
-| `TryCancel()` | Taste „Abbrechen“ (Esc) | Probiert die drei in dieser Reihenfolge. In Aufnahme/Verarbeitung des Fotos und in `Recording` ignoriert. |
+| `TryCancel()` | Taste „Abbrechen“ (Esc) | Probiert die drei in dieser Reihenfolge. In Aufnahme/Verarbeitung des Fotos und in `Recording` ignoriert. Greift keiner und ist der Zustand `Idle`, lässt `BoothViewModel.TryCancel` sichtbare Bärte verschwinden (`VanishMoustaches`). |
 | `Cancel()` | App-Ende | Beendet laufenden Durchgang; bei Video wird gespeichert (blockiert bis zu 12 s). |
 
 ### Druckabbruch im Detail

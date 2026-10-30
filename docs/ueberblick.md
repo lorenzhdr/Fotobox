@@ -66,7 +66,7 @@ Admin-Tab „Sicherheit & Daten“: Export und Import der Einstellungen als JSON
 |---|---|---|
 | Foto auslösen | Leertaste, linke und rechte Maustaste | Mausklicks einzeln abschaltbar (`TriggerOnLeftClick`/`TriggerOnRightClick`); Doppelklick zählt einmal. Die Maus startet nie ein Video. |
 | Admin öffnen | Strg+Alt+A | Frei belegbar. |
-| Abbrechen | Esc | Bricht Countdown (auch die Kisscam) still ab, bricht den Video-Countdown ab, storniert einen laufenden Druck (nicht mehr in der Druckersperre). Eine laufende Videoaufnahme beendet sie nicht (dafür die Videotaste). |
+| Abbrechen | Esc | Bricht Countdown (auch die Kisscam) still ab, bricht den Video-Countdown ab, storniert einen laufenden Druck (nicht mehr in der Druckersperre). Im Leerlauf lässt sie sichtbare Schnurrbärte verschwinden. Eine laufende Videoaufnahme beendet sie nicht (dafür die Videotaste). |
 | Video starten/beenden | Enter | Gleiche Taste in Start und Stopp = Umschalten. |
 | Layout wechseln | Mausrad (im Leerlauf) | Nach oben = vorheriges Layout; `InvertMouseWheel` kehrt um. |
 
