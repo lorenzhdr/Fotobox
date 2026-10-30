@@ -7,6 +7,7 @@ using Fotobox.Core.Peace;
 using Fotobox.Services.Audio;
 using Fotobox.Services.Camera;
 using Fotobox.Services.Detection;
+using Fotobox.Services.Detection.Acceleration;
 using Fotobox.Services.Detection.Peace;
 using Fotobox.Services.Display;
 using Fotobox.Services.Layout;
@@ -104,6 +105,9 @@ public partial class App : Application
         {
             _services = BuildServices();
 
+            // Vor der PIN-Abfrage: Katalog und Plan entstehen im Hintergrund, während der Gast bzw. Admin noch die PIN einrichtet.
+            StartAcceleration(_services);
+
             var adminLauncher = _services.GetRequiredService<IAdminLauncher>();
             if (!adminLauncher.EnsurePinConfigured(null))
             {
@@ -141,6 +145,31 @@ public partial class App : Application
                 AppLog.Error("Fehlermeldung konnte nicht angezeigt werden.", msgEx);
             }
             Shutdown(1);
+        }
+    }
+
+    // Beschleunigung der KI-Erkennung (Windows ML): Katalog, Geräteliste und Plan entstehen im Hintergrund (Threadpool, mit Fristen) und
+    // blockieren den Start nie; die Detektoren warten beim ersten Laden höchstens kurz auf den Plan. Die Windows-Grafikeinstellung
+    // „Hohe Leistung“ wird gemäß Einstellung gesetzt bzw. entfernt (wirkt ab dem nächsten Start).
+    private static void StartAcceleration(IServiceProvider services)
+    {
+        try
+        {
+            var store = services.GetRequiredService<ISettingsStore>();
+            _ = services.GetRequiredService<IAccelerationService>().StartAsync();
+
+            var gpuPreference = services.GetRequiredService<GpuPreferenceRegistry>();
+            void ApplyGpuPreference()
+            {
+                var wanted = store.Current.Performance.PreferHighPerformanceGpu;
+                _ = Task.Run(() => gpuPreference.Apply(wanted));
+            }
+            ApplyGpuPreference();
+            store.SettingsChanged += (_, _) => ApplyGpuPreference();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Die Beschleunigung konnte nicht gestartet werden.", ex);
         }
     }
 
@@ -182,8 +211,20 @@ public partial class App : Application
         services.AddSingleton<IDisplayService, Win32DisplayService>();
         services.AddSingleton<IPersonDetectionService>(sp => new PersonDetectionService(
             sp.GetRequiredService<ICameraService>(),
-            kind => kind == DetectionKind.Body ? new YoloxPersonDetector() : new WindowsFaceDetector(),
+            kind => kind == DetectionKind.Body ? new YoloxPersonDetector(placement: sp.GetRequiredService<IModelPlacement>()) : new WindowsFaceDetector(),
             sp.GetRequiredService<TimeProvider>()));
+        // Beschleunigung der KI-Erkennung über Windows ML (GPU/NPU mit Rückfall auf die CPU). Die Konstruktoren tun nichts Natives; erst
+        // App.OnStartup startet den Dienst (Katalog, Plan, Messung). Der Container gibt den Dienst beim Beenden frei (bricht nur ab).
+        services.AddSingleton<IAcceleratorCatalog, AcceleratorCatalog>();
+        services.AddSingleton<IAcceleratorBenchmark, AcceleratorBenchmark>();
+        services.AddSingleton<IAccelerationService>(sp => new AccelerationService(
+            sp.GetRequiredService<ISettingsStore>(),
+            sp.GetRequiredService<IAcceleratorCatalog>(),
+            sp.GetRequiredService<IAcceleratorBenchmark>(),
+            sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<IModelPlacement>(sp => sp.GetRequiredService<IAccelerationService>());
+        services.AddSingleton<IGpuPreferenceStore, RegistryGpuPreferenceStore>();
+        services.AddSingleton(sp => new GpuPreferenceRegistry(sp.GetRequiredService<IGpuPreferenceStore>(), Environment.ProcessPath));
         services.AddSingleton<IFunSoundPlayer, FunSoundPlayer>();
         // Musik der Kisscam (eigener Musik-Thread, lazy); der Container gibt sie beim Beenden frei (Dispose wartet höchstens 1 s).
         services.AddSingleton<IMusicPlayer, MusicPlayer>();
@@ -197,8 +238,8 @@ public partial class App : Application
         // und Foto-Verzierer, den der BoothController (optionaler Konstruktorparameter) je Aufnahme aufruft.
         services.AddSingleton<IGestureDetectionService>(sp => new PeaceDetectionService(
             sp.GetRequiredService<ICameraService>(),
-            () => new YuNetFaceDetector(),
-            () => new MediaPipeHandDetector(),
+            () => new YuNetFaceDetector(placement: sp.GetRequiredService<IModelPlacement>()),
+            () => new MediaPipeHandDetector(placement: sp.GetRequiredService<IModelPlacement>()),
             sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<GuestMoustacheState>();
         services.AddSingleton<IPhotoDecorator>(sp => new MoustachePhotoDecorator(

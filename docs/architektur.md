@@ -19,7 +19,7 @@ Alle Abhängigkeiten sind Interfaces in `src/Fotobox/Core/Interfaces.cs`. Dadurc
 
 | Lebensdauer | Dienste |
 |---|---|
-| Singleton | `TimeProvider.System`, `ISettingsStore` (`JsonSettingsStore`), `IPinService`, `ICameraService` (`WinRtCameraService`), `ILayoutComposer`, `IPrintService`, `IPhotoStorage`, `IVideoStorage`, `IDisplayService`, `IPersonDetectionService`, `IFunSoundPlayer`, `IMusicPlayer` (`MusicPlayer`, Kisscam-Musik), `IKisscamMusicLibrary` (`KisscamMusicLibrary`, Musikordner und Config; `Dispose` speichert höchstens 1 s lang), `IGestureDetectionService`, `GuestMoustacheState`, `IPhotoDecorator` (`MoustachePhotoDecorator`), `IAdminLauncher`, `BoothController`, `BoothViewModel`, `BoothWindow` |
+| Singleton | `TimeProvider.System`, `ISettingsStore` (`JsonSettingsStore`), `IPinService`, `ICameraService` (`WinRtCameraService`), `ILayoutComposer`, `IPrintService`, `IPhotoStorage`, `IVideoStorage`, `IDisplayService`, `IPersonDetectionService`, `IFunSoundPlayer`, `IMusicPlayer` (`MusicPlayer`, Kisscam-Musik), `IKisscamMusicLibrary` (`KisscamMusicLibrary`, Musikordner und Config; `Dispose` speichert höchstens 1 s lang), `IAcceleratorCatalog` (`AcceleratorCatalog`), `IAcceleratorBenchmark` (`AcceleratorBenchmark`), `IAccelerationService`/`IModelPlacement` (`AccelerationService`, ein Objekt unter beiden Schnittstellen; `beschleunigung.md`), `IGpuPreferenceStore` (`RegistryGpuPreferenceStore`), `GpuPreferenceRegistry`, `IGestureDetectionService`, `GuestMoustacheState`, `IPhotoDecorator` (`MoustachePhotoDecorator`), `IAdminLauncher`, `BoothController`, `BoothViewModel`, `BoothWindow` |
 | Transient | `FunOverlayViewModel`, `PeaceOverlayViewModel` (Gastansicht und Admin-Vorschau brauchen je eine eigene Instanz; nur die Gastansicht bekommt `GuestMoustacheState`) |
 
 Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale Konstruktorparameter.
@@ -28,7 +28,7 @@ Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale 
 
 1. Single-Instance-Mutex `Local\Fotobox-SingleInstance`. Läuft schon eine Instanz, erscheint ein Hinweis und die App endet. Lässt sich der Mutex nicht anlegen, wird geloggt, eine Fehlermeldung gezeigt und mit Code 1 beendet.
 2. `AppLog.Initialize`, danach drei globale Handler: `DispatcherUnhandledException` (loggt, `Handled = true`), `AppDomain.UnhandledException` (loggt, flusht), `TaskScheduler.UnobservedTaskException` (loggt, `SetObserved`).
-3. `ShutdownMode = OnExplicitShutdown`, DI-Container bauen, `IAdminLauncher.EnsurePinConfigured(null)`: bei nicht lesbarer `settings.json` Wiederholen/Beenden, ohne PIN der Erststart-Dialog. Wird abgebrochen, endet die App.
+3. `ShutdownMode = OnExplicitShutdown`, DI-Container bauen, dann `StartAcceleration` (startet `IAccelerationService.StartAsync` auf dem Threadpool und setzt die Windows-Grafikeinstellung; blockiert nie, `beschleunigung.md`), `IAdminLauncher.EnsurePinConfigured(null)`: bei nicht lesbarer `settings.json` Wiederholen/Beenden, ohne PIN der Erststart-Dialog. Wird abgebrochen, endet die App.
 4. `BoothWindow` anzeigen, `ShutdownMode = OnMainWindowClose`, Bart-Texturen vorberechnen (nur bei aktivem Peace mit Aktion Bart, auch nach jedem `SettingsChanged`).
 5. Jede Ausnahme im Start führt zu Log, Fehlermeldung und `Shutdown(1)`, damit kein fensterloser Prozess (und Mutex) am Leben bleibt.
 
@@ -44,7 +44,8 @@ Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale 
 - Der Druck läuft parallel zur Vorschau.
 - Zeit läuft über `TimeProvider` (Tests mit `FakeTimeProvider`). Wanduhr (`GetUtcNow`) nutzen `FunEngine`, `TargetTracker`, die Peace-Tracker und der Druckfortschritt; ein Rücksprung der Systemuhr kann sie anhalten. Der `PinAttemptLimiter` misst dagegen monoton.
 - Kamera: Auf- und Abbau einer Session läuft immer auf dem Threadpool (MTA), nie im UI-Thread. WinRT-Ereignisse (`Failed`, `FrameArrived`) werden nie mit `-=` abgemeldet (siehe `kamera.md`).
-- Native ONNX-Sessions werden nie während eines `Run` freigegeben (`DeferredReleaseGate`).
+- Native ONNX-Sessions werden nie während eines `Run` freigegeben (`DeferredReleaseGate`). Ein Rückfall von der GPU auf die CPU zur Laufzeit tauscht die Session innerhalb der `_runLock` des Detektors (`AcceleratedSession`, `beschleunigung.md`).
+- `AccelerationService`: `State` ist ein unveränderlicher Snapshot, `StateChanged` kommt auf beliebigen Threads; Katalog (WinRT) und Messung laufen nie im UI-Thread, die Detektoren warten nur auf dem Threadpool auf den Plan.
 - Musik (`MusicPlayer`): eigener STA-Thread mit `Dispatcher`; Aufrufer auf dem UI-Thread posten nur (`BeginInvoke`) und warten nie synchron (`fun-herz-kisscam.md`).
 - Musikbibliothek (`KisscamMusicLibrary`): `Current` ist ein unveränderlicher Snapshot und blockiert nie; alle Dateizugriffe laufen seriell auf dem Threadpool (`Task.Run(...).WaitAsync(Frist)`), `Changed` kommt auf beliebigen Threads (der Admin holt sie per `PostPeace` in den UI-Kontext). Die Gastansicht liest nur den Snapshot.
 - Blockierende Systemaufrufe (Drucker, Datei, Win32-Monitoraufzählung) laufen per `Task.Run` mit Frist.
@@ -190,10 +191,15 @@ Alles, was blockieren kann, hat ein Timeout und einen definierten Fehlerpfad zur
 | Video: Ordnerprüfung | 10 s | `VideoStorage.ProbeTimeout` |
 | Video: Speicherplatzabfrage | 5 s | `VideoStorage.FreeSpaceTimeout` |
 | Video: App-Ende | Stopp/Umbenennen je 5 s, `Cancel()` höchstens 12 s | `ShutdownStopTimeout`, `ShutdownCommitTimeout`, `ShutdownVideoWait` |
-| Zielerfassung: Modell laden | 15 s (Dienst 20 s); `FaceDetector`-Erstellung 10 s | `YoloxPersonDetector.InitTimeout`, `PersonDetectionService.InitTimeout`, `WindowsFaceDetector.InitTimeout` |
+| Zielerfassung: Modell laden | 28 s im Detektor (Plan 3 s + Gerät 10 s + CPU-Rückfall 15 s), Dienst 35 s; `FaceDetector`-Erstellung 10 s | `YoloxPersonDetector.InitTimeout` (= `AccelerationTimeouts.DetectorInit`), `PersonDetectionService.InitTimeout` (= `ServiceInit`), `WindowsFaceDetector.InitTimeout` |
 | Zielerfassung: Analyse | 2 s | `PersonDetectionService.AnalysisTimeout` |
 | Zielerfassung: Freigabe | Freigabe eines Detektors wartet auf eine laufende Analyse höchstens 1,5 s (`RetireWait`), Detektor-Dispose bis 4 s (`DetectorDisposeWait`), je Detektor intern 3 s (`DisposeWait`); Dienst-Dispose höchstens 4,5 s | `PersonDetectionService`, `YoloxPersonDetector`, `WindowsFaceDetector` |
-| Peace: Modell laden | 15 s je Detektor (Dienst 20 s) | `YuNetFaceDetector.InitTimeout`, `MediaPipeHandDetector.InitTimeout`, `PeaceDetectionService.InitTimeout` |
+| Peace: Modell laden | 28 s je Detektor (Plan 3 s + Gerät 10 s, beide Hand-Modelle zusammen, + CPU-Rückfall 15 s), Dienst 35 s | `YuNetFaceDetector.InitTimeout`, `MediaPipeHandDetector.InitTimeout` (= `DetectorInit`), `PeaceDetectionService.InitTimeout` (= `ServiceInit`) |
+| Beschleunigung: Geräteliste | Katalog registrieren 10 s (äußere Frist 12 s); danach nur CPU | `AccelerationTimeouts.Discovery` |
+| Beschleunigung: Plan abwarten | Detektor wartet beim ersten Laden höchstens 3 s, sonst CPU | `AccelerationTimeouts.PlanWait` |
+| Beschleunigung: Laden auf dem Gerät | 10 s je Detektor (alle seine Modelle), danach Rückfall auf die CPU | `AccelerationTimeouts.DeviceLoad` |
+| Beschleunigung: Messung | 20 s je Gerät, 60 s gesamt; Hintergrundmessung startet 10 s nach dem Start | `BenchmarkPerDevice`, `BenchmarkTotal`, `BackgroundBenchmarkDelay` |
+| Beschleunigung: Installation der Hersteller-Anbieter | 10 min | `AccelerationTimeouts.Install` |
 | Peace: Analyse | 2 s | `PeaceDetectionService.AnalysisTimeout` |
 | Peace: Dienst-Dispose | höchstens 1,5 s | `PeaceDetectionService.DisposeWait` |
 | Bart im Foto | Texturbudget 1,0 s, insgesamt 2,2 s | `MoustachePhotoDecorator.TextureBudget`/`OverallBudget` |

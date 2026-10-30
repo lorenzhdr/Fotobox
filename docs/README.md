@@ -28,6 +28,7 @@ Hinweis zum Namen: Die App hieß bis 1.4.1 „Fotobox“. Der sichtbare Name ist
 | `fun-zielerfassung.md` | Zielerfassung: Personenerkennung (YOLOX/Windows-Gesichter), Engine, Tracker, Animation, Töne. |
 | `fun-peace-mittelfinger.md` | Peaceerkennung (Selbstzerstörung, Foto, Bart) und Mittelfingererkennung. |
 | `fun-herz-kisscam.md` | Herzerkennung (Formen, Paarbildung, `PairedHands`, Engine) und Aktion Kisscam (Ablauf, Rahmen, Zoom, Musikordner mit Songliste, Abbruch). |
+| `beschleunigung.md` | Beschleunigung der KI-Erkennung über Windows ML: Modi (Auto/CPU/GPU/NPU), Messung und Cache, Rückfälle, Fristen, Windows-Grafikeinstellung, Installation der Hersteller-Anbieter, API für die Oberfläche, Logzeilen. |
 | `build-release.md` | Publish, CI, Release-Ablauf, VC++-Runtime, Smoke-Test. |
 | `tests.md` | Teststrategie, Befehle, Konventionen (STA, Collections, Hardware-Tests). |
 | `bekannte-grenzen.md` | Bekannte Grenzen, offene Punkte und bewusst nicht Geändertes. |

@@ -111,6 +111,16 @@ Stand: 2.5.1. Nichts davon blockiert den Betrieb. Die Einträge sind thematisch 
 - **x64 nicht auf echter Hardware geprüft.** Nur per CI (Tests, Abhängigkeitsprüfung, Smoke-Test ohne Kamera) und x64-Emulation auf dem ARM64-Rechner, nicht auf echter Intel/AMD-Hardware. Die app-lokale VC++-Runtime ist ab 2.2.1 im Paket.
 - **Lokal gebaute Pakete enthalten keine VC++-Runtime** (lokal ist nur eine zu alte x64-CRT und keine arm64-CRT installiert) und dürfen nicht weitergegeben werden; ausgelieferte Pakete kommen aus der CI.
 
+## Beschleunigung (Windows ML, neu in 2.8.0)
+
+- **Nur auf einem Rechner geprüft.** GPU-Beschleunigung (DirectML) und die Auto-Messung wurden auf dem ARM64-Entwicklungsrechner mit integrierter GPU geprüft; NPU, diskrete Karten, Hybridgrafik, die Hersteller-Ausführungsanbieter (Installation, Internet) und x64 sind ungeprüft. Auf der geprüften iGPU sind nicht alle Modelle schneller (YuNet auf der CPU gleich schnell oder schneller, deshalb die 15-%-Schwelle).
+- **Hersteller-Anbieter bevorzugt im Modus Gpu.** Gibt es für denselben Adapter ein Gerät eines Hersteller-Ausführungsanbieters und eines von DirectML, wählt „leistungsstärkste GPU“ das Hersteller-Gerät; dessen Session-Erstellung kann länger als die Ladefrist (10 s) dauern (dann Rückfall auf die CPU). Im Modus Auto entscheidet die Messung.
+- **Rückfall zur Laufzeit wiederholt den Lauf.** Nach einem Gerätefehler baut der Detektor eine CPU-Session und wiederholt den Lauf innerhalb der 2-s-Analysefrist; ein Timeout dort zählt als normaler Fehlschlag.
+- **Keine Umschaltung zur Laufzeit.** Einstellungen, neu installierte Ausführungsanbieter und neue Messwerte wirken erst nach einem Neustart.
+- **Smoke-Test setzt die Windows-Grafikeinstellung.** `smoke-test.ps1` biegt nur Profil-Variablen um; der Registry-Eintrag „Hohe Leistung“ für die getestete `Fotobox.exe` landet im echten Benutzer-Hive.
+- **Windows-ML-Lizenz.** Die Paketlizenz („Microsoft Windows ML Runtime“) regelt die Weitergabe als „Distributable Code“ und knüpft sie an Bedingungen (u. a. Nutzungsbedingungen für Endnutzer, Haftungsfreistellung); die rechtliche Einordnung für die Weitergabe der Fotobox+ ist offen.
+- **VC++-Runtime vermutlich nicht mehr nötig** (siehe `build-release.md`); die Kopierlogik von `publish.ps1` besteht noch.
+
 ## Tests
 
 - **Tests schreiben ins echte App-Log** (`%LOCALAPPDATA%\Fotobox\logs`) statt in ein isoliertes Verzeichnis.

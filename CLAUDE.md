@@ -20,6 +20,7 @@ Die ausführliche Doku steht in [`docs/`](docs/README.md) und ist die Detailquel
 | Zielerfassung | `docs/fun-zielerfassung.md` |
 | Peace- und Mittelfingererkennung, Bärte | `docs/fun-peace-mittelfinger.md` |
 | Herzerkennung, Kisscam | `docs/fun-herz-kisscam.md` |
+| Beschleunigung der KI-Erkennung (Windows ML: GPU/NPU, Messung, Rückfall auf die CPU) | `docs/beschleunigung.md` |
 | Publish, VC++-Runtime, CI, Release | `docs/build-release.md` |
 | Tests | `docs/tests.md` |
 | Bekannte Grenzen, offene Punkte, bewusst nicht Geändertes | `docs/bekannte-grenzen.md` |
@@ -32,6 +33,7 @@ Die ausführliche Doku steht in [`docs/`](docs/README.md) und ist die Detailquel
 - Neue `AppSettings`-Eigenschaften in `SettingsSections.ExcludedProperties` oder `DeviceSpecificSettings.Paths` einordnen (ein Test erzwingt das). Enums nur hinten erweitern.
 - Kamera: Auf-/Abbau einer `MediaCapture`-Session nur auf dem Threadpool (MTA), WinRT-Ereignisse (`Failed`, `FrameArrived`) nie mit `-=` abmelden (CsWinRT: OutOfMemory/0xC0000005), veraltete Ereignisse per `ReferenceEquals` verwerfen. Kamera-Regler lösen nie einen Kamera-Neustart aus; „nur Verstelltes setzen“.
 - Native ONNX-Sessions nie während eines `Run` freigeben (`DeferredReleaseGate`). Töne liegen bewusst in nie freigegebenem nativem Speicher.
+- ONNX-Sessions baut nur `OnnxSessionFactory` (`Services/Detection/Acceleration`); die Detektoren laden über `AcceleratedSession` (Gerät laut Plan, bei Fehler/Frist einmal Rückfall auf die CPU, nie ein Hänger). Katalog, Messung und Installation (Windows ML) nur auf dem Threadpool, mit Fristen; `Performance`-Felder sind gerätespezifisch.
 - Zielmarken nie im Foto/Video; nur der Schnurrbart (und beim Kisscam-Foto der Rahmen) wird ins Foto gezeichnet.
 - Herzerkennung: Die `HeartEngine` sitzt im `PeaceOverlayViewModel` (der Gestendienst bedient nur die oberste Anforderung; kein eigenes Herz-ViewModel mit eigener Anforderung). Wiederscharf nur nach in Hand-Updates beobachteter Ruhe. Neue Herz-Aktionen: Enum hinten, `HeartActions`-Katalog, `switch` in `BoothViewModel.OnHeartAction`.
 - `MusicPlayer` (Kisscam-Musik): eigener STA-Thread, Aufrufer posten nur und warten nie synchron (schon gar nicht auf dem UI-Thread); fehlende Datei, kaputtes Media Foundation oder Fehler führen nur zu Stille und Logwarnung, nie zu einem Hänger. Der Musikordner ist gerätespezifisch; die Song-Config liegt im Ordner.
