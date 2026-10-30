@@ -435,6 +435,51 @@ public partial class BoothViewModelTests
         Assert.Equal(1, rig.Detection.OpenRequests);
     }
 
+    [Fact]
+    public void CancelKey_InIdle_VanishesTheBeard()
+    {
+        var rig = new PeaceRig();
+        Assert.False(rig.ViewModel.TryCancel()); // ohne Bart nichts zu tun
+
+        Assert.True(rig.Do(PeaceAction.Moustache));
+        rig.Gestures.Last.RaiseUpdated([PeaceHandFixtures.Face(0.5, 0.3, 0.12)], []);
+        Assert.True(rig.Peace.MoustacheActive);
+
+        Assert.True(rig.ViewModel.TryCancel());
+
+        Assert.False(rig.Peace.MoustacheActive);
+        Assert.Null(rig.Guest.Current); // ein Foto danach hat keinen Bart
+        Assert.Equal(BoothState.Idle, rig.H.Controller.State);
+        Assert.False(rig.ViewModel.TryCancel());
+    }
+
+    [Fact]
+    public void CancelKey_InTheCountdown_CancelsOnlyTheCountdown_TheBeardStays()
+    {
+        var rig = new PeaceRig(configure: s => s.MoustacheAutoPhoto = true);
+        Assert.True(rig.Do(PeaceAction.Moustache));
+        Assert.Equal(BoothState.Countdown, rig.H.Controller.State);
+
+        Assert.True(rig.ViewModel.TryCancel());
+        rig.WaitForIdle();
+        Assert.True(rig.Peace.MoustacheActive);
+
+        // Erst der nächste Druck im Leerlauf entfernt den Bart.
+        Assert.True(rig.ViewModel.TryCancel());
+        Assert.False(rig.Peace.MoustacheActive);
+    }
+
+    [Fact]
+    public void CancelKey_WhileAdminIsOpen_DoesNothing()
+    {
+        var rig = new PeaceRig();
+        Assert.True(rig.Do(PeaceAction.Moustache));
+
+        rig.ViewModel.IsAdminOpen = true;
+
+        Assert.False(rig.ViewModel.TryCancel());
+    }
+
     // ---- Ende-zu-Ende über die Engine
 
     [Fact]

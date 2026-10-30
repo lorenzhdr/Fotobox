@@ -793,9 +793,22 @@ public sealed class BoothViewModel : ObservableObject
 
     /// <summary>
     /// Bricht den Countdown (Foto oder Video) oder einen laufenden Druck ab (sonst false). Eine laufende Videoaufnahme beendet
-    /// sie nie (dafür gibt es <see cref="TryStopVideo"/>). Bei offener Admin-Ansicht wirkungslos.
+    /// sie nie (dafür gibt es <see cref="TryStopVideo"/>). Im Leerlauf lässt sie stattdessen alle sichtbaren Bärte verschwinden
+    /// (<see cref="PeaceOverlayViewModel.VanishMoustaches"/>, wie der Mittelfinger); im Countdown bleibt ein Bart. Bei offener
+    /// Admin-Ansicht und nach Shutdown wirkungslos.
     /// </summary>
-    public bool TryCancel() => !IsAdminOpen && Controller.TryCancel();
+    public bool TryCancel()
+    {
+        if (IsAdminOpen || _isShutDown)
+            return false;
+        if (Controller.TryCancel())
+            return true;
+        if (Controller.State != BoothState.Idle || !Peace.VanishMoustaches())
+            return false;
+
+        AppLog.Info("Abbrechen-Taste: Bart entfernt.");
+        return true;
+    }
 
     /// <summary>Startet ein Video (nur im Leerlauf bei aktivem Videomodus). Gesperrt wie <see cref="TryTrigger"/>: bei offener Admin-Ansicht oder startender Kamera.</summary>
     public bool TryStartVideo() => VideoEnabled && !IsAdminOpen && !IsCameraBusy && Controller.TryStartVideo();
