@@ -169,26 +169,139 @@ public class PrintJobStateEvaluatorTests
     }
 
     [Fact]
-    public void JobError_WithoutCause_IsWaitingUntilGraceElapsed_ThenFails()
+    public void JobError_WithoutCause_IsWaitingUntilGraceElapsed_ThenNeedsHelp_NeverFails()
     {
         var job = new PrintJobFlags(IsInError: true);
 
         var early = Eval(job, errorFor: 1);
         Assert.Equal(PrintJobPhase.InProgress, early.Phase);
         Assert.True(early.GenericError);
+        Assert.Equal(PrinterAttention.None, early.Attention);
 
         var late = Eval(job, errorFor: PrintJobStateEvaluator.GenericErrorGrace.TotalSeconds);
-        Assert.Equal(PrintJobPhase.Failed, late.Phase);
-        Assert.Equal(PrintJobStateEvaluator.FailedError, late.Message);
+        Assert.Equal(PrintJobPhase.InProgress, late.Phase);   // kein Fehlschlag und keine Stornierung mehr
+        Assert.Equal(PrinterAttention.NeedsHelp, late.Attention);
+        Assert.Equal(PrintJobStateEvaluator.StatusAttention, late.Message);
+        Assert.True(late.GenericError);
+
+        var muchLater = Eval(job, errorFor: 3600);
+        Assert.Equal(PrintJobPhase.InProgress, muchLater.Phase);
+        Assert.Equal(PrinterAttention.NeedsHelp, muchLater.Attention);
     }
 
     [Fact]
-    public void QueueError_WithoutCause_FailsOnlyWhenPersistent()
+    public void QueueError_WithoutCause_NeedsHelpOnlyWhenPersistent()
     {
         var queue = new PrintQueueFlags(IsInError: true);
 
-        Assert.Equal(PrintJobPhase.InProgress, Eval(null, queue, seen: false, sinceSubmitted: 3, errorFor: 3).Phase);
-        Assert.Equal(PrintJobPhase.Failed, Eval(null, queue, seen: false, sinceSubmitted: 3, errorFor: 30).Phase);
+        var early = Eval(null, queue, seen: false, sinceSubmitted: 3, errorFor: 3);
+        Assert.Equal(PrintJobPhase.InProgress, early.Phase);
+        Assert.Equal(PrinterAttention.None, early.Attention);
+        var late = Eval(null, queue, seen: false, sinceSubmitted: 3, errorFor: 30);
+        Assert.Equal(PrintJobPhase.InProgress, late.Phase);
+        Assert.Equal(PrinterAttention.NeedsHelp, late.Attention);
+    }
+
+    [Theory]
+    [InlineData(false, true, false, false, PrinterAttention.PaperJam)]
+    [InlineData(true, false, false, false, PrinterAttention.PaperOut)]
+    [InlineData(false, false, true, false, PrinterAttention.Offline)]
+    [InlineData(false, false, false, true, PrinterAttention.NeedsHelp)]
+    public void Attention_IsReportedWithCause(bool paperOut, bool jam, bool offline, bool intervention, PrinterAttention expected)
+    {
+        var d = Eval(new PrintJobFlags(IsPrinting: true),
+            new PrintQueueFlags(IsPaperOut: paperOut, IsPaperJammed: jam, IsOffline: offline, NeedUserIntervention: intervention));
+
+        Assert.Equal(PrintJobPhase.InProgress, d.Phase);
+        Assert.Equal(expected, d.Attention);
+    }
+
+    [Fact]
+    public void RunningJob_HasNoAttention()
+    {
+        Assert.Equal(PrinterAttention.None, Eval(new PrintJobFlags(IsPrinting: true)).Attention);
+    }
+
+    [Fact]
+    public void PaperOutWithErrorFlag_IsPaperOut_NotNeedsHelp()
+    {
+        var d = Eval(new PrintJobFlags(IsInError: true, IsPaperOut: true), errorFor: 60);
+
+        Assert.Equal(PrinterAttention.PaperOut, d.Attention);
+    }
+
+    // ---- DecideBlock (Druckersperre) ----
+
+    private static PrintBlockDecision Block(PrinterAttention attention, double attentionSeconds = 0, bool timedOut = false,
+        bool jobCompleted = false, bool statusPrinting = true) =>
+        PrintJobStateEvaluator.DecideBlock(attention, TimeSpan.FromSeconds(attentionSeconds), timedOut, jobCompleted, statusPrinting);
+
+    [Fact]
+    public void DecideBlock_NothingHappening_DoesNothing()
+    {
+        Assert.Equal(PrintBlockStep.None, Block(PrinterAttention.None, 0).Step);
+        Assert.Equal(PrintBlockStep.None, Block(PrinterAttention.None, 0, jobCompleted: true).Step);
+    }
+
+    [Fact]
+    public void DecideBlock_CauseIsConfirmedOnlyAfterFiveSeconds()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(5), PrintJobStateEvaluator.AttentionConfirm);
+
+        Assert.Equal(PrintBlockStep.None, Block(PrinterAttention.PaperOut, 4.9, statusPrinting: false).Step);
+        var confirmed = Block(PrinterAttention.PaperOut, 5, statusPrinting: false);
+        Assert.Equal(PrintBlockStep.Block, confirmed.Step);
+        Assert.Equal(PrinterAttention.PaperOut, confirmed.Reason);
+        Assert.False(confirmed.ByTimeout);
+    }
+
+    [Theory]
+    [InlineData(PrinterAttention.PaperOut)]
+    [InlineData(PrinterAttention.PaperJam)]
+    [InlineData(PrinterAttention.Offline)]
+    [InlineData(PrinterAttention.NeedsHelp)]
+    public void DecideBlock_ConfirmedCause_BlocksWithThatCause_EvenBeforeTimeout(PrinterAttention cause)
+    {
+        var d = Block(cause, 30, timedOut: false, statusPrinting: false);
+
+        Assert.Equal(PrintBlockStep.Block, d.Step);
+        Assert.Equal(cause, d.Reason);
+    }
+
+    [Fact]
+    public void DecideBlock_TimeoutWithoutCause_BlocksAsPaperOut()
+    {
+        var d = Block(PrinterAttention.None, 0, timedOut: true);
+
+        Assert.Equal(PrintBlockStep.Block, d.Step);
+        Assert.Equal(PrinterAttention.PaperOut, d.Reason);
+        Assert.True(d.ByTimeout);
+    }
+
+    [Fact]
+    public void DecideBlock_TimeoutWithUnconfirmedCause_BlocksWithThatCause()
+    {
+        var d = Block(PrinterAttention.Offline, 2, timedOut: true, statusPrinting: false);
+
+        Assert.Equal(PrintBlockStep.Block, d.Step);
+        Assert.Equal(PrinterAttention.Offline, d.Reason);
+        Assert.True(d.ByTimeout);
+    }
+
+    [Fact]
+    public void DecideBlock_TimeoutWithJobCompletedAndNoError_KeepsGraceRule()
+    {
+        var d = Block(PrinterAttention.None, 0, timedOut: true, jobCompleted: true, statusPrinting: true);
+
+        Assert.Equal(PrintBlockStep.CompletedByGrace, d.Step);
+    }
+
+    [Fact]
+    public void DecideBlock_GraceRuleNeedsCompletedJobAndPrintingStatus()
+    {
+        Assert.Equal(PrintBlockStep.Block, Block(PrinterAttention.None, 0, timedOut: true, jobCompleted: false).Step);
+        Assert.Equal(PrintBlockStep.Block, Block(PrinterAttention.PaperOut, 2, timedOut: true, jobCompleted: true, statusPrinting: false).Step);
+        Assert.Equal(PrintBlockStep.None, Block(PrinterAttention.None, 0, timedOut: false, jobCompleted: true).Step);
     }
 
     [Fact]

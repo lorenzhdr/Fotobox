@@ -175,9 +175,12 @@ public interface IPrintService
     /// <paramref name="ct"/>: nicht mehr warten (z. B. App-Ende) → Cancelled-Result, ein gesendeter Auftrag wird NICHT gelöscht.
     /// <paramref name="userCancel"/>: der Gast bricht ab. Vor dem Senden → UserCancelled ohne Auftrag; danach wird der Auftrag
     /// storniert (UserCancelled bzw. UserCancelFailed, wenn er nicht gefunden oder nicht storniert werden konnte).
+    /// <paramref name="block"/>: Druckersperre. Ohne Wert endet die Überwachung nach der Frist mit TimedOut. Mit Wert meldet der Dienst
+    /// eine Ursache (5 s am Stück bzw. bei Fristablauf) und wartet danach ohne eigene Frist weiter, bis der Auftrag fertig ist, die Warteschlange
+    /// ihn nicht mehr kennt oder <paramref name="ct"/> abbricht; <paramref name="userCancel"/> wirkt ab der Sperre nicht mehr.
     /// </summary>
     Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer, IProgress<string>? status = null,
-        CancellationToken ct = default, CancellationToken userCancel = default);
+        CancellationToken ct = default, CancellationToken userCancel = default, PrintBlockOptions? block = null);
 }
 
 public interface IPhotoStorage

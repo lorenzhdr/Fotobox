@@ -270,6 +270,40 @@ public sealed class BoothViewModel : ObservableObject
     /// <summary>Eigener „Fertig“-Bildschirm (Gast soll das Foto aus dem Drucker nehmen).</summary>
     public bool ShowDone => IsPrinted;
 
+    /// <summary>
+    /// Druckersperre: Vollbildmeldung, solange der Drucker ein Problem meldet (z. B. Papier leer) und der Auftrag noch nicht gedruckt ist.
+    /// Die Foto-Ansicht und der Druckbereich sind dabei ausgeblendet (<see cref="ShowResult"/> gilt nur in Vorschau und Druck).
+    /// </summary>
+    public bool ShowPrinterBlocked => Controller.State == BoothState.PrinterBlocked;
+
+    private const string PrinterBlockedAutoPrintText = "Dein Foto wird danach automatisch gedruckt.";
+    private const string PrinterBlockedCheckPrinterText = "Bitte hol jemanden, der nach dem Drucker schaut. " + PrinterBlockedAutoPrintText;
+
+    /// <summary>Titel der Sperrmeldung je Ursache; <see cref="PrinterAttention.None"/> = das Problem ist behoben, der Druck läuft gleich.</summary>
+    public string PrinterBlockedTitle => Controller.BlockedReason switch
+    {
+        PrinterAttention.PaperOut => "Papier leer",
+        PrinterAttention.PaperJam => "Papierstau",
+        PrinterAttention.Offline => "Drucker nicht erreichbar",
+        PrinterAttention.NeedsHelp => "Drucker braucht Hilfe",
+        _ => "Dein Foto wird gedruckt …",
+    };
+
+    /// <summary>Text unter dem Titel der Sperrmeldung (Gast geduzt; feste Texte, nicht einstellbar).</summary>
+    public string PrinterBlockedText => Controller.BlockedReason switch
+    {
+        PrinterAttention.PaperOut => "Bitte hol jemanden, der es auffüllt. " + PrinterBlockedAutoPrintText,
+        PrinterAttention.PaperJam => "Bitte hol jemanden, der ihn behebt. " + PrinterBlockedAutoPrintText,
+        PrinterAttention.Offline or PrinterAttention.NeedsHelp => PrinterBlockedCheckPrinterText,
+        _ => "Gleich ist es so weit.",
+    };
+
+    /// <summary>Ladekreis unter dem Fortschrittsbalken sichtbar: erwartete Druckzeit um, Druck läuft noch (noch nicht gesperrt).</summary>
+    public bool ShowPrintRing => Controller.ShowPrintRing;
+
+    /// <summary>Füllstand des Ladekreises 0..1 (von der erwarteten Druckzeit bis zum Druck-Timeout).</summary>
+    public double PrintRingProgress => Controller.PrintRingProgress;
+
     /// <summary>Ruhige Meldung nach einem Druckabbruch (bzw. wenn sich der Druck nicht mehr abbrechen ließ).</summary>
     public bool ShowPrintCancelled => Controller.State == BoothState.PrintCancelled;
     public string PrintCancelledTitle => Controller.PrintCancelTitle ?? "";
@@ -699,9 +733,34 @@ public sealed class BoothViewModel : ObservableObject
         }
     }
 
-    /// <summary>Admin-Ansicht darf geöffnet werden: im Leerlauf, beim Start und im Fehlerzustand, nicht mitten im Ablauf.</summary>
+    /// <summary>
+    /// Admin-Ansicht darf geöffnet werden: im Leerlauf, beim Start, im Fehlerzustand und in der Druckersperre (der Ausweg für das
+    /// Personal), nicht mitten im Ablauf.
+    /// </summary>
     public bool CanOpenAdmin =>
-        !IsAdminOpen && Controller.State is BoothState.Idle or BoothState.Starting or BoothState.Error;
+        !IsAdminOpen && Controller.State is BoothState.Idle or BoothState.Starting or BoothState.Error or BoothState.PrinterBlocked;
+
+    /// <summary>
+    /// Nach dem Schließen der Admin-Ansicht: Wurde sie nach richtiger PIN wirklich gezeigt (<see cref="AdminResult.Opened"/>) und steht
+    /// die Box noch in der Druckersperre, hebt das die Sperre auf (der Auftrag bleibt in der Warteschlange). Eine falsche oder
+    /// abgebrochene PIN lässt die Sperre bestehen.
+    /// </summary>
+    /// <returns>true, wenn die Sperre aufgehoben wurde.</returns>
+    internal bool ReleasePrinterBlockAfterAdmin(AdminResult result)
+    {
+        if (!result.Opened || result.ExitRequested || Controller.State != BoothState.PrinterBlocked)
+            return false;
+
+        try
+        {
+            return Controller.ReleasePrinterBlock();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Druckersperre konnte nicht aufgehoben werden.", ex);
+            return false;
+        }
+    }
 
     /// <summary>
     /// Die Gastansicht darf auf einen anderen Bildschirm verschoben werden: nur im Leerlauf, beim Start und im
@@ -988,7 +1047,7 @@ public sealed class BoothViewModel : ObservableObject
                     BoothState.Idle => PeaceMode.Watching,
                     BoothState.Countdown =>
                         Peace.HasMoustacheVisuals || middleFinger!.Wants(external) ? PeaceMode.FollowMoustache : PeaceMode.Off,
-                    BoothState.Capturing or BoothState.Preview or BoothState.Printing
+                    BoothState.Capturing or BoothState.Preview or BoothState.Printing or BoothState.PrinterBlocked
                         or BoothState.Printed or BoothState.PrintCancelled =>
                         Peace.HasMoustacheVisuals ? PeaceMode.FollowMoustache : PeaceMode.Off,
                     _ => PeaceMode.Off,

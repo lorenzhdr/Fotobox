@@ -42,9 +42,26 @@ public enum PrintOutcome { Completed, Failed, TimedOut, Cancelled, UserCancelled
 public sealed record PrintResult(PrintOutcome Outcome, string? Message = null)
 { public bool Success => Outcome == PrintOutcome.Completed; }
 
+/// <summary>
+/// Vom Drucker gemeldete Ursache, die ein Eingreifen vor Ort braucht (Druckersperre). <see cref="None"/> = keine Ursache bzw. behoben.
+/// Neue Werte nur hinten anhängen.
+/// </summary>
+public enum PrinterAttention { None, PaperOut, PaperJam, Offline, NeedsHelp }
+
+/// <summary>
+/// Schaltet im Druckdienst die Druckersperre ein: Statt nach der Frist mit <see cref="PrintOutcome.TimedOut"/> aufzugeben, meldet der
+/// Dienst über <paramref name="Blocked"/> die Ursache und wartet danach ohne eigene Frist weiter. <c>None</c> meldet er, wenn die
+/// Ursache nach der Sperre wieder verschwunden ist. Der Handler wird auf dem Druck-Thread aufgerufen und muss sofort zurückkehren.
+/// </summary>
+public sealed record PrintBlockOptions(IProgress<PrinterAttention> Blocked);
+
 public sealed record SavedPhotoSet(string LayoutPath, IReadOnlyList<string> OriginalPaths);
-/// <summary>CameraChanged: Die gespeicherten Kameraeinstellungen weichen vom Stand vor dem Öffnen ab.</summary>
-public sealed record AdminResult(bool SettingsChanged, bool ExitRequested, bool CameraChanged = false);
+/// <summary>
+/// CameraChanged: Die gespeicherten Kameraeinstellungen weichen vom Stand vor dem Öffnen ab.
+/// Opened: Das Admin-Fenster wurde nach richtiger PIN tatsächlich gezeigt (falsche oder abgebrochene PIN: false); nur dann hebt das
+/// Schließen eine Druckersperre auf.
+/// </summary>
+public sealed record AdminResult(bool SettingsChanged, bool ExitRequested, bool CameraChanged = false, bool Opened = false);
 
 public sealed record MicrophoneDevice(string Id, string Name);
 /// <summary>Ton der Kamera-Session; <paramref name="MicrophoneId"/> null = Windows-Standardmikrofon.</summary>

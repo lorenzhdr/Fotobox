@@ -1464,6 +1464,10 @@ public partial class BoothControllerTests
         public bool ThrowOnPrint { get; set; }
         public BitmapSource? LastPage { get; private set; }
         public IProgress<string>? Status { get; private set; }
+        /// <summary>Sperroptionen des letzten Aufrufs; <c>Block.Blocked.Report(…)</c> meldet eine Druckersperre.</summary>
+        public PrintBlockOptions? Block { get; private set; }
+        /// <summary>Meldet wie der Druckdienst eine Ursache (oder <see cref="PrinterAttention.None"/> nach der Sperre).</summary>
+        public void ReportBlock(PrinterAttention attention) => Block?.Blocked.Report(attention);
 
         public void Complete(PrintResult result) => _result.TrySetResult(result);
 
@@ -1504,11 +1508,13 @@ public partial class BoothControllerTests
         }
 
         public Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer,
-            IProgress<string>? status = null, CancellationToken ct = default, CancellationToken userCancel = default)
+            IProgress<string>? status = null, CancellationToken ct = default, CancellationToken userCancel = default,
+            PrintBlockOptions? block = null)
         {
             PrintCalls++;
             LastPage = page;
             Status = status;
+            Block = block;
             LastServiceToken = ct;
             if (ThrowOnPrint) throw new InvalidOperationException("Drucker nicht erreichbar");
             userCancel.Register(() =>

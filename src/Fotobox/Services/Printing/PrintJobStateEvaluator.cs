@@ -1,3 +1,5 @@
+using Fotobox.Core;
+
 namespace Fotobox.Services.Printing;
 
 /// <summary>Statusflags eines Druckauftrags (Abbild von PrintSystemJobInfo).</summary>
@@ -30,9 +32,21 @@ public enum PrintJobPhase { InProgress, Completed, Failed }
 /// <summary>
 /// Entscheidung der Auswertung. <paramref name="Message"/> ist bei InProgress die Statusmeldung,
 /// bei Failed die Fehlermeldung. <paramref name="GenericError"/> = Fehlerflag ohne erkennbare Ursache
-/// (der Aufrufer misst, wie lange das schon anhält).
+/// (der Aufrufer misst, wie lange das schon anhält). <paramref name="Attention"/> = konkrete Ursache, die ein Eingreifen
+/// braucht (bei einem allgemeinen Fehlerflag erst nach <see cref="PrintJobStateEvaluator.GenericErrorGrace"/> als
+/// <see cref="PrinterAttention.NeedsHelp"/>); der Aufrufer misst, wie lange sie am Stück ansteht.
 /// </summary>
-public sealed record PrintJobDecision(PrintJobPhase Phase, string Message, bool GenericError = false);
+public sealed record PrintJobDecision(PrintJobPhase Phase, string Message, bool GenericError = false,
+    PrinterAttention Attention = PrinterAttention.None);
+
+/// <summary>Ergebnis von <see cref="PrintJobStateEvaluator.DecideBlock"/>: nichts tun, sperren oder (Kulanz) als fertig werten.</summary>
+public enum PrintBlockStep { None, Block, CompletedByGrace }
+
+/// <summary>
+/// Entscheidung über die Druckersperre. <paramref name="Reason"/> gilt bei <see cref="PrintBlockStep.Block"/>;
+/// <paramref name="ByTimeout"/> = die Sperre kommt durch den Fristablauf (ohne bestätigte Ursache) zustande.
+/// </summary>
+public readonly record struct PrintBlockDecision(PrintBlockStep Step, PrinterAttention Reason = PrinterAttention.None, bool ByTimeout = false);
 
 /// <summary>Nächster Schritt, nachdem der Gast den Druck abbrechen will (siehe <see cref="PrintJobStateEvaluator.DecideUserCancel"/>).</summary>
 public enum UserCancelStep { NotRequested, CancelJob, KeepSearching, GiveUp }
@@ -68,13 +82,46 @@ public static class PrintJobStateEvaluator
     public const string StatusAttention = "Drucker benötigt Aufmerksamkeit";
 
     public const string FailedDeleted = "Der Druckauftrag wurde abgebrochen.";
-    public const string FailedError = "Der Drucker meldet einen Fehler.";
 
     /// <summary>Wird ein Job nach dieser Zeit nie gesehen, gilt er als abgeschlossen (schnell durchgelaufen).</summary>
     public static readonly TimeSpan NeverSeenCompletedAfter = TimeSpan.FromSeconds(10);
 
-    /// <summary>So lange muss ein Fehler ohne erkennbare Ursache anhalten, bevor der Druck als fehlgeschlagen gilt.</summary>
+    /// <summary>
+    /// So lange muss ein Fehlerflag ohne erkennbare Ursache anhalten, bevor es als <see cref="PrinterAttention.NeedsHelp"/> gilt
+    /// (der Auftrag wird dabei nie storniert; er bleibt in der Warteschlange).
+    /// </summary>
     public static readonly TimeSpan GenericErrorGrace = TimeSpan.FromSeconds(8);
+
+    /// <summary>So lange muss eine vom Treiber gemeldete Ursache am Stück anstehen, bevor die Druckersperre greift.</summary>
+    public static readonly TimeSpan AttentionConfirm = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Entscheidet, ob die Druckersperre greift. Eine Ursache sperrt sofort, wenn sie <see cref="AttentionConfirm"/> am Stück ansteht.
+    /// Läuft die Frist ab (<paramref name="timedOut"/>): Wurde der Auftrag vollständig gesendet und es gibt weder Ursache noch Fehler
+    /// (<paramref name="lastStatusPrinting"/>), gilt er wie bisher als fertig (Kulanz, manche IPP/WSD-Treiber melden kein Druckende).
+    /// Sonst sperrt der Fristablauf: mit der anstehenden Ursache, ohne Ursache als <see cref="PrinterAttention.PaperOut"/>.
+    /// </summary>
+    /// <param name="attention">Aktuell anstehende Ursache (<see cref="PrinterAttention.None"/> = keine).</param>
+    /// <param name="attentionDuration">Wie lange diese Ursache schon am Stück ansteht.</param>
+    /// <param name="timedOut">Die Druckfrist ist abgelaufen.</param>
+    /// <param name="lastJobCompleted">Der Auftrag ist laut Warteschlange vollständig an den Drucker gesendet.</param>
+    /// <param name="lastStatusPrinting">Der letzte Status war „Wird gedruckt…“ (keine Ursache, kein Fehler).</param>
+    public static PrintBlockDecision DecideBlock(
+        PrinterAttention attention,
+        TimeSpan attentionDuration,
+        bool timedOut,
+        bool lastJobCompleted,
+        bool lastStatusPrinting)
+    {
+        if (attention != PrinterAttention.None && attentionDuration >= AttentionConfirm)
+            return new PrintBlockDecision(PrintBlockStep.Block, attention);
+        if (!timedOut)
+            return new PrintBlockDecision(PrintBlockStep.None);
+        if (lastJobCompleted && lastStatusPrinting)
+            return new PrintBlockDecision(PrintBlockStep.CompletedByGrace);
+        return new PrintBlockDecision(PrintBlockStep.Block,
+            attention == PrinterAttention.None ? PrinterAttention.PaperOut : attention, ByTimeout: true);
+    }
 
     /// <param name="job">Auftrag oder null, wenn er (aktuell) nicht in der Warteschlange gefunden wurde.</param>
     /// <param name="queue">Zustand der Warteschlange.</param>
@@ -111,30 +158,32 @@ public static class PrintJobStateEvaluator
 
         // Konkrete Ursache (Papier, Stau, offline, Eingriff) hat Vorrang vor einem generischen Fehlerflag:
         // viele Treiber setzen IsInError zusammen mit "Papier leer" – der Nutzer kann das beheben.
-        var attention = DescribeAttention(job, queue);
-        if (attention is not null)
-            return new PrintJobDecision(PrintJobPhase.InProgress, attention);
+        var (attention, text) = DescribeAttention(job, queue);
+        if (attention != PrinterAttention.None)
+            return new PrintJobDecision(PrintJobPhase.InProgress, text, Attention: attention);
 
-        // Ein Auftrag, der ohne eigenes Fehlerflag gerade druckt, wird nicht wegen eines Queue-Fehlers abgebrochen.
+        // Ein Auftrag, der ohne eigenes Fehlerflag gerade druckt, wird nicht wegen eines Queue-Fehlers beanstandet.
         var jobPrintingFine = job is { IsPrinting: true, IsInError: false };
         var generic = (job is { IsInError: true } || (queue.IsInError && !jobPrintingFine));
+        // Ein anhaltendes allgemeines Fehlerflag gilt als „braucht Hilfe“ – nie als Fehlschlag und ohne Stornierung:
+        // der Auftrag bleibt in der Warteschlange und druckt nach dem Beheben von selbst.
         if (generic && genericErrorDuration >= GenericErrorGrace)
-            return new PrintJobDecision(PrintJobPhase.Failed, FailedError, GenericError: true);
+            return new PrintJobDecision(PrintJobPhase.InProgress, StatusAttention, GenericError: true, Attention: PrinterAttention.NeedsHelp);
 
         return new PrintJobDecision(PrintJobPhase.InProgress, StatusPrinting, generic);
     }
 
-    private static string? DescribeAttention(PrintJobFlags? job, PrintQueueFlags queue)
+    private static (PrinterAttention Attention, string Text) DescribeAttention(PrintJobFlags? job, PrintQueueFlags queue)
     {
         if (queue.IsPaperJammed)
-            return StatusPaperJam;
+            return (PrinterAttention.PaperJam, StatusPaperJam);
         if (queue.IsPaperOut || job is { IsPaperOut: true })
-            return StatusPaperOut;
+            return (PrinterAttention.PaperOut, StatusPaperOut);
         if (queue.IsOffline || queue.IsNotAvailable || job is { IsOffline: true })
-            return StatusOffline;
+            return (PrinterAttention.Offline, StatusOffline);
         if (queue.NeedUserIntervention || queue.IsDoorOpened || queue.IsOutputBinFull
             || job is { IsUserInterventionRequired: true } or { IsBlocked: true })
-            return StatusAttention;
-        return null;
+            return (PrinterAttention.NeedsHelp, StatusAttention);
+        return (PrinterAttention.None, string.Empty);
     }
 }

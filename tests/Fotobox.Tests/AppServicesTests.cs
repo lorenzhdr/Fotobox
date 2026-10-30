@@ -176,7 +176,7 @@ public class AppServicesTests
         public PageSpec GetPageSpec(PrinterSettings printer, LayoutKind layout) => PageSpec.Default;
 
         public Task<PrintResult> PrintAsync(BitmapSource page, PrinterSettings printer, IProgress<string>? status = null,
-            CancellationToken ct = default, CancellationToken userCancel = default) =>
+            CancellationToken ct = default, CancellationToken userCancel = default, PrintBlockOptions? block = null) =>
             Task.FromResult(new PrintResult(PrintOutcome.Completed));
     }
 
