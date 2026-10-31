@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -100,8 +101,8 @@ public sealed class AdminPrintAreaTests : IDisposable
     public void ShadeSlider_IsOnlyEnabled_WithTheFeatureOnAndTheShadedShape()
     {
         var vm = CreateViewModel();
-        var raised = new List<string?>();
-        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        var raised = new ConcurrentQueue<string?>(); // Hintergrund-Meldungen des ViewModels dürfen mitlaufen
+        vm.PropertyChanged += (_, e) => raised.Enqueue(e.PropertyName);
 
         Assert.False(vm.IsPrintAreaDetailEnabled);
         Assert.False(vm.IsPrintAreaShadeEnabled);
@@ -131,8 +132,8 @@ public sealed class AdminPrintAreaTests : IDisposable
     public void Texts_FollowTheValues()
     {
         var vm = CreateViewModel();
-        var raised = new List<string?>();
-        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        var raised = new ConcurrentQueue<string?>(); // Hintergrund-Meldungen des ViewModels dürfen mitlaufen
+        vm.PropertyChanged += (_, e) => raised.Enqueue(e.PropertyName);
 
         vm.PrintAreaOpacityPercent = 35;
         vm.PrintAreaShadePercent = 65;
@@ -164,8 +165,8 @@ public sealed class AdminPrintAreaTests : IDisposable
     public void Preview_FollowsTheLayoutPaperOrientationAndStripCount_OfTheDraft()
     {
         var vm = CreateViewModel();
-        var raised = new List<string?>();
-        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        var raised = new ConcurrentQueue<string?>(); // Hintergrund-Meldungen des ViewModels dürfen mitlaufen
+        vm.PropertyChanged += (_, e) => raised.Enqueue(e.PropertyName);
         var single = vm.PrintAreaPreviewRect;
 
         vm.Draft.Printer.Orientation = PageOrientation.Portrait;
