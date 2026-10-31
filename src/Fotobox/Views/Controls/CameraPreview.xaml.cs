@@ -27,6 +27,13 @@ public partial class CameraPreview : UserControl
         DependencyProperty.Register(nameof(ShowStatusOverlay), typeof(bool), typeof(CameraPreview),
             new PropertyMetadata(true, (d, _) => ((CameraPreview)d).UpdateStatus()));
 
+    /// <summary>
+    /// Optionaler Zähler der tatsächlich geschriebenen Bilder (die Gastansicht bindet ihn für die Leistungsanzeige; ohne Bindung,
+    /// z. B. in der Admin-Vorschau, wird nichts gezählt).
+    /// </summary>
+    public static readonly DependencyProperty FrameCounterProperty =
+        DependencyProperty.Register(nameof(FrameCounter), typeof(DisplayFrameCounter), typeof(CameraPreview), new PropertyMetadata(null));
+
     // Puffer-Tausch (Triple-Buffering): Jeder Puffer gehört zu jedem Zeitpunkt genau einer Stelle (Kamera-Thread beim
     // Kopieren, _ready, UI-Thread beim WritePixels oder _spare). Unter _bufferLock werden nur Referenzen getauscht;
     // die eigentlichen Kopien laufen außerhalb des Locks, so dass weder der UI-Thread die Kamera-Pipeline noch
@@ -70,6 +77,12 @@ public partial class CameraPreview : UserControl
     {
         get => (Stretch)GetValue(StretchProperty);
         set => SetValue(StretchProperty, value);
+    }
+
+    public DisplayFrameCounter? FrameCounter
+    {
+        get => (DisplayFrameCounter?)GetValue(FrameCounterProperty);
+        set => SetValue(FrameCounterProperty, value);
     }
 
     public bool ShowStatusOverlay
@@ -194,6 +207,7 @@ public partial class CameraPreview : UserControl
         try
         {
             _bitmap.WritePixels(new Int32Rect(0, 0, width, height), buffer, stride, 0);
+            FrameCounter?.Increment();
         }
         finally
         {

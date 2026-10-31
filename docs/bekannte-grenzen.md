@@ -127,6 +127,14 @@ Stand: 2.5.1. Nichts davon blockiert den Betrieb. Die Einträge sind thematisch 
 - **Windows-ML-Lizenz.** Die Paketlizenz („Microsoft Windows ML Runtime“) regelt die Weitergabe als „Distributable Code“ und knüpft sie an Bedingungen (u. a. Nutzungsbedingungen für Endnutzer, Haftungsfreistellung); die rechtliche Einordnung für die Weitergabe der Fotobox+ ist offen.
 - **VC++-Runtime vermutlich nicht mehr nötig** (siehe `build-release.md`); die Kopierlogik von `publish.ps1` besteht noch.
 
+## Leistungsanzeige (neu in 2.10.1)
+
+- **Nicht auf allen Geräten geprüft.** Die Leistungsanzeige ist mit automatischen Tests geprüft, aber nur auf wenigen Geräten im Betrieb gesehen; der Zweig für diskrete Grafikkarten (eigener Videospeicher, „Dedicated Usage“ von der dedizierten Größe) ist nur mit Testdaten geprüft, ebenso Hybridgrafik und NPUs.
+- **GPU-Temperatur nicht von jedem Treiber.** GPU-Takt und -Temperatur kommen über D3DKMT und hängen davon ab, ob der Grafiktreiber sie liefert; sonst steht „nicht verfügbar“. Das Layout von `D3DKMT_ADAPTER_PERFDATA` (`AdapterPerfData` in `D3dkmtNative.cs`) ist nach den Windows-Headern nachgebaut und wurde zur Laufzeit nicht bestätigt; Unplausible Werte werden verworfen (die Anzeige zeigt dann „nicht verfügbar“).
+- **NPU-Fremdgeräte.** Als NPU gilt der erste Rechen-Adapter, der kein Software-Adapter ist; andere reine Rechen-Geräte (nicht NPUs) könnten fälschlich als NPU erscheinen. Die NPU-Auslastung zeigt nur, was Windows in den „GPU Engine“-Zählern meldet.
+- **Kamera-FPS nur auf echter Hardware prüfbar.** Der Zähler `ICameraFrameStats.FramesReceived` ist nur mit Attrappen getestet; mit einer echten Webcam wurde die Anzeige nicht geprüft. Die Anzeige-FPS zählen die Bilder der Vorschau, nicht die Bildschirmwiederholrate.
+- **Zähler hängen von Windows ab.** Fehlen Leistungsindikatoren (PDH) oder sind sie deaktiviert, bleiben Auslastung, Takt und Speicher „nicht verfügbar“.
+
 ## Tests
 
 - **Tests schreiben ins echte App-Log** (`%LOCALAPPDATA%\Fotobox\logs`) statt in ein isoliertes Verzeichnis.

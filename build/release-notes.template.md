@@ -1,14 +1,12 @@
 ## Fotobox+ {{VERSION}}
 
-### Neu in 2.10.0
+### Neu in 2.10.1
 
-- **Countdown-Piepen:** Der Countdown piept jede Sekunde, der letzte Piep ist höher. Drei Klänge zur Auswahl, gilt für Fotos, den Video-Countdown und Peace-Fotos (Tab „Ablauf“, Karte „Töne“, mit „Anhören“-Knopf und eigener Lautstärke).
-- **Kamera-Sound:** Beim Foto klingt ein Auslöser, wahlweise Spiegelreflex, Kompaktkamera oder Retro mit Filmtransport. Eigener Schalter und eigene Lautstärke. Beide Töne sind ab Werk an und lassen sich getrennt ausschalten.
-- **Kisscam besser sichtbar:** Die großen Countdown-Ziffern laufen jetzt die ganze Kisscam über, das Bild wird dabei nicht abgedunkelt, und der Text bleibt bis zum Foto stehen.
-- **Druckbereich anzeigen:** Auf Wunsch zeigt die Gastansicht, welcher Bildausschnitt gedruckt wird, auch bei Streifen (Tab „Gastansicht“, ab Werk aus). Form, Farbe, Deckkraft und Linienstärke sind einstellbar. Am Druck selbst ändert sich nichts.
-- **Admin-Menü scrollbar:** Die Liste links lässt sich scrollen, „Fun“ ist auch bei kleinem Fenster erreichbar.
+- **Leistungsanzeige:** Mit **Strg + Alt + Y** blendet die Gastansicht oben rechts ein, wie ausgelastet der PC ist: Prozessor, Grafikkarte und NPU (Auslastung, Takt, Temperatur), Grafik- und Arbeitsspeicher, Kamera- und Anzeige-FPS, Analysen pro Sekunde, Rechenzeit und das Gerät je KI-Modell. Ab Werk aus und nach jedem Start wieder aus. Die Anzeige liegt über allem außer dem Blitz und ist nie im Foto oder Video.
+- **Einstellbar:** Im Admin (Tab „Leistung“, Karte „Leistungsanzeige“) lassen sich die Werte einzeln wählen, als Text oder Balken, mit Aktualisierung alle 0,5 bis 5 Sekunden, Schriftgröße und Hintergrund. Ab 70 % wird ein Wert gelb, ab 90 % rot. Die Taste ändert man im Tab „Tasten“. Die Einstellungen gehören zu „Einstellungen teilen“.
+- **Hinweis:** Gemessen wird nur, solange die Anzeige sichtbar ist, ohne Zusatzprogramm oder Treiber. Windows liefert nicht jedes Gerät alle Werte; fehlende erscheinen als „nicht verfügbar“. Noch nicht auf allen Grafikkarten und NPUs geprüft.
 
-Alle Neuerungen von 2.9.1 und den Versionen davor stehen unten unter „Ältere Versionen“.
+Alle Neuerungen von 2.10.0 und den Versionen davor stehen unten unter „Ältere Versionen“.
 
 ### Welche Datei passt zu meinem PC?
 
@@ -30,7 +28,7 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 - Einstellungen und Protokolle liegen in `%LOCALAPPDATA%\Fotobox`, Fotos standardmäßig unter `Bilder\Fotobox+`, Videos unter `Videos\Fotobox+`, Kisscam-Musik unter `Musik\Fotobox+\Kisscam`. Alles bleibt erhalten, wenn der Programmordner gelöscht wird.
 - **Umstieg von einer Setup-Version (Installer):** Einstellungen (`%LOCALAPPDATA%\Fotobox`), Fotos und Videos bleiben erhalten und werden von der portablen Version automatisch weiterverwendet. Die alte Installation kann über Windows „Apps“ deinstalliert werden, das löscht keine Daten.
 - Beim ersten Start wird eine Admin-PIN festgelegt.
-- Standardtasten: **Leertaste** löst das Foto aus, **Eingabetaste** startet und beendet ein Video, **Esc** bricht den Countdown oder einen laufenden Druck ab (eine laufende Videoaufnahme und die Druckersperre nicht) und entfernt im Leerlauf sichtbare Schnurrbärte, **Strg + Alt + A** öffnet die Admin-Ansicht. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
+- Standardtasten: **Leertaste** löst das Foto aus, **Eingabetaste** startet und beendet ein Video, **Esc** bricht den Countdown oder einen laufenden Druck ab (eine laufende Videoaufnahme und die Druckersperre nicht) und entfernt im Leerlauf sichtbare Schnurrbärte, **Strg + Alt + A** öffnet die Admin-Ansicht, **Strg + Alt + Y** blendet die Leistungsanzeige ein und aus. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
 
 ---
 
@@ -39,7 +37,15 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer den Versionen 2.9.1 und 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
 
 <details>
-<summary>Änderungen der Versionen 0.0.0-beta bis 2.9.1 anzeigen</summary>
+<summary>Änderungen der Versionen 0.0.0-beta bis 2.10.0 anzeigen</summary>
+
+#### [Fotobox+ 2.10.0](https://github.com/lorenzhdr/Fotobox/tree/v2.10.0) · 31.10.2026
+
+- **Countdown-Piepen:** Der Countdown piept jede Sekunde, der letzte Piep ist höher. Drei Klänge zur Auswahl, gilt für Fotos, den Video-Countdown und Peace-Fotos (Tab „Ablauf“, Karte „Töne“, mit „Anhören“-Knopf und eigener Lautstärke).
+- **Kamera-Sound:** Beim Foto klingt ein Auslöser, wahlweise Spiegelreflex, Kompaktkamera oder Retro mit Filmtransport. Eigener Schalter und eigene Lautstärke. Beide Töne sind ab Werk an und lassen sich getrennt ausschalten.
+- **Kisscam besser sichtbar:** Die großen Countdown-Ziffern laufen jetzt die ganze Kisscam über, das Bild wird dabei nicht abgedunkelt, und der Text bleibt bis zum Foto stehen.
+- **Druckbereich anzeigen:** Auf Wunsch zeigt die Gastansicht, welcher Bildausschnitt gedruckt wird, auch bei Streifen (Tab „Gastansicht“, ab Werk aus). Form, Farbe, Deckkraft und Linienstärke sind einstellbar. Am Druck selbst ändert sich nichts.
+- **Admin-Menü scrollbar:** Die Liste links lässt sich scrollen, „Fun“ ist auch bei kleinem Fenster erreichbar.
 
 #### [Fotobox+ 2.9.1](https://github.com/lorenzhdr/Fotobox/tree/v2.9.1) · 30.10.2026
 

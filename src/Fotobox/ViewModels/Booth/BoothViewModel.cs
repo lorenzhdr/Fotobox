@@ -8,6 +8,8 @@ using Fotobox.Core.Fun;
 using Fotobox.Core.Heart;
 using Fotobox.Core.Peace;
 using Fotobox.Services.Camera;
+using Fotobox.Services.Detection.Acceleration;
+using Fotobox.Services.Diagnostics;
 using Fotobox.Services.Layout;
 using Fotobox.Services.Printing;
 using Fotobox.Services.Storage;
@@ -19,7 +21,7 @@ namespace Fotobox.ViewModels.Booth;
 /// Video: <see cref="VideoToggle"/> = die Taste steht in der Start- und in der Stopp-Liste (ein Druck schaltet um),
 /// <see cref="VideoStart"/>/<see cref="VideoStop"/> = nur in einer der beiden Listen.
 /// </remarks>
-public enum BoothKeyAction { None, Trigger, OpenAdmin, Cancel, VideoStart, VideoStop, VideoToggle }
+public enum BoothKeyAction { None, Trigger, OpenAdmin, Cancel, VideoStart, VideoStop, VideoToggle, TogglePerformanceOverlay }
 
 /// <summary>
 /// Eintrag der Layout-Vorschauliste: gewählte Variante, Anzeigename, Hervorhebung und Platzhalter 1..n für die Fotofelder
@@ -90,22 +92,33 @@ public sealed class BoothViewModel : ObservableObject
 
     /// <summary>Geparste Tastenbelegung (Reihenfolge der Auslöser-Tasten bleibt für den Hinweistext erhalten).</summary>
     private sealed record KeyMap(IReadOnlyList<KeyChord> Trigger, HashSet<KeyChord> Admin, HashSet<KeyChord> Cancel,
-        IReadOnlyList<KeyChord> VideoStart, IReadOnlyList<KeyChord> VideoStop);
+        IReadOnlyList<KeyChord> VideoStart, IReadOnlyList<KeyChord> VideoStop, IReadOnlyList<KeyChord> PerformanceOverlay);
 
     /// <param name="fun">Zielerfassung der gesamten Gastansicht (DI); ohne Angabe eine untätige Instanz (Tests).</param>
     /// <param name="peace">Peaceerkennung der Gastansicht (DI, mit dem Bart-Zustand für die Foto-Planung); ohne Angabe eine untätige Instanz (Tests).</param>
     /// <param name="music">Musik der Kisscam (DI); ohne Angabe läuft die Kisscam stumm.</param>
     /// <param name="musicLibrary">Songs, Häkchen, Startzeiten und Lautstärken der Kisscam-Musik (DI); ohne Angabe läuft die Kisscam stumm.</param>
     /// <param name="boothSound">Countdown-Piepen und Kamera-Sound (DI); ohne Angabe bleibt der Ablauf ohne diese Töne.</param>
+    /// <param name="metrics">Messquelle der Systemwerte für die Leistungsanzeige (DI); ohne Angabe zeigt sie keine Systemwerte.</param>
+    /// <param name="acceleration">Beschleunigungsdienst (Geräte je Modell, Grafikkarte der KI) für die Leistungsanzeige (DI); ohne Angabe fehlen diese Werte.</param>
+    /// <param name="cameraFrames">Zähler der Kamerabilder für die Leistungsanzeige (DI); ohne Angabe fehlt die Kamera-FPS.</param>
+    /// <param name="displayFrames">Zähler der gezeigten Bilder (<see cref="DisplayFrames"/>, DI); ohne Angabe ein eigener.</param>
+    /// <param name="time">Zeitquelle der Leistungsanzeige (DI); ohne Angabe die Systemzeit.</param>
     public BoothViewModel(BoothController controller, ICameraService camera, ISettingsStore settings,
         FunOverlayViewModel? fun = null, PeaceOverlayViewModel? peace = null, IMusicPlayer? music = null,
-        IKisscamMusicLibrary? musicLibrary = null, IBoothSoundPlayer? boothSound = null)
+        IKisscamMusicLibrary? musicLibrary = null, IBoothSoundPlayer? boothSound = null,
+        ISystemMetricsSource? metrics = null, IAccelerationService? acceleration = null, ICameraFrameStats? cameraFrames = null,
+        DisplayFrameCounter? displayFrames = null, TimeProvider? time = null)
     {
         Controller = controller;
         Camera = camera;
         Settings = settings;
         Fun = fun ?? FunOverlayViewModel.CreateInert();
         Peace = peace ?? PeaceOverlayViewModel.CreateInert();
+        DisplayFrames = displayFrames ?? new DisplayFrameCounter();
+        PerformanceOverlay = new PerformanceOverlayViewModel(settings, time ?? TimeProvider.System, Fun, Peace, metrics, acceleration,
+            cameraFrames ?? camera as ICameraFrameStats, DisplayFrames);
+        PerformanceOverlayToggleRequested += PerformanceOverlay.Toggle;
         _music = music;
         _musicLibrary = musicLibrary;
         _boothSound = boothSound;
@@ -204,6 +217,15 @@ public sealed class BoothViewModel : ObservableObject
     /// aktiven Schnurrbart (<see cref="UpdatePeace"/>). Die Gastansicht verrät nichts davon.
     /// </summary>
     public PeaceOverlayViewModel Peace { get; }
+
+    /// <summary>
+    /// Leistungsanzeige (Taste „Leistungsanzeige ein/aus“): Einblendung mit Auslastung, FPS und Rechenzeiten oben rechts. Nach dem Start
+    /// immer aus; läuft bei offener Admin-Ansicht weiter.
+    /// </summary>
+    public PerformanceOverlayViewModel PerformanceOverlay { get; }
+
+    /// <summary>Zähler der tatsächlich gezeigten Livebilder der Gastansicht (die Vorschau der Gastansicht zählt, die Leistungsanzeige liest).</summary>
+    public DisplayFrameCounter DisplayFrames { get; }
 
     /// <summary>Wird bei jedem neuen Countdown-Wert (&gt; 0) ausgelöst – für die Zahlen-Animation.</summary>
     public event EventHandler? CountdownTicked;
@@ -785,8 +807,21 @@ public sealed class BoothViewModel : ObservableObject
             if (start) return BoothKeyAction.VideoStart;
             if (stop) return BoothKeyAction.VideoStop;
         }
+
+        // Leistungsanzeige: unabhängig vom Videomodus und von jedem Zustand der Gastansicht.
+        if (map.PerformanceOverlay.Contains(chord)) return BoothKeyAction.TogglePerformanceOverlay;
         return BoothKeyAction.None;
     }
+
+    /// <summary>
+    /// Die Leistungsanzeige soll ein- bzw. ausgeblendet werden (Tastendruck, siehe <see cref="BoothKeyAction.TogglePerformanceOverlay"/>).
+    /// Wird auf dem UI-Thread ausgelöst; die Anzeige selbst hängt sich an <see cref="PerformanceOverlayToggleRequested"/>.
+    /// Keine Zustandsprüfung, kein Eingriff in den <see cref="BoothController"/>.
+    /// </summary>
+    public event Action? PerformanceOverlayToggleRequested;
+
+    /// <summary>Löst <see cref="PerformanceOverlayToggleRequested"/> aus.</summary>
+    public void TogglePerformanceOverlay() => PerformanceOverlayToggleRequested?.Invoke();
 
     private KeyMap GetKeyMap()
     {
@@ -804,7 +839,7 @@ public sealed class BoothViewModel : ObservableObject
 
         // Video-Tasten haben keinen Ersatzwert: leer = keine Taste belegt.
         map = new KeyMap(trigger, [.. admin], [.. ParseKeys(input?.CancelCountdownKeys)],
-            ParseKeys(input?.VideoStartKeys), ParseKeys(input?.VideoStopKeys));
+            ParseKeys(input?.VideoStartKeys), ParseKeys(input?.VideoStopKeys), ParseKeys(input?.PerformanceOverlayKeys));
         _keyMap = map;
         return map;
     }
@@ -963,6 +998,7 @@ public sealed class BoothViewModel : ObservableObject
         _explosionTimer.Stop();
         StopMusic();
         Fun.SetActive(false, new FunSettings(), false);
+        PerformanceOverlay.Dispose();
         UpdatePeace(); // Shutdown schaltet die Peaceerkennung aus
         Controller.Cancel();
     }

@@ -22,6 +22,16 @@ public interface IPinService
     bool Verify(string pin);             // konstante Vergleichszeit (CryptographicOperations.FixedTimeEquals)
 }
 
+/// <summary>
+/// Zähler der von der Kamera gelieferten Bilder (für die Leistungsanzeige; die Rate rechnet der Aufrufer aus Differenz und Zeit).
+/// Eigenes, kleines Interface: Kamera-Attrappen müssen es nicht umsetzen.
+/// </summary>
+public interface ICameraFrameStats
+{
+    /// <summary>Anzahl der seit dem Programmstart verarbeiteten und ausgelieferten Kamerabilder (thread-sicher gelesen, nur steigend).</summary>
+    long FramesReceived { get; }
+}
+
 public interface ICameraService : IAsyncDisposable
 {
     CameraStatus Status { get; }

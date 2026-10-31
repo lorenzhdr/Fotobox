@@ -59,7 +59,7 @@ Die `--blame-hang-timeout 5m` bricht Hänger mit Testnamen ab (Hintergrund: [tes
 **Release-Texte:**
 
 - Das Template enthält „Neu in …“, die Tabelle „Welche Datei passt zu meinem PC?“, den SmartScreen-Hinweis und Hinweise (Entpacken statt Installation; Einstellungen in `%LOCALAPPDATA%\Fotobox`; Standardtasten) sowie das Archiv.
-- **Archiv „Ältere Versionen“:** Auf GitHub sind nur die neuesten Releases einzeln sichtbar. Ältere Releases werden **gelöscht (die Tags bleiben)**; ihre Texte stehen im aufklappbaren Abschnitt „Ältere Versionen“ (`<details>`) des **neuesten** Release.
+- **Archiv „Ältere Versionen“:** Auf GitHub sind nur die neuesten Releases einzeln sichtbar (das neueste, `v2.9.1` und `v1.4.1`). Welche älteren Releases gelöscht werden (**die Tags bleiben**), wird beim neuen Release vorher mit dem User geklärt, nichts wird automatisch gelöscht; die Texte gelöschter Releases stehen im aufklappbaren Abschnitt „Ältere Versionen“ (`<details>`) des **neuesten** Release.
 - Beim Voranstellen von „Neu in x.y.z“ an einen bestehenden Release-Text diesen **als Datei mit echten Zeilenumbrüchen** schreiben und per `gh release edit --notes-file` setzen; sonst zerfällt die Tabelle.
 
 **Commits:** Nutzen die GitHub-noreply-Adresse des Repo-Besitzers (repo-lokale `user.email`), keine private Mail. Das Repo ist öffentlich: keine persönlichen oder gerätespezifischen Daten (Benutzernamen, lokale Pfade, Hostnamen, Drucker-/Kameramodelle, Portnamen) in Code, Tests, Docs oder Commits.

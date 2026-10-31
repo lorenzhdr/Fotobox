@@ -167,6 +167,36 @@ public class AppServicesTests
         Assert.True(Assert.IsType<Fotobox.Views.Admin.AdminLauncher>(provider.GetRequiredService<IAdminLauncher>()).HasMusicLibrary);
     }
 
+    [Fact]
+    public async Task PerformanceOverlay_IsWiredByDi_WithoutStartingAnythingNative()
+    {
+        var services = new ServiceCollection();
+        App.RegisterServices(services);
+        services.AddSingleton<ISettingsStore>(new TestSettingsStore());
+        services.AddSingleton<ICameraService>(new DetectionFakeCamera());
+        services.AddSingleton<IPrintService, NoPrinting>();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var metrics = provider.GetRequiredService<Fotobox.Services.Diagnostics.ISystemMetricsSource>();
+        Assert.IsType<Fotobox.Services.Diagnostics.WindowsSystemMetricsSource>(metrics);
+        Assert.Same(metrics, provider.GetRequiredService<Fotobox.Services.Diagnostics.ISystemMetricsSource>());
+
+        var booth = provider.GetRequiredService<Fotobox.ViewModels.Booth.BoothViewModel>();
+        Assert.NotNull(booth.PerformanceOverlay);
+        Assert.False(booth.PerformanceOverlay.IsVisible);   // nach dem Start aus
+        Assert.NotNull(booth.DisplayFrames);
+    }
+
+    [Fact]
+    public void WinRtCameraService_CountsFrames_AndIsTheFrameStatsOfTheApp()
+    {
+        var camera = new Fotobox.Services.Camera.WinRtCameraService();
+
+        var stats = Assert.IsAssignableFrom<ICameraFrameStats>(camera);
+        Assert.Equal(0, stats.FramesReceived);
+    }
+
     private sealed class TestSettingsStore : ISettingsStore
     {
         public string ConfigDirectory => Path.GetTempPath();

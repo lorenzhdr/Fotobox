@@ -71,6 +71,8 @@ public enum AcceleratorMode { Auto, Cpu, Gpu, Npu }
 public enum PrintAreaStyle { Lines, LinesShaded, Corners }
 /// <summary>Feste Farbpalette der Druckbereich-Markierung (Farbwerte in <c>PrintAreaPalette</c>). Nur hinten erweitern.</summary>
 public enum PrintAreaColor { White, Black, Red, Yellow, Green, Blue, Pink, Orange }
+/// <summary>Darstellung der Leistungsanzeige: Text = nur Zeilen mit Werten, Bars = Text mit Balken. Nur hinten erweitern.</summary>
+public enum PerformanceOverlayStyle { Text, Bars }
 
 /// <summary>Gemeinsame Wertebereiche für Admin-UI, Validierung und Normalisierung.</summary>
 public static class SettingsLimits
@@ -199,6 +201,12 @@ public static class SettingsLimits
     public const int PrintAreaShadeMin = 10, PrintAreaShadeMax = 80, PrintAreaShadeStep = 5, PrintAreaShadeDefault = 40;
     /// <summary>Ablauf: Lautstärke von Countdown-Piepen und Kamera-Sound in Prozent (5er-Schritte, 0 = still, Standard 70).</summary>
     public const int SoundVolumeMin = 0, SoundVolumeMax = 100, SoundVolumeStep = 5, SoundVolumeDefault = 70;
+    /// <summary>Leistungsanzeige: Aktualisierungsintervall in Millisekunden (Standard 1000).</summary>
+    public const int PerformanceOverlayRefreshMsMin = 500, PerformanceOverlayRefreshMsMax = 5000, PerformanceOverlayRefreshMsDefault = 1000;
+    /// <summary>Leistungsanzeige: Schriftgröße in Bildschirmpunkten (Standard 18).</summary>
+    public const int PerformanceOverlayFontSizeMin = 12, PerformanceOverlayFontSizeMax = 36, PerformanceOverlayFontSizeDefault = 18;
+    /// <summary>Leistungsanzeige: Deckkraft des Hintergrunds in Prozent (Standard 60).</summary>
+    public const int PerformanceOverlayBackgroundOpacityMin = 0, PerformanceOverlayBackgroundOpacityMax = 100, PerformanceOverlayBackgroundOpacityDefault = 60;
 }
 
 /// <summary>
@@ -291,6 +299,7 @@ public sealed class AppSettings
     public HeartSettings Heart { get; set; } = new();
     public PerformanceSettings Performance { get; set; } = new();
     public PrintAreaSettings PrintArea { get; set; } = new();
+    public PerformanceOverlaySettings PerformanceOverlay { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -777,11 +786,14 @@ public sealed class InputSettings
     public List<string> VideoStartKeys { get; set; } = [DefaultVideoKey];
     /// <summary>Tasten „Video beenden“.</summary>
     public List<string> VideoStopKeys { get; set; } = [DefaultVideoKey];
+    /// <summary>Tasten „Leistungsanzeige ein/aus“ (in jedem Zustand der Gastansicht wirksam). Darf leer sein (dann keine Taste).</summary>
+    public List<string> PerformanceOverlayKeys { get; set; } = [DefaultPerformanceOverlayKey];
 
     public const string DefaultTriggerKey = "Space";
     public const string DefaultAdminKey = "Ctrl+Alt+A";
     public const string DefaultCancelKey = "Escape";
     public const string DefaultVideoKey = "Enter";
+    public const string DefaultPerformanceOverlayKey = "Ctrl+Alt+Y";
 }
 
 /// <summary>
@@ -826,4 +838,37 @@ public sealed class PrintAreaSettings
 
     /// <summary>Tiefe Kopie.</summary>
     public PrintAreaSettings Clone() => (PrintAreaSettings)MemberwiseClone();
+}
+
+/// <summary>
+/// Leistungsanzeige: Einblendung in der Gastansicht mit Auslastung, Takt, Temperatur, FPS und Rechenzeiten (Ein/Aus per Taste,
+/// <see cref="InputSettings.PerformanceOverlayKeys"/>; nach dem App-Start immer ausgeblendet). Nie im Foto oder Video.
+/// Übertragbar (wird mit „Einstellungen teilen“ weitergegeben). Nur Werttypen.
+/// </summary>
+public sealed class PerformanceOverlaySettings
+{
+    public bool ShowCpu { get; set; } = true;
+    public bool ShowCpuClock { get; set; } = true;
+    public bool ShowCpuTemperature { get; set; } = true;
+    public bool ShowGpu { get; set; } = true;
+    public bool ShowGpuClock { get; set; } = true;
+    public bool ShowGpuTemperature { get; set; } = true;
+    public bool ShowGpuMemory { get; set; } = true;
+    public bool ShowNpu { get; set; } = true;
+    public bool ShowRam { get; set; } = true;
+    public bool ShowCameraFps { get; set; } = true;
+    public bool ShowDisplayFps { get; set; } = true;
+    public bool ShowAnalysisRate { get; set; } = true;
+    public bool ShowCycleTime { get; set; } = true;
+    public bool ShowModelDevices { get; set; } = true;
+    public PerformanceOverlayStyle Style { get; set; } = PerformanceOverlayStyle.Text;
+    /// <summary>Aktualisierungsintervall in Millisekunden (<see cref="SettingsLimits.PerformanceOverlayRefreshMsMin"/> bis <see cref="SettingsLimits.PerformanceOverlayRefreshMsMax"/>).</summary>
+    public int RefreshMs { get; set; } = SettingsLimits.PerformanceOverlayRefreshMsDefault;
+    /// <summary>Schriftgröße in Bildschirmpunkten.</summary>
+    public int FontSize { get; set; } = SettingsLimits.PerformanceOverlayFontSizeDefault;
+    /// <summary>Deckkraft des Hintergrunds in Prozent.</summary>
+    public int BackgroundOpacityPercent { get; set; } = SettingsLimits.PerformanceOverlayBackgroundOpacityDefault;
+
+    /// <summary>Tiefe Kopie.</summary>
+    public PerformanceOverlaySettings Clone() => (PerformanceOverlaySettings)MemberwiseClone();
 }

@@ -40,6 +40,7 @@ internal static class SettingsNormalizer
         s.Heart ??= new HeartSettings();
         s.Performance ??= new PerformanceSettings();
         s.PrintArea ??= new PrintAreaSettings();
+        s.PerformanceOverlay ??= new PerformanceOverlaySettings();
 
         NormalizeCamera(s.Camera);
 
@@ -87,6 +88,7 @@ internal static class SettingsNormalizer
         NormalizeHeart(s.Heart);
         NormalizePerformance(s.Performance);
         NormalizePrintArea(s.PrintArea);
+        NormalizePerformanceOverlay(s.PerformanceOverlay);
 
         // PinIterations wird bewusst nicht geklemmt: Ein anderer Wert passte nicht mehr zum gespeicherten Hash (siehe PinService).
 
@@ -408,6 +410,17 @@ internal static class SettingsNormalizer
         p.ShadePercent = ClampToStep(p.ShadePercent, SettingsLimits.PrintAreaShadeMin, SettingsLimits.PrintAreaShadeMax, SettingsLimits.PrintAreaShadeStep);
     }
 
+    /// <summary>Leistungsanzeige: unbekannte Darstellung → Text; Intervall, Schriftgröße und Deckkraft auf den Bereich klemmen.</summary>
+    private static void NormalizePerformanceOverlay(PerformanceOverlaySettings p)
+    {
+        if (!Enum.IsDefined(p.Style))
+            p.Style = PerformanceOverlayStyle.Text;
+        p.RefreshMs = Math.Clamp(p.RefreshMs, SettingsLimits.PerformanceOverlayRefreshMsMin, SettingsLimits.PerformanceOverlayRefreshMsMax);
+        p.FontSize = Math.Clamp(p.FontSize, SettingsLimits.PerformanceOverlayFontSizeMin, SettingsLimits.PerformanceOverlayFontSizeMax);
+        p.BackgroundOpacityPercent = Math.Clamp(p.BackgroundOpacityPercent,
+            SettingsLimits.PerformanceOverlayBackgroundOpacityMin, SettingsLimits.PerformanceOverlayBackgroundOpacityMax);
+    }
+
     /// <summary>Rundet kaufmännisch auf ein Vielfaches von <paramref name="step"/> und klemmt auf [<paramref name="min"/>, <paramref name="max"/>].</summary>
     private static int ClampToStep(int value, int min, int max, int step)
     {
@@ -490,6 +503,8 @@ internal static class SettingsNormalizer
     /// VideoStart/VideoStop haben gegenüber den ersten dreien immer das Nachsehen). Ausnahme: Dieselbe Taste darf in
     /// <see cref="InputSettings.VideoStartKeys"/> und <see cref="InputSettings.VideoStopKeys"/> stehen (Umschalten).
     /// Admin und Auslösen behalten immer mindestens eine Taste; die Video-Listen dürfen leer sein.
+    /// <see cref="InputSettings.PerformanceOverlayKeys"/> wird zuletzt geprüft (Vorrang nach allen anderen, auch nach Video start/stopp);
+    /// die Liste darf leer sein und bekommt dann keinen Ersatzwert.
     /// </summary>
     public static void NormalizeKeys(InputSettings input)
     {
@@ -527,11 +542,18 @@ internal static class SettingsNormalizer
         var videoStart = Clean(input.VideoStartKeys, new HashSet<KeyChord>(taken));
         var videoStop = Clean(input.VideoStopKeys, new HashSet<KeyChord>(taken));
 
+        // Leistungsanzeige zuletzt: Belegt ist alles aus Admin, Auslösen, Abbrechen und beiden Video-Listen. Bestandstasten bleiben unberührt.
+        var overlayTaken = new HashSet<KeyChord>(taken);
+        overlayTaken.UnionWith(videoStart);
+        overlayTaken.UnionWith(videoStop);
+        var performanceOverlay = Clean(input.PerformanceOverlayKeys, overlayTaken);
+
         input.AdminKeys = admin.Select(k => k.ToString()).ToList();
         input.TriggerKeys = trigger.Select(k => k.ToString()).ToList();
         input.CancelCountdownKeys = cancel.Select(k => k.ToString()).ToList();
         input.VideoStartKeys = videoStart.Select(k => k.ToString()).ToList();
         input.VideoStopKeys = videoStop.Select(k => k.ToString()).ToList();
+        input.PerformanceOverlayKeys = performanceOverlay.Select(k => k.ToString()).ToList();
 
         static List<KeyChord> Clean(List<string>? entries, HashSet<KeyChord> used)
         {

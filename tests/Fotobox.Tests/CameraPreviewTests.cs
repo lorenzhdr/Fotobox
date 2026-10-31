@@ -403,4 +403,50 @@ public sealed class CameraPreviewTests
             window.Close();
         }
     }
+
+    [WpfFact]
+    public async Task FrameCounter_CountsOnlyImagesThatWereReallyWritten()
+    {
+        var camera = new FakeCameraService();
+        var counter = new DisplayFrameCounter();
+        var preview = new CameraPreview { Camera = camera, FrameCounter = counter };
+        var window = ShowHost(preview);
+        try
+        {
+            camera.RaiseFrame(GradientFrame(160, 90));
+            await FlushDispatcherAsync();
+            Assert.Equal(1, counter.Count);
+
+            // Mehrere Bilder vor dem Zeichnen: Latest-frame-wins, es wird nur ein Bild gezeigt, also auch nur eines gezählt.
+            camera.RaiseFrame(GradientFrame(160, 90));
+            camera.RaiseFrame(GradientFrame(160, 90));
+            camera.RaiseFrame(GradientFrame(160, 90));
+            await FlushDispatcherAsync();
+            Assert.Equal(2, counter.Count);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [WpfFact]
+    public async Task WithoutFrameCounter_ShowingFramesStillWorks()
+    {
+        var camera = new FakeCameraService();
+        var preview = new CameraPreview { Camera = camera };
+        var window = ShowHost(preview);
+        try
+        {
+            Assert.Null(preview.FrameCounter);
+            camera.RaiseFrame(GradientFrame(160, 90));
+            await FlushDispatcherAsync();
+
+            Assert.Contains(RenderPixels(preview), b => b != 0);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
 }

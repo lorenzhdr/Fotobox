@@ -48,6 +48,7 @@ Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale 
 - `AccelerationService`: `State` ist ein unveränderlicher Snapshot, `StateChanged` kommt auf beliebigen Threads; Katalog (WinRT) und Messung laufen nie im UI-Thread, die Detektoren warten nur auf dem Threadpool auf den Plan.
 - Musik (`MusicPlayer`): eigener STA-Thread mit `Dispatcher`; Aufrufer auf dem UI-Thread posten nur (`BeginInvoke`) und warten nie synchron (`fun-herz-kisscam.md`).
 - Musikbibliothek (`KisscamMusicLibrary`): `Current` ist ein unveränderlicher Snapshot und blockiert nie; alle Dateizugriffe laufen seriell auf dem Threadpool (`Task.Run(...).WaitAsync(Frist)`), `Changed` kommt auf beliebigen Threads (der Admin holt sie per `PostPeace` in den UI-Kontext). Die Gastansicht liest nur den Snapshot.
+- Leistungsanzeige (`PerformanceOverlayViewModel`, seit 2.10.1): Timer und Zeilenaufbau auf dem UI-Thread; die Messung der Systemwerte (`ISystemMetricsSource.Sample`) läuft nur bei sichtbarer Anzeige, höchstens eine zugleich, auf dem Threadpool mit 3-s-Frist. Die App-Werte (Kamera-/Anzeige-FPS, Rate und Rechenzeit der Erkennungen, Geräte je Modell) werden nur passiv gelesen; die Anzeige stellt keine eigene Erkennungs-Anforderung.
 - Blockierende Systemaufrufe (Drucker, Datei, Win32-Monitoraufzählung) laufen per `Task.Run` mit Frist.
 
 ## Zustandsmaschine des `BoothController`
@@ -148,10 +149,10 @@ Countdown-Piepen und Kamera-Sound (`FlowSettings`, Tab „Ablauf“; `einstellun
 ## Tasten und Maus
 
 - `KeyChord` (Strings in `settings.json`, z. B. `Space`, `Ctrl+Alt+A`) statt WPF-`KeyGesture`, weil diese Buchstaben ohne Modifikator ablehnt.
-- Aktionen: Auslösen (`TriggerKeys`), Admin (`AdminKeys`), Abbrechen (`CancelCountdownKeys`, JSON-Name blieb aus Kompatibilität), `VideoStartKeys`, `VideoStopKeys`; je bis `SettingsLimits.KeysPerActionMax` (8).
+- Aktionen: Auslösen (`TriggerKeys`), Admin (`AdminKeys`), Abbrechen (`CancelCountdownKeys`, JSON-Name blieb aus Kompatibilität), `VideoStartKeys`, `VideoStopKeys`, `PerformanceOverlayKeys` (Leistungsanzeige, Standard `Ctrl+Alt+Y`, seit 2.10.1); je bis `SettingsLimits.KeysPerActionMax` (8).
 - Gesperrt: reine Modifikatortasten, Windows-Taste, Alt+F4, Alt+Tab, Alt+Leertaste, Alt+Esc, Strg+Esc, Strg+Alt+Entf. Ungültige Einträge verwirft der Normalizer einzeln beim Laden.
-- Vorrang im Normalizer (`SettingsNormalizer.NormalizeKeys`): Admin > Auslösen > Abbrechen > Video. Jede Taste wird nur einer Aktion zugeordnet; Ausnahme: dieselbe Taste in `VideoStartKeys` und `VideoStopKeys` (Umschalten, `BoothController.TryToggleVideo`). Auslösen und Admin behalten immer mindestens eine Taste (Ersatz: Leertaste bzw. Strg+Alt+A); die Video-Listen dürfen leer sein.
-- Zur Laufzeit prüft `BoothViewModel.HandleKey` in der Reihenfolge Admin, Abbrechen, Auslösen, Video; Videotasten wirken nur bei `VideoEnabled`. Weil der Normalizer die Listen überschneidungsfrei hält, spielt die Reihenfolge nur bei Hand-Konstruktion eine Rolle.
+- Vorrang im Normalizer (`SettingsNormalizer.NormalizeKeys`): Admin > Auslösen > Abbrechen > Video > Leistungsanzeige. Jede Taste wird nur einer Aktion zugeordnet; Ausnahme: dieselbe Taste in `VideoStartKeys` und `VideoStopKeys` (Umschalten, `BoothController.TryToggleVideo`). Auslösen und Admin behalten immer mindestens eine Taste (Ersatz: Leertaste bzw. Strg+Alt+A); die Video-Listen und `PerformanceOverlayKeys` dürfen leer sein (kein Ersatzwert; die Leistungsanzeige wird zuletzt geprüft, ihre Taste verdrängt also keine bestehende).
+- Zur Laufzeit prüft `BoothViewModel.HandleKey` in der Reihenfolge Admin, Abbrechen, Auslösen, Video; Videotasten wirken nur bei `VideoEnabled`. Die Taste der Leistungsanzeige (`BoothKeyAction.TogglePerformanceOverlay`) steht am Ende, gilt nur in der Gastansicht, in jedem Zustand (auch bei offenem Admin, Countdown, Aufnahme und Druckersperre) und greift nie in den `BoothController` ein. Weil der Normalizer die Listen überschneidungsfrei hält, spielt die Reihenfolge nur bei Hand-Konstruktion eine Rolle.
 - `BoothWindow.OnPreviewKeyDown` macht Alt+F4 und Alt+Leertaste wirkungslos und ignoriert Tastenwiederholung (`IsRepeat`).
 - Maus: Links-/Rechtsklick lösen aus (`TriggerOnLeftClick`/`TriggerOnRightClick`, Standard an); Doppelklick zählt einmal (`ClickCount > 1` wird ignoriert); die Maus startet nie ein Video.
 - Bei offenem Admin (`IsAdminOpen`) oder startender Kamera sind Auslösen und Video gesperrt.
@@ -222,6 +223,8 @@ Alles, was blockieren kann, hat ein Timeout und einen definierten Fehlerpfad zur
 | Beschleunigung: Wachhund des Messprozesses | bis zum ersten Gerät 30 s, je Gerät 20 s + 10 s, zwischen Geräten 10 s, nach „fertig“ 3 s, dann Kill; Job-Objekt beendet Waisen | `AccelerationTimeouts.BenchmarkChild…` |
 | Beschleunigung: Installation der Hersteller-Anbieter | 10 min | `AccelerationTimeouts.Install` |
 | Admin-Tab „Leistung“: Status der Ausführungsanbieter | 5 s (WinRT-Aufruf auf dem Threadpool), danach „Status unbekannt“ | `AdminViewModel.ProviderStatesTimeout` |
+| Leistungsanzeige: Messung der Systemwerte | 3 s (Threadpool; ein hängender Lauf wird verworfen, ein neuer startet erst nach dessen Ende, die Werte zeigen „–“) | `PerformanceOverlayViewModel.SampleTimeout` |
+| Leistungsanzeige: veralteter Status von Zielerfassung/Gesten | 5 s ohne Aktualisierung → „–“ statt altem Wert | `PerformanceOverlayViewModel.StatusStaleAfter` |
 | Peace: Analyse | 2 s | `PeaceDetectionService.AnalysisTimeout` |
 | Peace: Dienst-Dispose | höchstens 1,5 s | `PeaceDetectionService.DisposeWait` |
 | Bart im Foto | Texturbudget 1,0 s, insgesamt 2,2 s | `MoustachePhotoDecorator.TextureBudget`/`OverallBudget` |

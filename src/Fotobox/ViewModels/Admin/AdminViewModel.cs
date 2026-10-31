@@ -259,6 +259,9 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             new KeyActionEditor(this, KeyAction.VideoStop, "Video beenden",
                 "Beendet die laufende Videoaufnahme. Dieselbe Taste bei Start und Beenden schaltet die Aufnahme um.",
                 isRequired: false),
+            new KeyActionEditor(this, KeyAction.PerformanceOverlay, "Leistungsanzeige ein/aus",
+                "Blendet die Leistungsanzeige (Auslastung, Takt, Temperatur, FPS) in der Gastansicht ein oder aus. Wirkt in jedem Zustand; nach dem Start ist die Anzeige ausgeblendet.",
+                isRequired: false),
         ];
         LoadKeysFromDraft();
         RebuildGuestOrder();
@@ -2051,7 +2054,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
 
     // ---------------------------------------------------------------- Tasten
 
-    /// <summary>Foto auslösen, Admin-Ansicht öffnen, Abbrechen (in dieser Reihenfolge).</summary>
+    /// <summary>Foto auslösen, Admin-Ansicht öffnen, Abbrechen, Video starten, Video beenden, Leistungsanzeige ein/aus (in dieser Reihenfolge).</summary>
     public IReadOnlyList<KeyActionEditor> KeyEditors { get; }
 
     private KeyActionEditor Editor(KeyAction action) => KeyEditors.First(e => e.Action == action);
@@ -2136,6 +2139,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         Fill(Editor(KeyAction.Cancel), _draft.Input.CancelCountdownKeys);
         Fill(Editor(KeyAction.VideoStart), _draft.Input.VideoStartKeys);
         Fill(Editor(KeyAction.VideoStop), _draft.Input.VideoStopKeys);
+        Fill(Editor(KeyAction.PerformanceOverlay), _draft.Input.PerformanceOverlayKeys);
 
         static void Fill(KeyActionEditor editor, IEnumerable<string> entries)
         {
@@ -2158,7 +2162,9 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         _draft.Input.CancelCountdownKeys = Texts(Editor(KeyAction.Cancel));
         _draft.Input.VideoStartKeys = Texts(Editor(KeyAction.VideoStart));
         _draft.Input.VideoStopKeys = Texts(Editor(KeyAction.VideoStop));
+        _draft.Input.PerformanceOverlayKeys = Texts(Editor(KeyAction.PerformanceOverlay));
         OnPropertyChanged(nameof(AdminKeysDisplay));
+        OnPropertyChanged(nameof(PerformanceOverlayKeyHint));
         RaiseHintPreview();   // Die Hinweistexte der Gastansicht nennen die Auslöse- und Video-Tasten.
         OnPropertyChanged(nameof(VideoStartKeyHint));
         OnPropertyChanged(nameof(HasVideoStartKeyHint));
@@ -3317,6 +3323,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         ValidateMiddleFinger(errors);
         ValidateHeart(errors);
         ValidatePrintArea(errors);
+        ValidatePerformanceOverlay(errors);
 
         if (_newPin.Length > 0 || _repeatPin.Length > 0)
         {

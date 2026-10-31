@@ -35,6 +35,7 @@ public sealed class PersonDetectionService : IPersonDetectionService
     private readonly List<DetectionRequest> _requests = [];
     private readonly List<Task> _retiring = [];
     private readonly Queue<long> _completions = new();
+    private readonly Queue<double> _cycleMs = new(); // parallel zu _completions: Rechenzeit der jeweiligen Analyse
     private DetectorSlot? _slot;
     private DetectionMethod? _lastDesired;
     private bool _bodyBroken, _faceBroken, _subscribed, _disposed;
@@ -166,6 +167,7 @@ public sealed class PersonDetectionService : IPersonDetectionService
                     _ready = null;
                 _slot = null;
                 _completions.Clear();
+                _cycleMs.Clear();
                 StartRetire(current);
             }
             if (effective is { } kind && _slot is null)
@@ -201,7 +203,7 @@ public sealed class PersonDetectionService : IPersonDetectionService
                 ? "Weder die KI-Personenerkennung noch die Gesichtserkennung ist verfügbar."
                 : "Die Gesichtserkennung ist auf diesem Gerät nicht verfügbar.";
         }
-        return new DetectionStatus(desired, active, fallback, unavailable, CurrentRateLocked());
+        return new DetectionStatus(desired, active, fallback, unavailable, CurrentRateLocked(), _cycleMs.Count == 0 ? 0 : _cycleMs.Average());
     }
 
     private double CurrentRateLocked()
@@ -386,6 +388,7 @@ public sealed class PersonDetectionService : IPersonDetectionService
             IReadOnlyList<Detection>? result = null;
             Exception? error = null;
             var timedOut = false;
+            var started = _time.GetTimestamp();
             try
             {
                 // Eigener Task.Run: Auch ein Detektor, der synchron blockiert, hebelt die 2-s-Frist nicht aus.
@@ -421,7 +424,7 @@ public sealed class PersonDetectionService : IPersonDetectionService
                     else
                     {
                         slot.Failures = 0;
-                        PublishLocked(slot, frame, result ?? [], pending);
+                        PublishLocked(slot, frame, result ?? [], _time.GetElapsedTime(started).TotalMilliseconds, pending);
                     }
                 }
             }
@@ -445,13 +448,17 @@ public sealed class PersonDetectionService : IPersonDetectionService
         }
     }
 
-    private void PublishLocked(DetectorSlot slot, DetectionFrame frame, IReadOnlyList<Detection> detections, List<Action> pending)
+    private void PublishLocked(DetectorSlot slot, DetectionFrame frame, IReadOnlyList<Detection> detections, double cycleMs, List<Action> pending)
     {
         var now = _time.GetTimestamp();
         _completions.Enqueue(now);
+        _cycleMs.Enqueue(cycleMs);
         _lastCompletion = now;
         while (_completions.Count > 1 && _time.GetElapsedTime(_completions.Peek(), now) > RateWindow)
+        {
             _completions.Dequeue();
+            _cycleMs.Dequeue();
+        }
 
         if (_requests.Count == 0 || _lastDesired is not { } desired)
             return;
