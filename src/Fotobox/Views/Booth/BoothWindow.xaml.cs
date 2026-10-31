@@ -378,6 +378,9 @@ public sealed partial class BoothWindow : Window
                 // Genau eine Aktion je Tastendruck (Taste in beiden Listen = Umschalten); Wiederholung oben ausgeschlossen.
                 _viewModel.ExecuteVideoAction(action);
                 break;
+            case BoothKeyAction.TogglePerformanceOverlay:
+                _viewModel.TogglePerformanceOverlay();
+                break;
         }
     }
 

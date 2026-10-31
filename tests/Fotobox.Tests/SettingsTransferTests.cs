@@ -57,6 +57,7 @@ public sealed class SettingsTransferTests : IDisposable
         s.Input.CancelCountdownKeys = ["F11"];
         s.Input.VideoStartKeys = ["F6"];
         s.Input.VideoStopKeys = ["F7"];
+        s.Input.PerformanceOverlayKeys = ["F8"];
         s.Input.TriggerOnLeftClick = false;
         s.Input.TriggerOnRightClick = false;
         s.Input.InvertMouseWheel = true;
@@ -141,6 +142,12 @@ public sealed class SettingsTransferTests : IDisposable
         s.PrintArea.OpacityPercent = 60;
         s.PrintArea.ThicknessPx = 5;
         s.PrintArea.ShadePercent = 55;
+        s.PerformanceOverlay.ShowCpuTemperature = false;
+        s.PerformanceOverlay.ShowNpu = false;
+        s.PerformanceOverlay.Style = PerformanceOverlayStyle.Bars;
+        s.PerformanceOverlay.RefreshMs = 2000;
+        s.PerformanceOverlay.FontSize = 26;
+        s.PerformanceOverlay.BackgroundOpacityPercent = 40;
 
         FillDevices(s);
         return s;

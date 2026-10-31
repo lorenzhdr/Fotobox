@@ -60,6 +60,7 @@ public sealed class DeviceSpecificSettingsTests
         "Input.InvertMouseWheel",
         "Input.VideoStartKeys",
         "Input.VideoStopKeys",
+        "Input.PerformanceOverlayKeys",
         // GuestScreen
         "GuestScreen.HintText",
         "GuestScreen.HintStyle",
@@ -164,6 +165,25 @@ public sealed class DeviceSpecificSettingsTests
         "PrintArea.OpacityPercent",
         "PrintArea.ThicknessPx",
         "PrintArea.ShadePercent",
+        // PerformanceOverlay (Leistungsanzeige in der Gastansicht, komplett übertragbar)
+        "PerformanceOverlay.ShowCpu",
+        "PerformanceOverlay.ShowCpuClock",
+        "PerformanceOverlay.ShowCpuTemperature",
+        "PerformanceOverlay.ShowGpu",
+        "PerformanceOverlay.ShowGpuClock",
+        "PerformanceOverlay.ShowGpuTemperature",
+        "PerformanceOverlay.ShowGpuMemory",
+        "PerformanceOverlay.ShowNpu",
+        "PerformanceOverlay.ShowRam",
+        "PerformanceOverlay.ShowCameraFps",
+        "PerformanceOverlay.ShowDisplayFps",
+        "PerformanceOverlay.ShowAnalysisRate",
+        "PerformanceOverlay.ShowCycleTime",
+        "PerformanceOverlay.ShowModelDevices",
+        "PerformanceOverlay.Style",
+        "PerformanceOverlay.RefreshMs",
+        "PerformanceOverlay.FontSize",
+        "PerformanceOverlay.BackgroundOpacityPercent",
     ];
 
     [Fact]

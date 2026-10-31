@@ -19,7 +19,7 @@ namespace Fotobox.ViewModels.Booth;
 /// Video: <see cref="VideoToggle"/> = die Taste steht in der Start- und in der Stopp-Liste (ein Druck schaltet um),
 /// <see cref="VideoStart"/>/<see cref="VideoStop"/> = nur in einer der beiden Listen.
 /// </remarks>
-public enum BoothKeyAction { None, Trigger, OpenAdmin, Cancel, VideoStart, VideoStop, VideoToggle }
+public enum BoothKeyAction { None, Trigger, OpenAdmin, Cancel, VideoStart, VideoStop, VideoToggle, TogglePerformanceOverlay }
 
 /// <summary>
 /// Eintrag der Layout-Vorschauliste: gewählte Variante, Anzeigename, Hervorhebung und Platzhalter 1..n für die Fotofelder
@@ -90,7 +90,7 @@ public sealed class BoothViewModel : ObservableObject
 
     /// <summary>Geparste Tastenbelegung (Reihenfolge der Auslöser-Tasten bleibt für den Hinweistext erhalten).</summary>
     private sealed record KeyMap(IReadOnlyList<KeyChord> Trigger, HashSet<KeyChord> Admin, HashSet<KeyChord> Cancel,
-        IReadOnlyList<KeyChord> VideoStart, IReadOnlyList<KeyChord> VideoStop);
+        IReadOnlyList<KeyChord> VideoStart, IReadOnlyList<KeyChord> VideoStop, IReadOnlyList<KeyChord> PerformanceOverlay);
 
     /// <param name="fun">Zielerfassung der gesamten Gastansicht (DI); ohne Angabe eine untätige Instanz (Tests).</param>
     /// <param name="peace">Peaceerkennung der Gastansicht (DI, mit dem Bart-Zustand für die Foto-Planung); ohne Angabe eine untätige Instanz (Tests).</param>
@@ -785,8 +785,21 @@ public sealed class BoothViewModel : ObservableObject
             if (start) return BoothKeyAction.VideoStart;
             if (stop) return BoothKeyAction.VideoStop;
         }
+
+        // Leistungsanzeige: unabhängig vom Videomodus und von jedem Zustand der Gastansicht.
+        if (map.PerformanceOverlay.Contains(chord)) return BoothKeyAction.TogglePerformanceOverlay;
         return BoothKeyAction.None;
     }
+
+    /// <summary>
+    /// Die Leistungsanzeige soll ein- bzw. ausgeblendet werden (Tastendruck, siehe <see cref="BoothKeyAction.TogglePerformanceOverlay"/>).
+    /// Wird auf dem UI-Thread ausgelöst; die Anzeige selbst hängt sich an <see cref="PerformanceOverlayToggleRequested"/>.
+    /// Keine Zustandsprüfung, kein Eingriff in den <see cref="BoothController"/>.
+    /// </summary>
+    public event Action? PerformanceOverlayToggleRequested;
+
+    /// <summary>Löst <see cref="PerformanceOverlayToggleRequested"/> aus.</summary>
+    public void TogglePerformanceOverlay() => PerformanceOverlayToggleRequested?.Invoke();
 
     private KeyMap GetKeyMap()
     {
@@ -804,7 +817,7 @@ public sealed class BoothViewModel : ObservableObject
 
         // Video-Tasten haben keinen Ersatzwert: leer = keine Taste belegt.
         map = new KeyMap(trigger, [.. admin], [.. ParseKeys(input?.CancelCountdownKeys)],
-            ParseKeys(input?.VideoStartKeys), ParseKeys(input?.VideoStopKeys));
+            ParseKeys(input?.VideoStartKeys), ParseKeys(input?.VideoStopKeys), ParseKeys(input?.PerformanceOverlayKeys));
         _keyMap = map;
         return map;
     }

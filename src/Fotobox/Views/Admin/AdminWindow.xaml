@@ -1773,6 +1773,85 @@
                                            Text="Setzt in Windows (Einstellungen → System → Anzeige → Grafik) für dieses Programm „Hohe Leistung“. Das betrifft Darstellung und Kamera und hilft vor allem bei Computern mit zwei Grafikkarten, zum Beispiel Notebooks. Die Änderung wirkt ab dem nächsten Start der Fotobox. Haben Sie in Windows von Hand einen anderen Wert gesetzt, bleibt dieser unangetastet." />
                             </StackPanel>
                         </Border>
+
+                        <!-- Leistungsanzeige -->
+                        <Border x:Name="PerformanceOverlayCard" Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Leistungsanzeige" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Blendet in der Gastansicht ein Fenster mit Auslastung, Takt, Temperatur, Bildraten und Rechenzeiten ein, zum Beispiel zum Prüfen der Hardwarebeschleunigung. Werte, die Windows auf diesem Gerät nicht liefert, erscheinen als „nicht verfügbar“. Die Anzeige ist nie im Foto oder Video zu sehen." />
+                                <TextBlock x:Name="PerformanceOverlayKeyHintText" Text="{Binding PerformanceOverlayKeyHint}" Style="{StaticResource Hint}" />
+
+                                <TextBlock Text="System" Style="{StaticResource FieldLabel}" />
+                                <CheckBox Content="CPU-Auslastung" IsChecked="{Binding PerformanceOverlayShowCpu}" />
+                                <CheckBox Content="CPU-Takt" IsChecked="{Binding PerformanceOverlayShowCpuClock}" />
+                                <CheckBox Content="CPU-Temperatur" IsChecked="{Binding PerformanceOverlayShowCpuTemperature}" />
+                                <CheckBox Content="GPU-Auslastung" IsChecked="{Binding PerformanceOverlayShowGpu}" />
+                                <CheckBox Content="GPU-Takt" IsChecked="{Binding PerformanceOverlayShowGpuClock}" />
+                                <CheckBox Content="GPU-Temperatur" IsChecked="{Binding PerformanceOverlayShowGpuTemperature}" />
+                                <CheckBox Content="Grafikspeicher" IsChecked="{Binding PerformanceOverlayShowGpuMemory}" />
+                                <CheckBox Content="NPU-Auslastung" IsChecked="{Binding PerformanceOverlayShowNpu}" />
+                                <CheckBox Content="Arbeitsspeicher" IsChecked="{Binding PerformanceOverlayShowRam}" />
+
+                                <TextBlock Text="Kamera" Style="{StaticResource FieldLabel}" />
+                                <CheckBox Content="Kamera-FPS" IsChecked="{Binding PerformanceOverlayShowCameraFps}" />
+                                <CheckBox Content="Anzeige-FPS" IsChecked="{Binding PerformanceOverlayShowDisplayFps}" />
+
+                                <TextBlock Text="KI" Style="{StaticResource FieldLabel}" />
+                                <CheckBox Content="Analysen pro Sekunde" IsChecked="{Binding PerformanceOverlayShowAnalysisRate}" />
+                                <CheckBox Content="Rechenzeit" IsChecked="{Binding PerformanceOverlayShowCycleTime}" />
+                                <CheckBox Content="Gerät je Modell" IsChecked="{Binding PerformanceOverlayShowModelDevices}" />
+
+                                <TextBlock Text="Darstellung" Style="{StaticResource FieldLabel}" />
+                                <RadioButton GroupName="PerformanceOverlayStyle" Style="{StaticResource ChoiceRadio}"
+                                             IsChecked="{Binding IsPerformanceOverlayText}" AutomationProperties.Name="Darstellung: Nur Text">
+                                    <StackPanel>
+                                        <TextBlock Text="Nur Text" FontWeight="SemiBold" FontSize="15" />
+                                        <TextBlock Text="Zeilen mit den Werten." Style="{StaticResource Hint}" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="PerformanceOverlayStyle" Style="{StaticResource ChoiceRadio}"
+                                             IsChecked="{Binding IsPerformanceOverlayBars}" AutomationProperties.Name="Darstellung: Text mit Balken">
+                                    <StackPanel>
+                                        <TextBlock Text="Text mit Balken" FontWeight="SemiBold" FontSize="15" />
+                                        <TextBlock Text="Zusätzlich ein Balken bei Auslastungen." Style="{StaticResource Hint}" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </RadioButton>
+
+                                <TextBlock Text="Aktualisierung" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.PerformanceOverlayRefreshMsMin}, Mode=OneTime}"
+                                            Maximum="{Binding Source={x:Static core:SettingsLimits.PerformanceOverlayRefreshMsMax}, Mode=OneTime}"
+                                            TickFrequency="100" SmallChange="100" LargeChange="500"
+                                            IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                            Value="{Binding PerformanceOverlayRefreshMs}"
+                                            AutomationProperties.Name="Aktualisierung der Leistungsanzeige" />
+                                    <TextBlock Text="{Binding PerformanceOverlayRefreshText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0" VerticalAlignment="Center" MinWidth="60" />
+                                </StackPanel>
+
+                                <TextBlock Text="Schriftgröße" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.PerformanceOverlayFontSizeMin}, Mode=OneTime}"
+                                            Maximum="{Binding Source={x:Static core:SettingsLimits.PerformanceOverlayFontSizeMax}, Mode=OneTime}"
+                                            TickFrequency="1" SmallChange="1" LargeChange="2"
+                                            IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                            Value="{Binding PerformanceOverlayFontSize}"
+                                            AutomationProperties.Name="Schriftgröße der Leistungsanzeige" />
+                                    <TextBlock Text="{Binding PerformanceOverlayFontSizeText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0" VerticalAlignment="Center" MinWidth="60" />
+                                </StackPanel>
+
+                                <TextBlock Text="Hintergrund-Deckkraft" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.PerformanceOverlayBackgroundOpacityMin}, Mode=OneTime}"
+                                            Maximum="{Binding Source={x:Static core:SettingsLimits.PerformanceOverlayBackgroundOpacityMax}, Mode=OneTime}"
+                                            TickFrequency="5" SmallChange="5" LargeChange="10"
+                                            IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                            Value="{Binding PerformanceOverlayBackgroundOpacity}"
+                                            AutomationProperties.Name="Hintergrund-Deckkraft der Leistungsanzeige" />
+                                    <TextBlock Text="{Binding PerformanceOverlayBackgroundOpacityText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0" VerticalAlignment="Center" MinWidth="60" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

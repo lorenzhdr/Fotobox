@@ -1007,6 +1007,144 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(["Escape"], input.CancelCountdownKeys);
     }
 
+    // ---- Leistungsanzeige: Tasten und Abschnitt
+
+    [Fact]
+    public void PerformanceOverlayKeys_DefaultIsCtrlAltY_AndOldFileWithoutFieldGetsItAndDefaultSection()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, "{ \"Flow\": { \"CountdownSeconds\": 3 }, \"Input\": { \"TriggerKeys\": [\"F9\"] } }");
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.Equal([InputSettings.DefaultPerformanceOverlayKey], s.Input.PerformanceOverlayKeys);
+        Assert.Equal("Ctrl+Alt+Y", s.Input.PerformanceOverlayKeys[0]);
+        Assert.Equal(["F9"], s.Input.TriggerKeys);
+        Assert.Equal(JsonSerializer.Serialize(new PerformanceOverlaySettings(), AppSettings.JsonOptions),
+            JsonSerializer.Serialize(s.PerformanceOverlay, AppSettings.JsonOptions));
+        Assert.True(s.PerformanceOverlay.ShowCpu);
+        Assert.Equal(PerformanceOverlayStyle.Text, s.PerformanceOverlay.Style);
+        Assert.Equal(1000, s.PerformanceOverlay.RefreshMs);
+        Assert.Equal(18, s.PerformanceOverlay.FontSize);
+        Assert.Equal(60, s.PerformanceOverlay.BackgroundOpacityPercent);
+    }
+
+    [Fact]
+    public void PerformanceOverlayKeys_KeyOfAdminOrVideo_YieldsAndExistingKeysStay()
+    {
+        var input = new InputSettings
+        {
+            AdminKeys = ["Ctrl+Alt+A"],
+            TriggerKeys = ["Space"],
+            CancelCountdownKeys = ["Escape"],
+            VideoStartKeys = ["F5"],
+            VideoStopKeys = ["F6"],
+            PerformanceOverlayKeys = ["Ctrl+Alt+A", "Escape", "F5", "F6", "Space", "Ctrl+Alt+Y"],
+        };
+
+        SettingsNormalizer.NormalizeKeys(input);
+
+        Assert.Equal(["Ctrl+Alt+Y"], input.PerformanceOverlayKeys);
+        Assert.Equal(["Ctrl+Alt+A"], input.AdminKeys);
+        Assert.Equal(["Space"], input.TriggerKeys);
+        Assert.Equal(["Escape"], input.CancelCountdownKeys);
+        Assert.Equal(["F5"], input.VideoStartKeys);
+        Assert.Equal(["F6"], input.VideoStopKeys);
+    }
+
+    [Fact]
+    public void PerformanceOverlayKeys_DefaultKeyHeldByAnotherAction_IsDroppedWithoutReplacement()
+    {
+        var input = new InputSettings { VideoStopKeys = ["Ctrl+Alt+Y"] };
+
+        SettingsNormalizer.NormalizeKeys(input);
+
+        Assert.Empty(input.PerformanceOverlayKeys);
+        Assert.Equal(["Ctrl+Alt+Y"], input.VideoStopKeys);
+    }
+
+    [Fact]
+    public void PerformanceOverlayKeys_EmptyListStaysEmpty()
+    {
+        var input = new InputSettings { PerformanceOverlayKeys = [] };
+
+        SettingsNormalizer.NormalizeKeys(input);
+        Assert.Empty(input.PerformanceOverlayKeys);
+
+        input.PerformanceOverlayKeys = null!;
+        SettingsNormalizer.NormalizeKeys(input);
+        Assert.Empty(input.PerformanceOverlayKeys);
+    }
+
+    [Fact]
+    public void PerformanceOverlayKeys_InvalidDuplicatesAndTooMany_AreCleaned_AndNormalizingIsIdempotent()
+    {
+        var input = new InputSettings
+        {
+            PerformanceOverlayKeys = ["Quatsch", "F1", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"],
+        };
+
+        SettingsNormalizer.NormalizeKeys(input);
+
+        Assert.Equal(SettingsLimits.KeysPerActionMax, input.PerformanceOverlayKeys.Count);
+        Assert.Equal("F1", input.PerformanceOverlayKeys[0]);
+        Assert.DoesNotContain("Quatsch", input.PerformanceOverlayKeys);
+
+        var once = JsonSerializer.Serialize(input, AppSettings.JsonOptions);
+        SettingsNormalizer.NormalizeKeys(input);
+        Assert.Equal(once, JsonSerializer.Serialize(input, AppSettings.JsonOptions));
+    }
+
+    [Fact]
+    public void PerformanceOverlaySettings_AreClamped_UnknownStyleFallsBack_AndNormalizingIsIdempotent()
+    {
+        var s = new AppSettings();
+        s.PerformanceOverlay.RefreshMs = 10;
+        s.PerformanceOverlay.FontSize = 500;
+        s.PerformanceOverlay.BackgroundOpacityPercent = -5;
+        s.PerformanceOverlay.Style = (PerformanceOverlayStyle)99;
+
+        SettingsNormalizer.Normalize(s);
+
+        Assert.Equal(SettingsLimits.PerformanceOverlayRefreshMsMin, s.PerformanceOverlay.RefreshMs);
+        Assert.Equal(SettingsLimits.PerformanceOverlayFontSizeMax, s.PerformanceOverlay.FontSize);
+        Assert.Equal(SettingsLimits.PerformanceOverlayBackgroundOpacityMin, s.PerformanceOverlay.BackgroundOpacityPercent);
+        Assert.Equal(PerformanceOverlayStyle.Text, s.PerformanceOverlay.Style);
+
+        s.PerformanceOverlay.RefreshMs = 99999;
+        s.PerformanceOverlay.FontSize = 1;
+        s.PerformanceOverlay.BackgroundOpacityPercent = 1000;
+        SettingsNormalizer.Normalize(s);
+        Assert.Equal(SettingsLimits.PerformanceOverlayRefreshMsMax, s.PerformanceOverlay.RefreshMs);
+        Assert.Equal(SettingsLimits.PerformanceOverlayFontSizeMin, s.PerformanceOverlay.FontSize);
+        Assert.Equal(SettingsLimits.PerformanceOverlayBackgroundOpacityMax, s.PerformanceOverlay.BackgroundOpacityPercent);
+
+        var once = JsonSerializer.Serialize(s, AppSettings.JsonOptions);
+        SettingsNormalizer.Normalize(s);
+        Assert.Equal(once, JsonSerializer.Serialize(s, AppSettings.JsonOptions));
+    }
+
+    [Fact]
+    public void PerformanceOverlay_Limits_AreTheAgreedRanges()
+    {
+        Assert.Equal((500, 5000), (SettingsLimits.PerformanceOverlayRefreshMsMin, SettingsLimits.PerformanceOverlayRefreshMsMax));
+        Assert.Equal((12, 36), (SettingsLimits.PerformanceOverlayFontSizeMin, SettingsLimits.PerformanceOverlayFontSizeMax));
+        Assert.Equal((0, 100), (SettingsLimits.PerformanceOverlayBackgroundOpacityMin, SettingsLimits.PerformanceOverlayBackgroundOpacityMax));
+    }
+
+    [Fact]
+    public void PerformanceOverlay_UnknownStyleNameInFile_FallsBackToText_OtherFieldsStay()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, "{ \"PerformanceOverlay\": { \"Style\": \"Quatsch\", \"ShowCpu\": false, \"RefreshMs\": 2500 } }");
+
+        var s = new JsonSettingsStore(_dir).Current;
+
+        Assert.Equal(PerformanceOverlayStyle.Text, s.PerformanceOverlay.Style);
+        Assert.False(s.PerformanceOverlay.ShowCpu);
+        Assert.Equal(2500, s.PerformanceOverlay.RefreshMs);
+    }
+
     [Fact]
     public void Normalize_KeepsStoredPinIterations_SoTheHashStillVerifies()
     {
