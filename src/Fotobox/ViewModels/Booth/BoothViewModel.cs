@@ -438,8 +438,10 @@ public sealed class BoothViewModel : ObservableObject
     public string PrintWaitText => Controller.PrintCancelRequested
         ? "Einen Moment …"
         : IsPrintOverdue
-            ? "Gleich geschafft …"
-            : $"Der Drucker ist etwas langsam – dein Foto kommt in ca. {FormatDuration(Controller.ExpectedPrintSeconds)}.";
+            ? "Gleich geschafft …\n" + PrintTakeOutHint
+            : $"Der Drucker ist etwas langsam – dein Foto kommt in ca. {FormatDuration(Controller.ExpectedPrintSeconds)}.\n{PrintTakeOutHint}";
+
+    private const string PrintTakeOutHint = "Nimm dein Foto erst aus dem Drucker, wenn hier „Fertig“ steht.";
 
     /// <summary>„2 Minuten“, „1 Minute“, „45 Sekunden“ – Minuten kaufmännisch gerundet (90 s → 2 Minuten).</summary>
     public static string FormatDuration(int seconds)

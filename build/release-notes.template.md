@@ -1,12 +1,10 @@
 ## Fotobox+ {{VERSION}}
 
-### Neu in 2.10.1
+### Neu in 2.10.2
 
-- **Leistungsanzeige:** Mit **Strg + Alt + Y** blendet die Gastansicht oben rechts ein, wie ausgelastet der PC ist: Prozessor, Grafikkarte und NPU (Auslastung, Takt, Temperatur), Grafik- und Arbeitsspeicher, Kamera- und Anzeige-FPS, Analysen pro Sekunde, Rechenzeit und das Gerät je KI-Modell. Ab Werk aus und nach jedem Start wieder aus. Die Anzeige liegt über allem außer dem Blitz und ist nie im Foto oder Video.
-- **Einstellbar:** Im Admin (Tab „Leistung“, Karte „Leistungsanzeige“) lassen sich die Werte einzeln wählen, als Text oder Balken, mit Aktualisierung alle 0,5 bis 5 Sekunden, Schriftgröße und Hintergrund. Ab 70 % wird ein Wert gelb, ab 90 % rot. Die Taste ändert man im Tab „Tasten“. Die Einstellungen gehören zu „Einstellungen teilen“.
-- **Hinweis:** Gemessen wird nur, solange die Anzeige sichtbar ist, ohne Zusatzprogramm oder Treiber. Windows liefert nicht jedes Gerät alle Werte; fehlende erscheinen als „nicht verfügbar“. Noch nicht auf allen Grafikkarten und NPUs geprüft.
+- **Hinweis während des Drucks:** Unter der Wartezeit steht jetzt zusätzlich „Nimm dein Foto erst aus dem Drucker, wenn hier „Fertig“ steht.“ Am Druck selbst ändert sich nichts.
 
-Alle Neuerungen von 2.10.0 und den Versionen davor stehen unten unter „Ältere Versionen“.
+Alle Neuerungen von 2.10.1 und den Versionen davor stehen unten unter „Ältere Versionen“.
 
 ### Welche Datei passt zu meinem PC?
 
@@ -37,7 +35,13 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer den Versionen 2.9.1 und 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
 
 <details>
-<summary>Änderungen der Versionen 0.0.0-beta bis 2.10.0 anzeigen</summary>
+<summary>Änderungen der Versionen 0.0.0-beta bis 2.10.1 anzeigen</summary>
+
+#### [Fotobox+ 2.10.1](https://github.com/lorenzhdr/Fotobox/tree/v2.10.1) · 31.10.2026
+
+- **Leistungsanzeige:** Mit **Strg + Alt + Y** blendet die Gastansicht oben rechts ein, wie ausgelastet der PC ist: Prozessor, Grafikkarte und NPU (Auslastung, Takt, Temperatur), Grafik- und Arbeitsspeicher, Kamera- und Anzeige-FPS, Analysen pro Sekunde, Rechenzeit und das Gerät je KI-Modell. Ab Werk aus und nach jedem Start wieder aus. Die Anzeige liegt über allem außer dem Blitz und ist nie im Foto oder Video.
+- **Einstellbar:** Im Admin (Tab „Leistung“, Karte „Leistungsanzeige“) lassen sich die Werte einzeln wählen, als Text oder Balken, mit Aktualisierung alle 0,5 bis 5 Sekunden, Schriftgröße und Hintergrund. Ab 70 % wird ein Wert gelb, ab 90 % rot. Die Taste ändert man im Tab „Tasten“. Die Einstellungen gehören zu „Einstellungen teilen“.
+- **Hinweis:** Gemessen wird nur, solange die Anzeige sichtbar ist, ohne Zusatzprogramm oder Treiber. Windows liefert nicht jedes Gerät alle Werte; fehlende erscheinen als „nicht verfügbar“. Noch nicht auf allen Grafikkarten und NPUs geprüft.
 
 #### [Fotobox+ 2.10.0](https://github.com/lorenzhdr/Fotobox/tree/v2.10.0) · 31.10.2026
 

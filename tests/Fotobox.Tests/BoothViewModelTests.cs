@@ -733,12 +733,12 @@ public partial class BoothViewModelTests
         Assert.False(h.ViewModel.ShowDone);
         Assert.False(h.ViewModel.CanOpenAdmin);
         Assert.False(h.ViewModel.IsPrintOverdue);
-        Assert.Equal("Der Drucker ist etwas langsam – dein Foto kommt in ca. 2 Minuten.", h.ViewModel.PrintWaitText);
+        Assert.Equal("Der Drucker ist etwas langsam – dein Foto kommt in ca. 2 Minuten.\nNimm dein Foto erst aus dem Drucker, wenn hier „Fertig“ steht.", h.ViewModel.PrintWaitText);
         Assert.InRange(h.ViewModel.PrintProgress, 0, 0.1);
 
         h.Time.Advance(TimeSpan.FromSeconds(120));
         Assert.True(h.ViewModel.IsPrintOverdue);
-        Assert.Equal("Gleich geschafft …", h.ViewModel.PrintWaitText);
+        Assert.Equal("Gleich geschafft …\nNimm dein Foto erst aus dem Drucker, wenn hier „Fertig“ steht.", h.ViewModel.PrintWaitText);
         Assert.Equal(1, h.ViewModel.PrintProgress);
         Assert.Equal(BoothState.Printing, h.Controller.State);
 
