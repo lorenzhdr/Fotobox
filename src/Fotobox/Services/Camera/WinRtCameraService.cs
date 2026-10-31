@@ -13,7 +13,7 @@ using Windows.Storage.Streams;
 namespace Fotobox.Services.Camera;
 
 /// <summary>Kamera-Dienst auf Basis von Windows.Media.Capture (MediaCapture + MediaFrameReader).</summary>
-public sealed partial class WinRtCameraService : ICameraService
+public sealed partial class WinRtCameraService : ICameraService, ICameraFrameStats
 {
     private static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(2);
     // Obergrenze je Abbauschritt: Ein hängender Treiber darf Neustart und Beenden nicht unbegrenzt blockieren.
@@ -66,6 +66,8 @@ public sealed partial class WinRtCameraService : ICameraService
     // Drosselt die Log-Warnung, wenn die Verarbeitung bei jedem Bild scheitert.
     private readonly FrameErrorThrottle _frameErrors = new();
 
+    private long _framesReceived;
+
     public WinRtCameraService(TimeProvider? time = null)
     {
         _time = time ?? TimeProvider.System;
@@ -78,6 +80,9 @@ public sealed partial class WinRtCameraService : ICameraService
 
     public event EventHandler? StatusChanged;
     public event EventHandler<CameraFrame>? FrameArrived;
+
+    /// <inheritdoc />
+    public long FramesReceived => Interlocked.Read(ref _framesReceived);
 
     public async Task<IReadOnlyList<CameraDevice>> GetDevicesAsync()
     {
@@ -1032,6 +1037,9 @@ public sealed partial class WinRtCameraService : ICameraService
                     foreach (var w in waiters)
                         w.TrySetResult(waiterFrame!);
                 }
+
+                // Zähler für die Leistungsanzeige (nur ein Interlocked, sonst nichts im Handler).
+                Interlocked.Increment(ref _framesReceived);
 
                 // Puffer wird erst vom nächsten (seriellen) FrameArrived wieder beschrieben.
                 FrameArrived?.Invoke(this, frame);

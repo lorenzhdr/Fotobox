@@ -199,28 +199,90 @@ internal static class SystemMetricsLogic
         a.SoftwareDevice || AcceleratorSelector.IsSoftwareAdapter(a.VendorId, a.DeviceId, a.Name);
 
     /// <summary>
-    /// Wählt die Grafikkarte: Mit Auswahl der Adapter mit gleicher Hersteller-/Geräte-Id (bei mehreren gleichen der mit gleichem
-    /// Namen, sonst der erste). Ohne Auswahl oder ohne Treffer der erste Adapter mit Render und Anzeige. Software-Adapter und reine
-    /// Rechen-Adapter (NPU) werden nie ohne ausdrückliche Auswahl gewählt, Software-Adapter nie.
+    /// Wählt die Grafikkarte unter den echten Grafik-Adaptern (Software-Adapter und reine Rechen-Adapter, also NPUs, nie).
+    /// Mit Auswahl: 1. gleiche Hersteller-/Geräte-Id (bei mehreren gleichen der mit gleichem Namen, sonst der erste), 2. sonst der
+    /// Adapter mit passendem Namen (normalisiert, einer enthält den anderen), 3. sonst – wie ohne Auswahl – der erste Adapter mit Render
+    /// und Anzeige. Die Namensstufe gibt es, weil die Hersteller-Id der Auswahl (aus ONNX Runtime) und die von D3DKMT in verschiedenen
+    /// Id-Räumen liegen können (z. B. auf Geräten mit ACPI-Hardware, nicht PCI): Dann stimmen die Ids nicht überein, die Namen aber meist.
     /// </summary>
     internal static GraphicsAdapterInfo? SelectGpu(IReadOnlyList<GraphicsAdapterInfo> adapters, GpuSelection? selection)
     {
-        var real = adapters.Where(a => !IsSoftware(a)).ToList();
+        var candidates = adapters.Where(a => !IsSoftware(a) && !a.ComputeOnly).ToList();
 
         if (selection is not null)
         {
-            var matches = real.Where(a => a.VendorId == selection.VendorId && a.DeviceId == selection.DeviceId).ToList();
-            if (matches.Count > 1 && !string.IsNullOrWhiteSpace(selection.Name))
+            // Ids 0/0 sind „unbekannt“ und kein Treffer.
+            if (selection.VendorId != 0 || selection.DeviceId != 0)
             {
-                var byName = matches.FirstOrDefault(a => string.Equals(a.Name?.Trim(), selection.Name.Trim(), StringComparison.OrdinalIgnoreCase));
-                if (byName is not null)
-                    return byName;
+                var matches = candidates.Where(a => a.VendorId == selection.VendorId && a.DeviceId == selection.DeviceId).ToList();
+                if (matches.Count > 1 && !string.IsNullOrWhiteSpace(selection.Name))
+                {
+                    var byName = matches.FirstOrDefault(a => string.Equals(a.Name?.Trim(), selection.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (byName is not null)
+                        return byName;
+                }
+                if (matches.Count > 0)
+                    return matches[0];
             }
-            if (matches.Count > 0)
-                return matches[0];
+
+            var wanted = NormalizeAdapterName(selection.Name);
+            if (wanted.Length >= MinNameMatchLength)
+            {
+                var equal = candidates.FirstOrDefault(a => NormalizeAdapterName(a.Name) == wanted);
+                if (equal is not null)
+                    return equal;
+                var contained = candidates.FirstOrDefault(a =>
+                {
+                    var name = NormalizeAdapterName(a.Name);
+                    return name.Length >= MinNameMatchLength && (name.Contains(wanted, StringComparison.Ordinal) || wanted.Contains(name, StringComparison.Ordinal));
+                });
+                if (contained is not null)
+                    return contained;
+            }
         }
 
-        return real.FirstOrDefault(a => a.RenderSupported && a.DisplaySupported && !a.ComputeOnly);
+        return candidates.FirstOrDefault(a => a.RenderSupported && a.DisplaySupported);
+    }
+
+    /// <summary>Kürzeste normalisierte Namenslänge für den Namensvergleich (kürzere wie „GPU“ passen auf alles).</summary>
+    internal const int MinNameMatchLength = 4;
+
+    /// <summary>
+    /// Adaptername für den Vergleich: Kleinbuchstaben, ohne Markenzeichen ((R), (TM), ®, ™) und ohne alles außer Buchstaben und Ziffern.
+    /// Leer bei null/Leerstring.
+    /// </summary>
+    internal static string NormalizeAdapterName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "";
+        var text = name.Replace("(R)", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("(TM)", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("®", "", StringComparison.Ordinal)
+            .Replace("™", "", StringComparison.Ordinal);
+        var chars = new char[text.Length];
+        var n = 0;
+        foreach (var c in text)
+        {
+            if (char.IsLetterOrDigit(c))
+                chars[n++] = char.ToLowerInvariant(c);
+        }
+        return new string(chars, 0, n);
+    }
+
+    /// <summary>
+    /// Die vom Aufrufer an die Messung zu übergebende Grafikkarte aus dem Plan der Beschleunigung: das Gerät des ersten Modells, das auf
+    /// einer Grafikkarte läuft (Hersteller-/Geräte-Id und Name aus der Geräteliste, sonst nur der Name des Plans). <c>null</c>, wenn keines
+    /// auf einer Grafikkarte läuft (dann nimmt die Quelle die erste echte Grafikkarte).
+    /// </summary>
+    internal static GpuSelection? SelectionFromPlan(AccelerationState state)
+    {
+        var placement = state.Plan.FirstOrDefault(p => p.Kind == AcceleratorKind.Gpu);
+        if (placement is null)
+            return null;
+        var device = state.Devices.FirstOrDefault(d => string.Equals(d.Key, placement.DeviceKey, StringComparison.Ordinal));
+        return device is not null
+            ? new GpuSelection(device.VendorId, device.DeviceId, string.IsNullOrWhiteSpace(device.Name) ? placement.DeviceName : device.Name)
+            : new GpuSelection(0, 0, placement.DeviceName);
     }
 
     /// <summary>Die NPU: der erste reine Rechen-Adapter (ComputeOnly), der kein Software-Adapter ist; sonst null.</summary>

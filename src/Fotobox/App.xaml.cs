@@ -9,6 +9,7 @@ using Fotobox.Services.Camera;
 using Fotobox.Services.Detection;
 using Fotobox.Services.Detection.Acceleration;
 using Fotobox.Services.Detection.Peace;
+using Fotobox.Services.Diagnostics;
 using Fotobox.Services.Display;
 using Fotobox.Services.Layout;
 using Fotobox.Services.Peace;
@@ -266,6 +267,9 @@ public partial class App : Application
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<IFunSoundPlayer>(),
             sp.GetRequiredService<GuestMoustacheState>()));
+        // Messquelle der Systemwerte für die Leistungsanzeige: Der Konstruktor tut nichts Natives (PDH und D3DKMT erst beim ersten Messen,
+        // und gemessen wird nur bei sichtbarer Anzeige). Der Container gibt sie beim Beenden frei (Dispose wartet nie auf eine Messung).
+        services.AddSingleton<ISystemMetricsSource, WindowsSystemMetricsSource>();
         services.AddSingleton<IAdminLauncher, AdminLauncher>();
 
         services.AddSingleton<BoothController>();

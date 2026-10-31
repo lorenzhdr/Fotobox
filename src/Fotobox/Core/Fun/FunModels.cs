@@ -76,12 +76,14 @@ public sealed class DetectionFrame
 /// <param name="FallbackReason">Deutscher Grund, warum statt Ganzkörper die Gesichtserkennung läuft (sonst null).</param>
 /// <param name="UnavailableReason">Deutscher Grund, warum gar keine Erkennung läuft (sonst null).</param>
 /// <param name="AnalysesPerSecond">Gemessene Analysen pro Sekunde (gleitend).</param>
+/// <param name="MeanCycleMs">Mittlere Rechenzeit einer Analyse in Millisekunden (gleitend über dasselbe Fenster wie die Rate; 0 = unbekannt).</param>
 public sealed record DetectionStatus(
     DetectionMethod Requested,
     DetectionKind? Active,
     string? FallbackReason,
     string? UnavailableReason,
-    double AnalysesPerSecond)
+    double AnalysesPerSecond,
+    double MeanCycleMs = 0)
 {
     public static DetectionStatus Starting(DetectionMethod requested) => new(requested, null, null, null, 0);
 }

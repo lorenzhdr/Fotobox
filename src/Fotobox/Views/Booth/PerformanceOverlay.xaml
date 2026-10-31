@@ -1,0 +1,100 @@
+<UserControl x:Class="Fotobox.Views.Booth.PerformanceOverlay"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Fotobox.Views.Booth"
+             FontFamily="Segoe UI Variable Display, Segoe UI"
+             FontSize="{Binding FontSize}"
+             HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,44,48,0"
+             IsHitTestVisible="False" Focusable="False"
+             AutomationProperties.Name="Leistungsanzeige">
+
+    <!--
+        Leistungsanzeige: Bewusst ohne Effekte (kein Schatten/Blur), keine Animationen; die Zeilen bleiben stabil, nur die Texte ändern
+        sich. Der Balken ist ein einfacher Rahmen, dessen Länge per ScaleTransform (Render-Transform, kein Layout) gesetzt wird.
+        DataContext = PerformanceOverlayViewModel; DataContext und Sichtbarkeit (IsVisible) setzt die Gastansicht (BoothWindow).
+    -->
+    <UserControl.Resources>
+        <SolidColorBrush x:Key="LabelBrush" Color="#FFD0D4E4" />
+        <SolidColorBrush x:Key="WarnBrush" Color="{x:Static local:PerformanceOverlay.WarnColor}" />
+        <SolidColorBrush x:Key="CriticalBrush" Color="{x:Static local:PerformanceOverlay.CriticalColor}" />
+        <SolidColorBrush x:Key="TrackBrush" Color="#33FFFFFF" />
+
+        <!-- Wert und Balken in Weiß, ab 70 % gelb, ab 90 % rot -->
+        <Style x:Key="ValueText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+            <Setter Property="TextAlignment" Value="Right" />
+            <Setter Property="Margin" Value="18,0,0,0" />
+            <Setter Property="MinWidth"
+                    Value="{Binding DataContext.ValueMinWidth, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Level}" Value="Warn">
+                    <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Level}" Value="Critical">
+                    <Setter Property="Foreground" Value="{StaticResource CriticalBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="BarFill" TargetType="Border">
+            <Setter Property="Background" Value="White" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Level}" Value="Warn">
+                    <Setter Property="Background" Value="{StaticResource WarnBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Level}" Value="Critical">
+                    <Setter Property="Background" Value="{StaticResource CriticalBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Balken nur im Modus „Balken“ und nur bei Zeilen mit Auslastung/Speicher (BarFraction gesetzt) -->
+        <Style x:Key="BarTrack" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource TrackBrush}" />
+            <Setter Property="Height" Value="4" />
+            <Setter Property="Margin" Value="0,2,0,3" />
+            <Setter Property="CornerRadius" Value="2" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding BarFraction}" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding DataContext.ShowBars, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="False">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <DataTemplate x:Key="RowTemplate">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="Label" />
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="Value" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Label}" Foreground="{StaticResource LabelBrush}" />
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Text}" Style="{StaticResource ValueText}" />
+                <Border Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource BarTrack}">
+                    <Border Style="{StaticResource BarFill}" CornerRadius="2" HorizontalAlignment="Stretch"
+                            RenderTransformOrigin="0,0.5">
+                        <Border.RenderTransform>
+                            <ScaleTransform ScaleX="{Binding BarFraction, TargetNullValue=0, FallbackValue=0}" />
+                        </Border.RenderTransform>
+                    </Border>
+                </Border>
+            </Grid>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Border CornerRadius="12" Padding="16,10">
+        <Border.Background>
+            <SolidColorBrush Color="Black" Opacity="{Binding BackgroundOpacity}" />
+        </Border.Background>
+        <ItemsControl ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource RowTemplate}"
+                      Grid.IsSharedSizeScope="True" Focusable="False" IsTabStop="False" />
+    </Border>
+</UserControl>

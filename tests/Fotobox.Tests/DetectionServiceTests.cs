@@ -316,6 +316,52 @@ public class DetectionServiceTests
         Assert.InRange(last.Status.AnalysesPerSecond, 4.0, 6.0); // 5 Analysen/s in Spielzeit
     }
 
+    [Fact]
+    public async Task MeanCycleMs_IsTheMeanComputeTimeOfTheAnalyses()
+    {
+        // Jede Analyse „dauert“ 50 ms Spielzeit (der Detektor lässt die Uhr vorrücken).
+        _configure[DetectionKind.Body] = d => d.OnDetect = _ =>
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(50));
+            return Task.FromResult<IReadOnlyList<Detection>>([]);
+        };
+        await using var service = NewService();
+        using var request = service.Request(Settings(perSecond: 5));
+        var updates = new ConcurrentQueue<DetectionUpdate>();
+        request.Updated += (_, u) => updates.Enqueue(u);
+        await WaitReady(request, DetectionKind.Body);
+        Assert.Equal(0, request.Status.MeanCycleMs);   // noch keine Analyse
+
+        for (var i = 0; i < 4; i++)
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(200));
+            var before = Body().DetectCalls;
+            await WaitFor(() =>
+            {
+                if (Body().DetectCalls == before)
+                    _camera.Raise(Frame);
+                return Body().DetectCalls == before + 1 && !Body().IsRunning;
+            }, "Analyse " + i);
+            await Task.Delay(30);
+        }
+
+        await WaitFor(() => updates.Count == 4, "alle Updates");
+        var last = updates.ToArray()[^1];
+        Assert.InRange(last.Status.MeanCycleMs, 49.0, 51.0);
+        Assert.True(last.Status.AnalysesPerSecond > 0);
+    }
+
+    [Fact]
+    public async Task MeanCycleMs_DefaultsToZero()
+    {
+        Assert.Equal(0, DetectionStatus.Starting(DetectionMethod.Body).MeanCycleMs);
+        Assert.Equal(0, new DetectionStatus(DetectionMethod.Body, null, null, null, 0).MeanCycleMs);
+        await using var service = NewService();
+        using var request = service.Request(Settings());
+        await WaitReady(request, DetectionKind.Body);
+        Assert.Equal(0, request.Status.MeanCycleMs);
+    }
+
     // ------------------------------------------------------------------ Anforderungsstapel
 
     [Fact]
