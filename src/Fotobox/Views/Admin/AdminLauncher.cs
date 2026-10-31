@@ -22,6 +22,7 @@ public sealed class AdminLauncher : IAdminLauncher
     private readonly IMusicPlayer? _music;
     private readonly IKisscamMusicLibrary? _library;
     private readonly IAccelerationService? _acceleration;
+    private readonly IBoothSoundPlayer? _boothSound;
     private readonly PinAttemptLimiter _limiter;
 
     /// <summary>Erkennung und Ton für die Fun-Vorschau sind vorhanden (sonst ist die Vorschau inert); für den DI-Test.</summary>
@@ -36,6 +37,9 @@ public sealed class AdminLauncher : IAdminLauncher
     /// <summary>Der Beschleunigungsdienst für den Tab „Leistung“ ist vorhanden (sonst zeigt der Tab „nicht verfügbar“); für den DI-Test.</summary>
     internal bool HasAccelerationService => _acceleration is not null;
 
+    /// <summary>Der Ablauf-Ton-Spieler für „Anhören“ im Tab „Ablauf“ ist vorhanden (sonst bleibt „Anhören“ stumm); für den DI-Test.</summary>
+    internal bool HasBoothSound => _boothSound is not null;
+
     public AdminLauncher(ISettingsStore settings, IPinService pinService, ICameraService camera, IPrintService print,
         IDisplayService displays)
         : this(settings, pinService, camera, print, displays, TimeProvider.System)
@@ -48,7 +52,7 @@ public sealed class AdminLauncher : IAdminLauncher
     public AdminLauncher(ISettingsStore settings, IPinService pinService, ICameraService camera, IPrintService print,
         IDisplayService displays, TimeProvider time, IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null,
         IGestureDetectionService? gestures = null, IMusicPlayer? music = null,
-        IKisscamMusicLibrary? library = null, IAccelerationService? acceleration = null)
+        IKisscamMusicLibrary? library = null, IAccelerationService? acceleration = null, IBoothSoundPlayer? boothSound = null)
     {
         _settings = settings;
         _pinService = pinService;
@@ -61,6 +65,7 @@ public sealed class AdminLauncher : IAdminLauncher
         _music = music;
         _library = library;
         _acceleration = acceleration;
+        _boothSound = boothSound;
         // Ein Limiter pro Prozess: Die Sperre überdauert das Schließen des PIN-Dialogs.
         _limiter = new PinAttemptLimiter(time, maxAttempts: 5, lockoutDuration: TimeSpan.FromSeconds(30));
     }
@@ -125,7 +130,7 @@ public sealed class AdminLauncher : IAdminLauncher
         var ui = new WpfAdminUi();
         using var viewModel = new AdminViewModel(_settings, _pinService, _camera, _print, ui, displays: _displays,
             detection: _detection, sound: _sound, gestures: _gestures, music: _music, library: _library,
-            acceleration: _acceleration);
+            acceleration: _acceleration, boothSound: _boothSound);
         var window = new AdminWindow(viewModel);
         if (owner.IsLoaded)
             window.Owner = owner;

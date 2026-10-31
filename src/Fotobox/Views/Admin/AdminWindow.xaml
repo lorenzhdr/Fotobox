@@ -26,7 +26,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TabControl Grid.Row="0" SelectionChanged="OnTabSelectionChanged">
+        <TabControl x:Name="AdminTabs" Grid.Row="0" SelectionChanged="OnTabSelectionChanged">
 
             <!-- ============================== Kamera ============================== -->
             <TabItem Header="Kamera" Tag="&#xE722;">
@@ -173,7 +173,8 @@
             <!-- ============================== Ablauf ============================== -->
             <TabItem Header="Ablauf" Tag="&#xE916;">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                         <StackPanel>
                             <TextBlock Text="Ablauf" Style="{StaticResource SectionTitle}" />
 
@@ -192,6 +193,101 @@
                             <TextBlock Text="Das Drucken stellen Sie im Tab „Drucker“ ein." Style="{StaticResource Hint}" />
                         </StackPanel>
                     </Border>
+
+                    <!-- Töne: Countdown-Piepen und Kamera-Sound -->
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel MaxWidth="700" HorizontalAlignment="Left">
+                            <TextBlock Text="Töne" Style="{StaticResource SectionTitle}" />
+
+                            <!-- Countdown-Piepen -->
+                            <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="18,14" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <CheckBox Content="Countdown-Piepen" IsChecked="{Binding CountdownBeepEnabled}" FontWeight="SemiBold"
+                                              AutomationProperties.Name="Countdown-Piepen" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Bei jeder Ziffer des Countdowns ertönt ein kurzer Piep, bei der letzten ein höherer. Gilt vor Fotos und Videos, nicht bei der Selbstzerstörung und der Kisscam." />
+                                    <StackPanel IsEnabled="{Binding CountdownBeepEnabled}">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsEnabled" Value="False">
+                                                        <Setter Property="Opacity" Value="0.55" />
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
+
+                                        <TextBlock Text="Klang" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox Width="280" HorizontalAlignment="Left" ItemsSource="{Binding CountdownBeepSounds}"
+                                                  SelectedValuePath="Value" DisplayMemberPath="Name" SelectedValue="{Binding CountdownBeepSound}"
+                                                  AutomationProperties.Name="Klang des Countdown-Piepens" />
+
+                                        <TextBlock Text="Lautstärke" Style="{StaticResource FieldLabel}" />
+                                        <StackPanel Orientation="Horizontal">
+                                            <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.SoundVolumeMin}, Mode=OneTime}"
+                                                    Maximum="{Binding Source={x:Static core:SettingsLimits.SoundVolumeMax}, Mode=OneTime}"
+                                                    TickFrequency="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    SmallChange="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    LargeChange="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                                    Value="{Binding CountdownBeepVolumePercent}"
+                                                    AutomationProperties.Name="Lautstärke des Countdown-Piepens" />
+                                            <TextBlock Text="{Binding CountdownBeepVolumeText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0"
+                                                       VerticalAlignment="Center" MinWidth="60" />
+                                        </StackPanel>
+
+                                        <Button Content="Anhören" Command="{Binding PreviewCountdownBeepCommand}" HorizontalAlignment="Left" Margin="0,14,0,0"
+                                                AutomationProperties.Name="Countdown-Piepen anhören" />
+                                        <TextBlock Style="{StaticResource Hint}" Text="Spielt drei Piepe im Abstand von einer Sekunde, der letzte ist der höhere." />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Kamera-Sound -->
+                            <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="18,14" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <CheckBox Content="Kamera-Sound beim Auslösen" IsChecked="{Binding ShutterSoundEnabled}" FontWeight="SemiBold"
+                                              AutomationProperties.Name="Kamera-Sound beim Auslösen" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Ertönt im Moment der Aufnahme jedes Fotos. Bei der Selbstzerstörung bleibt die Explosion, im Video gibt es keinen Auslöser-Ton." />
+                                    <StackPanel IsEnabled="{Binding ShutterSoundEnabled}">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsEnabled" Value="False">
+                                                        <Setter Property="Opacity" Value="0.55" />
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
+
+                                        <TextBlock Text="Klang" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox Width="280" HorizontalAlignment="Left" ItemsSource="{Binding ShutterSounds}"
+                                                  SelectedValuePath="Value" DisplayMemberPath="Name" SelectedValue="{Binding ShutterSound}"
+                                                  AutomationProperties.Name="Klang des Kamera-Sounds" />
+
+                                        <TextBlock Text="Lautstärke" Style="{StaticResource FieldLabel}" />
+                                        <StackPanel Orientation="Horizontal">
+                                            <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.SoundVolumeMin}, Mode=OneTime}"
+                                                    Maximum="{Binding Source={x:Static core:SettingsLimits.SoundVolumeMax}, Mode=OneTime}"
+                                                    TickFrequency="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    SmallChange="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    LargeChange="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                                    Value="{Binding ShutterVolumePercent}"
+                                                    AutomationProperties.Name="Lautstärke des Kamera-Sounds" />
+                                            <TextBlock Text="{Binding ShutterVolumeText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0"
+                                                       VerticalAlignment="Center" MinWidth="60" />
+                                        </StackPanel>
+
+                                        <Button Content="Anhören" Command="{Binding PreviewShutterSoundCommand}" HorizontalAlignment="Left" Margin="0,14,0,0"
+                                                AutomationProperties.Name="Kamera-Sound anhören" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
@@ -589,8 +685,36 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" xmlns:conv="clr-namespace:Fotobox.Views.Converters">
                     <ScrollViewer.Resources>
                         <conv:EnumMatchConverter x:Key="EnumMatch" />
+                        <!-- Rundes Farbfeld der Druckbereich-Markierung (Farbe aus Background, bewusst fest eingefärbt wie die Gastansicht); gewählt = Ring in der Akzentfarbe -->
+                        <Style x:Key="PrintAreaSwatch" TargetType="RadioButton">
+                            <Setter Property="Cursor" Value="Hand" />
+                            <Setter Property="Margin" Value="0,0,12,0" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="RadioButton">
+                                        <Grid Width="44" Height="44" Background="Transparent">
+                                            <Ellipse x:Name="Ring" Stroke="{DynamicResource AccentHoverBrush}" StrokeThickness="3" Opacity="0" />
+                                            <Ellipse Margin="6" Fill="{TemplateBinding Background}" Stroke="{DynamicResource TrackBrush}" StrokeThickness="1" />
+                                        </Grid>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                            </Trigger>
+                                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                                <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="Ring" Property="Stroke" Value="{DynamicResource AccentBrush}" />
+                                                <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
                     </ScrollViewer.Resources>
-                    <Border Style="{StaticResource Card}">
+                    <StackPanel MaxWidth="820" HorizontalAlignment="Left">
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                         <StackPanel MaxWidth="780" HorizontalAlignment="Left">
                             <TextBlock Text="Gastansicht" Style="{StaticResource SectionTitle}" />
 
@@ -916,6 +1040,139 @@
                                        Text="Die Vorschau zeigt den Hinweis mit den aktuell eingestellten Fototasten (Tab „Tasten“) und, wenn Gäste per Mausrad zwischen mehreren Layouts wählen können, die Zeile zur Layoutwahl. Bei aktivem Videomodus erscheint oben die Video-Zeile. Das Livebild ist nur angedeutet." />
                         </StackPanel>
                     </Border>
+                    <!-- ============ Druckbereich anzeigen ============ -->
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel MaxWidth="780" HorizontalAlignment="Left">
+                            <TextBlock Text="Druckbereich anzeigen" Style="{StaticResource SectionTitle}" />
+
+                            <CheckBox Content="Druckbereich im Livebild anzeigen" IsChecked="{Binding PrintAreaEnabled}" />
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Zeigt im Livebild der Gastansicht, welcher Ausschnitt des Kamerabilds gedruckt wird, damit sich Ihre Gäste passend im Bild aufstellen. Die Markierung erscheint im Leerlauf und während des Foto-Countdowns, aber nie im Foto selbst, nicht bei Videos und nicht bei der Kisscam. Sie folgt dem Layout, das der Gast gerade per Mausrad gewählt hat. Werden die Fotos ganz gedruckt (Fotostreifen mit einem Streifen), gibt es keinen Zuschnitt und deshalb auch keine Markierung." />
+
+                            <StackPanel x:Name="PrintAreaFields" IsEnabled="{Binding IsPrintAreaDetailEnabled}">
+                                <StackPanel.Style>
+                                    <Style TargetType="StackPanel">
+                                        <Style.Triggers>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter Property="Opacity" Value="0.55" />
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </StackPanel.Style>
+
+                                <TextBlock Text="Form" Style="{StaticResource FieldLabel}" />
+                                <UniformGrid Columns="3" Margin="0,0,-14,0">
+                                    <RadioButton GroupName="PrintAreaStyle" Style="{StaticResource CardRadio}"
+                                                 IsChecked="{Binding PrintAreaShape, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:PrintAreaStyle.Lines}}"
+                                                 AutomationProperties.Name="Form: Nur Linien">
+                                        <StackPanel>
+                                            <local:PrintAreaSketch Width="144" Height="81" UseSample="True" AreaStyle="Lines" ThicknessPx="30"
+                                                                   AreaColor="{Binding PrintAreaLineColor}" OpacityPercent="{Binding PrintAreaOpacityPercent}"
+                                                                   ShadePercent="{Binding PrintAreaShadePercent}" />
+                                            <TextBlock Text="Nur Linien" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                                            <TextBlock Text="Linien an den Schnittkanten." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <RadioButton GroupName="PrintAreaStyle" Style="{StaticResource CardRadio}"
+                                                 IsChecked="{Binding PrintAreaShape, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:PrintAreaStyle.LinesShaded}}"
+                                                 AutomationProperties.Name="Form: Linien + Abdunklung">
+                                        <StackPanel>
+                                            <local:PrintAreaSketch Width="144" Height="81" UseSample="True" AreaStyle="LinesShaded" ThicknessPx="30"
+                                                                   AreaColor="{Binding PrintAreaLineColor}" OpacityPercent="{Binding PrintAreaOpacityPercent}"
+                                                                   ShadePercent="{Binding PrintAreaShadePercent}" />
+                                            <TextBlock Text="Linien + Abdunklung" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                                            <TextBlock Text="Außerhalb wird das Bild abgedunkelt." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <RadioButton GroupName="PrintAreaStyle" Style="{StaticResource CardRadio}"
+                                                 IsChecked="{Binding PrintAreaShape, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:PrintAreaStyle.Corners}}"
+                                                 AutomationProperties.Name="Form: Eckmarken">
+                                        <StackPanel>
+                                            <local:PrintAreaSketch Width="144" Height="81" UseSample="True" AreaStyle="Corners" ThicknessPx="30"
+                                                                   AreaColor="{Binding PrintAreaLineColor}" OpacityPercent="{Binding PrintAreaOpacityPercent}"
+                                                                   ShadePercent="{Binding PrintAreaShadePercent}" />
+                                            <TextBlock Text="Eckmarken" FontWeight="SemiBold" FontSize="15" Margin="0,12,0,2" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                                            <TextBlock Text="Vier Ecken markieren den Ausschnitt." Style="{StaticResource Hint}" TextAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                </UniformGrid>
+
+                                <TextBlock Text="Farbe" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton GroupName="PrintAreaColor" Style="{StaticResource PrintAreaSwatch}" Background="{x:Static booth:PrintAreaPalette.White}"
+                                                 IsChecked="{Binding PrintAreaLineColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:PrintAreaColor.White}}"
+                                                 ToolTip="Weiß" AutomationProperties.Name="Farbe: Weiß" />
+                                    <RadioButton GroupName="PrintAreaColor" Style="{StaticResource PrintAreaSwatch}" Background="{x:Static booth:PrintAreaPalette.Black}"
+                                                 IsChecked="{Binding PrintAreaLineColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:PrintAreaColor.Black}}"
+                                                 ToolTip="Schwarz" AutomationProperties.Name="Farbe: Schwarz" />
+                                    <RadioButton GroupName="PrintAreaColor" Style="{StaticResource PrintAreaSwatch}" Background="{x:Static booth:PrintAreaPalette.Red}"
+                                                 IsChecked="{Binding PrintAreaLineColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:PrintAreaColor.Red}}"
+                                                 ToolTip="Rot" AutomationProperties.Name="Farbe: Rot" />
+                                    <RadioButton GroupName="PrintAreaColor" Style="{StaticResource PrintAreaSwatch}" Background="{x:Static booth:PrintAreaPalette.Yellow}"
+                                                 IsChecked="{Binding PrintAreaLineColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:PrintAreaColor.Yellow}}"
+                                                 ToolTip="Gelb" AutomationProperties.Name="Farbe: Gelb" />
+                                    <RadioButton GroupName="PrintAreaColor" Style="{StaticResource PrintAreaSwatch}" Background="{x:Static booth:PrintAreaPalette.Green}"
+                                                 IsChecked="{Binding PrintAreaLineColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:PrintAreaColor.Green}}"
+                                                 ToolTip="Grün" AutomationProperties.Name="Farbe: Grün" />
+                                    <RadioButton GroupName="PrintAreaColor" Style="{StaticResource PrintAreaSwatch}" Background="{x:Static booth:PrintAreaPalette.Blue}"
+                                                 IsChecked="{Binding PrintAreaLineColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:PrintAreaColor.Blue}}"
+                                                 ToolTip="Blau" AutomationProperties.Name="Farbe: Blau" />
+                                    <RadioButton GroupName="PrintAreaColor" Style="{StaticResource PrintAreaSwatch}" Background="{x:Static booth:PrintAreaPalette.Pink}"
+                                                 IsChecked="{Binding PrintAreaLineColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:PrintAreaColor.Pink}}"
+                                                 ToolTip="Pink" AutomationProperties.Name="Farbe: Pink" />
+                                    <RadioButton GroupName="PrintAreaColor" Style="{StaticResource PrintAreaSwatch}" Background="{x:Static booth:PrintAreaPalette.Orange}"
+                                                 IsChecked="{Binding PrintAreaLineColor, Converter={StaticResource EnumMatch}, ConverterParameter={x:Static core:PrintAreaColor.Orange}}"
+                                                 ToolTip="Orange" AutomationProperties.Name="Farbe: Orange" />
+                                </StackPanel>
+
+                                <TextBlock Text="Deckkraft der Linien" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.PrintAreaOpacityMin}, Mode=OneTime}"
+                                            Maximum="{Binding Source={x:Static core:SettingsLimits.PrintAreaOpacityMax}, Mode=OneTime}"
+                                            TickFrequency="5" SmallChange="5" LargeChange="5"
+                                            IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                            Value="{Binding PrintAreaOpacityPercent}"
+                                            AutomationProperties.Name="Deckkraft der Linien" />
+                                    <TextBlock Text="{Binding PrintAreaOpacityText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0" VerticalAlignment="Center" MinWidth="60" />
+                                </StackPanel>
+
+                                <TextBlock Text="Linienstärke" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.PrintAreaThicknessMin}, Mode=OneTime}"
+                                            Maximum="{Binding Source={x:Static core:SettingsLimits.PrintAreaThicknessMax}, Mode=OneTime}"
+                                            TickFrequency="1" SmallChange="1" LargeChange="1"
+                                            IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                            Value="{Binding PrintAreaThickness}"
+                                            AutomationProperties.Name="Linienstärke" />
+                                    <TextBlock Text="{Binding PrintAreaThickness, StringFormat={}{0} px}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0" VerticalAlignment="Center" MinWidth="60" />
+                                </StackPanel>
+
+                                <TextBlock Text="Abdunklung außerhalb" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal" IsEnabled="{Binding IsPrintAreaShadeEnabled}">
+                                    <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.PrintAreaShadeMin}, Mode=OneTime}"
+                                            Maximum="{Binding Source={x:Static core:SettingsLimits.PrintAreaShadeMax}, Mode=OneTime}"
+                                            TickFrequency="5" SmallChange="5" LargeChange="5"
+                                            IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                            Value="{Binding PrintAreaShadePercent}"
+                                            AutomationProperties.Name="Abdunklung außerhalb" />
+                                    <TextBlock Text="{Binding PrintAreaShadeText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0" VerticalAlignment="Center" MinWidth="60" />
+                                </StackPanel>
+
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Die Abdunklung wirkt nur bei der Form „Linien + Abdunklung“." />
+
+                                <TextBlock Text="Vorschau" Style="{StaticResource FieldLabel}" />
+                                <Border Width="482" Height="272" HorizontalAlignment="Left" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                        AutomationProperties.Name="Vorschau des Druckbereichs">
+                                    <local:PrintAreaSketch Area="{Binding PrintAreaPreviewRect}" AreaStyle="{Binding PrintAreaShape}"
+                                                           AreaColor="{Binding PrintAreaLineColor}" OpacityPercent="{Binding PrintAreaOpacityPercent}"
+                                                           ThicknessPx="{Binding PrintAreaThickness}" ThicknessScale="3" ShadePercent="{Binding PrintAreaShadePercent}" />
+                                </Border>
+                                <TextBlock Style="{StaticResource Hint}" Text="{Binding PrintAreaPreviewText}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 

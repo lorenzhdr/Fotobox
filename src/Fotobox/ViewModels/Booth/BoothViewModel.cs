@@ -8,6 +8,8 @@ using Fotobox.Core.Fun;
 using Fotobox.Core.Heart;
 using Fotobox.Core.Peace;
 using Fotobox.Services.Camera;
+using Fotobox.Services.Layout;
+using Fotobox.Services.Printing;
 using Fotobox.Services.Storage;
 
 namespace Fotobox.ViewModels.Booth;
@@ -52,6 +54,14 @@ public sealed class BoothViewModel : ObservableObject
     // Herz/Kisscam: Musik, Rahmen und Zoom-Ausschnitt des laufenden Durchgangs; „pending“ = Kisscam-Countdown gesehen (Musik läuft).
     private readonly IMusicPlayer? _music;
     private readonly IKisscamMusicLibrary? _musicLibrary;
+    // Töne des Ablaufs (Countdown-Piepen, Kamera-Sound); ohne Spieler (Tests) bleibt der Ablauf stumm.
+    private readonly IBoothSoundPlayer? _boothSound;
+    // Piepen: im laufenden Countdown schon geloggt (ein Logeintrag je Countdown); Einstellungen, für die die Puffer angelegt wurden.
+    private bool _beepLogged;
+    private (bool Beep, CountdownBeepSound BeepSound, int BeepVolume, bool Shutter, ShutterSound ShutterSound, int ShutterVolume)? _preparedSounds;
+
+    /// <summary>Hat die Gastansicht den Ton-Spieler des Ablaufs (DI)? Für Tests der Zusammensetzung.</summary>
+    internal bool HasBoothSound => _boothSound is not null;
 
     /// <summary>Hat die Gastansicht einen Musikspieler (DI)? Für Tests der Zusammensetzung.</summary>
     internal bool HasMusic => _music is not null;
@@ -66,6 +76,15 @@ public sealed class BoothViewModel : ObservableObject
     private PhotoFrame? _kisscamFrame;
     private NormRect? _kisscamRegion;
 
+    // Druckbereich: das Layout des laufenden Durchgangs (der Gast hat es vor dem Auslösen gewählt, die Auswahl springt beim Auslösen
+    // zurück auf den Standard) und das zuletzt berechnete Ergebnis samt Eingaben (die Anzeige liest es bei jedem Refresh).
+    private GuestLayout? _sessionLayout;
+    private PrintAreaKey? _printAreaKey;
+    private NormRect? _printAreaCached;
+
+    private readonly record struct PrintAreaKey(GuestLayout Layout, int StripPhotos, bool HasCaption, bool HasDate, PageSpec Page,
+        double ImageWidth, double ImageHeight);
+
     /// <summary>So lange bleibt die Alarm-Ansicht nach dem Blitz sichtbar, damit die Explosion zu Ende spielt.</summary>
     private static readonly TimeSpan ExplosionDuration = TimeSpan.FromMilliseconds(1200);
 
@@ -77,9 +96,10 @@ public sealed class BoothViewModel : ObservableObject
     /// <param name="peace">Peaceerkennung der Gastansicht (DI, mit dem Bart-Zustand für die Foto-Planung); ohne Angabe eine untätige Instanz (Tests).</param>
     /// <param name="music">Musik der Kisscam (DI); ohne Angabe läuft die Kisscam stumm.</param>
     /// <param name="musicLibrary">Songs, Häkchen, Startzeiten und Lautstärken der Kisscam-Musik (DI); ohne Angabe läuft die Kisscam stumm.</param>
+    /// <param name="boothSound">Countdown-Piepen und Kamera-Sound (DI); ohne Angabe bleibt der Ablauf ohne diese Töne.</param>
     public BoothViewModel(BoothController controller, ICameraService camera, ISettingsStore settings,
         FunOverlayViewModel? fun = null, PeaceOverlayViewModel? peace = null, IMusicPlayer? music = null,
-        IKisscamMusicLibrary? musicLibrary = null)
+        IKisscamMusicLibrary? musicLibrary = null, IBoothSoundPlayer? boothSound = null)
     {
         Controller = controller;
         Camera = camera;
@@ -88,6 +108,7 @@ public sealed class BoothViewModel : ObservableObject
         Peace = peace ?? PeaceOverlayViewModel.CreateInert();
         _music = music;
         _musicLibrary = musicLibrary;
+        _boothSound = boothSound;
         Peace.ActionRequested += (_, trigger) => OnPeaceAction(trigger);
         Peace.MiddleFingerTriggered += (_, _) => OnMiddleFinger();
         Peace.HeartTriggered += (_, trigger) => OnHeartAction(trigger);
@@ -124,11 +145,15 @@ public sealed class BoothViewModel : ObservableObject
 
         controller.StateChanged += (_, _) => OnUi(Refresh);
         controller.Changed += (_, _) => OnUi(Refresh);
+        // Eine neu ermittelte Seitengröße ändert den Druckbereich (Hintergrundthread, deshalb über OnUi).
+        controller.PageSpecUpdated += (_, _) => OnUi(RaisePrintArea);
         controller.FlashRequested += (_, _) =>
         {
             // Der Stil wird hier gelesen, bevor der Aufruf auf den UI-Thread wechselt: Er gilt nur bis zum Ende des Durchgangs.
             var selfDestruct = controller.CountdownStyle == CountdownStyle.SelfDestruct;
             var kisscam = controller.CountdownStyle == CountdownStyle.Kisscam;
+            // Der Kamera-Sound startet hier sofort, noch vor dem Wechsel auf den UI-Thread: Das Foto beginnt unmittelbar danach.
+            PlayShutterSound(controller.CountdownStyle);
             OnUi(() =>
             {
                 if (selfDestruct)
@@ -157,9 +182,11 @@ public sealed class BoothViewModel : ObservableObject
             OnUi(() =>
             {
                 ResetLayoutSelection();
+                PrepareBoothSounds();
                 Refresh();
             });
         };
+        PrepareBoothSounds();
     }
 
     public BoothController Controller { get; }
@@ -219,15 +246,15 @@ public sealed class BoothViewModel : ObservableObject
 
     private HeartSettings HeartConfig => Settings.Current.Heart ?? new HeartSettings();
 
-    /// <summary>Kisscam-Countdown läuft (Jumbotron-Rahmen; Gasttext bzw. in den letzten Sekunden die großen Ziffern).</summary>
+    /// <summary>Kisscam-Countdown läuft (Jumbotron-Rahmen, Gasttext und – ohne Abdunklung – die großen Ziffern).</summary>
     public bool IsKisscamCountdown => IsCountdown && Controller.CountdownStyle == CountdownStyle.Kisscam;
 
     /// <summary>Jumbotron-Rahmen sichtbar: im Kisscam-Countdown und beim Auslösen, bis das Foto fertig ist.</summary>
     public bool ShowKisscamFrame =>
         Controller.CountdownStyle == CountdownStyle.Kisscam && Controller.State is BoothState.Countdown or BoothState.Capturing;
 
-    /// <summary>Gasttext sichtbar: im Kisscam-Countdown, bis die letzten <see cref="SettingsLimits.KisscamFinalDigitsSeconds"/> Sekunden die Ziffern zeigen.</summary>
-    public bool ShowKisscamText => IsKisscamCountdown && Controller.CountdownValue > SettingsLimits.KisscamFinalDigitsSeconds;
+    /// <summary>Gasttext sichtbar: den ganzen Kisscam-Countdown über, bis das Foto ausgelöst wird (die Ziffern stehen zusätzlich darüber).</summary>
+    public bool ShowKisscamText => IsKisscamCountdown;
 
     /// <summary>Gasttext mit der live herunterzählenden Restzeit (<c>{Sekunden}</c>).</summary>
     public string KisscamText => KisscamTextFormatter.Format(HeartConfig.KisscamText, Controller.CountdownValue);
@@ -244,6 +271,79 @@ public sealed class BoothViewModel : ObservableObject
 
     /// <summary>Das Herz der Erkennung für die Fortschrittsanzeige (ungespiegelt, normiert).</summary>
     public HeartView? HeartFeedback => Peace.Heart;
+
+    // ---- Druckbereich
+
+    private PrintAreaSettings PrintAreaConfig => Settings.Current.PrintArea ?? new PrintAreaSettings();
+
+    /// <summary>
+    /// Druckbereich-Markierung sichtbar: eingeschaltet, Kamera läuft und der Ausschnitt weicht vom ganzen Bild ab (<see cref="PrintAreaRect"/>);
+    /// nur im Leerlauf und im Foto-Countdown bzw. bei der Aufnahme. Nie im Videomodus (Video-Countdown, Aufnahme), nie bei der Kisscam,
+    /// nie in Vorschau, Druck, Druckersperre oder Fertig-Anzeige.
+    /// </summary>
+    public bool ShowPrintArea =>
+        PrintAreaConfig.Enabled && !_isShutDown && Camera.Status == CameraStatus.Running
+        && (Controller.State == BoothState.Idle
+            || (Controller.State is BoothState.Countdown or BoothState.Capturing && Controller.CountdownStyle != CountdownStyle.Kisscam))
+        && PrintAreaRect is not null;
+
+    /// <summary>
+    /// Der gedruckte Ausschnitt des Kamerabilds (normiert, ungespiegelt) für das aktuelle Layout des Gastes; <c>null</c> = kein Zuschnitt
+    /// (Einzelstreifen, oder das Bild passt zur Seite) oder die Funktion ist aus. Rechnet mit der zuletzt vom Druck bekannten Seitengröße
+    /// (sonst Seite laut Einstellungen bzw. 10 × 15 cm in der Ausrichtung des Layouts) und denselben Formeln wie der Druck
+    /// (<see cref="PrintAreaPreview"/>). Im Leerlauf folgt es der Mausrad-Auswahl, im Durchgang dem beim Auslösen gewählten Layout.
+    /// </summary>
+    public NormRect? PrintAreaRect
+    {
+        get
+        {
+            if (!PrintAreaConfig.Enabled)
+                return null;
+
+            var settings = Settings.Current;
+            var layout = settings.Layout ?? new LayoutSettings();
+            var guest = Controller.State == BoothState.Idle ? SelectedLayout : _sessionLayout ?? DefaultLayout;
+            var applied = new LayoutSettings();
+            GuestLayouts.ApplyTo(applied, guest);
+            var printer = settings.Printer ?? new PrinterSettings();
+            var page = Controller.GetLastKnownPageSpec(applied.Kind) ?? PrintLayoutResolver.ResolvePageSpec(printer, applied.Kind, [], null);
+
+            var key = new PrintAreaKey(guest, layout.StripPhotoCount, PrintAreaPreview.HasCaption(layout), layout.ShowDate, page,
+                PrintAreaImageWidth, PrintAreaImageHeight);
+            if (_printAreaKey != key)
+            {
+                _printAreaCached = PrintAreaPreview.Compute(guest, layout, page, key.ImageWidth, key.ImageHeight);
+                _printAreaKey = key;
+            }
+            return _printAreaCached;
+        }
+    }
+
+    /// <summary>Größe des Kamerabilds für die Berechnung und Anzeige: laufende Kameraauflösung, sonst das Bild der Erkennung, sonst 16:9.</summary>
+    public double PrintAreaImageWidth => PrintAreaImageSize().Width;
+
+    public double PrintAreaImageHeight => PrintAreaImageSize().Height;
+
+    private (double Width, double Height) PrintAreaImageSize()
+    {
+        if (Camera.ActiveResolution is { Width: > 0, Height: > 0 } resolution)
+            return (resolution.Width, resolution.Height);
+        if (Peace.ImageWidth > 0 && Peace.ImageHeight > 0)
+            return (Peace.ImageWidth, Peace.ImageHeight);
+        return (OverlayMapper.DefaultAspect * 1000, 1000);
+    }
+
+    public PrintAreaStyle PrintAreaShape => PrintAreaConfig.Style;
+    public PrintAreaColor PrintAreaLineColor => PrintAreaConfig.Color;
+    public int PrintAreaOpacityPercent => PrintAreaConfig.OpacityPercent;
+    public int PrintAreaThickness => PrintAreaConfig.ThicknessPx;
+    public int PrintAreaShadePercent => PrintAreaConfig.ShadePercent;
+
+    private void RaisePrintArea()
+    {
+        OnPropertyChanged(nameof(PrintAreaRect));
+        OnPropertyChanged(nameof(ShowPrintArea));
+    }
 
     public bool ShowShotInfo => Controller.ShotCount > 1 && Controller.State is BoothState.Countdown or BoothState.Capturing;
     public string ShotInfoText => ShowShotInfo ? $"Foto {Controller.ShotIndex} von {Controller.ShotCount}" : "";
@@ -446,11 +546,13 @@ public sealed class BoothViewModel : ObservableObject
         IsRecording && VideoConfig.ShowStopHint && Controller.CanStopVideo && VideoStopHintText.Length > 0;
 
     public bool IsVideoCountdown => Controller.State == BoothState.VideoCountdown;
+    /// <summary>Countdown-Anzeige (Zahl, ggf. Abdunklung) für Foto- und Videodurchgang – auch in der Kisscam, dort die ganze Zeit.</summary>
+    public bool ShowCountdown => IsCountdown || IsVideoCountdown;
     /// <summary>
-    /// Countdown-Anzeige (Zahl, Abdunklung) für Foto- und Videodurchgang. In der Kisscam entfällt sie, solange der Gasttext läuft
-    /// (<see cref="ShowKisscamText"/>): Die Abdunklung würde den Jumbotron-Rahmen verdecken; in den letzten Sekunden kommen die Ziffern.
+    /// Radiale Abdunklung hinter dem Countdown. Entfällt in der Kisscam: Das Livebild bleibt hell, der Jumbotron-Rahmen wird nicht
+    /// überdeckt; die Ziffern stehen dort ohne Abdunklung.
     /// </summary>
-    public bool ShowCountdown => (IsCountdown && !ShowKisscamText) || IsVideoCountdown;
+    public bool ShowCountdownShade => ShowCountdown && !IsKisscamCountdown;
     /// <summary>Video-Countdown ohne Zahl: Vorbereitung bzw. Kamera-Start (kann bei Zeitüberschreitungen bis ~25 s dauern).</summary>
     public bool IsVideoStarting => IsVideoCountdown && Controller.CountdownValue == 0;
 
@@ -784,8 +886,14 @@ public sealed class BoothViewModel : ObservableObject
 
         // Nur bei echter Auswahlmöglichkeit überschreibt die Wahl des Gastes das Standard-Layout.
         GuestLayout? layout = LayoutChoices.Count >= 2 ? SelectedLayout : null;
+        // Der Druckbereich folgt dem gewählten Layout, auch wenn die Auswahl gleich zurückspringt (vor dem Start gemerkt,
+        // weil schon der Zustandswechsel die Anzeige aktualisiert).
+        _sessionLayout = layout ?? DefaultLayout;
         if (!Controller.TryTrigger(layout))
+        {
+            _sessionLayout = null;
             return false;
+        }
 
         ResetLayoutSelection();
         return true;
@@ -914,7 +1022,93 @@ public sealed class BoothViewModel : ObservableObject
                 // Die Töne prüfen den Schalter der Einstellung selbst.
                 if (IsSelfDestructCountdown)
                     Peace.PlaySelfDestructTick(value);
+                // Zuletzt, damit ein in diesem Durchgang angehaltener Fun-Ton den Piep nicht abschneidet.
+                PlayCountdownBeep(value);
             }
+            else
+            {
+                _beepLogged = false;
+            }
+        }
+
+        // Vor dem ersten Piep eines Countdowns stehen die Puffer bereit (nach geänderten Einstellungen legt der Aufruf sie neu an).
+        if (Controller.State is BoothState.Countdown or BoothState.VideoCountdown)
+            PrepareBoothSounds();
+    }
+
+    /// <summary>
+    /// Countdown-Piepen zur angezeigten Ziffer (UI-Thread; einmal je Wert dank des Vergleichs mit <c>_lastCountdown</c> in
+    /// <see cref="Refresh"/>). Die Regeln stehen in <see cref="BoothSoundCues.Beep"/>. Wirft nie, blockiert nie.
+    /// </summary>
+    private void PlayCountdownBeep(int value)
+    {
+        if (_boothSound is null)
+            return;
+        try
+        {
+            if (BoothSoundCues.Beep(Controller.State, Controller.CountdownStyle, value, Settings.Current.Flow) is not { } beep)
+                return;
+            _boothSound.Play(beep.Cue, beep.VolumePercent);
+            // Ein Logeintrag je Countdown (nicht je Ziffer), wie die Ticks der Selbstzerstörung nicht einzeln geloggt werden.
+            if (!_beepLogged)
+            {
+                _beepLogged = true;
+                AppLog.Info($"Countdown-Piepen: {beep.Cue} ({beep.VolumePercent} %).");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Countdown-Piepen konnte nicht gespielt werden.", ex);
+        }
+    }
+
+    /// <summary>Kamera-Sound im Moment der Aufnahme (Regeln in <see cref="BoothSoundCues.Shutter"/>). Wirft nie, blockiert nie.</summary>
+    private void PlayShutterSound(CountdownStyle style)
+    {
+        if (_boothSound is null)
+            return;
+        try
+        {
+            if (BoothSoundCues.Shutter(style, Settings.Current.Flow) is not { } shutter)
+                return;
+            _boothSound.Play(shutter.Cue, shutter.VolumePercent);
+            AppLog.Info($"Kamera-Sound: {shutter.Cue} ({shutter.VolumePercent} %).");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Kamera-Sound konnte nicht gespielt werden.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Legt die Ton-Puffer für die aktuellen Einstellungen vorab an, damit die Synthese den ersten Piep und den Auslöser nicht
+    /// verspätet. Läuft nur bei geänderten Einstellungen erneut; wirft nie.
+    /// </summary>
+    private void PrepareBoothSounds()
+    {
+        if (_boothSound is null)
+            return;
+        try
+        {
+            var flow = Settings.Current.Flow;
+            if (flow is null)
+                return;
+            var key = (flow.CountdownBeepEnabled, flow.CountdownBeepSound, flow.CountdownBeepVolumePercent,
+                flow.ShutterSoundEnabled, flow.ShutterSound, flow.ShutterVolumePercent);
+            if (_preparedSounds == key)
+                return;
+            _preparedSounds = key;
+            if (flow.CountdownBeepEnabled)
+            {
+                _boothSound.Prepare(BoothToneSynth.BeepCue(flow.CountdownBeepSound, final: false), flow.CountdownBeepVolumePercent);
+                _boothSound.Prepare(BoothToneSynth.BeepCue(flow.CountdownBeepSound, final: true), flow.CountdownBeepVolumePercent);
+            }
+            if (flow.ShutterSoundEnabled)
+                _boothSound.Prepare(BoothToneSynth.ShutterCue(flow.ShutterSound), flow.ShutterVolumePercent);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Ablauf-Töne konnten nicht vorbereitet werden.", ex);
         }
     }
 
@@ -1261,8 +1455,14 @@ public sealed class BoothViewModel : ObservableObject
             CountdownSeconds = countdownSeconds,
             Style = style,
         };
+        // Wie der Controller: Peace-Fotos sind immer Einzelfotos (Streifen werden zum Einzelfoto).
+        var effective = layout ?? DefaultLayout;
+        _sessionLayout = effective is GuestLayout.StripDouble or GuestLayout.StripSingle ? GuestLayout.Single : effective;
         if (!Controller.TryTrigger(options))
+        {
+            _sessionLayout = null;
             return false;
+        }
 
         ResetLayoutSelection();
         return true;

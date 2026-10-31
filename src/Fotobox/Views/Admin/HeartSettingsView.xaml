@@ -86,15 +86,19 @@
                                             Visibility="{Binding PeacePreview.HeartDetectedNow, Converter={StaticResource BoolToVis}}">
                                         <TextBlock x:Name="HeartDetectedBadgeText" Text="{Binding HeartPreviewBadgeText}" Foreground="White" FontSize="54" FontWeight="SemiBold" />
                                     </Border>
-                                    <!-- Kisscam-Test: Jumbotron-Rahmen mit Gasttext, in den letzten Sekunden große Ziffern -->
+                                    <!-- Kisscam-Test: Jumbotron-Rahmen mit Gasttext und durchgehend großen Ziffern (wie in der Gastansicht, ohne Abdunklung) -->
                                     <heart:KisscamOverlay x:Name="HeartKisscamTestOverlay" Frame="{Binding KisscamTestFrame}"
                                                           Text="{Binding KisscamTestText}" ShowText="{Binding KisscamTestShowText}"
                                                           Visibility="{Binding KisscamTestRunning, Converter={StaticResource BoolToVis}}" />
                                     <Border x:Name="HeartKisscamTestDigits" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                            Width="480" Height="480" CornerRadius="240" Background="#99000000" IsHitTestVisible="False"
+                                            Width="480" Height="480" IsHitTestVisible="False"
                                             Visibility="{Binding KisscamTestShowDigits, Converter={StaticResource BoolToVis}}">
                                         <TextBlock x:Name="HeartKisscamTestDigitsText" Text="{Binding KisscamTestDigits}" Foreground="White" FontSize="360"
-                                                   FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                   FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock.Effect>
+                                                <DropShadowEffect BlurRadius="60" ShadowDepth="0" Color="#F5C26B" Opacity="0.8" />
+                                            </TextBlock.Effect>
+                                        </TextBlock>
                                     </Border>
                                     <!-- Ende des Tests: nur ein Hinweis, nie ein echtes Foto -->
                                     <Border x:Name="HeartKisscamTestPhotoBadge" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="36,16"
@@ -216,10 +220,7 @@
                             <TextBlock Text="Timer" Style="{DynamicResource FieldLabel}" />
                             <local:NumberStepper x:Name="KisscamSecondsStepper" Value="{Binding KisscamSeconds}" Minimum="{x:Static core:SettingsLimits.KisscamSecondsMin}" Maximum="{x:Static core:SettingsLimits.KisscamSecondsMax}" Suffix=" s" />
                             <TextBlock Style="{DynamicResource Hint}"
-                                       Text="So lange haben die Gäste Zeit. In den letzten Sekunden erscheint ein großer Countdown 3 – 2 – 1." />
-                            <TextBlock x:Name="KisscamOnlyCountdownHint" Text="{x:Static vm:AdminViewModel.KisscamOnlyCountdownHintText}"
-                                       Style="{DynamicResource Hint}" Foreground="{DynamicResource WarningBrush}"
-                                       Visibility="{Binding HasKisscamOnlyCountdownHint, Converter={StaticResource BoolToVis}}" />
+                                       Text="So lange haben die Gäste Zeit. Währenddessen steht der Text unten im Bild, dazu zählt ein großer Countdown herunter." />
 
                             <TextBlock Text="Text für die Gäste" Style="{DynamicResource FieldLabel}" />
                             <Grid Width="620" HorizontalAlignment="Left">

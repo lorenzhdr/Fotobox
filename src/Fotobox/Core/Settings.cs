@@ -63,6 +63,14 @@ public enum KisscamColor { PinkRed, Red, Gold, Purple, BlackWhite }
 /// scheitert es, läuft die Erkennung auf der CPU. Nur hinten erweitern.
 /// </summary>
 public enum AcceleratorMode { Auto, Cpu, Gpu, Npu }
+/// <summary>
+/// Gastansicht „Druckbereich anzeigen“: Darstellung der Markierung, die zeigt, welcher Ausschnitt des Kamerabilds gedruckt wird.
+/// Lines = nur Linien an den Schnittkanten, LinesShaded = Linien und abgedunkelter Bereich außerhalb, Corners = vier Eckmarken.
+/// Nur hinten erweitern.
+/// </summary>
+public enum PrintAreaStyle { Lines, LinesShaded, Corners }
+/// <summary>Feste Farbpalette der Druckbereich-Markierung (Farbwerte in <c>PrintAreaPalette</c>). Nur hinten erweitern.</summary>
+public enum PrintAreaColor { White, Black, Red, Yellow, Green, Blue, Pink, Orange }
 
 /// <summary>Gemeinsame Wertebereiche für Admin-UI, Validierung und Normalisierung.</summary>
 public static class SettingsLimits
@@ -171,8 +179,6 @@ public static class SettingsLimits
     public const int KisscamMusicVolumeMin = 0, KisscamMusicVolumeMax = 100, KisscamMusicVolumeStep = 5;
     /// <summary>Kisscam: längster Banner-Text (z. B. „KISS CAM“); längere Werte aus der settings.json werden beim Laden gekürzt.</summary>
     public const int KisscamBannerMaxLength = 30;
-    /// <summary>Kisscam: In den letzten so vielen Sekunden des Countdowns erscheinen große Ziffern.</summary>
-    public const int KisscamFinalDigitsSeconds = 3;
     /// <summary>Kisscam: längster gespeicherter Pfad des Musikordners; längere Werte aus der settings.json werden verworfen (gekürzt passte der Pfad nie).</summary>
     public const int KisscamMusicFolderMaxLength = 1024;
     /// <summary>Kisscam: Startzeit eines Songs in Sekunden (1-s-Schritte; 3599 = 59:59).</summary>
@@ -185,6 +191,14 @@ public static class SettingsLimits
     public const int AdminZoomMin = 60, AdminZoomMax = 100, AdminZoomStep = 5, AdminZoomDefault = 80;
     /// <summary>Leistung: längster gespeicherter Geräteschlüssel der gewählten Grafikkarte (<see cref="PerformanceSettings.GpuDeviceKey"/>); längere Werte werden verworfen (gekürzt passte der Schlüssel nie).</summary>
     public const int GpuDeviceKeyMaxLength = 200;
+    /// <summary>Druckbereich: Deckkraft der Linien und Eckmarken in Prozent (5er-Schritte).</summary>
+    public const int PrintAreaOpacityMin = 20, PrintAreaOpacityMax = 100, PrintAreaOpacityStep = 5, PrintAreaOpacityDefault = 80;
+    /// <summary>Druckbereich: Linienstärke in Bildschirmpunkten (DIPs der Gastansicht).</summary>
+    public const int PrintAreaThicknessMin = 1, PrintAreaThicknessMax = 10, PrintAreaThicknessDefault = 3;
+    /// <summary>Druckbereich: Abdunklung außerhalb des Druckbereichs in Prozent (5er-Schritte; nur bei <see cref="PrintAreaStyle.LinesShaded"/>).</summary>
+    public const int PrintAreaShadeMin = 10, PrintAreaShadeMax = 80, PrintAreaShadeStep = 5, PrintAreaShadeDefault = 40;
+    /// <summary>Ablauf: Lautstärke von Countdown-Piepen und Kamera-Sound in Prozent (5er-Schritte, 0 = still, Standard 70).</summary>
+    public const int SoundVolumeMin = 0, SoundVolumeMax = 100, SoundVolumeStep = 5, SoundVolumeDefault = 70;
 }
 
 /// <summary>
@@ -276,6 +290,7 @@ public sealed class AppSettings
     public MiddleFingerSettings MiddleFinger { get; set; } = new();
     public HeartSettings Heart { get; set; } = new();
     public PerformanceSettings Performance { get; set; } = new();
+    public PrintAreaSettings PrintArea { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -353,7 +368,24 @@ public sealed class FlowSettings
     public bool PrintingEnabled { get; set; } = true;
     /// <summary>So lange braucht der Drucker etwa; danach ist der Fortschrittsbalken voll.</summary>
     public int ExpectedPrintSeconds { get; set; } = 240;
+
+    /// <summary>Kurzer Piep bei jeder Countdown-Ziffer (Foto und Video; nicht bei Selbstzerstörung und Kisscam).</summary>
+    public bool CountdownBeepEnabled { get; set; } = true;
+    public CountdownBeepSound CountdownBeepSound { get; set; } = CountdownBeepSound.Soft;
+    /// <summary><see cref="SettingsLimits.SoundVolumeMin"/> bis <see cref="SettingsLimits.SoundVolumeMax"/> in 5er-Schritten.</summary>
+    public int CountdownBeepVolumePercent { get; set; } = SettingsLimits.SoundVolumeDefault;
+    /// <summary>Kamera-Sound im Moment der Aufnahme (nicht bei Selbstzerstörung, dort bleibt die Explosion; nicht im Video).</summary>
+    public bool ShutterSoundEnabled { get; set; } = true;
+    public ShutterSound ShutterSound { get; set; } = ShutterSound.Slr;
+    /// <summary><see cref="SettingsLimits.SoundVolumeMin"/> bis <see cref="SettingsLimits.SoundVolumeMax"/> in 5er-Schritten.</summary>
+    public int ShutterVolumePercent { get; set; } = SettingsLimits.SoundVolumeDefault;
 }
+
+/// <summary>Klangvariante des Countdown-Piepens (nur hinten erweitern).</summary>
+public enum CountdownBeepSound { Soft, Bright, WoodBlock }
+
+/// <summary>Klangvariante des Kamera-Sounds (nur hinten erweitern): Spiegelreflex, Kompaktkamera, Retro mit Filmtransport.</summary>
+public enum ShutterSound { Slr, Compact, Retro }
 
 public sealed class LayoutSettings
 {
@@ -773,4 +805,25 @@ public sealed class PerformanceSettings
     /// Wirkt ab dem nächsten Start. Gerätespezifisch.
     /// </summary>
     public bool PreferHighPerformanceGpu { get; set; } = true;
+}
+
+/// <summary>
+/// Gastansicht „Druckbereich anzeigen“: Wird das Foto beim Drucken zugeschnitten (Einzelfoto, Overlay, Doppelstreifen), zeigt die
+/// Gastansicht im Leerlauf und im Foto-Countdown, welcher Ausschnitt des Livebilds gedruckt wird. Nur eine Anzeige im Livebild, nie im
+/// Foto. Übertragbar (wird mit „Einstellungen teilen“ weitergegeben). Nur Werttypen.
+/// </summary>
+public sealed class PrintAreaSettings
+{
+    public bool Enabled { get; set; }
+    public PrintAreaStyle Style { get; set; } = PrintAreaStyle.LinesShaded;
+    public PrintAreaColor Color { get; set; } = PrintAreaColor.White;
+    /// <summary>Deckkraft der Linien und Eckmarken in Prozent (<see cref="SettingsLimits.PrintAreaOpacityMin"/> bis <see cref="SettingsLimits.PrintAreaOpacityMax"/>).</summary>
+    public int OpacityPercent { get; set; } = SettingsLimits.PrintAreaOpacityDefault;
+    /// <summary>Linienstärke in Bildschirmpunkten (<see cref="SettingsLimits.PrintAreaThicknessMin"/> bis <see cref="SettingsLimits.PrintAreaThicknessMax"/>).</summary>
+    public int ThicknessPx { get; set; } = SettingsLimits.PrintAreaThicknessDefault;
+    /// <summary>Abdunklung außerhalb des Druckbereichs in Prozent; wirkt nur bei <see cref="PrintAreaStyle.LinesShaded"/>.</summary>
+    public int ShadePercent { get; set; } = SettingsLimits.PrintAreaShadeDefault;
+
+    /// <summary>Tiefe Kopie.</summary>
+    public PrintAreaSettings Clone() => (PrintAreaSettings)MemberwiseClone();
 }

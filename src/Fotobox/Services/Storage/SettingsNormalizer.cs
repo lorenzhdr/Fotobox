@@ -39,6 +39,7 @@ internal static class SettingsNormalizer
         s.MiddleFinger ??= new MiddleFingerSettings();
         s.Heart ??= new HeartSettings();
         s.Performance ??= new PerformanceSettings();
+        s.PrintArea ??= new PrintAreaSettings();
 
         NormalizeCamera(s.Camera);
 
@@ -47,6 +48,12 @@ internal static class SettingsNormalizer
         s.Flow.PauseBetweenShotsSeconds = Math.Clamp(s.Flow.PauseBetweenShotsSeconds, SettingsLimits.PauseMin, SettingsLimits.PauseMax);
         s.Flow.ErrorDisplaySeconds = Math.Clamp(s.Flow.ErrorDisplaySeconds, SettingsLimits.ErrorDisplayMin, SettingsLimits.ErrorDisplayMax);
         s.Flow.ExpectedPrintSeconds = Math.Clamp(s.Flow.ExpectedPrintSeconds, SettingsLimits.ExpectedPrintMin, SettingsLimits.ExpectedPrintMax);
+        if (!Enum.IsDefined(s.Flow.CountdownBeepSound))
+            s.Flow.CountdownBeepSound = CountdownBeepSound.Soft;
+        if (!Enum.IsDefined(s.Flow.ShutterSound))
+            s.Flow.ShutterSound = ShutterSound.Slr;
+        s.Flow.CountdownBeepVolumePercent = NormalizeSoundVolume(s.Flow.CountdownBeepVolumePercent);
+        s.Flow.ShutterVolumePercent = NormalizeSoundVolume(s.Flow.ShutterVolumePercent);
 
         if (!Enum.IsDefined(s.Layout.Kind))
             s.Layout.Kind = LayoutKind.SingleBorderless;
@@ -79,6 +86,7 @@ internal static class SettingsNormalizer
         NormalizeMiddleFinger(s.MiddleFinger);
         NormalizeHeart(s.Heart);
         NormalizePerformance(s.Performance);
+        NormalizePrintArea(s.PrintArea);
 
         // PinIterations wird bewusst nicht geklemmt: Ein anderer Wert passte nicht mehr zum gespeicherten Hash (siehe PinService).
 
@@ -108,6 +116,17 @@ internal static class SettingsNormalizer
             : TrimToLength(s.Appearance.GuestMonitorName, SettingsLimits.MonitorNameMaxLength);
 
         return s;
+    }
+
+    /// <summary>
+    /// Lautstärke der Ablauf-Töne: auf [<see cref="SettingsLimits.SoundVolumeMin"/>, <see cref="SettingsLimits.SoundVolumeMax"/>]
+    /// klemmen und auf den nächsten <see cref="SettingsLimits.SoundVolumeStep"/>-Schritt runden. Beide Grenzen liegen auf dem Raster.
+    /// </summary>
+    internal static int NormalizeSoundVolume(int percent)
+    {
+        var clamped = Math.Clamp(percent, SettingsLimits.SoundVolumeMin, SettingsLimits.SoundVolumeMax);
+        var step = SettingsLimits.SoundVolumeStep;
+        return (clamped + step / 2) / step * step;
     }
 
     /// <summary>
@@ -372,6 +391,21 @@ internal static class SettingsNormalizer
         if (string.IsNullOrEmpty(key) || key.Length > SettingsLimits.GpuDeviceKeyMaxLength || key.Any(char.IsControl))
             key = null;
         p.GpuDeviceKey = key;
+    }
+
+    /// <summary>
+    /// Druckbereich: unbekannte Form/Farbe → Standard (Linien mit Abdunklung, Weiß); Deckkraft und Abdunklung auf den Bereich klemmen und
+    /// auf 5er-Schritte runden, Linienstärke klemmen.
+    /// </summary>
+    private static void NormalizePrintArea(PrintAreaSettings p)
+    {
+        if (!Enum.IsDefined(p.Style))
+            p.Style = PrintAreaStyle.LinesShaded;
+        if (!Enum.IsDefined(p.Color))
+            p.Color = PrintAreaColor.White;
+        p.OpacityPercent = ClampToStep(p.OpacityPercent, SettingsLimits.PrintAreaOpacityMin, SettingsLimits.PrintAreaOpacityMax, SettingsLimits.PrintAreaOpacityStep);
+        p.ThicknessPx = Math.Clamp(p.ThicknessPx, SettingsLimits.PrintAreaThicknessMin, SettingsLimits.PrintAreaThicknessMax);
+        p.ShadePercent = ClampToStep(p.ShadePercent, SettingsLimits.PrintAreaShadeMin, SettingsLimits.PrintAreaShadeMax, SettingsLimits.PrintAreaShadeStep);
     }
 
     /// <summary>Rundet kaufmännisch auf ein Vielfaches von <paramref name="step"/> und klemmt auf [<paramref name="min"/>, <paramref name="max"/>].</summary>

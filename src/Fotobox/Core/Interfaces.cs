@@ -246,6 +246,19 @@ public interface IFunSoundPlayer
     void Stop();
 }
 
+/// <summary>
+/// Spielt die Töne des Ablaufs: Countdown-Piepen und Kamera-Sound (<see cref="BoothSoundCue"/>). Wirft nie (kein Audiogerät →
+/// Stille, nur Log). Beide Methoden kehren sofort zurück; es gibt bewusst keine Warteschlange, ein neuer Ton ersetzt den laufenden
+/// (auch einen Fun-Ton) und wird nie verzögert.
+/// </summary>
+public interface IBoothSoundPlayer
+{
+    /// <summary>Spielt den Ton sofort (<paramref name="volumePercent"/> 0–100 in 5-%-Stufen, 0 = still).</summary>
+    void Play(BoothSoundCue cue, int volumePercent);
+    /// <summary>Legt den Puffer vorab an, damit der erste Ton nicht durch die Synthese verspätet wird. Spielt nichts.</summary>
+    void Prepare(BoothSoundCue cue, int volumePercent);
+}
+
 public interface IAdminLauncher
 {
     /// <summary>Wenn noch keine PIN existiert: Erststart-Dialog (PIN + Bestätigung). false = abgebrochen → App beendet sich.</summary>

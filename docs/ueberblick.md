@@ -7,6 +7,8 @@ Fotobox+ ist eine Windows-Desktop-App (WPF, .NET 10, `net10.0-windows10.0.19041.
 ### Foto
 
 - Ablauf: Auslösen → Countdown (Standard 5 s) → Aufnahme (weißer Blitz) → Speichern → Vorschau (Standard 4 s) → Druck → „Fertig“ (5 s) → zurück zum Livebild.
+- Töne (seit 2.10.0): Countdown-Piepen je Ziffer (letzte höher) und Kamera-Sound beim Auslösen, je mit Klangvariante und Lautstärke im Admin-Tab „Ablauf“ (Standard an, 70 %). Bei Selbstzerstörung und Kisscam entfällt das Piepen, im Video gibt es keinen Kamera-Sound.
+- Optional (Admin-Tab „Gastansicht“, Standard aus): Die Gastansicht markiert im Livebild den Druckbereich, also den Ausschnitt, der beim Drucken zu sehen ist; die Markierung ist nie im Foto (`druck.md`).
 - Fotos werden als JPEG gespeichert (Standardordner `Bilder\Fotobox+`, Unterordner pro Tag, Dateiname `<Präfix>_<yyyyMMdd_HHmmss>.jpg`, Kollisionen `_2`, `_3` …). Auf Wunsch werden zusätzlich die Originale der Einzelbilder gespeichert.
 - Ein Foto besteht aus den rohen Kamera-Pixeln; Zielmarken der Zielerfassung und Overlays der Gastansicht sind nie im Foto. Einzige Ausnahme ist der Schnurrbart der Peaceerkennung; das Kisscam-Foto trägt zusätzlich den Jumbotron-Rahmen (gezeichnet bei der Komposition, die Originale bleiben ungerahmt).
 
@@ -83,12 +85,12 @@ Pro Aktion sind bis zu 8 Tasten möglich (`SettingsLimits.KeysPerActionMax`). Sy
 | `src/Fotobox/Services/Camera` | WinRT-Kameradienst, Formatwahl, `CameraSupervision` (Timeouts, Watchdog), Videoaufnahme (`WinRtVideoRecording`, `VideoBitrate`), Hardware-Regler (`CameraControlAccess`, `ExtendedCameraControls`, `WinRtCameraService.Controls`). |
 | `src/Fotobox/Services/Printing` | Drucken über System.Printing/XPS, Jobstatus-Auswertung, Seitengrößen (`PageSpecCache`). |
 | `src/Fotobox/Services/Display` | Monitoraufzählung per Win32 (`Win32DisplayService`, `DisplayNative`). |
-| `src/Fotobox/Services/Layout` | Komposition der Druckseite (Einzel, Streifen in zwei Varianten, Overlay; `LayoutMath`). |
+| `src/Fotobox/Services/Layout` | Komposition der Druckseite (Einzel, Streifen in zwei Varianten, Overlay; `LayoutMath`) und `PrintAreaPreview` (Druckbereich der Gastansicht). |
 | `src/Fotobox/Services/Storage` | Settings-Store (`JsonSettingsStore`), `SettingsNormalizer`, `SettingsTransfer`/`SettingsJson`, `PinService`, `PhotoStorage`, `VideoStorage`, `FolderProbe`. |
 | `src/Fotobox/Services/Detection` | Personenerkennung (YOLOX per ONNX, Windows `FaceDetector`); `Detection/Peace`: Gesichts- und Handerkennung (YuNet, MediaPipe); `Detection/Acceleration`: Beschleunigung der ONNX-Modelle über Windows ML (Geräteliste, Messung, Plan, Rückfall auf die CPU; `beschleunigung.md`). |
 | `src/Fotobox/Services/Peace` | Foto-Verzierer (Bart im Foto: `MoustachePhotoDecorator`). |
 | `src/Fotobox/Core/Music` | UI-freie Logik der Kisscam-Musik (Config, Codec, Zeitformat, Songs, Snapshot, `KisscamSongPicker`). |
-| `src/Fotobox/Services/Audio` | Tonausgabe (`FunSoundPlayer`) und Kisscam-Musik (`MusicPlayer`, `KisscamMusicLibrary`, `KisscamMusicFileSystem`). |
+| `src/Fotobox/Services/Audio` | Tonausgabe (`FunSoundPlayer`, Ablauf-Töne `BoothSoundPlayer`) und Kisscam-Musik (`MusicPlayer`, `KisscamMusicLibrary`, `KisscamMusicFileSystem`). |
 | `src/Fotobox/ViewModels` | MVVM mit CommunityToolkit.Mvvm; `Booth` (Gastansicht, Fun-/Peace-Overlays), `Admin` (Einstellungen, PIN-Limiter, Info-Texte). |
 | `src/Fotobox/Views` | `Booth` (Gastansicht, `GuestHint`, Overlays; `Booth/Heart`: Kisscam-Rahmen, Zoom, Fortschrittsherz), `Admin` (Fenster, Themes, PIN-Dialoge, Skizzen), `Controls`, `Converters`. |
 | `src/Fotobox/Assets/Models` | ONNX-Modelle (`yolox_nano`, YuNet, MediaPipe Palm und Hand-Landmark). |

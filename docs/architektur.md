@@ -19,7 +19,7 @@ Alle Abhängigkeiten sind Interfaces in `src/Fotobox/Core/Interfaces.cs`. Dadurc
 
 | Lebensdauer | Dienste |
 |---|---|
-| Singleton | `TimeProvider.System`, `ISettingsStore` (`JsonSettingsStore`), `IPinService`, `ICameraService` (`WinRtCameraService`), `ILayoutComposer`, `IPrintService`, `IPhotoStorage`, `IVideoStorage`, `IDisplayService`, `IPersonDetectionService`, `IFunSoundPlayer`, `IMusicPlayer` (`MusicPlayer`, Kisscam-Musik), `IKisscamMusicLibrary` (`KisscamMusicLibrary`, Musikordner und Config; `Dispose` speichert höchstens 1 s lang), `IAcceleratorCatalog` (`AcceleratorCatalog`), `IAcceleratorBenchmark` (`OutOfProcessBenchmark`, Messung im eigenen Prozess), `IAccelerationService`/`IModelPlacement` (`AccelerationService`, ein Objekt unter beiden Schnittstellen; `beschleunigung.md`), `IGpuPreferenceStore` (`RegistryGpuPreferenceStore`), `GpuPreferenceRegistry`, `IGestureDetectionService`, `GuestMoustacheState`, `IPhotoDecorator` (`MoustachePhotoDecorator`), `IAdminLauncher`, `BoothController`, `BoothViewModel`, `BoothWindow` |
+| Singleton | `TimeProvider.System`, `ISettingsStore` (`JsonSettingsStore`), `IPinService`, `ICameraService` (`WinRtCameraService`), `ILayoutComposer`, `IPrintService`, `IPhotoStorage`, `IVideoStorage`, `IDisplayService`, `IPersonDetectionService`, `IFunSoundPlayer`, `IBoothSoundPlayer` (`BoothSoundPlayer`, Ablauf-Töne), `IMusicPlayer` (`MusicPlayer`, Kisscam-Musik), `IKisscamMusicLibrary` (`KisscamMusicLibrary`, Musikordner und Config; `Dispose` speichert höchstens 1 s lang), `IAcceleratorCatalog` (`AcceleratorCatalog`), `IAcceleratorBenchmark` (`OutOfProcessBenchmark`, Messung im eigenen Prozess), `IAccelerationService`/`IModelPlacement` (`AccelerationService`, ein Objekt unter beiden Schnittstellen; `beschleunigung.md`), `IGpuPreferenceStore` (`RegistryGpuPreferenceStore`), `GpuPreferenceRegistry`, `IGestureDetectionService`, `GuestMoustacheState`, `IPhotoDecorator` (`MoustachePhotoDecorator`), `IAdminLauncher`, `BoothController`, `BoothViewModel`, `BoothWindow` |
 | Transient | `FunOverlayViewModel`, `PeaceOverlayViewModel` (Gastansicht und Admin-Vorschau brauchen je eine eigene Instanz; nur die Gastansicht bekommt `GuestMoustacheState`) |
 
 Der `BoothController` bekommt Video-Speicher und Foto-Verzierer über optionale Konstruktorparameter.
@@ -126,6 +126,15 @@ Regeln:
 5. Danach `Idle`. Der Durchgang selbst (das Foto ist gespeichert) wird nie abgebrochen.
 
 Bewusst gibt es keinen Hinweis „Esc zum Abbrechen“ in der Gastansicht. Der Fortschrittsbalken der Gastansicht rechnet über `Flow.ExpectedPrintSeconds` (Standard 240 s); nach Ablauf gilt `PrintOverdue`, und unter dem Balken füllt sich der Ladekreis (`ShowPrintRing`, `PrintRingProgress` von der erwarteten Dauer bis zum Druck-Timeout).
+
+## Töne im Ablauf (seit 2.10.0)
+
+Countdown-Piepen und Kamera-Sound (`FlowSettings`, Tab „Ablauf“; `einstellungen.md`):
+
+- **Synthese und Entscheidung getrennt:** `Core/BoothToneSynth.cs` erzeugt die Signale (Enum `BoothSoundCue`), `Core/BoothSoundCues.cs` entscheidet rein aus Zustand, Stil und Einstellungen (`Beep`, `Shutter`); das Merken des zuletzt gepiepten Werts liegt im `BoothViewModel` (einmal je Ziffer, über `Refresh`).
+- **Piepen** je Ziffer, die letzte (1) höher: im Foto-Countdown mit Stil Normal oder Peace und im Video-Countdown; nicht bei Kisscam (dort läuft Musik) und Selbstzerstörung (dort tickt die Sirene).
+- **Kamera-Sound** beim `FlashRequested` des Controllers (startet sofort, noch vor dem Wechsel auf den UI-Thread): bei Normal, Peace und Kisscam; nicht bei Selbstzerstörung (Explosion) und nicht im Video.
+- **`BoothSoundPlayer`** (`Services/Audio`, `IBoothSoundPlayer`) spielt über winmm `PlaySound` aus nie freigegebenem nativem Speicher (wie `FunSoundPlayer`), je Signal und 5-%-Stufe gepuffert. **Keine Warteschlange, nie verzögert:** Ein neuer Ton ersetzt einen laufenden, auch einen Fun-Ton (`PlaySound` ist prozessweit; bewusst so). Wirft nie, blockiert nie; ohne Audiogerät nur einmal eine Logwarnung.
 
 ## Gast-Layoutwahl
 

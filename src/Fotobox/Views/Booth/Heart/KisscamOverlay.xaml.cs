@@ -23,7 +23,7 @@ public sealed partial class KisscamOverlay : UserControl
         nameof(Text), typeof(string), typeof(KisscamOverlay),
         new PropertyMetadata(string.Empty, (d, _) => ((KisscamOverlay)d).UpdateText()));
 
-    /// <summary>Gasttext einblenden (in den letzten Sekunden zeigt die Gastansicht stattdessen die Ziffern).</summary>
+    /// <summary>Gasttext einblenden (in der Gastansicht den ganzen Countdown über; die großen Ziffern liegen dahinter in der Mitte).</summary>
     public static readonly DependencyProperty ShowTextProperty = DependencyProperty.Register(
         nameof(ShowText), typeof(bool), typeof(KisscamOverlay),
         new PropertyMetadata(true, (d, _) => ((KisscamOverlay)d).UpdateText()));

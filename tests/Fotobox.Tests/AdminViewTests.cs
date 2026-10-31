@@ -395,6 +395,81 @@ public class AdminViewTests
     }
 
     [StaFact]
+    public void AdminWindow_TabStrip_IsScrollable_AndKeepsAllTwelveTabs()
+    {
+        WithWindow((window, _) =>
+        {
+            var tabs = FindTabControl(window)!;
+            var root = (System.Windows.FrameworkElement)window.Content;
+            // Mindesthöhe des Admin-Fensters: Die Leiste muss scrollen können, statt den letzten Tab abzuschneiden.
+            root.Measure(new System.Windows.Size(900, 620));
+            root.Arrange(new System.Windows.Rect(0, 0, 900, 620));
+            root.UpdateLayout();
+
+            var items = tabs.Items.OfType<System.Windows.Controls.TabItem>().ToList();
+            Assert.Equal(12, items.Count);
+
+            // Die äußere Border bleibt die Leiste (erstes Border-Element); darin der ScrollViewer mit dem Tab-Container.
+            var strip = FindDescendants<System.Windows.Controls.Border>(tabs).First();
+            var scroll = Assert.IsType<System.Windows.Controls.ScrollViewer>(tabs.Template.FindName("PART_TabStripScroll", tabs));
+            Assert.True(strip.IsAncestorOf(scroll));
+            Assert.Equal(System.Windows.Controls.ScrollBarVisibility.Auto, scroll.VerticalScrollBarVisibility);
+            Assert.Equal(System.Windows.Controls.ScrollBarVisibility.Disabled, scroll.HorizontalScrollBarVisibility);
+            var host = Assert.IsType<System.Windows.Controls.StackPanel>(scroll.Content);
+            Assert.True(host.IsItemsHost);
+            Assert.All(items, item => Assert.True(host.IsAncestorOf(item)));
+
+            // Auf Mindesthöhe passen nicht alle Tabs in die Leiste: Sie scrollt, die Spalte der Scrollleiste ist reserviert.
+            Assert.True(scroll.ScrollableHeight > 0, $"ScrollableHeight = {scroll.ScrollableHeight}");
+            Assert.Equal(System.Windows.Visibility.Visible, scroll.ComputedVerticalScrollBarVisibility);
+            Assert.Equal(0, scroll.VerticalOffset);
+            Assert.True(items[^1].ActualWidth <= 190.5);
+
+            // Der letzte Tab wird per BringIntoView erreichbar.
+            items[^1].BringIntoView();
+            root.UpdateLayout();
+            Assert.True(scroll.VerticalOffset > 0);
+            var bottom = items[^1].TranslatePoint(new System.Windows.Point(0, items[^1].ActualHeight), scroll).Y;
+            Assert.True(bottom <= scroll.ViewportHeight + 0.5, $"Unterkante {bottom} > Sichtfenster {scroll.ViewportHeight}");
+
+            // Zurück zum ersten Tab: Er ist wieder vollständig sichtbar.
+            items[0].BringIntoView();
+            root.UpdateLayout();
+            Assert.True(items[0].TranslatePoint(new System.Windows.Point(0, 0), scroll).Y >= -0.5);
+        });
+    }
+
+    [StaFact]
+    public void AdminWindow_TabStrip_FollowsTheSelection_AndHasNoScrollBarWhenTallEnough()
+    {
+        WithWindow((window, _) =>
+        {
+            var tabs = FindTabControl(window)!;
+            var root = (System.Windows.FrameworkElement)window.Content;
+            root.Measure(new System.Windows.Size(900, 620));
+            root.Arrange(new System.Windows.Rect(0, 0, 900, 620));
+            root.UpdateLayout();
+            var scroll = (System.Windows.Controls.ScrollViewer)tabs.Template.FindName("PART_TabStripScroll", tabs);
+            var items = tabs.Items.OfType<System.Windows.Controls.TabItem>().ToList();
+            Assert.Equal(0, scroll.VerticalOffset);
+
+            // Auswahl des letzten Tabs (z. B. per Tastatur) scrollt ihn ins Bild.
+            tabs.SelectedItem = items[^1];
+            window.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Background, () => { });
+            root.UpdateLayout();
+            Assert.True(scroll.VerticalOffset > 0);
+
+            // Hohes Fenster: alles passt, keine Scrollleiste, der Tab-Inhalt (Zoom-Host) ist unberührt.
+            root.Measure(new System.Windows.Size(1100, 1400));
+            root.Arrange(new System.Windows.Rect(0, 0, 1100, 1400));
+            root.UpdateLayout();
+            Assert.Equal(0, scroll.ScrollableHeight);
+            Assert.NotEqual(System.Windows.Visibility.Visible, scroll.ComputedVerticalScrollBarVisibility);
+            Assert.IsType<System.Windows.Media.ScaleTransform>(ContentHost(tabs).LayoutTransform);
+        });
+    }
+
+    [StaFact]
     public void AdminViewModel_Zoom_DefaultsTo80_AndRaisesChangeNotifications()
     {
         WithWindow((_, vm) =>

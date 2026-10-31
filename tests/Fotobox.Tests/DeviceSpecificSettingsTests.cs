@@ -27,6 +27,12 @@ public sealed class DeviceSpecificSettingsTests
         "Flow.ErrorDisplaySeconds",
         "Flow.PrintingEnabled",
         "Flow.ExpectedPrintSeconds",
+        "Flow.CountdownBeepEnabled",
+        "Flow.CountdownBeepSound",
+        "Flow.CountdownBeepVolumePercent",
+        "Flow.ShutterSoundEnabled",
+        "Flow.ShutterSound",
+        "Flow.ShutterVolumePercent",
         // Layout
         "Layout.Kind",
         "Layout.StripPhotoCount",
@@ -151,6 +157,13 @@ public sealed class DeviceSpecificSettingsTests
         "Heart.KisscamZoomPercent",
         "Heart.KisscamFilePrefix",
         "Heart.KisscamMusicVolumePercent",
+        // PrintArea (Druckbereich in der Gastansicht, komplett übertragbar)
+        "PrintArea.Enabled",
+        "PrintArea.Style",
+        "PrintArea.Color",
+        "PrintArea.OpacityPercent",
+        "PrintArea.ThicknessPx",
+        "PrintArea.ShadePercent",
     ];
 
     [Fact]

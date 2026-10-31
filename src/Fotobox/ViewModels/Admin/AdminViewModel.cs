@@ -193,7 +193,8 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     public AdminViewModel(ISettingsStore store, IPinService pin, ICameraService camera, IPrintService print, IAdminUi ui,
         TimeProvider? time = null, IDisplayService? displays = null,
         IPersonDetectionService? detection = null, IFunSoundPlayer? sound = null, IGestureDetectionService? gestures = null,
-        IMusicPlayer? music = null, IKisscamMusicLibrary? library = null, IAccelerationService? acceleration = null)
+        IMusicPlayer? music = null, IKisscamMusicLibrary? library = null, IAccelerationService? acceleration = null,
+        IBoothSoundPlayer? boothSound = null)
     {
         _time = time ?? TimeProvider.System;
         _music = music;
@@ -285,6 +286,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         TestMoustacheCommand = new RelayCommand(StartPeaceTestMoustache);
         TestMiddleFingerCancelCommand = new RelayCommand(StartMiddleFingerCancelTest);
 
+        InitSounds(boothSound);
         InitHeart(music, library);
         InitPerformance(acceleration);
         InitCameraControls();
@@ -459,6 +461,12 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
+        // Die Skizze des Druckbereichs folgt Layout und Papier des Entwurfs.
+        if (!_disposed && AffectsPrintAreaPreview(e.PropertyName))
+        {
+            base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(PrintAreaPreviewRect)));
+            base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(PrintAreaPreviewText)));
+        }
         // Läuft die Vorschau im Tab „Fun“, gelten geänderte Entwurfswerte sofort.
         if (_isFunTabSelected && !_disposed && AffectsFunPreview(e.PropertyName))
             UpdateFunPreview();
@@ -3253,6 +3261,10 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         CheckRange(_draft.Flow.PauseBetweenShotsSeconds, SettingsLimits.PauseMin, SettingsLimits.PauseMax, "Die Pause zwischen den Fotos", errors);
         CheckRange(_draft.Flow.ErrorDisplaySeconds, SettingsLimits.ErrorDisplayMin, SettingsLimits.ErrorDisplayMax, "Die Fehleranzeige-Dauer", errors);
         CheckRange(_draft.Flow.ExpectedPrintSeconds, SettingsLimits.ExpectedPrintMin, SettingsLimits.ExpectedPrintMax, "Die erwartete Druckdauer", errors);
+        if (_draft.Flow.CountdownBeepVolumePercent < SettingsLimits.SoundVolumeMin || _draft.Flow.CountdownBeepVolumePercent > SettingsLimits.SoundVolumeMax)
+            errors.Add($"Die Lautstärke des Countdown-Piepens muss zwischen {SettingsLimits.SoundVolumeMin} und {SettingsLimits.SoundVolumeMax} Prozent liegen.");
+        if (_draft.Flow.ShutterVolumePercent < SettingsLimits.SoundVolumeMin || _draft.Flow.ShutterVolumePercent > SettingsLimits.SoundVolumeMax)
+            errors.Add($"Die Lautstärke des Kamera-Sounds muss zwischen {SettingsLimits.SoundVolumeMin} und {SettingsLimits.SoundVolumeMax} Prozent liegen.");
 
         // Streifen und Overlay zählen auch, wenn sie nur zur Auswahl für Gäste gehören.
         if (ShowStripOptions && _draft.Layout.StripPhotoCount is < SettingsLimits.StripPhotosMin or > SettingsLimits.StripPhotosMax)
@@ -3304,6 +3316,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         ValidatePeace(errors);
         ValidateMiddleFinger(errors);
         ValidateHeart(errors);
+        ValidatePrintArea(errors);
 
         if (_newPin.Length > 0 || _repeatPin.Length > 0)
         {
@@ -3546,6 +3559,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         FunPreview.PropertyChanged -= OnFunPreviewPropertyChanged;
         FunPreview.Dispose();
         DisposePeacePreview();
+        DisposeSounds();
         DisposeHeart();
         DisposePerformance();
         Camera.StatusChanged -= OnCameraStatusChanged;

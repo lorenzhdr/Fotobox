@@ -200,6 +200,7 @@ public partial class BoothViewModelTests
         Assert.True(vm.IsSelfDestructCountdown);
         Assert.False(vm.IsPeaceCountdown);
         Assert.False(vm.ShowNormalCountdownDigits);
+        Assert.True(vm.ShowCountdownShade); // Abdunklung wie bisher
         Assert.True(vm.ShowSelfDestruct);
         Assert.Equal(5, vm.SelfDestructSecondsRemaining);
         Assert.False(vm.IsPause);
@@ -236,6 +237,7 @@ public partial class BoothViewModelTests
         Assert.Equal(4, rig.H.Controller.CountdownValue);
         Assert.True(vm.IsPeaceCountdown);
         Assert.True(vm.ShowNormalCountdownDigits);
+        Assert.True(vm.ShowCountdownShade); // Abdunklung wie bisher
         Assert.False(vm.IsSelfDestructCountdown);
         Assert.False(vm.ShowSelfDestruct);
         Assert.Equal("4", vm.CountdownText);
