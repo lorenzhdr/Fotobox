@@ -173,7 +173,8 @@
             <!-- ============================== Ablauf ============================== -->
             <TabItem Header="Ablauf" Tag="&#xE916;">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                         <StackPanel>
                             <TextBlock Text="Ablauf" Style="{StaticResource SectionTitle}" />
 
@@ -192,6 +193,101 @@
                             <TextBlock Text="Das Drucken stellen Sie im Tab „Drucker“ ein." Style="{StaticResource Hint}" />
                         </StackPanel>
                     </Border>
+
+                    <!-- Töne: Countdown-Piepen und Kamera-Sound -->
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel MaxWidth="700" HorizontalAlignment="Left">
+                            <TextBlock Text="Töne" Style="{StaticResource SectionTitle}" />
+
+                            <!-- Countdown-Piepen -->
+                            <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="18,14" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <CheckBox Content="Countdown-Piepen" IsChecked="{Binding CountdownBeepEnabled}" FontWeight="SemiBold"
+                                              AutomationProperties.Name="Countdown-Piepen" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Bei jeder Ziffer des Countdowns ertönt ein kurzer Piep, bei der letzten ein höherer. Gilt vor Fotos und Videos, nicht bei der Selbstzerstörung und der Kisscam." />
+                                    <StackPanel IsEnabled="{Binding CountdownBeepEnabled}">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsEnabled" Value="False">
+                                                        <Setter Property="Opacity" Value="0.55" />
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
+
+                                        <TextBlock Text="Klang" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox Width="280" HorizontalAlignment="Left" ItemsSource="{Binding CountdownBeepSounds}"
+                                                  SelectedValuePath="Value" DisplayMemberPath="Name" SelectedValue="{Binding CountdownBeepSound}"
+                                                  AutomationProperties.Name="Klang des Countdown-Piepens" />
+
+                                        <TextBlock Text="Lautstärke" Style="{StaticResource FieldLabel}" />
+                                        <StackPanel Orientation="Horizontal">
+                                            <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.SoundVolumeMin}, Mode=OneTime}"
+                                                    Maximum="{Binding Source={x:Static core:SettingsLimits.SoundVolumeMax}, Mode=OneTime}"
+                                                    TickFrequency="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    SmallChange="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    LargeChange="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                                    Value="{Binding CountdownBeepVolumePercent}"
+                                                    AutomationProperties.Name="Lautstärke des Countdown-Piepens" />
+                                            <TextBlock Text="{Binding CountdownBeepVolumeText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0"
+                                                       VerticalAlignment="Center" MinWidth="60" />
+                                        </StackPanel>
+
+                                        <Button Content="Anhören" Command="{Binding PreviewCountdownBeepCommand}" HorizontalAlignment="Left" Margin="0,14,0,0"
+                                                AutomationProperties.Name="Countdown-Piepen anhören" />
+                                        <TextBlock Style="{StaticResource Hint}" Text="Spielt drei Piepe im Abstand von einer Sekunde, der letzte ist der höhere." />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Kamera-Sound -->
+                            <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="18,14" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <CheckBox Content="Kamera-Sound beim Auslösen" IsChecked="{Binding ShutterSoundEnabled}" FontWeight="SemiBold"
+                                              AutomationProperties.Name="Kamera-Sound beim Auslösen" />
+                                    <TextBlock Style="{StaticResource Hint}"
+                                               Text="Ertönt im Moment der Aufnahme jedes Fotos. Bei der Selbstzerstörung bleibt die Explosion, im Video gibt es keinen Auslöser-Ton." />
+                                    <StackPanel IsEnabled="{Binding ShutterSoundEnabled}">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsEnabled" Value="False">
+                                                        <Setter Property="Opacity" Value="0.55" />
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
+
+                                        <TextBlock Text="Klang" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox Width="280" HorizontalAlignment="Left" ItemsSource="{Binding ShutterSounds}"
+                                                  SelectedValuePath="Value" DisplayMemberPath="Name" SelectedValue="{Binding ShutterSound}"
+                                                  AutomationProperties.Name="Klang des Kamera-Sounds" />
+
+                                        <TextBlock Text="Lautstärke" Style="{StaticResource FieldLabel}" />
+                                        <StackPanel Orientation="Horizontal">
+                                            <Slider Width="340" Minimum="{Binding Source={x:Static core:SettingsLimits.SoundVolumeMin}, Mode=OneTime}"
+                                                    Maximum="{Binding Source={x:Static core:SettingsLimits.SoundVolumeMax}, Mode=OneTime}"
+                                                    TickFrequency="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    SmallChange="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    LargeChange="{Binding Source={x:Static core:SettingsLimits.SoundVolumeStep}, Mode=OneTime}"
+                                                    IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                                    Value="{Binding ShutterVolumePercent}"
+                                                    AutomationProperties.Name="Lautstärke des Kamera-Sounds" />
+                                            <TextBlock Text="{Binding ShutterVolumeText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0"
+                                                       VerticalAlignment="Center" MinWidth="60" />
+                                        </StackPanel>
+
+                                        <Button Content="Anhören" Command="{Binding PreviewShutterSoundCommand}" HorizontalAlignment="Left" Margin="0,14,0,0"
+                                                AutomationProperties.Name="Kamera-Sound anhören" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 

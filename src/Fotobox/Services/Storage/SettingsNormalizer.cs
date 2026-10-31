@@ -48,6 +48,12 @@ internal static class SettingsNormalizer
         s.Flow.PauseBetweenShotsSeconds = Math.Clamp(s.Flow.PauseBetweenShotsSeconds, SettingsLimits.PauseMin, SettingsLimits.PauseMax);
         s.Flow.ErrorDisplaySeconds = Math.Clamp(s.Flow.ErrorDisplaySeconds, SettingsLimits.ErrorDisplayMin, SettingsLimits.ErrorDisplayMax);
         s.Flow.ExpectedPrintSeconds = Math.Clamp(s.Flow.ExpectedPrintSeconds, SettingsLimits.ExpectedPrintMin, SettingsLimits.ExpectedPrintMax);
+        if (!Enum.IsDefined(s.Flow.CountdownBeepSound))
+            s.Flow.CountdownBeepSound = CountdownBeepSound.Soft;
+        if (!Enum.IsDefined(s.Flow.ShutterSound))
+            s.Flow.ShutterSound = ShutterSound.Slr;
+        s.Flow.CountdownBeepVolumePercent = NormalizeSoundVolume(s.Flow.CountdownBeepVolumePercent);
+        s.Flow.ShutterVolumePercent = NormalizeSoundVolume(s.Flow.ShutterVolumePercent);
 
         if (!Enum.IsDefined(s.Layout.Kind))
             s.Layout.Kind = LayoutKind.SingleBorderless;
@@ -110,6 +116,17 @@ internal static class SettingsNormalizer
             : TrimToLength(s.Appearance.GuestMonitorName, SettingsLimits.MonitorNameMaxLength);
 
         return s;
+    }
+
+    /// <summary>
+    /// Lautstärke der Ablauf-Töne: auf [<see cref="SettingsLimits.SoundVolumeMin"/>, <see cref="SettingsLimits.SoundVolumeMax"/>]
+    /// klemmen und auf den nächsten <see cref="SettingsLimits.SoundVolumeStep"/>-Schritt runden. Beide Grenzen liegen auf dem Raster.
+    /// </summary>
+    internal static int NormalizeSoundVolume(int percent)
+    {
+        var clamped = Math.Clamp(percent, SettingsLimits.SoundVolumeMin, SettingsLimits.SoundVolumeMax);
+        var step = SettingsLimits.SoundVolumeStep;
+        return (clamped + step / 2) / step * step;
     }
 
     /// <summary>

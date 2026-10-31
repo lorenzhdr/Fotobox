@@ -54,6 +54,14 @@ public sealed class BoothViewModel : ObservableObject
     // Herz/Kisscam: Musik, Rahmen und Zoom-Ausschnitt des laufenden Durchgangs; „pending“ = Kisscam-Countdown gesehen (Musik läuft).
     private readonly IMusicPlayer? _music;
     private readonly IKisscamMusicLibrary? _musicLibrary;
+    // Töne des Ablaufs (Countdown-Piepen, Kamera-Sound); ohne Spieler (Tests) bleibt der Ablauf stumm.
+    private readonly IBoothSoundPlayer? _boothSound;
+    // Piepen: im laufenden Countdown schon geloggt (ein Logeintrag je Countdown); Einstellungen, für die die Puffer angelegt wurden.
+    private bool _beepLogged;
+    private (bool Beep, CountdownBeepSound BeepSound, int BeepVolume, bool Shutter, ShutterSound ShutterSound, int ShutterVolume)? _preparedSounds;
+
+    /// <summary>Hat die Gastansicht den Ton-Spieler des Ablaufs (DI)? Für Tests der Zusammensetzung.</summary>
+    internal bool HasBoothSound => _boothSound is not null;
 
     /// <summary>Hat die Gastansicht einen Musikspieler (DI)? Für Tests der Zusammensetzung.</summary>
     internal bool HasMusic => _music is not null;
@@ -88,9 +96,10 @@ public sealed class BoothViewModel : ObservableObject
     /// <param name="peace">Peaceerkennung der Gastansicht (DI, mit dem Bart-Zustand für die Foto-Planung); ohne Angabe eine untätige Instanz (Tests).</param>
     /// <param name="music">Musik der Kisscam (DI); ohne Angabe läuft die Kisscam stumm.</param>
     /// <param name="musicLibrary">Songs, Häkchen, Startzeiten und Lautstärken der Kisscam-Musik (DI); ohne Angabe läuft die Kisscam stumm.</param>
+    /// <param name="boothSound">Countdown-Piepen und Kamera-Sound (DI); ohne Angabe bleibt der Ablauf ohne diese Töne.</param>
     public BoothViewModel(BoothController controller, ICameraService camera, ISettingsStore settings,
         FunOverlayViewModel? fun = null, PeaceOverlayViewModel? peace = null, IMusicPlayer? music = null,
-        IKisscamMusicLibrary? musicLibrary = null)
+        IKisscamMusicLibrary? musicLibrary = null, IBoothSoundPlayer? boothSound = null)
     {
         Controller = controller;
         Camera = camera;
@@ -99,6 +108,7 @@ public sealed class BoothViewModel : ObservableObject
         Peace = peace ?? PeaceOverlayViewModel.CreateInert();
         _music = music;
         _musicLibrary = musicLibrary;
+        _boothSound = boothSound;
         Peace.ActionRequested += (_, trigger) => OnPeaceAction(trigger);
         Peace.MiddleFingerTriggered += (_, _) => OnMiddleFinger();
         Peace.HeartTriggered += (_, trigger) => OnHeartAction(trigger);
@@ -142,6 +152,8 @@ public sealed class BoothViewModel : ObservableObject
             // Der Stil wird hier gelesen, bevor der Aufruf auf den UI-Thread wechselt: Er gilt nur bis zum Ende des Durchgangs.
             var selfDestruct = controller.CountdownStyle == CountdownStyle.SelfDestruct;
             var kisscam = controller.CountdownStyle == CountdownStyle.Kisscam;
+            // Der Kamera-Sound startet hier sofort, noch vor dem Wechsel auf den UI-Thread: Das Foto beginnt unmittelbar danach.
+            PlayShutterSound(controller.CountdownStyle);
             OnUi(() =>
             {
                 if (selfDestruct)
@@ -170,9 +182,11 @@ public sealed class BoothViewModel : ObservableObject
             OnUi(() =>
             {
                 ResetLayoutSelection();
+                PrepareBoothSounds();
                 Refresh();
             });
         };
+        PrepareBoothSounds();
     }
 
     public BoothController Controller { get; }
@@ -1006,7 +1020,93 @@ public sealed class BoothViewModel : ObservableObject
                 // Die Töne prüfen den Schalter der Einstellung selbst.
                 if (IsSelfDestructCountdown)
                     Peace.PlaySelfDestructTick(value);
+                // Zuletzt, damit ein in diesem Durchgang angehaltener Fun-Ton den Piep nicht abschneidet.
+                PlayCountdownBeep(value);
             }
+            else
+            {
+                _beepLogged = false;
+            }
+        }
+
+        // Vor dem ersten Piep eines Countdowns stehen die Puffer bereit (nach geänderten Einstellungen legt der Aufruf sie neu an).
+        if (Controller.State is BoothState.Countdown or BoothState.VideoCountdown)
+            PrepareBoothSounds();
+    }
+
+    /// <summary>
+    /// Countdown-Piepen zur angezeigten Ziffer (UI-Thread; einmal je Wert dank des Vergleichs mit <c>_lastCountdown</c> in
+    /// <see cref="Refresh"/>). Die Regeln stehen in <see cref="BoothSoundCues.Beep"/>. Wirft nie, blockiert nie.
+    /// </summary>
+    private void PlayCountdownBeep(int value)
+    {
+        if (_boothSound is null)
+            return;
+        try
+        {
+            if (BoothSoundCues.Beep(Controller.State, Controller.CountdownStyle, value, Settings.Current.Flow) is not { } beep)
+                return;
+            _boothSound.Play(beep.Cue, beep.VolumePercent);
+            // Ein Logeintrag je Countdown (nicht je Ziffer), wie die Ticks der Selbstzerstörung nicht einzeln geloggt werden.
+            if (!_beepLogged)
+            {
+                _beepLogged = true;
+                AppLog.Info($"Countdown-Piepen: {beep.Cue} ({beep.VolumePercent} %).");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Countdown-Piepen konnte nicht gespielt werden.", ex);
+        }
+    }
+
+    /// <summary>Kamera-Sound im Moment der Aufnahme (Regeln in <see cref="BoothSoundCues.Shutter"/>). Wirft nie, blockiert nie.</summary>
+    private void PlayShutterSound(CountdownStyle style)
+    {
+        if (_boothSound is null)
+            return;
+        try
+        {
+            if (BoothSoundCues.Shutter(style, Settings.Current.Flow) is not { } shutter)
+                return;
+            _boothSound.Play(shutter.Cue, shutter.VolumePercent);
+            AppLog.Info($"Kamera-Sound: {shutter.Cue} ({shutter.VolumePercent} %).");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Kamera-Sound konnte nicht gespielt werden.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Legt die Ton-Puffer für die aktuellen Einstellungen vorab an, damit die Synthese den ersten Piep und den Auslöser nicht
+    /// verspätet. Läuft nur bei geänderten Einstellungen erneut; wirft nie.
+    /// </summary>
+    private void PrepareBoothSounds()
+    {
+        if (_boothSound is null)
+            return;
+        try
+        {
+            var flow = Settings.Current.Flow;
+            if (flow is null)
+                return;
+            var key = (flow.CountdownBeepEnabled, flow.CountdownBeepSound, flow.CountdownBeepVolumePercent,
+                flow.ShutterSoundEnabled, flow.ShutterSound, flow.ShutterVolumePercent);
+            if (_preparedSounds == key)
+                return;
+            _preparedSounds = key;
+            if (flow.CountdownBeepEnabled)
+            {
+                _boothSound.Prepare(BoothToneSynth.BeepCue(flow.CountdownBeepSound, final: false), flow.CountdownBeepVolumePercent);
+                _boothSound.Prepare(BoothToneSynth.BeepCue(flow.CountdownBeepSound, final: true), flow.CountdownBeepVolumePercent);
+            }
+            if (flow.ShutterSoundEnabled)
+                _boothSound.Prepare(BoothToneSynth.ShutterCue(flow.ShutterSound), flow.ShutterVolumePercent);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Ablauf-Töne konnten nicht vorbereitet werden.", ex);
         }
     }
 
