@@ -1114,7 +1114,7 @@ public sealed class AdminViewModelTests : IDisposable
         Assert.Equal(["Leertaste"], Keys(vm, KeyAction.Trigger).Keys.Select(k => k.DisplayName));
         Assert.Equal(["Strg+Alt+A"], Keys(vm, KeyAction.Admin).Keys.Select(k => k.DisplayName));
         Assert.Equal(["Esc"], Keys(vm, KeyAction.Cancel).Keys.Select(k => k.DisplayName));
-        Assert.Equal(["Foto auslösen", "Admin-Ansicht öffnen", "Abbrechen", "Video starten", "Video beenden", "Leistungsanzeige ein/aus"], vm.KeyEditors.Select(e => e.Title));
+        Assert.Equal(["Foto auslösen", "Admin-Ansicht öffnen", "Abbrechen", "Video starten", "Video beenden", "Leistungsanzeige ein/aus", "Tracking-Overlay ein/aus"], vm.KeyEditors.Select(e => e.Title));
         Assert.Equal("Strg+Alt+A", vm.AdminKeysDisplay);
     }
 

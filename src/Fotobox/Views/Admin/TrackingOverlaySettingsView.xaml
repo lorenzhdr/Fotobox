@@ -1,0 +1,103 @@
+<UserControl x:Class="Fotobox.Views.Admin.TrackingOverlaySettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:core="clr-namespace:Fotobox.Core"
+             xmlns:vm="clr-namespace:Fotobox.ViewModels.Admin">
+
+    <!-- Seite „Tracking-Overlay“ im Tab „Fun“. Der DataContext (AdminViewModel) wird vom Fenster geerbt. Stile und Farben des Admins
+         kommen per DynamicResource aus dem Fenster (dieses Steuerelement wird beim Laden noch nicht im Fenster geparst).
+         Die Seite hat keine Vorschau und startet keine Erkennung. -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,14">
+            <Button x:Name="TrackingOverlayBackButton" Content="←  Zurück" Command="{Binding ShowFunPageCommand}"
+                    CommandParameter="{x:Static vm:FunPage.Start}" VerticalAlignment="Center"
+                    AutomationProperties.Name="Zurück zur Fun-Übersicht" />
+            <TextBlock Text="Tracking-Overlay" Style="{DynamicResource SectionTitle}" Margin="18,0,0,0" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel MaxWidth="780" HorizontalAlignment="Left">
+
+                <!-- Erklärung und Taste -->
+                <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Tracking-Overlay" Style="{DynamicResource SectionTitle}" />
+                        <TextBlock Style="{DynamicResource Hint}"
+                                   Text="Zeigt in der Gastansicht, was die Erkennungen im Livebild sehen: Personen, Gesichter, Hände, Gesten und Bärte als Rahmen, Punkte und Linien. Das Overlay zeigt nur, was ohnehin läuft; es startet keine Erkennung und ändert nichts an den Erkennungen. Es erscheint nur im Bereitschaftsbild und während des Countdowns, ist nie im Foto oder Video zu sehen und nach dem Start der Fotobox immer ausgeblendet." />
+                        <TextBlock x:Name="TrackingOverlayKeyHintText" Text="{Binding TrackingOverlayKeyHint}" Style="{DynamicResource Hint}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Ebenen und Zusatzangaben -->
+                <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Anzeige" Style="{DynamicResource SectionTitle}" />
+
+                        <TextBlock Text="Ebenen" Style="{DynamicResource FieldLabel}" />
+                        <CheckBox x:Name="TrackingOverlayPersonsCheck" Content="Personen" IsChecked="{Binding TrackingOverlayShowPersons}" />
+                        <CheckBox x:Name="TrackingOverlayFacesCheck" Content="Gesichter" IsChecked="{Binding TrackingOverlayShowFaces}" />
+                        <CheckBox x:Name="TrackingOverlayHandsCheck" Content="Hände" IsChecked="{Binding TrackingOverlayShowHands}" />
+                        <CheckBox x:Name="TrackingOverlayGesturesCheck" Content="Gesten" IsChecked="{Binding TrackingOverlayShowGestures}" />
+                        <CheckBox x:Name="TrackingOverlayMoustachesCheck" Content="Bart" IsChecked="{Binding TrackingOverlayShowMoustaches}" />
+                        <TextBlock Style="{DynamicResource Hint}"
+                                   Text="Eine Ebene erscheint nur, wenn die zugehörige Erkennung gerade läuft; läuft sie nicht, bleibt die Ebene leer." />
+
+                        <TextBlock Text="Zusatzangaben" Style="{DynamicResource FieldLabel}" />
+                        <CheckBox x:Name="TrackingOverlayLabelsCheck" Content="Beschriftungen" IsChecked="{Binding TrackingOverlayShowLabels}" />
+                        <TextBlock Style="{DynamicResource Hint}" Text="Nummern und Werte an den Markierungen." />
+                        <CheckBox x:Name="TrackingOverlayStatusLineCheck" Content="Statuszeile oben links" IsChecked="{Binding TrackingOverlayShowStatusLine}"
+                                  Margin="0,8,0,0" />
+                        <TextBlock Style="{DynamicResource Hint}" Text="Zeigt je Erkennung, ob sie läuft, und die Analysen pro Sekunde." />
+                        <CheckBox x:Name="TrackingOverlayVerdictsCheck" Content="Warum-Info zu Gesten" IsChecked="{Binding TrackingOverlayShowVerdicts}"
+                                  Margin="0,8,0,0" />
+                        <TextBlock Style="{DynamicResource Hint}"
+                                   Text="Zeigt je Hand, warum eine Geste erkannt oder verworfen wurde. Das rechnet nur, solange das Overlay sichtbar ist, und kostet dann etwas Rechenzeit." />
+                    </StackPanel>
+                </Border>
+
+                <!-- Stil und Größe -->
+                <Border Style="{DynamicResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Darstellung" Style="{DynamicResource SectionTitle}" />
+
+                        <TextBlock Text="Stil" Style="{DynamicResource FieldLabel}" />
+                        <RadioButton x:Name="TrackingOverlayStyleTechnik" GroupName="TrackingOverlayStyle" Style="{DynamicResource ChoiceRadio}"
+                                     IsChecked="{Binding IsTrackingOverlayTechnik}" AutomationProperties.Name="Stil: Technik">
+                            <StackPanel>
+                                <TextBlock Text="Technik" FontWeight="SemiBold" FontSize="15" />
+                                <TextBlock Text="Nüchterne Linien und Punkte." Style="{DynamicResource Hint}" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton x:Name="TrackingOverlayStyleSciFi" GroupName="TrackingOverlayStyle" Style="{DynamicResource ChoiceRadio}"
+                                     IsChecked="{Binding IsTrackingOverlaySciFi}" AutomationProperties.Name="Stil: Sci-Fi">
+                            <StackPanel>
+                                <TextBlock Text="Sci-Fi" FontWeight="SemiBold" FontSize="15" />
+                                <TextBlock Text="Leuchtende Linien im Stil eines Zielerfassungssystems." Style="{DynamicResource Hint}" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </RadioButton>
+
+                        <TextBlock Text="Größe von Punkten, Linien und Schrift" Style="{DynamicResource FieldLabel}" />
+                        <StackPanel Orientation="Horizontal">
+                            <Slider x:Name="TrackingOverlayScaleSlider" Width="340"
+                                    Minimum="{Binding Source={x:Static core:SettingsLimits.TrackingOverlayScaleMin}, Mode=OneTime}"
+                                    Maximum="{Binding Source={x:Static core:SettingsLimits.TrackingOverlayScaleMax}, Mode=OneTime}"
+                                    TickFrequency="{Binding Source={x:Static core:SettingsLimits.TrackingOverlayScaleStep}, Mode=OneTime}"
+                                    SmallChange="{Binding Source={x:Static core:SettingsLimits.TrackingOverlayScaleStep}, Mode=OneTime}"
+                                    LargeChange="{Binding Source={x:Static core:SettingsLimits.TrackingOverlayScaleStep}, Mode=OneTime}"
+                                    IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                    Value="{Binding TrackingOverlayScalePercent}"
+                                    AutomationProperties.Name="Größe des Tracking-Overlays" />
+                            <TextBlock Text="{Binding TrackingOverlayScaleText}" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0"
+                                       VerticalAlignment="Center" MinWidth="60" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

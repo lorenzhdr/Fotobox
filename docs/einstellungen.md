@@ -21,6 +21,7 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Appearance` | `AppearanceSettings` | Farbschema des Admins, Zoom des Admin-Inhaltsbereichs, Monitor der Gastansicht |
 | `PrintArea` | `PrintAreaSettings` | Druckbereich-Markierung in der Gastansicht (seit 2.10.0) |
 | `PerformanceOverlay` | `PerformanceOverlaySettings` | Leistungsanzeige oben rechts in der Gastansicht (seit 2.10.1); übertragbar |
+| `TrackingOverlay` | `TrackingOverlaySettings` | Tracking-Overlay in der Gastansicht (seit 2.10.3); übertragbar |
 | `Video` | `VideoSettings` | Videomodus |
 | `Fun` | `FunSettings` | Zielerfassung |
 | `Peace` | `PeaceSettings` | Peaceerkennung (Easter Egg) |
@@ -65,6 +66,11 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `PerformanceOverlay.FontSize` | 18 | 12–36 (`PerformanceOverlayFontSize*`) |
 | `PerformanceOverlay.BackgroundOpacityPercent` | 60 | 0–100 (`PerformanceOverlayBackgroundOpacity*`) |
 | Ein/Aus der Leistungsanzeige | aus | wird nicht gespeichert; nach dem App-Start immer ausgeblendet |
+| `Input.TrackingOverlayKeys` | `Ctrl+Alt+X` | ≤ 8 Tasten, darf leer sein; Vorrang nach allen anderen Aktionen, auch nach der Leistungsanzeige; eine belegte Taste fällt ersatzlos weg (keine Migration) |
+| `TrackingOverlay.Show…` | alle an außer `ShowVerdicts` | `ShowPersons`, `ShowFaces`, `ShowHands`, `ShowGestures`, `ShowMoustaches`, `ShowLabels`, `ShowStatusLine`; `ShowVerdicts` (Warum-Info) ist ab Werk aus |
+| `TrackingOverlay.Style` | `Technik` | `Technik, SciFi` (nur hinten erweitern; unbekannt → Technik) |
+| `TrackingOverlay.ScalePercent` | 100 | 50–200 in 10er-Schritten (`TrackingOverlayScaleMin/Max/Step`) |
+| Ein/Aus des Tracking-Overlays | aus | wird nicht gespeichert; nach dem App-Start immer ausgeblendet |
 | `Input.TriggerOnLeftClick` / `TriggerOnRightClick` | an / an | – |
 | `Input.InvertMouseWheel` | aus | – |
 | `GuestScreen.HintText` / `VideoHintText` / `WheelHintText` | leer (automatisch) | ≤ 100 Zeichen |

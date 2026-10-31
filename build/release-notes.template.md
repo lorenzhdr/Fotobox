@@ -1,10 +1,13 @@
 ## Fotobox+ {{VERSION}}
 
-### Neu in 2.10.2
+### Neu in 2.10.3
 
-- **Hinweis während des Drucks:** Unter der Wartezeit steht jetzt zusätzlich „Nimm dein Foto erst aus dem Drucker, wenn hier „Fertig“ steht.“ Am Druck selbst ändert sich nichts.
+- **Tracking-Overlay:** Mit **Strg + Alt + X** blendet die Gastansicht ein, was die Erkennungen gerade sehen: Personen-Boxen, die fünf Punkte der Gesichter, die 21 Punkte jeder Hand, Gesten, Bärte und Herzen, dazu oben links eine Statuszeile mit den laufenden Erkennungen und ihren Analysen pro Sekunde. Ab Werk aus und nach jedem Start wieder aus. Sichtbar ist es im Leerlauf und im Foto-Countdown und liegt über den Fun-Effekten.
+- **Einstellbar:** Im Admin (Tab „Fun“, Kachel „Tracking-Overlay“) lassen sich Ebenen, Beschriftungen, Statuszeile, Größe und Stil (Technik oder Sci-Fi) wählen. Optional zeigt eine „Warum-Info“ je Hand, warum eine Geste erkannt oder verworfen wurde. Die Taste ändert man im Tab „Tasten“. Die Einstellungen gehören zu „Einstellungen teilen“.
+- **Nur Anzeige:** Das Overlay fordert nichts an und ändert keine Erkennung; Analyseraten und Auslösungen bleiben gleich. Es ist nie im Foto oder Video und kostet nichts, solange es ausgeblendet ist.
+- **Hinweis:** Noch nicht mit einer echten Kamera geprüft. Die Statuszeile kann sich mit Hinweisen oben in der Gastansicht überlagern. Die Zahlen an den Händen können von denen der Erkennung abweichen.
 
-Alle Neuerungen von 2.10.1 und den Versionen davor stehen unten unter „Ältere Versionen“.
+Alle Neuerungen von 2.10.2 und den Versionen davor stehen unten unter „Ältere Versionen“.
 
 ### Welche Datei passt zu meinem PC?
 
@@ -26,7 +29,7 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 - Einstellungen und Protokolle liegen in `%LOCALAPPDATA%\Fotobox`, Fotos standardmäßig unter `Bilder\Fotobox+`, Videos unter `Videos\Fotobox+`, Kisscam-Musik unter `Musik\Fotobox+\Kisscam`. Alles bleibt erhalten, wenn der Programmordner gelöscht wird.
 - **Umstieg von einer Setup-Version (Installer):** Einstellungen (`%LOCALAPPDATA%\Fotobox`), Fotos und Videos bleiben erhalten und werden von der portablen Version automatisch weiterverwendet. Die alte Installation kann über Windows „Apps“ deinstalliert werden, das löscht keine Daten.
 - Beim ersten Start wird eine Admin-PIN festgelegt.
-- Standardtasten: **Leertaste** löst das Foto aus, **Eingabetaste** startet und beendet ein Video, **Esc** bricht den Countdown oder einen laufenden Druck ab (eine laufende Videoaufnahme und die Druckersperre nicht) und entfernt im Leerlauf sichtbare Schnurrbärte, **Strg + Alt + A** öffnet die Admin-Ansicht, **Strg + Alt + Y** blendet die Leistungsanzeige ein und aus. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
+- Standardtasten: **Leertaste** löst das Foto aus, **Eingabetaste** startet und beendet ein Video, **Esc** bricht den Countdown oder einen laufenden Druck ab (eine laufende Videoaufnahme und die Druckersperre nicht) und entfernt im Leerlauf sichtbare Schnurrbärte, **Strg + Alt + A** öffnet die Admin-Ansicht, **Strg + Alt + Y** blendet die Leistungsanzeige ein und aus, **Strg + Alt + X** das Tracking-Overlay. Alle Tasten lassen sich im Admin unter **Tasten** ändern.
 
 ---
 
@@ -35,7 +38,11 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer den Versionen 2.9.1 und 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
 
 <details>
-<summary>Änderungen der Versionen 0.0.0-beta bis 2.10.1 anzeigen</summary>
+<summary>Änderungen der Versionen 0.0.0-beta bis 2.10.2 anzeigen</summary>
+
+#### [Fotobox+ 2.10.2](https://github.com/lorenzhdr/Fotobox/tree/v2.10.2) · 31.10.2026
+
+- **Hinweis während des Drucks:** Unter der Wartezeit steht jetzt zusätzlich „Nimm dein Foto erst aus dem Drucker, wenn hier „Fertig“ steht.“ Am Druck selbst ändert sich nichts.
 
 #### [Fotobox+ 2.10.1](https://github.com/lorenzhdr/Fotobox/tree/v2.10.1) · 31.10.2026
 

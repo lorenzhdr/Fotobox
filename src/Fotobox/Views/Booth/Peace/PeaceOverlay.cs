@@ -67,8 +67,8 @@ public sealed class PeaceOverlay : FrameworkElement
     private static readonly Brush MouthBrush = Frozen(Color.FromRgb(0xF0, 0x62, 0x92));
     private static readonly Brush BackRingBrush = Frozen(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF));
 
-    /// <summary>Knochenlinien der 21 Handpunkte (MediaPipe).</summary>
-    private static readonly (int A, int B)[] Bones =
+    /// <summary>Knochenlinien der 21 Handpunkte (MediaPipe); auch vom Tracking-Overlay genutzt.</summary>
+    internal static readonly (int A, int B)[] Bones =
     [
         (0, 1), (1, 2), (2, 3), (3, 4),
         (0, 5), (5, 6), (6, 7), (7, 8),

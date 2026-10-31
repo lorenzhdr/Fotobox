@@ -271,7 +271,7 @@ Alle Töne haben eine Spitze von 0,35 und ein 6-ms-Ein-/Ausblenden gegen Knacken
 
 ## Admin: Tab „Fun“, Seite „Personen“
 
-Der Tab „Fun“ ist der letzte Tab. Er hat eine Startseite mit Kacheln (`FunPage`: `Start`, `Persons`, `Peace`, `MiddleFinger`; Status „An“/„Aus“) und je Funktion eine Unterseite mit „← Zurück“.
+Der Tab „Fun“ ist der letzte Tab. Er hat eine Startseite mit Kacheln (`FunPage`: `Start`, `Persons`, `Peace`, `MiddleFinger`, `Heart`, `TrackingOverlay`; Status „An“/„Aus“, beim Tracking-Overlay die belegte Taste) und je Funktion eine Unterseite mit „← Zurück“.
 
 - **Live-Vorschau** nur bei gewähltem Tab (`AdminViewModel.IsFunTabSelected`), auch wenn Fun aus ist, mit den Entwurfswerten. Eine eigene `FunOverlayViewModel`-Instanz fordert die Erkennung an (überholt die Gastansicht).
 - **„Animation testen“** (`TestFunPreviewCommand`) simuliert ein Ziel – ohne Kamera.

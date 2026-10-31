@@ -41,6 +41,7 @@ internal static class SettingsNormalizer
         s.Performance ??= new PerformanceSettings();
         s.PrintArea ??= new PrintAreaSettings();
         s.PerformanceOverlay ??= new PerformanceOverlaySettings();
+        s.TrackingOverlay ??= new TrackingOverlaySettings();
 
         NormalizeCamera(s.Camera);
 
@@ -89,6 +90,7 @@ internal static class SettingsNormalizer
         NormalizePerformance(s.Performance);
         NormalizePrintArea(s.PrintArea);
         NormalizePerformanceOverlay(s.PerformanceOverlay);
+        NormalizeTrackingOverlay(s.TrackingOverlay);
 
         // PinIterations wird bewusst nicht geklemmt: Ein anderer Wert passte nicht mehr zum gespeicherten Hash (siehe PinService).
 
@@ -421,6 +423,15 @@ internal static class SettingsNormalizer
             SettingsLimits.PerformanceOverlayBackgroundOpacityMin, SettingsLimits.PerformanceOverlayBackgroundOpacityMax);
     }
 
+    /// <summary>Tracking-Overlay: unbekannter Stil → Technik; Größe auf den Bereich runden und klemmen.</summary>
+    private static void NormalizeTrackingOverlay(TrackingOverlaySettings t)
+    {
+        if (!Enum.IsDefined(t.Style))
+            t.Style = TrackingOverlayStyle.Technik;
+        t.ScalePercent = ClampToStep(t.ScalePercent, SettingsLimits.TrackingOverlayScaleMin, SettingsLimits.TrackingOverlayScaleMax,
+            SettingsLimits.TrackingOverlayScaleStep);
+    }
+
     /// <summary>Rundet kaufmännisch auf ein Vielfaches von <paramref name="step"/> und klemmt auf [<paramref name="min"/>, <paramref name="max"/>].</summary>
     private static int ClampToStep(int value, int min, int max, int step)
     {
@@ -504,7 +515,8 @@ internal static class SettingsNormalizer
     /// <see cref="InputSettings.VideoStartKeys"/> und <see cref="InputSettings.VideoStopKeys"/> stehen (Umschalten).
     /// Admin und Auslösen behalten immer mindestens eine Taste; die Video-Listen dürfen leer sein.
     /// <see cref="InputSettings.PerformanceOverlayKeys"/> wird zuletzt geprüft (Vorrang nach allen anderen, auch nach Video start/stopp);
-    /// die Liste darf leer sein und bekommt dann keinen Ersatzwert.
+    /// die Liste darf leer sein und bekommt dann keinen Ersatzwert. <see cref="InputSettings.TrackingOverlayKeys"/> folgt danach (Vorrang
+    /// nach allen anderen, auch nach der Leistungsanzeige); eine belegte Taste fällt ersatzlos weg, die Liste darf leer sein.
     /// </summary>
     public static void NormalizeKeys(InputSettings input)
     {
@@ -547,6 +559,8 @@ internal static class SettingsNormalizer
         overlayTaken.UnionWith(videoStart);
         overlayTaken.UnionWith(videoStop);
         var performanceOverlay = Clean(input.PerformanceOverlayKeys, overlayTaken);
+        // Tracking-Overlay danach: Clean hat die Tasten der Leistungsanzeige in overlayTaken eingetragen, also gilt alles Bisherige als belegt.
+        var trackingOverlay = Clean(input.TrackingOverlayKeys, overlayTaken);
 
         input.AdminKeys = admin.Select(k => k.ToString()).ToList();
         input.TriggerKeys = trigger.Select(k => k.ToString()).ToList();
@@ -554,6 +568,7 @@ internal static class SettingsNormalizer
         input.VideoStartKeys = videoStart.Select(k => k.ToString()).ToList();
         input.VideoStopKeys = videoStop.Select(k => k.ToString()).ToList();
         input.PerformanceOverlayKeys = performanceOverlay.Select(k => k.ToString()).ToList();
+        input.TrackingOverlayKeys = trackingOverlay.Select(k => k.ToString()).ToList();
 
         static List<KeyChord> Clean(List<string>? entries, HashSet<KeyChord> used)
         {

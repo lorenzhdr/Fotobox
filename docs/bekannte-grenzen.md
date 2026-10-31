@@ -135,6 +135,15 @@ Stand: 2.5.1. Nichts davon blockiert den Betrieb. Die Einträge sind thematisch 
 - **Kamera-FPS nur auf echter Hardware prüfbar.** Der Zähler `ICameraFrameStats.FramesReceived` ist nur mit Attrappen getestet; mit einer echten Webcam wurde die Anzeige nicht geprüft. Die Anzeige-FPS zählen die Bilder der Vorschau, nicht die Bildschirmwiederholrate.
 - **Zähler hängen von Windows ab.** Fehlen Leistungsindikatoren (PDH) oder sind sie deaktiviert, bleiben Auslastung, Takt und Speicher „nicht verfügbar“.
 
+## Tracking-Overlay (neu in 2.10.3)
+
+- **Nicht mit echter Kamera geprüft.** Das Overlay ist mit automatischen Tests (Aufbereitung, Passivität, Tasten, Render-Bilder) geprüft, aber nicht im Betrieb mit echter Kamera und echten Gästen gesehen; Lage und Spiegelung der Markierungen sind nur gegen synthetische Punkte geprüft.
+- **Statuszeile kann überlappen.** Sie liegt oben links und zoomt nicht mit; dort können der obere Gasthinweis, der Fun-Text oben (Position oben) oder das Kisscam-Eckherz darunter bzw. darüber liegen. Die Statuszeile lässt sich im Admin ausschalten.
+- **Handnummern weichen ab.** Die Nummern der Hände kommen aus einer eigenen `HandTracker`-Instanz nur für die Anzeige und können von den Nummern der Engine abweichen; das beeinflusst keine Erkennung.
+- **Engine-Werte leicht verzögert.** Haltefortschritt, Bärte, Herz und Mittelfinger liest das Overlay vom Stand der Engines. Der Abgriff liegt vor den Engines, darum erscheinen diese Werte erst beim nächsten Neuaufbau (spätestens 100 ms später). Die Rohpunkte sind ungeglättet und können zittern; Daten älter als 1,5 s verschwinden.
+- **Bei Aussetzern und ausgeschalteter Zielerfassung keine Personen.** Die Personen-Boxen stammen aus den Updates der Zielerfassung; ist Fun aus oder bleiben Updates aus, gibt es keine. Für Hände und Gesichter gilt dasselbe für den Gestendienst (läuft nur bei eingeschalteter Peace-, Mittelfinger- oder Herzerkennung).
+- **Warum-Info kostet Rechenzeit.** Bei `ShowVerdicts` werden die Klassifikatoren für jede Hand zusätzlich ausgeführt (auch für abgeschaltete Funktionen), solange das Overlay sichtbar ist.
+
 ## Tests
 
 - **Tests schreiben ins echte App-Log** (`%LOCALAPPDATA%\Fotobox\logs`) statt in ein isoliertes Verzeichnis.

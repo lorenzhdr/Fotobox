@@ -381,6 +381,9 @@ public sealed partial class BoothWindow : Window
             case BoothKeyAction.TogglePerformanceOverlay:
                 _viewModel.TogglePerformanceOverlay();
                 break;
+            case BoothKeyAction.ToggleTrackingOverlay:
+                _viewModel.ToggleTrackingOverlay();
+                break;
         }
     }
 

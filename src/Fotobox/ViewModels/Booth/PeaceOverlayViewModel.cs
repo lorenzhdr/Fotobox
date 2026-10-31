@@ -3,6 +3,7 @@ using Fotobox.Core;
 using Fotobox.Core.Fun;
 using Fotobox.Core.Heart;
 using Fotobox.Core.Peace;
+using Fotobox.Core.Tracking;
 using Fotobox.Services.Detection.Peace;
 
 namespace Fotobox.ViewModels.Booth;
@@ -219,6 +220,13 @@ public sealed partial class PeaceOverlayViewModel : ObservableObject, IDisposabl
     /// nichts auf: Der Abonnent entscheidet (Gastansicht: Selbstzerstörung abbrechen und <see cref="VanishMoustaches"/>).
     /// </summary>
     public event EventHandler? MiddleFingerTriggered;
+
+    /// <summary>
+    /// Rohdaten jeder Analyse (auf dem UI-Thread, nach Gesichtsverfolgung, vor den Engines), nur zum passiven Beobachten durch das
+    /// Tracking-Overlay: Der Abonnent liest nur, fordert nichts an und berührt die Engines nie; eine Ausnahme darin wird abgefangen und
+    /// geloggt. Ohne Abonnent kostet der Abgriff nichts.
+    /// </summary>
+    public event EventHandler<GestureObservation>? Observed;
 
     /// <summary>Eine Peace-Aktion soll ausgeführt werden (auf dem UI-Thread; für alle Aktionen, bei Schnurrbart startet der Aufrufer <see cref="StartMoustache"/>).</summary>
     public event EventHandler<PeaceTrigger>? ActionRequested;
@@ -600,6 +608,7 @@ public sealed partial class PeaceOverlayViewModel : ObservableObject, IDisposabl
             Faces = update.Faces;
             _tracker.OnFaces(tracked, w, h, update.FrameTime);
         }
+        NotifyObserved(update, tracked, aspect);
         // Ein reines Gesichts-Update sagt nichts über die Hände: die Engine bekommt sie erst mit dem Ergebnis der Handstufe.
         if (update.HandsIncluded)
         {
@@ -615,6 +624,23 @@ public sealed partial class PeaceOverlayViewModel : ObservableObject, IDisposabl
                 _heartEngine.OnUpdate(update.Hands, tracked, aspect);
         }
         RefreshMoustaches();
+    }
+
+    // Passiver Abgriff für das Tracking-Overlay: nur Verweise auf die Rohdaten dieses Updates, vor den Engines, in try/catch (ein
+    // Fehler des Beobachters darf die Engines nie überspringen). Ohne Abonnent geschieht nichts (keine Zuweisung, keine Berechnung).
+    private void NotifyObserved(GestureUpdate update, IReadOnlyList<TrackedFace> tracked, double aspect)
+    {
+        var handler = Observed;
+        if (handler is null)
+            return;
+        try
+        {
+            handler(this, new GestureObservation(update, tracked, _options, aspect));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Tracking-Overlay: Beobachtung der Peaceerkennung fehlgeschlagen.", ex);
+        }
     }
 
     private void OnStatusChanged(object? sender, GestureStatus status)
