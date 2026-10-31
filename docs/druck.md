@@ -10,6 +10,7 @@ Stand: 2.5.1. Pfade relativ zum Repo-Root. Überblick: [ueberblick.md](ueberblic
 | `src/Fotobox/Services/Printing/PrintJobStateEvaluator.cs` | reine Auswertung des Auftragszustands |
 | `src/Fotobox/Services/Printing/PrintLayoutResolver.cs` | Papier, Ausrichtung, Geometrie (ohne Spooler) |
 | `src/Fotobox/Services/Layout/LayoutComposer.cs`, `LayoutMath.cs` | Komposition der Druckseite |
+| `src/Fotobox/Services/Layout/PrintAreaPreview.cs` | Druckbereich für die Gastansicht (nur Rechnung, ändert den Druck nicht) |
 | `src/Fotobox/Services/Storage/PhotoStorage.cs` | JPEG-Speicherung |
 | `src/Fotobox/Core/BoothController.cs` | Ablauf, `PrintGuardedAsync`, geteilte Seitengrößen-Abfrage |
 
@@ -129,6 +130,15 @@ Taste „Abbrechen“ (Standard Esc, JSON `CancelCountdownKeys`) bricht den Coun
 - **`LayoutMath`:** `SafeBottomMm` = **5 mm** Sicherheitsabstand zur Unterkante gegen Overscan beim randlosen Druck und Schnitttoleranz (Text nie näher); `SafeSideMm` 3 mm; Bildunterschrift-Block 11 mm, Datum 4,5 mm, Textabstand 1 mm; Streifenrand 4 % der kurzen Streifenseite. `CropToFill` (zentrierter Zuschnitt), `ComputeStrips` (Doppelstreifen), `ComputeSingleStrip` (Einzelstreifen).
 - `Compose` erzeugt mehrere Vollseiten-Puffer (ungemessene Performance-Option, siehe [bekannte-grenzen.md](bekannte-grenzen.md)).
 - Gast-Layoutwahl per Mausrad: siehe [einstellungen.md](einstellungen.md).
+
+## Druckbereich in der Gastansicht (seit 2.10.0)
+
+Optional (`AppSettings.PrintArea`, Standard aus; Admin-Tab „Gastansicht“) markiert die Gastansicht im Livebild, welcher Teil des Kamerabilds gedruckt wird, weil das Layout (Seitenverhältnis des Papiers, Streifen, Bildunterschrift/Datum) das Bild zuschneidet. Formen: Linien, Linien mit Abdunklung außerhalb, Eckmarken; Farbe, Deckkraft, Stärke, Abdunklung einstellbar.
+
+- **Keine eigene Geometrie:** `PrintAreaPreview` (`Services/Layout`) ruft dieselben `LayoutMath`-Funktionen mit denselben Argumenten wie `LayoutComposer` (Seite = `PageSpec.PixelWidth` × `PixelHeight`, Doppelstreifen mit den Text-Flags des Composers). Der Pixel-Abgleichstest `PrintAreaPreviewComposerMatchTests` vergleicht das Ergebnis mit dem echten Composer; der Druck bleibt unverändert. Ergebnis `null` = kein Zuschnitt (ganzes Bild) → keine Linien, insbesondere beim Einzelstreifen ohne Zuschnitt.
+- **Seitengröße nur lesend:** `BoothController.GetLastKnownPageSpec` (zuletzt bekannter Wert, sonst Seite laut Einstellungen bzw. 10 × 15 cm) und das Ereignis `PageSpecUpdated`, wenn eine neu ermittelte Größe abweicht; sie lösen keine Abfrage aus.
+- **Sichtbar** (`BoothViewModel.ShowPrintArea`, Anzeige `Views/Booth/PrintAreaOverlay`) nur bei laufender Kamera im `Idle` und im Foto-Countdown/`Capturing`; nicht im Videomodus, nicht bei der Kisscam, nicht in Vorschau, Druck, Druckersperre oder „Fertig“. Das Overlay nimmt keine Eingaben an und liegt nie im Foto.
+- **Bekannte Grenzen** (`bekannte-grenzen.md`): Im Leerlauf zeigen die Linien das per Mausrad gewählte Layout; ein Peace-Foto macht aus Streifen ein Einzelfoto, die Linien springen dann im Countdown darauf um. Ein zusätzlicher Treiber-Zuschnitt (`PrintService`, Papier weicht um mehr als 1 % ab) ist nicht berücksichtigt.
 
 ## PhotoStorage
 

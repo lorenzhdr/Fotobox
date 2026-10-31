@@ -20,7 +20,7 @@ Stand: 2.6.0. Die Herzerkennung ist ein verstecktes Extra („Easter Egg“) wie
 Formen zwei Gäste im `Idle` mit ihren Händen ein Herz (oder ein Gast mit beiden Händen; optional ein Fingerherz mit einer Hand) und halten es (Standard 1,8 s), startet die Aktion Kisscam:
 
 1. Ein Jumbotron-Rahmen (Lichterkette, Banner „KISS CAM“, vier Eckherzen) erscheint über dem Livebild, ein Hinweistext fordert die Gäste auf, sich einen Kusspartner zu suchen. Der Timer läuft (Standard 10 s, 3–60 s).
-2. In den letzten drei Sekunden ersetzen die großen Ziffern 3 – 2 – 1 den Text. Bei einem Timer von höchstens 3 s erscheinen von Anfang an nur die Ziffern, nie der Gasttext (der Admin weist unter dem Timer darauf hin: „Bei 3 Sekunden erscheint nur der Countdown 3 – 2 – 1, kein Text.“). Optional zoomt das Livebild auf die Herz-Gäste, optional läuft Musik (zufälliger Song aus dem Musikordner).
+2. Die großen Ziffern (Schrift 360) laufen den **gesamten** Countdown über dem Livebild, der Gasttext bleibt durchgehend stehen (seit 2.10.0; vorher ersetzten die Ziffern den Text in den letzten 3 s). Es gibt keine Abdunklung (`ShowCountdownShade`), damit der Rahmen sichtbar bleibt. Kein Countdown-Piepen: Hier läuft die Musik (der Kamera-Sound beim Blitz gilt dagegen, siehe `architektur.md`). Optional zoomt das Livebild auf die Herz-Gäste, optional läuft Musik (zufälliger Song aus dem Musikordner).
 3. Am Ende folgt der Blitz und ein **Einzelfoto** mit dem Rahmen. Es wird wie jedes andere Foto gespeichert (eigener Dateipräfix) und nach dem Druckschalter im Tab „Drucker“ gedruckt.
 
 Die Kisscam lässt sich mit den Abbrechen-Tasten (Standard Esc) oder per Mittelfinger (Aktion „Kisscam abbrechen“) beenden; es entsteht dann kein Foto. Das Fortschrittsherz (`ShowHoldFeedback`) zeigt dem Gast beim Halten, wie lange er noch durchhalten muss; es ist die einzige sichtbare Spur der Funktion im `Idle`.
@@ -151,8 +151,8 @@ Im `BoothController` (`TryTrigger`):
 |---|---|
 | `IsKisscamCountdown` | Countdown mit Stil Kisscam |
 | `ShowKisscamFrame` | Stil Kisscam in `Countdown` und `Capturing` (der Rahmen bleibt bis zum Blitz-Ende sichtbar) |
-| `ShowKisscamText` | Kisscam-Countdown mit `CountdownValue > 3` (`KisscamFinalDigitsSeconds`) |
-| `ShowCountdown` | wie üblich, aber solange der Gasttext läuft **nicht**: die Abdunklung würde den Rahmen verdecken; in den letzten 3 s kommen die großen Ziffern |
+| `ShowKisscamText` | durchgehend im Kisscam-Countdown (gleich `IsKisscamCountdown`) |
+| `ShowCountdown` | wie üblich; die Ziffern gelten auch in der Kisscam, nur die Abdunklung `ShowCountdownShade` entfällt dort (sie würde den Rahmen verdecken) |
 | `KisscamText` | `KisscamTextFormatter.Format(KisscamText, CountdownValue)`: ersetzt `{Sekunden}` (Groß-/Kleinschreibung egal) durch die Restzeit; leerer Text = Standardtext; unbekannte Platzhalter bleiben stehen (`FindUnknownPlaceholders` meldet sie dem Admin) |
 | `KisscamFrame` / `KisscamZoomRegion` | Rahmen bzw. Ausschnitt des laufenden Durchgangs |
 

@@ -11,7 +11,7 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | Abschnitt | Klasse | Inhalt |
 |---|---|---|
 | `Camera` | `CameraSettings` | Gerät, Auflösung, Spiegeln, Reglerwerte/Profile (gerätegebunden), Flimmerschutz |
-| `Flow` | `FlowSettings` | Countdown, Vorschau, Pausen, Fehleranzeige, Druck an/aus, erwartete Druckdauer |
+| `Flow` | `FlowSettings` | Countdown, Vorschau, Pausen, Fehleranzeige, Druck an/aus, erwartete Druckdauer, Töne (Countdown-Piepen, Kamera-Sound) |
 | `Layout` | `LayoutSettings` | Layoutart, Streifen, Overlay, Bildunterschrift, Schrift, Gast-Auswahl |
 | `Printer` | `PrinterSettings` | Drucker, Papier, Ausrichtung, Kopien, Timeout |
 | `Storage` | `StorageSettings` | Fotoordner, Unterordner pro Tag, Originale, JPEG-Qualität, Präfix |
@@ -19,6 +19,7 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Input` | `InputSettings` | Tastenbelegung, Mausklicks, Mausrad |
 | `GuestScreen` | `GuestScreenSettings` | Hinweistexte und -stile der Gastansicht |
 | `Appearance` | `AppearanceSettings` | Farbschema des Admins, Zoom des Admin-Inhaltsbereichs, Monitor der Gastansicht |
+| `PrintArea` | `PrintAreaSettings` | Druckbereich-Markierung in der Gastansicht (seit 2.10.0) |
 | `Video` | `VideoSettings` | Videomodus |
 | `Fun` | `FunSettings` | Zielerfassung |
 | `Peace` | `PeaceSettings` | Peaceerkennung (Easter Egg) |
@@ -39,6 +40,9 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Flow.ErrorDisplaySeconds` | 6 | 2–60 |
 | `Flow.PrintingEnabled` | an | – |
 | `Flow.ExpectedPrintSeconds` | 240 | 30–600 |
+| `Flow.CountdownBeepEnabled` / `CountdownBeepSound` | an / `Soft` | Enum `Soft, Bright, WoodBlock` (nur hinten erweitern; unbekannt → `Soft`) |
+| `Flow.ShutterSoundEnabled` / `ShutterSound` | an / `Slr` | Enum `Slr, Compact, Retro` (nur hinten erweitern; unbekannt → `Slr`) |
+| `Flow.CountdownBeepVolumePercent` / `ShutterVolumePercent` | 70 / 70 | 0–100 in 5er-Schritten (`SoundVolumeMin`/`Max`/`Step`/`Default`; der Normalizer klemmt und rundet, `NormalizeSoundVolume`); 0 = still |
 | `Layout.Kind` | `SingleBorderless` | `SingleBorderless`, `Strip`, `Overlay` |
 | `Layout.StripPhotoCount` | 3 | 2–4 |
 | `Layout.StripStyle` | `DoubleCut` | `DoubleCut`, `Single` |
@@ -61,6 +65,12 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Appearance.AdminTheme` | `System` | `System, Light, Dark` |
 | `Appearance.AdminZoomPercent` | 80 | 60–100 in 5er-Schritten (`AdminZoomMin`/`AdminZoomMax`/`AdminZoomStep`/`AdminZoomDefault`); der Normalizer klemmt zuerst und rundet dann auf das nächste Vielfache von 5 (62 → 60, 63 → 65, 83 → 85, 30 → 60, 150 → 100); fehlt das Feld in der Datei, gilt 80 |
 | `Appearance.GuestMonitorId` / `GuestMonitorName` | null (Hauptbildschirm) | Id ≤ 512, Name ≤ 200 |
+| `PrintArea.Enabled` | aus | – |
+| `PrintArea.Style` | `LinesShaded` | `Lines, LinesShaded, Corners` (nur hinten erweitern; unbekannt → Standard) |
+| `PrintArea.Color` | `White` | `White, Black, Red, Yellow, Green, Blue, Pink, Orange` (feste Palette, nur hinten erweitern; unbekannt → Standard) |
+| `PrintArea.OpacityPercent` | 80 | 20–100 in 5er-Schritten (`PrintAreaOpacity*`) |
+| `PrintArea.ThicknessPx` | 3 | 1–10 (`PrintAreaThickness*`) |
+| `PrintArea.ShadePercent` | 40 | 10–80 in 5er-Schritten (`PrintAreaShade*`), wirkt nur bei `LinesShaded` |
 | `Video.Enabled` | an | – |
 | `Video.MaxDurationSeconds` | 300 | 10–1800 |
 | `Video.CountdownSeconds` | 3 | 0–30 |

@@ -1,10 +1,14 @@
 ## Fotobox+ {{VERSION}}
 
-### Neu in 2.9.1
+### Neu in 2.10.0
 
-- **Schnurrbärte per Esc entfernen:** Im Leerlauf lässt die Abbrechen-Taste (ab Werk Esc) alle sichtbaren Schnurrbärte verschwinden – wie der Mittelfinger, aber auch ohne Mittelfingererkennung. Im Countdown bricht Esc wie bisher nur den Countdown ab; der Bart bleibt.
+- **Countdown-Piepen:** Der Countdown piept jede Sekunde, der letzte Piep ist höher. Drei Klänge zur Auswahl, gilt für Fotos, den Video-Countdown und Peace-Fotos (Tab „Ablauf“, Karte „Töne“, mit „Anhören“-Knopf und eigener Lautstärke).
+- **Kamera-Sound:** Beim Foto klingt ein Auslöser, wahlweise Spiegelreflex, Kompaktkamera oder Retro mit Filmtransport. Eigener Schalter und eigene Lautstärke. Beide Töne sind ab Werk an und lassen sich getrennt ausschalten.
+- **Kisscam besser sichtbar:** Die großen Countdown-Ziffern laufen jetzt die ganze Kisscam über, das Bild wird dabei nicht abgedunkelt, und der Text bleibt bis zum Foto stehen.
+- **Druckbereich anzeigen:** Auf Wunsch zeigt die Gastansicht, welcher Bildausschnitt gedruckt wird, auch bei Streifen (Tab „Gastansicht“, ab Werk aus). Form, Farbe, Deckkraft und Linienstärke sind einstellbar. Am Druck selbst ändert sich nichts.
+- **Admin-Menü scrollbar:** Die Liste links lässt sich scrollen, „Fun“ ist auch bei kleinem Fenster erreichbar.
 
-Alle Neuerungen von 2.9.0 und den Versionen davor stehen unten unter „Ältere Versionen“.
+Alle Neuerungen von 2.9.1 und den Versionen davor stehen unten unter „Ältere Versionen“.
 
 ### Welche Datei passt zu meinem PC?
 
@@ -32,10 +36,14 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 
 ### Ältere Versionen
 
-Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer der Fotobox 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
+Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer den Versionen 2.9.1 und 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
 
 <details>
-<summary>Änderungen der Versionen 0.0.0-beta bis 2.9.0 anzeigen</summary>
+<summary>Änderungen der Versionen 0.0.0-beta bis 2.9.1 anzeigen</summary>
+
+#### [Fotobox+ 2.9.1](https://github.com/lorenzhdr/Fotobox/tree/v2.9.1) · 30.10.2026
+
+- **Schnurrbärte per Esc entfernen:** Im Leerlauf lässt die Abbrechen-Taste (ab Werk Esc) alle sichtbaren Schnurrbärte verschwinden – wie der Mittelfinger, aber auch ohne Mittelfingererkennung. Im Countdown bricht Esc wie bisher nur den Countdown ab; der Bart bleibt.
 
 #### [Fotobox+ 2.9.0](https://github.com/lorenzhdr/Fotobox/tree/v2.9.0) · 30.10.2026
 
