@@ -20,6 +20,7 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `GuestScreen` | `GuestScreenSettings` | Hinweistexte und -stile der Gastansicht |
 | `Appearance` | `AppearanceSettings` | Farbschema des Admins, Zoom des Admin-Inhaltsbereichs, Monitor der Gastansicht |
 | `PrintArea` | `PrintAreaSettings` | Druckbereich-Markierung in der Gastansicht (seit 2.10.0) |
+| `PerformanceOverlay` | `PerformanceOverlaySettings` | Leistungsanzeige oben rechts in der Gastansicht (seit 2.10.1); übertragbar |
 | `Video` | `VideoSettings` | Videomodus |
 | `Fun` | `FunSettings` | Zielerfassung |
 | `Peace` | `PeaceSettings` | Peaceerkennung (Easter Egg) |
@@ -57,6 +58,13 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Storage.DateSubfolder` / `SaveOriginals` | an / an | – |
 | `Input.TriggerKeys` / `AdminKeys` / `CancelCountdownKeys` | `Space` / `Ctrl+Alt+A` / `Escape` | je ≤ 8 Tasten |
 | `Input.VideoStartKeys` / `VideoStopKeys` | `Enter` / `Enter` | je ≤ 8 Tasten, dürfen leer sein |
+| `Input.PerformanceOverlayKeys` | `Ctrl+Alt+Y` | ≤ 8 Tasten, darf leer sein; Vorrang nach allen anderen Aktionen |
+| `PerformanceOverlay.Show…` | alle an | `ShowCpu`, `ShowCpuClock`, `ShowCpuTemperature`, `ShowGpu`, `ShowGpuClock`, `ShowGpuTemperature`, `ShowGpuMemory`, `ShowNpu`, `ShowRam`, `ShowCameraFps`, `ShowDisplayFps`, `ShowAnalysisRate`, `ShowCycleTime`, `ShowModelDevices` |
+| `PerformanceOverlay.Style` | `Text` | `Text, Bars` (nur hinten erweitern; unbekannt → Text) |
+| `PerformanceOverlay.RefreshMs` | 1000 | 500–5000 (`PerformanceOverlayRefreshMs*`) |
+| `PerformanceOverlay.FontSize` | 18 | 12–36 (`PerformanceOverlayFontSize*`) |
+| `PerformanceOverlay.BackgroundOpacityPercent` | 60 | 0–100 (`PerformanceOverlayBackgroundOpacity*`) |
+| Ein/Aus der Leistungsanzeige | aus | wird nicht gespeichert; nach dem App-Start immer ausgeblendet |
 | `Input.TriggerOnLeftClick` / `TriggerOnRightClick` | an / an | – |
 | `Input.InvertMouseWheel` | aus | – |
 | `GuestScreen.HintText` / `VideoHintText` / `WheelHintText` | leer (automatisch) | ≤ 100 Zeichen |

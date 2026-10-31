@@ -58,6 +58,10 @@ Admin-Tab „Kamera“, Karte „Bildeinstellungen“: Hardware-Regler der Webca
 
 Admin-Tab „Leistung“: Auswahl, auf welchem Gerät die KI-Erkennung rechnet (Automatisch per Messung, nur Prozessor, Grafikkarte, KI-Beschleuniger), Betriebsstand, Messung per Knopfdruck, Installation zusätzlicher Hersteller-Beschleuniger und die Windows-Grafikeinstellung „Hohe Leistung“. Änderungen wirken nach einem Neustart. Details: `beschleunigung.md`.
 
+### Leistungsanzeige (seit 2.10.1)
+
+Strg+Alt+Y blendet in der Gastansicht oben rechts eine Leistungsanzeige ein und aus (frei belegbar oder entfernbar im Tab „Tasten“; ab Werk aus, nach jedem Start wieder aus, wird nicht gespeichert). Sie zeigt wahlweise CPU-, GPU- und NPU-Auslastung, Takt, Temperatur, Grafikspeicher, RAM, Kamera- und Anzeige-FPS, Analysen pro Sekunde, Rechenzeit und das Gerät je KI-Modell, als Text oder mit Balken; ab 70 % gelb, ab 90 % rot. Sie liegt über allem außer dem Blitz und ist nie im Foto oder Video. Gemessen wird nur bei sichtbarer Anzeige (Windows-Bordmittel, ohne Treiber oder Zusatzpaket); was Windows für ein Gerät nicht liefert, steht als „nicht verfügbar“ da. Einstellungen im Tab „Leistung“, Karte „Leistungsanzeige“. Details: `beschleunigung.md`.
+
 ### Einstellungen teilen
 
 Admin-Tab „Sicherheit & Daten“: Export und Import der Einstellungen als JSON-Datei (ohne gerätespezifische Werte wie Kamera, Drucker, Ordner), optional mit PIN. Dazu „Standardwerte wiederherstellen“. Details: `einstellungen.md`.
@@ -70,6 +74,7 @@ Admin-Tab „Sicherheit & Daten“: Export und Import der Einstellungen als JSON
 | Admin öffnen | Strg+Alt+A | Frei belegbar. |
 | Abbrechen | Esc | Bricht Countdown (auch die Kisscam) still ab, bricht den Video-Countdown ab, storniert einen laufenden Druck (nicht mehr in der Druckersperre). Im Leerlauf lässt sie sichtbare Schnurrbärte verschwinden. Eine laufende Videoaufnahme beendet sie nicht (dafür die Videotaste). |
 | Video starten/beenden | Enter | Gleiche Taste in Start und Stopp = Umschalten. |
+| Leistungsanzeige ein/aus | Strg+Alt+Y | Frei belegbar oder entfernbar; wirkt nur in der Gastansicht, in jedem Zustand; hat bei Konflikten den geringsten Vorrang. |
 | Layout wechseln | Mausrad (im Leerlauf) | Nach oben = vorheriges Layout; `InvertMouseWheel` kehrt um. |
 
 Pro Aktion sind bis zu 8 Tasten möglich (`SettingsLimits.KeysPerActionMax`). Systemkombinationen (Alt+F4, Alt+Tab, Alt+Leertaste, Alt+Esc, Strg+Esc, Strg+Alt+Entf, Windows-Taste) sind als Belegung gesperrt; Alt+F4 und Alt+Leertaste sind in der Gastansicht zusätzlich wirkungslos.

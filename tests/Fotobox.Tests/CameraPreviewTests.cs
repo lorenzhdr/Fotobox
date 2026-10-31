@@ -442,7 +442,7 @@ public sealed class CameraPreviewTests
             camera.RaiseFrame(GradientFrame(160, 90));
             await FlushDispatcherAsync();
 
-            Assert.True(RenderPixels(preview).Any(b => b != 0));
+            Assert.Contains(RenderPixels(preview), b => b != 0);
         }
         finally
         {
