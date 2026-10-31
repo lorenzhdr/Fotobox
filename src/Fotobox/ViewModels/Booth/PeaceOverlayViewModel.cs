@@ -49,7 +49,7 @@ public sealed partial class PeaceOverlayViewModel : ObservableObject, IDisposabl
     private const int FollowRate = 10;
     /// <summary>Im schnellen Gesichtsmodus läuft die Handstufe nur in jedem n-ten Zyklus.</summary>
     private const int FastHandDivisor = 2;
-    private const int MaxFastRate = 20;
+    private const int MaxFastRate = SettingsLimits.PeaceAnalysesPerSecondMax;
     private readonly FaceTracker _faceTracker;
     private readonly PeaceEngine _engine;
     private readonly MiddleFingerEngine _mfEngine;
@@ -292,7 +292,7 @@ public sealed partial class PeaceOverlayViewModel : ObservableObject, IDisposabl
             return;
 
         var options = BuildOptions();
-        _faceTracker.LostAfter = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor / Math.Max(1, options.AnalysesPerSecond));
+        _faceTracker.LostAfter = PeaceEngine.LostAfterFor(options.AnalysesPerSecond);
 
         if (_request is null)
         {
@@ -426,6 +426,8 @@ public sealed partial class PeaceOverlayViewModel : ObservableObject, IDisposabl
     /// Bedarf der Anforderung zur Betriebsart: Im Leerlauf Gesichter und Hände mit der eingestellten Rate; solange ein Bart sichtbar
     /// ist (schneller Gesichtsmodus), laufen die Gesichter doppelt so schnell (mindestens <see cref="FollowRate"/>) und die Handstufe
     /// nur in jedem zweiten Zyklus, also weiter mit der eingestellten Handrate (die <see cref="PeaceEngine"/>-Fristen gelten dafür).
+    /// Passt die doppelte Rate nicht mehr in <see cref="MaxFastRate"/> (Rate über der Hälfte davon), laufen Gesichter und Hände
+    /// stattdessen in jedem Zyklus mit <see cref="MaxFastRate"/>.
     /// In <see cref="PeaceMode.FollowMoustache"/> kommen Hände nur hinzu, solange <see cref="MiddleFingerWatching"/> gilt (mit Bart wie im
     /// schnellen Gesichtsmodus, ohne Bart mit der eingestellten Rate).
     /// </summary>
@@ -453,8 +455,12 @@ public sealed partial class PeaceOverlayViewModel : ObservableObject, IDisposabl
 
         if (_tracker.IsActive)
         {
-            var cycleRate = Math.Clamp(Math.Max(FollowRate, FastHandDivisor * Math.Max(1, _settings.AnalysesPerSecond)), 1, MaxFastRate);
-            return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, cycleRate, MinFaceScore, minHand, FastHandDivisor, heartOn);
+            var handRate = Math.Max(1, _settings.AnalysesPerSecond);
+            // Doppelte Rate nur, solange sie in den Rahmen passt; darüber läuft alles mit MaxFastRate und die Hände in jedem Zyklus.
+            var fits = FastHandDivisor * handRate <= MaxFastRate;
+            var divisor = fits ? FastHandDivisor : 1;
+            var cycleRate = fits ? Math.Max(FollowRate, FastHandDivisor * handRate) : MaxFastRate;
+            return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, cycleRate, MinFaceScore, minHand, divisor, heartOn);
         }
         return new GestureRequestOptions(GestureNeeds.Faces | GestureNeeds.Hands, _settings.AnalysesPerSecond, MinFaceScore, minHand, PairedHands: heartOn);
     }
@@ -484,7 +490,7 @@ public sealed partial class PeaceOverlayViewModel : ObservableObject, IDisposabl
         {
             _request.Update(options);
             _options = options;
-            _faceTracker.LostAfter = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor / Math.Max(1, options.AnalysesPerSecond));
+            _faceTracker.LostAfter = PeaceEngine.LostAfterFor(options.AnalysesPerSecond);
         }
         catch (Exception ex)
         {

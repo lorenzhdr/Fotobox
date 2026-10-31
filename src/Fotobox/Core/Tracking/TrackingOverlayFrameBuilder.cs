@@ -114,7 +114,7 @@ public sealed class TrackingOverlayFrameBuilder
         else if (update.HandsIncluded)
         {
             if (observation.Options is { } o)
-                _handTracker.LostAfter = TimeSpan.FromSeconds(PeaceEngine.AnalysisIntervalFactor / Math.Max(1, o.AnalysesPerSecond));
+                _handTracker.LostAfter = PeaceEngine.LostAfterFor(o.AnalysesPerSecond / Math.Max(1, o.HandCycleDivisor));
             _hands = _handTracker.Update(update.Hands, _aspect);
             _handsAt = now;
         }

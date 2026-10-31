@@ -16,11 +16,13 @@ public static class AdminInfoTexts
         "Höher: Die Zielmarken folgen Bewegungen schneller, die Analyse kostet aber mehr Rechenleistung (CPU).\n" +
         "Niedriger: Das spart Leistung, die Marken reagieren träger.\n" +
         "\n" +
+        "Die Kamera begrenzt die tatsächliche Rate: Mehr Analysen als Kamerabilder pro Sekunde gibt es nicht. Sehr hohe Werte (bis 50) kosten viel Rechenleistung und können die Kamerabildrate drücken.\n" +
+        "\n" +
         "Empfehlung: 5 (Standard). Auf schwachen PCs 2 bis 3. Mehr als 5 bringt meist kaum sichtbare Verbesserung.\n" +
         "\n" +
         "Tipp: Zeigt die Statuszeile der Vorschau dauerhaft weniger Analysen/s als eingestellt, ist der PC ausgelastet. Senken Sie dann den Wert.";
 
-    // PeaceOverlayViewModel.BuildOptions: Hände + Gesichter mit AnalysesPerSecond; mit Bart Gesichter max(10, 2 × Rate) ≤ 20/s,
+    // PeaceOverlayViewModel.BuildOptions: Hände + Gesichter mit AnalysesPerSecond; mit Bart Gesichter max(10, 2 × Rate) ≤ 50/s,
     // Handstufe nur jeden 2. Zyklus (Handrate bleibt). PeaceEngine.Configure: Aussetzer-Frist = 2,5 Analyseabstände (mind. 250 ms).
     public const string PeaceAnalysesPerSecond =
         "Wie oft pro Sekunde Hände und Gesichter im Livebild ausgewertet werden. Das Livebild bleibt flüssig und hat immer Vorrang.\n" +
@@ -28,7 +30,9 @@ public static class AdminInfoTexts
         "Höher: Das Peace-Zeichen wird schneller erkannt und die Haltedauer genauer gemessen, die Analyse kostet aber mehr Rechenleistung (CPU).\n" +
         "Niedriger: Das spart Leistung, die Erkennung reagiert träger, und kurze Haltedauern werden ungenauer, weil Aussetzer erst nach etwa 2,5 Analyseabständen zählen.\n" +
         "\n" +
-        "Der Wert gilt gemeinsam für die Peace-, die Mittelfinger- und die Herzerkennung. Ist ein Bart sichtbar, werden Gesichter automatisch häufiger verfolgt (mindestens 10, höchstens 20 pro Sekunde); die Handerkennung bleibt beim eingestellten Wert.\n" +
+        "Der Wert gilt gemeinsam für die Peace-, die Mittelfinger- und die Herzerkennung. Ist ein Bart sichtbar, werden Gesichter automatisch häufiger verfolgt (mindestens 10, höchstens 50 pro Sekunde); die Handerkennung bleibt beim eingestellten Wert (die Leistungsanzeige zählt dann Zyklen und kann das Doppelte zeigen).\n" +
+        "\n" +
+        "Die Kamera begrenzt die tatsächliche Rate: Mehr Analysen als Kamerabilder pro Sekunde gibt es nicht. Sehr hohe Werte (bis 50) kosten viel Rechenleistung und können die Kamerabildrate drücken.\n" +
         "\n" +
         "Empfehlung: 5 (Standard), auf schwachen PCs 3.\n" +
         "\n" +
@@ -41,7 +45,9 @@ public static class AdminInfoTexts
         "Höher: Der Mittelfinger wird schneller erkannt und die Haltedauer genauer gemessen, die Analyse kostet aber mehr Rechenleistung (CPU).\n" +
         "Niedriger: Das spart Leistung, die Erkennung reagiert träger, und kurze Haltedauern werden ungenauer, weil Aussetzer erst nach etwa 2,5 Analyseabständen zählen.\n" +
         "\n" +
-        "Der Wert gilt gemeinsam für die Peace-, die Mittelfinger- und die Herzerkennung und ist auf der Peace-Seite ebenfalls einstellbar. Ist ein Bart sichtbar, werden Gesichter automatisch häufiger verfolgt (mindestens 10, höchstens 20 pro Sekunde); die Handerkennung bleibt beim eingestellten Wert.\n" +
+        "Der Wert gilt gemeinsam für die Peace-, die Mittelfinger- und die Herzerkennung und ist auf der Peace-Seite ebenfalls einstellbar. Ist ein Bart sichtbar, werden Gesichter automatisch häufiger verfolgt (mindestens 10, höchstens 50 pro Sekunde); die Handerkennung bleibt beim eingestellten Wert (die Leistungsanzeige zählt dann Zyklen und kann das Doppelte zeigen).\n" +
+        "\n" +
+        "Die Kamera begrenzt die tatsächliche Rate: Mehr Analysen als Kamerabilder pro Sekunde gibt es nicht. Sehr hohe Werte (bis 50) kosten viel Rechenleistung und können die Kamerabildrate drücken.\n" +
         "\n" +
         "Empfehlung: 5 (Standard), auf schwachen PCs 3.\n" +
         "\n" +
@@ -55,6 +61,8 @@ public static class AdminInfoTexts
         "Niedriger: Das spart Leistung, die Erkennung reagiert träger, und kurze Haltedauern werden ungenauer, weil Aussetzer erst nach etwa 4 Analyseabständen (mindestens 0,7 Sekunden) zählen.\n" +
         "\n" +
         "Der Wert gilt gemeinsam für die Peace-, die Mittelfinger- und die Herzerkennung und ist auf der Peace-Seite ebenfalls einstellbar.\n" +
+        "\n" +
+        "Die Kamera begrenzt die tatsächliche Rate: Mehr Analysen als Kamerabilder pro Sekunde gibt es nicht. Sehr hohe Werte (bis 50) kosten viel Rechenleistung und können die Kamerabildrate drücken.\n" +
         "\n" +
         "Empfehlung: 5 (Standard), auf schwachen PCs 3.\n" +
         "\n" +

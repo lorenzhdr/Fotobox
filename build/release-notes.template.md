@@ -1,13 +1,13 @@
 ## Fotobox+ {{VERSION}}
 
-### Neu in 2.10.3
+### Neu in 2.10.4
 
-- **Tracking-Overlay:** Mit **Strg + Alt + X** blendet die Gastansicht ein, was die Erkennungen gerade sehen: Personen-Boxen, die fünf Punkte der Gesichter, die 21 Punkte jeder Hand, Gesten, Bärte und Herzen, dazu oben links eine Statuszeile mit den laufenden Erkennungen und ihren Analysen pro Sekunde. Ab Werk aus und nach jedem Start wieder aus. Sichtbar ist es im Leerlauf und im Foto-Countdown und liegt über den Fun-Effekten.
-- **Einstellbar:** Im Admin (Tab „Fun“, Kachel „Tracking-Overlay“) lassen sich Ebenen, Beschriftungen, Statuszeile, Größe und Stil (Technik oder Sci-Fi) wählen. Optional zeigt eine „Warum-Info“ je Hand, warum eine Geste erkannt oder verworfen wurde. Die Taste ändert man im Tab „Tasten“. Die Einstellungen gehören zu „Einstellungen teilen“.
-- **Nur Anzeige:** Das Overlay fordert nichts an und ändert keine Erkennung; Analyseraten und Auslösungen bleiben gleich. Es ist nie im Foto oder Video und kostet nichts, solange es ausgeblendet ist.
-- **Hinweis:** Noch nicht mit einer echten Kamera geprüft. Die Statuszeile kann sich mit Hinweisen oben in der Gastansicht überlagern. Die Zahlen an den Händen können von denen der Erkennung abweichen.
+- **Analysen pro Sekunde bis 50:** Die Obergrenze für Zielerfassung und für Peace-, Mittelfinger- und Herzerkennung steigt von 10 auf 50 (Standard bleibt 5). Die tatsächliche Rate begrenzt die Kamera: Mehr Analysen als Kamerabilder pro Sekunde gibt es nicht.
+- **Genauerer Takt:** Die Erkennungen halten die eingestellte Rate jetzt im Mittel ein. Vorher ging die Verspätung bis zum nächsten Kamerabild bei jeder Analyse verloren (bei 25 Bildern pro Sekunde und Einstellung 10 nur etwa 8,3). Nach einem Rückstand wird nicht in Salven nachgeholt.
+- **Bärte:** Bei sichtbarem Bart werden Gesichter mit mindestens 10 und höchstens 50 Zyklen pro Sekunde verfolgt. Die Leistungsanzeige zählt dann Zyklen und kann das Doppelte der Handrate zeigen.
+- **Hinweis:** Hohe Raten kosten Rechenleistung und können die Kamerabildrate drücken. Mit hohen Raten noch nicht an einer echten Kamera geprüft.
 
-Alle Neuerungen von 2.10.2 und den Versionen davor stehen unten unter „Ältere Versionen“.
+Die Neuerungen von 2.10.3 stehen im Release v2.10.3, alle früheren unten unter „Ältere Versionen“.
 
 ### Welche Datei passt zu meinem PC?
 
@@ -35,7 +35,7 @@ Klicke dort auf **Weitere Informationen → Trotzdem ausführen**.
 
 ### Ältere Versionen
 
-Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer den Versionen 2.9.1 und 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
+Ältere Versionen werden nicht mehr einzeln unter „Releases“ aufgeführt (außer den Versionen 2.10.3, 2.9.1 und 1.4.1). Ihr Quellcode ist weiterhin unter [Tags](https://github.com/lorenzhdr/Fotobox/tags) abrufbar.
 
 <details>
 <summary>Änderungen der Versionen 0.0.0-beta bis 2.10.2 anzeigen</summary>

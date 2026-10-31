@@ -39,7 +39,7 @@ Flacher, eigener Abschnitt (damit `FunOverlayViewModel.SameSettings` der Zielerf
 | `ShowHoldProgress` | aus | | Fortschrittsring an der Hand (verrät die Funktion) |
 | `CooldownSeconds` | 0 | 0–600 s | Sperrzeit nach einer Auslösung |
 | `SensitivityPercent` | 50 | 10–95 | Empfindlichkeit |
-| `AnalysesPerSecond` | 5 | 1–10 | Analysen/s (Rechenlast); gilt auch für die Mittelfingererkennung |
+| `AnalysesPerSecond` | 5 | 1–50 | Analysen/s (Rechenlast); gilt auch für die Mittelfingererkennung |
 | `SelfDestructSeconds` | 10 | 5–30 s | Dauer des Alarm-Countdowns |
 | `SelfDestructSoundEnabled` | aus | | Sirene, Ticks, Explosion |
 | `PhotoCountdownSeconds` | 3 | 0–30 s | Countdown der Aktion Foto (0 = sofort) |
@@ -79,7 +79,7 @@ Verhalten wie `PersonDetectionService` (siehe `docs/fun-zielerfassung.md`): Anfo
 | `PhotoMinFaceScore` | 0,6 |
 | `StatsInterval` | 30 s |
 
-Ein Frame wird nicht verarbeitet, solange eine Foto-Gesichtserkennung (`DetectFacesInPhotoAsync`) die Live-Analyse pausiert (`_pauseCount`, `_liveGate`). Die Rate wird auf 1–30 geklemmt (UI erlaubt 1–10, im schnellen Gesichtsmodus bis 20).
+Ein Frame wird nicht verarbeitet, solange eine Foto-Gesichtserkennung (`DetectFacesInPhotoAsync`) die Live-Analyse pausiert (`_pauseCount`, `_liveGate`). Die Rate wird auf 1–50 geklemmt (UI erlaubt 1–50, im schnellen Gesichtsmodus ebenfalls höchstens 50). Seit 2.10.4 steuert der `AnalysisPacer` (`Services/Detection`) den Takt: Er schreibt eine Sollzeit fort statt den Abstand seit dem letzten Start zu messen. Vorher ging die Verspätung bis zum nächsten Kamerabild je Analyse verloren (bei 25 Bildern/s und Soll 10 nur 8,3/s), jetzt liegt die Rate im Mittel bei der eingestellten; nach einem Rückstand wird nicht in Salven nachgeholt. Mehr Analysen als Kamerabilder gibt es nie, die reale Rate ist durch Kamerabildrate und Analysedauer begrenzt. Hohe Raten kopieren je Analyse ein Bild bis 1920 px auf dem Kamera-Thread und können die Kamerarate drücken.
 
 ### Bedarf einer Anforderung
 
@@ -111,8 +111,9 @@ flowchart TD
 
 Ist im `Watching` ein Bart sichtbar, fordert `PeaceOverlayViewModel` (`BuildOptions`/`RefreshRequest`, auch in der Admin-Vorschau) `HandCycleDivisor` = 2 an:
 
-- Zyklusrate = `clamp(max(10, 2 × eingestellte Rate), 1 … 20)` pro Sekunde.
-- Die Handstufe läuft nur in jedem 2. Zyklus; die effektive Handrate bleibt die eingestellte und gilt weiter für die `PeaceEngine`-Fristen.
+- Zyklusrate = `max(10, 2 × eingestellte Rate)`, höchstens 50 pro Sekunde.
+- Die Handstufe läuft nur in jedem 2. Zyklus; die effektive Handrate bleibt die eingestellte und gilt weiter für die `PeaceEngine`-Fristen. Passt 2 × Rate nicht ins Maximum (Rate über 25), läuft der Zyklus mit 50/s und Teiler 1 (Hände in jedem Zyklus).
+- Die Leistungsanzeige zeigt Zyklen, nicht Handanalysen: Im Bartmodus steht dort ggf. das Doppelte der Handrate.
 - Gesichter kommen vorab als eigenes Update (`GestureUpdate.HandsIncluded = false`); das spätere Hand-Update wiederholt sie mit `FacesFresh = false` (sie werden nicht erneut verfolgt oder dem Bart gemeldet, das verfälschte Geschwindigkeit und Glättung; sie dienen nur der Handzuordnung). `GestureUpdate.FrameTime` ist die Eingangszeit des Frames.
 
 Im Countdown/Foto-Folgemodus (`FollowMoustache` ohne Mittelfinger-Bedarf) laufen nur Gesichter mit 10/s (`FollowRate`).
@@ -136,7 +137,8 @@ Im Countdown/Foto-Folgemodus (`FollowMoustache` ohne Mittelfinger-Bedarf) laufen
 | Faktor | `PeaceEngine.AnalysisIntervalFactor` = 2,5; Analyseabstand = 1 / `AnalysesPerSecond` |
 | Sperrzeit | `CooldownSeconds` ab der Auslösung |
 | Nach Auslösung | Engine entwaffnet; „Hand muss erst runter“ |
-| Handverlust | `HandTracker.LostAfter` = Analyseabstand-Faktor (mindestens 400 ms) |
+| Handverlust | `HandTracker.LostAfter` = Aussetzerfrist (`GapTolerance`, mindestens 250 ms; bis 2.10.3 Analyseabstand-Faktor, mindestens 400 ms) |
+| Verlustfrist Gesichter | `PeaceEngine.LostAfterFor`: Untergrenze 125 ms (Gesichts- und Overlay-Tracker) |
 | `GesturesEnabled` | nur im `Watching`; bei false kein Halten, aber die Ruheprüfung läuft weiter |
 | Aktionswahl | angehakte Aktionen, Bart nur wenn die Gesichtserkennung bereit ist; mehrere = zufällig; keine verfügbar → nur Log |
 
@@ -313,7 +315,7 @@ Zeigt ein Gast den Mittelfinger und hält ihn, hebt das **Peace-Effekte auf**: S
 | `HoldMilliseconds` | 500 | 200–3000 ms, Schritt 100 | Haltedauer |
 | `SensitivityPercent` | 50 | 10–95 | Empfindlichkeit |
 
-Die **Analysenrate** (`AnalysesPerSecond`) ist kein eigenes Feld: Neu in 2.5.1 ist „Analysen pro Sekunde“ auch auf der Mittelfinger-Seite einstellbar – es ist **derselbe Wert wie bei Peace** (`PeaceSettings.AnalysesPerSecond`, `NumberStepper` bindet an `PeaceAnalysesPerSecond`; Bereich `SettingsLimits.PeaceAnalysesPerSecond*` 1–10). Die Seite verweist darauf („Gilt gemeinsam für Peace- und Mittelfingererkennung“), und ein ⓘ-Tooltip (`AdminInfoTexts.MiddleFingerAnalysesPerSecond`) erklärt es.
+Die **Analysenrate** (`AnalysesPerSecond`) ist kein eigenes Feld: Neu in 2.5.1 ist „Analysen pro Sekunde“ auch auf der Mittelfinger-Seite einstellbar – es ist **derselbe Wert wie bei Peace** (`PeaceSettings.AnalysesPerSecond`, `NumberStepper` bindet an `PeaceAnalysesPerSecond`; Bereich `SettingsLimits.PeaceAnalysesPerSecond*` 1–50). Die Seite verweist darauf („Gilt gemeinsam für Peace- und Mittelfingererkennung“), und ein ⓘ-Tooltip (`AdminInfoTexts.MiddleFingerAnalysesPerSecond`) erklärt es.
 
 `MiddleFingerTargets` ([Flags]: `None`, `Moustache` = 1, `SelfDestruct` = 2, `Kisscam` = 4) sagt, was gerade aufhebbar ist. `MiddleFingerSettings.Wants(present)` = `Enabled` + (`ActionCancelPeace` mit Ziel `Moustache`/`SelfDestruct` **oder** `ActionCancelKisscam` mit Ziel `Kisscam`). Die Peace-Zweige von `OnMiddleFinger` (Selbstzerstörung abbrechen, Bart entfernen) sind an `ActionCancelPeace` gebunden, der Kisscam-Zweig an `ActionCancelKisscam`; `BoothViewModel.UpdatePeace` meldet im Kisscam-Countdown `external = Kisscam`. `MinHandScore` linear aus der Empfindlichkeit (`MinHandScoreFor`: 10 → 0,9, 95 → 0,55; einzige Quelle, auch vom Klassifikator genutzt).
 
@@ -352,7 +354,7 @@ Beide Seiten liegen im Tab „Fun“ (Kacheln mit Status „An“/„Aus“, „
 - Checkbox **„Gesichtspunkte anzeigen“** (`AdminViewModel.PeacePreviewShowFacePoints`, nicht gespeichert, Standard aus): zeichnet die fünf YuNet-Punkte (`PeaceOverlay.Faces`/`ShowFaceLandmarks`); die Gastansicht zeigt sie nie.
 - Statuszeile (`PeacePreviewStatusFormatter`): „Hände: n · Gesichter: n · X,Y Analysen/s · Analyse ⌀ N ms · Peace erkannt ✌ · Mittelfinger erkannt“; „Erkennung wird geladen …“, „Die Erkennung ist nicht verfügbar.“, Warnzeile für „Keine Kamera – Vorschau nicht verfügbar.“ und die Ausfallgründe der Stufen; Warnung bei fehlender Gesichtserkennung (Bart nicht verfügbar); Warnung ohne gewählte Aktion.
 - Karten: Aktionen (Selbstzerstörung/Foto/Schnurrbart), Auslösung (Haltedauer, Fortschrittsring, Sperrzeit, Empfindlichkeit, **Analysen pro Sekunde** mit ⓘ), Selbstzerstörung (Dauer, Alarmton), Foto (Countdown), Schnurrbart (Wer, Stil mit acht Karten inkl. „Zufällig je Person“, „Beim Zufall verwenden“ – der letzte Haken ist gesperrt –, Sichtbarkeit, Dauer, Auto-Foto).
-- **ⓘ-Tooltip** `AdminInfoTexts.PeaceAnalysesPerSecond`: erklärt Rate, Abwägung CPU gegen Reaktion, dass Aussetzer erst nach etwa 2,5 Analyseabständen zählen, dass der Wert für Peace und Mittelfinger gilt, das Hochschalten der Gesichter bei sichtbarem Bart (10–20/s), Empfehlung 5 (schwache PCs 3) und den Tipp zur Statuszeile.
+- **ⓘ-Tooltip** `AdminInfoTexts.PeaceAnalysesPerSecond`: erklärt Rate (die Kamera begrenzt die reale Rate), Abwägung CPU gegen Reaktion, dass Aussetzer erst nach etwa 2,5 Analyseabständen zählen, dass der Wert für Peace und Mittelfinger gilt, das Hochschalten der Gesichter bei sichtbarem Bart (mindestens 10, höchstens 50 pro Sekunde; ab Rate 26 Zyklus 50/s mit Händen in jedem Zyklus), Empfehlung 5 (schwache PCs 3) und den Tipp zur Statuszeile.
 
 ## Seite „Mittelfinger“ (`MiddleFingerSettingsView`, `AdminViewModel.MiddleFinger.cs`)
 

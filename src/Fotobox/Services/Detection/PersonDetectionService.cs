@@ -46,8 +46,7 @@ public sealed class PersonDetectionService : IPersonDetectionService
     private volatile DetectorSlot? _ready;
 
     // Nur vom Kamera-Handler (seriell) benutzt.
-    private long _lastStartTimestamp;
-    private bool _hasStarted;
+    private readonly AnalysisPacer _pacer;
     private readonly byte[]?[] _buffers = new byte[]?[2];
     private int _bufferIndex;
     private int[]? _xMap;
@@ -58,6 +57,7 @@ public sealed class PersonDetectionService : IPersonDetectionService
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
         _factory = detectorFactory ?? throw new ArgumentNullException(nameof(detectorFactory));
         _time = time ?? throw new ArgumentNullException(nameof(time));
+        _pacer = new AnalysisPacer(_time);
     }
 
     /// <summary>Anzahl offener Anforderungen (für Tests und Diagnose).</summary>
@@ -305,7 +305,7 @@ public sealed class PersonDetectionService : IPersonDetectionService
             var settings = top.Settings;
             var perSecond = Math.Clamp(settings.AnalysesPerSecond, SettingsLimits.FunAnalysesPerSecondMin, SettingsLimits.FunAnalysesPerSecondMax);
             var interval = TimeSpan.FromTicks(TimeSpan.TicksPerSecond / perSecond);
-            if (_hasStarted && _time.GetElapsedTime(_lastStartTimestamp) < interval)
+            if (!_pacer.IsDue(interval))
                 return;
             if (Interlocked.CompareExchange(ref slot.Busy, 1, 0) != 0)
                 return;
@@ -326,8 +326,7 @@ public sealed class PersonDetectionService : IPersonDetectionService
                 return;
             }
 
-            _lastStartTimestamp = _time.GetTimestamp();
-            _hasStarted = true;
+            _pacer.MarkStarted(interval);
 
             var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             slot.Running = done.Task;
