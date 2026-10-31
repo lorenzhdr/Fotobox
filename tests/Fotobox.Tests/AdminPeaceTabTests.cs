@@ -624,8 +624,8 @@ public sealed class AdminPeaceTabTests : IDisposable
             Assert.Equal(Visibility.Collapsed, peace.Visibility);
 
             var tiles = FindDescendants<Button>(start).Where(b => b.Style == window.TryFindResource("FunTile")).ToList();
-            Assert.Equal(4, tiles.Count);
-            Assert.Equal(["Personenerkennung", "Peaceerkennung", "Mittelfinger", "Herz"], tiles.Select(AutomationProperties.GetName));
+            Assert.Equal(5, tiles.Count);
+            Assert.Equal(["Personenerkennung", "Peaceerkennung", "Mittelfinger", "Herz", "Tracking-Overlay"], tiles.Select(AutomationProperties.GetName));
             Assert.Contains(FindDescendants<TextBlock>(start), t => t.Text == "Zielmarkierungen über erkannten Personen im Livebild.");
             Assert.Contains(FindDescendants<TextBlock>(start), t => t.Text == "Verstecktes Extra: Ein Peace-Zeichen löst eine Überraschung aus.");
             Assert.Equal(["An", "An", "An", "An · Kisscam"],

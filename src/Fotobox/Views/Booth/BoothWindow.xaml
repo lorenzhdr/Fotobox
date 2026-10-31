@@ -321,6 +321,11 @@
                 <heart:HeartFeedbackOverlay Heart="{Binding HeartFeedback}" ImageWidth="{Binding Peace.ImageWidth}"
                                             ImageHeight="{Binding Peace.ImageHeight}" Mirror="{Binding MirrorPreview}"
                                             Visibility="{Binding ShowHeartFeedback, Converter={StaticResource BoolToVis}}" />
+
+                <!-- Tracking-Overlay (Taste, nach dem Start aus; nur Leerlauf und Countdown): zeigt roh, was die Erkennungen sehen. Rein passiv,
+                     nur im Livebild (nie im Foto/Video), nimmt keine Eingaben an, ganz oben im Zoom-Host (zoomt mit der Kisscam mit). -->
+                <booth:TrackingOverlay x:Name="TrackingLayer" Frame="{Binding TrackingOverlay.Frame}" Mirror="{Binding MirrorPreview}"
+                                       Visibility="{Binding TrackingOverlay.IsVisible, Converter={StaticResource BoolToVis}}" />
             </Grid>
         </heart:LiveZoomHost>
 
@@ -711,6 +716,13 @@
         <TextBlock Text="Kamera wird gestartet …" Foreground="#FFD0D4E4" FontSize="36"
                    HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"
                    Visibility="{Binding IsCameraStarting, Converter={StaticResource BoolToVis}}" />
+
+        <!--
+            Statuszeile des Tracking-Overlays: oben links, außerhalb des Zoom-Hosts (zoomt nicht mit der Kisscam), nimmt keine Eingaben an.
+            Liegt nie zugleich mit der Aufnahme-Anzeige (nur in der Aufnahme) auf dem Bild, da das Overlay dort ausgeblendet ist.
+        -->
+        <booth:TrackingStatusLine x:Name="TrackingStatusView" DataContext="{Binding TrackingOverlay}" IsHitTestVisible="False"
+                                  Visibility="{Binding ShowStatusLine, Converter={StaticResource BoolToVis}}" />
 
         <!--
             Leistungsanzeige (Taste, nach dem Start aus): oben rechts, außerhalb des Zoom-Hosts (zoomt nicht mit der Kisscam), nimmt keine

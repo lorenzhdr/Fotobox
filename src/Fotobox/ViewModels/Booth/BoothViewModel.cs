@@ -21,7 +21,7 @@ namespace Fotobox.ViewModels.Booth;
 /// Video: <see cref="VideoToggle"/> = die Taste steht in der Start- und in der Stopp-Liste (ein Druck schaltet um),
 /// <see cref="VideoStart"/>/<see cref="VideoStop"/> = nur in einer der beiden Listen.
 /// </remarks>
-public enum BoothKeyAction { None, Trigger, OpenAdmin, Cancel, VideoStart, VideoStop, VideoToggle, TogglePerformanceOverlay }
+public enum BoothKeyAction { None, Trigger, OpenAdmin, Cancel, VideoStart, VideoStop, VideoToggle, TogglePerformanceOverlay, ToggleTrackingOverlay }
 
 /// <summary>
 /// Eintrag der Layout-Vorschauliste: gewählte Variante, Anzeigename, Hervorhebung und Platzhalter 1..n für die Fotofelder
@@ -92,7 +92,8 @@ public sealed class BoothViewModel : ObservableObject
 
     /// <summary>Geparste Tastenbelegung (Reihenfolge der Auslöser-Tasten bleibt für den Hinweistext erhalten).</summary>
     private sealed record KeyMap(IReadOnlyList<KeyChord> Trigger, HashSet<KeyChord> Admin, HashSet<KeyChord> Cancel,
-        IReadOnlyList<KeyChord> VideoStart, IReadOnlyList<KeyChord> VideoStop, IReadOnlyList<KeyChord> PerformanceOverlay);
+        IReadOnlyList<KeyChord> VideoStart, IReadOnlyList<KeyChord> VideoStop, IReadOnlyList<KeyChord> PerformanceOverlay,
+        IReadOnlyList<KeyChord> TrackingOverlay);
 
     /// <param name="fun">Zielerfassung der gesamten Gastansicht (DI); ohne Angabe eine untätige Instanz (Tests).</param>
     /// <param name="peace">Peaceerkennung der Gastansicht (DI, mit dem Bart-Zustand für die Foto-Planung); ohne Angabe eine untätige Instanz (Tests).</param>
@@ -119,6 +120,9 @@ public sealed class BoothViewModel : ObservableObject
         PerformanceOverlay = new PerformanceOverlayViewModel(settings, time ?? TimeProvider.System, Fun, Peace, metrics, acceleration,
             cameraFrames ?? camera as ICameraFrameStats, DisplayFrames);
         PerformanceOverlayToggleRequested += PerformanceOverlay.Toggle;
+        TrackingOverlay = new TrackingOverlayViewModel(settings, time ?? TimeProvider.System, Fun, Peace);
+        TrackingOverlayToggleRequested += TrackingOverlay.Toggle;
+        TrackingOverlay.SetStateAllowed(TrackingOverlayAllowed);
         _music = music;
         _musicLibrary = musicLibrary;
         _boothSound = boothSound;
@@ -223,6 +227,15 @@ public sealed class BoothViewModel : ObservableObject
     /// immer aus; läuft bei offener Admin-Ansicht weiter.
     /// </summary>
     public PerformanceOverlayViewModel PerformanceOverlay { get; }
+
+    /// <summary>
+    /// Tracking-Overlay (Taste „Tracking-Overlay ein/aus“): zeigt im Livebild, was die laufenden Erkennungen sehen. Nach dem Start immer
+    /// aus; sichtbar nur im Leerlauf und im Foto-Countdown. Rein passiv (siehe <see cref="TrackingOverlayViewModel"/>).
+    /// </summary>
+    public TrackingOverlayViewModel TrackingOverlay { get; }
+
+    // Das Tracking-Overlay darf nur im Leerlauf und im Foto-Countdown erscheinen (kein Video-Countdown, keine Aufnahme, kein Ergebnis).
+    private bool TrackingOverlayAllowed => Controller.State is BoothState.Idle or BoothState.Countdown;
 
     /// <summary>Zähler der tatsächlich gezeigten Livebilder der Gastansicht (die Vorschau der Gastansicht zählt, die Leistungsanzeige liest).</summary>
     public DisplayFrameCounter DisplayFrames { get; }
@@ -812,6 +825,8 @@ public sealed class BoothViewModel : ObservableObject
 
         // Leistungsanzeige: unabhängig vom Videomodus und von jedem Zustand der Gastansicht.
         if (map.PerformanceOverlay.Contains(chord)) return BoothKeyAction.TogglePerformanceOverlay;
+        // Tracking-Overlay: ebenso unabhängig von Videomodus und Zustand (sichtbar wird es nur im Leerlauf und im Countdown).
+        if (map.TrackingOverlay.Contains(chord)) return BoothKeyAction.ToggleTrackingOverlay;
         return BoothKeyAction.None;
     }
 
@@ -824,6 +839,15 @@ public sealed class BoothViewModel : ObservableObject
 
     /// <summary>Löst <see cref="PerformanceOverlayToggleRequested"/> aus.</summary>
     public void TogglePerformanceOverlay() => PerformanceOverlayToggleRequested?.Invoke();
+
+    /// <summary>
+    /// Das Tracking-Overlay soll ein- bzw. ausgeblendet werden (Tastendruck, siehe <see cref="BoothKeyAction.ToggleTrackingOverlay"/>).
+    /// Wird auf dem UI-Thread ausgelöst; keine Zustandsprüfung, kein Eingriff in den <see cref="BoothController"/>.
+    /// </summary>
+    public event Action? TrackingOverlayToggleRequested;
+
+    /// <summary>Löst <see cref="TrackingOverlayToggleRequested"/> aus.</summary>
+    public void ToggleTrackingOverlay() => TrackingOverlayToggleRequested?.Invoke();
 
     private KeyMap GetKeyMap()
     {
@@ -841,7 +865,7 @@ public sealed class BoothViewModel : ObservableObject
 
         // Video-Tasten haben keinen Ersatzwert: leer = keine Taste belegt.
         map = new KeyMap(trigger, [.. admin], [.. ParseKeys(input?.CancelCountdownKeys)],
-            ParseKeys(input?.VideoStartKeys), ParseKeys(input?.VideoStopKeys), ParseKeys(input?.PerformanceOverlayKeys));
+            ParseKeys(input?.VideoStartKeys), ParseKeys(input?.VideoStopKeys), ParseKeys(input?.PerformanceOverlayKeys), ParseKeys(input?.TrackingOverlayKeys));
         _keyMap = map;
         return map;
     }
@@ -1001,6 +1025,7 @@ public sealed class BoothViewModel : ObservableObject
         StopMusic();
         Fun.SetActive(false, new FunSettings(), false);
         PerformanceOverlay.Dispose();
+        TrackingOverlay.Dispose();
         UpdatePeace(); // Shutdown schaltet die Peaceerkennung aus
         Controller.Cancel();
     }
@@ -1046,6 +1071,7 @@ public sealed class BoothViewModel : ObservableObject
 
         UpdateFun();
         UpdatePeace();
+        TrackingOverlay.SetStateAllowed(TrackingOverlayAllowed);
         UpdateSelfDestructSound();
         UpdateKisscamMusic();
         OnPropertyChanged(string.Empty);

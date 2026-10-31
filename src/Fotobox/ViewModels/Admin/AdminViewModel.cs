@@ -262,6 +262,9 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
             new KeyActionEditor(this, KeyAction.PerformanceOverlay, "Leistungsanzeige ein/aus",
                 "Blendet die Leistungsanzeige (Auslastung, Takt, Temperatur, FPS) in der Gastansicht ein oder aus. Wirkt in jedem Zustand; nach dem Start ist die Anzeige ausgeblendet.",
                 isRequired: false),
+            new KeyActionEditor(this, KeyAction.TrackingOverlay, "Tracking-Overlay ein/aus",
+                "Blendet das Tracking-Overlay (Personen, Gesichter, Hände, Gesten und Bärte als Punkte und Linien im Livebild) in der Gastansicht ein oder aus. Wirkt im Bereitschaftsbild und während des Countdowns; nach dem Start ist das Overlay ausgeblendet.",
+                isRequired: false),
         ];
         LoadKeysFromDraft();
         RebuildGuestOrder();
@@ -2140,6 +2143,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         Fill(Editor(KeyAction.VideoStart), _draft.Input.VideoStartKeys);
         Fill(Editor(KeyAction.VideoStop), _draft.Input.VideoStopKeys);
         Fill(Editor(KeyAction.PerformanceOverlay), _draft.Input.PerformanceOverlayKeys);
+        Fill(Editor(KeyAction.TrackingOverlay), _draft.Input.TrackingOverlayKeys);
 
         static void Fill(KeyActionEditor editor, IEnumerable<string> entries)
         {
@@ -2163,8 +2167,11 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         _draft.Input.VideoStartKeys = Texts(Editor(KeyAction.VideoStart));
         _draft.Input.VideoStopKeys = Texts(Editor(KeyAction.VideoStop));
         _draft.Input.PerformanceOverlayKeys = Texts(Editor(KeyAction.PerformanceOverlay));
+        _draft.Input.TrackingOverlayKeys = Texts(Editor(KeyAction.TrackingOverlay));
         OnPropertyChanged(nameof(AdminKeysDisplay));
         OnPropertyChanged(nameof(PerformanceOverlayKeyHint));
+        OnPropertyChanged(nameof(TrackingOverlayKeyHint));
+        OnPropertyChanged(nameof(TrackingOverlayStatusText));
         RaiseHintPreview();   // Die Hinweistexte der Gastansicht nennen die Auslöse- und Video-Tasten.
         OnPropertyChanged(nameof(VideoStartKeyHint));
         OnPropertyChanged(nameof(HasVideoStartKeyHint));
@@ -3324,6 +3331,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         ValidateHeart(errors);
         ValidatePrintArea(errors);
         ValidatePerformanceOverlay(errors);
+        ValidateTrackingOverlay(errors);
 
         if (_newPin.Length > 0 || _repeatPin.Length > 0)
         {

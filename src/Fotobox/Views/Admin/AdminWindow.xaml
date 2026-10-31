@@ -2048,6 +2048,31 @@
                                         </Grid>
                                     </Grid>
                                 </Button>
+                                <Button x:Name="FunTileTrackingOverlay" Style="{StaticResource FunTile}"
+                                        Command="{Binding ShowFunPageCommand}" CommandParameter="{x:Static vm:FunPage.TrackingOverlay}"
+                                        AutomationProperties.Name="Tracking-Overlay">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="56" />
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="&#xE7B3;" FontFamily="Segoe MDL2 Assets" FontSize="38"
+                                                   Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Row="1" Margin="0,14,0,16">
+                                            <TextBlock Text="Tracking-Overlay" FontSize="20" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0"
+                                                       Text="Zeigt per Tastendruck, was die Erkennungen im Livebild sehen." />
+                                        </StackPanel>
+                                        <Grid Grid.Row="2">
+                                            <Border Style="{StaticResource FunTileStatus}">
+                                                <TextBlock Text="{Binding TrackingOverlayStatusText}" Style="{StaticResource FunTileStatusText}" />
+                                            </Border>
+                                            <TextBlock Text="›" FontSize="30" Foreground="{DynamicResource MutedBrush}"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-8,0,0" />
+                                        </Grid>
+                                    </Grid>
+                                </Button>
                             </UniformGrid>
                         </StackPanel>
                     </ScrollViewer>
@@ -2506,6 +2531,10 @@
                     <!-- Seite „Herz“ -->
                     <local:HeartSettingsView x:Name="HeartPage"
                                              Visibility="{Binding FunPage, Converter={StaticResource FunPageVis}, ConverterParameter={x:Static vm:FunPage.Heart}}" />
+
+                    <!-- Seite „Tracking-Overlay“ -->
+                    <local:TrackingOverlaySettingsView x:Name="TrackingOverlayPage"
+                                                       Visibility="{Binding FunPage, Converter={StaticResource FunPageVis}, ConverterParameter={x:Static vm:FunPage.TrackingOverlay}}" />
                 </Grid>
             </TabItem>
         </TabControl>

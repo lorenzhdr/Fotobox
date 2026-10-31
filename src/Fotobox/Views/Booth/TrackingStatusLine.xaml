@@ -1,0 +1,17 @@
+<UserControl x:Class="Fotobox.Views.Booth.TrackingStatusLine"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             HorizontalAlignment="Left" VerticalAlignment="Top" Margin="48,44,0,0"
+             IsHitTestVisible="False" Focusable="False"
+             AutomationProperties.Name="Tracking-Status">
+
+    <!--
+        Statuszeile des Tracking-Overlays (oben links): je Erkennung aktiv/aus und Analysen pro Sekunde. Sitzt außerhalb des Zoom-Hosts
+        (zoomt nicht mit der Kisscam), bewusst ohne Effekte. DataContext = TrackingOverlayViewModel; DataContext und Sichtbarkeit
+        (ShowStatusLine) setzt die Gastansicht (BoothWindow).
+    -->
+    <Border Background="#B3000000" CornerRadius="16" Padding="16,6">
+        <TextBlock Text="{Binding StatusText}" Foreground="#FFD0D4E4" FontSize="20" FontWeight="SemiBold"
+                   FontFamily="Consolas, Cascadia Mono, Courier New" TextWrapping="NoWrap" />
+    </Border>
+</UserControl>

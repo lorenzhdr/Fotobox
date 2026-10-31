@@ -194,12 +194,12 @@ public sealed class AdminPerformanceOverlayTests : IDisposable
     // ---- Taste
 
     [Fact]
-    public void KeyEditor_ExistsLast_NotRequired_WithDefaultCtrlAltY()
+    public void KeyEditor_Exists_NotRequired_WithDefaultCtrlAltY()
     {
         var vm = CreateViewModel();
 
         var editor = Overlay(vm);
-        Assert.Same(editor, vm.KeyEditors[^1]);
+        Assert.Contains(editor, vm.KeyEditors);
         Assert.Equal("Leistungsanzeige ein/aus", editor.Title);
         Assert.False(editor.IsRequired);
         Assert.Equal(["Strg+Alt+Y"], editor.Keys.Select(k => k.DisplayName));

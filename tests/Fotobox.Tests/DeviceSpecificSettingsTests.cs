@@ -61,6 +61,7 @@ public sealed class DeviceSpecificSettingsTests
         "Input.VideoStartKeys",
         "Input.VideoStopKeys",
         "Input.PerformanceOverlayKeys",
+        "Input.TrackingOverlayKeys",
         // GuestScreen
         "GuestScreen.HintText",
         "GuestScreen.HintStyle",
@@ -184,6 +185,17 @@ public sealed class DeviceSpecificSettingsTests
         "PerformanceOverlay.RefreshMs",
         "PerformanceOverlay.FontSize",
         "PerformanceOverlay.BackgroundOpacityPercent",
+        // TrackingOverlay (Tracking-Overlay in der Gastansicht, komplett übertragbar)
+        "TrackingOverlay.ShowPersons",
+        "TrackingOverlay.ShowFaces",
+        "TrackingOverlay.ShowHands",
+        "TrackingOverlay.ShowGestures",
+        "TrackingOverlay.ShowMoustaches",
+        "TrackingOverlay.ShowLabels",
+        "TrackingOverlay.ShowStatusLine",
+        "TrackingOverlay.ShowVerdicts",
+        "TrackingOverlay.Style",
+        "TrackingOverlay.ScalePercent",
     ];
 
     [Fact]

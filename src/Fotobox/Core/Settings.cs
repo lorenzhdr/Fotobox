@@ -73,6 +73,8 @@ public enum PrintAreaStyle { Lines, LinesShaded, Corners }
 public enum PrintAreaColor { White, Black, Red, Yellow, Green, Blue, Pink, Orange }
 /// <summary>Darstellung der Leistungsanzeige: Text = nur Zeilen mit Werten, Bars = Text mit Balken. Nur hinten erweitern.</summary>
 public enum PerformanceOverlayStyle { Text, Bars }
+/// <summary>Darstellung des Tracking-Overlays: Technik = Linien, Punkte und Monospace-Beschriftung, SciFi = Eckenrahmen und Scanner-Anmutung. Nur hinten erweitern.</summary>
+public enum TrackingOverlayStyle { Technik, SciFi }
 
 /// <summary>Gemeinsame Wertebereiche für Admin-UI, Validierung und Normalisierung.</summary>
 public static class SettingsLimits
@@ -207,6 +209,8 @@ public static class SettingsLimits
     public const int PerformanceOverlayFontSizeMin = 12, PerformanceOverlayFontSizeMax = 36, PerformanceOverlayFontSizeDefault = 18;
     /// <summary>Leistungsanzeige: Deckkraft des Hintergrunds in Prozent (Standard 60).</summary>
     public const int PerformanceOverlayBackgroundOpacityMin = 0, PerformanceOverlayBackgroundOpacityMax = 100, PerformanceOverlayBackgroundOpacityDefault = 60;
+    /// <summary>Tracking-Overlay: Größe von Punkten, Linien und Schrift in Prozent (10er-Schritte, Standard 100).</summary>
+    public const int TrackingOverlayScaleMin = 50, TrackingOverlayScaleMax = 200, TrackingOverlayScaleStep = 10, TrackingOverlayScaleDefault = 100;
 }
 
 /// <summary>
@@ -300,6 +304,7 @@ public sealed class AppSettings
     public PerformanceSettings Performance { get; set; } = new();
     public PrintAreaSettings PrintArea { get; set; } = new();
     public PerformanceOverlaySettings PerformanceOverlay { get; set; } = new();
+    public TrackingOverlaySettings TrackingOverlay { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -788,12 +793,15 @@ public sealed class InputSettings
     public List<string> VideoStopKeys { get; set; } = [DefaultVideoKey];
     /// <summary>Tasten „Leistungsanzeige ein/aus“ (in jedem Zustand der Gastansicht wirksam). Darf leer sein (dann keine Taste).</summary>
     public List<string> PerformanceOverlayKeys { get; set; } = [DefaultPerformanceOverlayKey];
+    /// <summary>Tasten „Tracking-Overlay ein/aus“ (in jedem Zustand der Gastansicht wirksam; sichtbar wird es nur im Leerlauf und im Countdown). Darf leer sein (dann keine Taste).</summary>
+    public List<string> TrackingOverlayKeys { get; set; } = [DefaultTrackingOverlayKey];
 
     public const string DefaultTriggerKey = "Space";
     public const string DefaultAdminKey = "Ctrl+Alt+A";
     public const string DefaultCancelKey = "Escape";
     public const string DefaultVideoKey = "Enter";
     public const string DefaultPerformanceOverlayKey = "Ctrl+Alt+Y";
+    public const string DefaultTrackingOverlayKey = "Ctrl+Alt+X";
 }
 
 /// <summary>
@@ -871,4 +879,30 @@ public sealed class PerformanceOverlaySettings
 
     /// <summary>Tiefe Kopie.</summary>
     public PerformanceOverlaySettings Clone() => (PerformanceOverlaySettings)MemberwiseClone();
+}
+
+/// <summary>
+/// Tracking-Overlay: zeigt auf Tastendruck (<see cref="InputSettings.TrackingOverlayKeys"/>) im Livebild, was die laufenden Erkennungen
+/// sehen (Personen-Boxen, Gesichtspunkte, Handpunkte, Gesten, Bärte). Nur Anzeige: Es fordert nichts an und ändert keine Erkennung; nach
+/// dem App-Start immer ausgeblendet, nie im Foto oder Video. Übertragbar (wird mit „Einstellungen teilen“ weitergegeben). Nur Werttypen.
+/// </summary>
+public sealed class TrackingOverlaySettings
+{
+    public bool ShowPersons { get; set; } = true;
+    public bool ShowFaces { get; set; } = true;
+    public bool ShowHands { get; set; } = true;
+    public bool ShowGestures { get; set; } = true;
+    public bool ShowMoustaches { get; set; } = true;
+    /// <summary>Beschriftungen (Nummern, Werte) an den Markierungen.</summary>
+    public bool ShowLabels { get; set; } = true;
+    /// <summary>Statuszeile oben links (je Erkennung aktiv/aus und Analysen pro Sekunde).</summary>
+    public bool ShowStatusLine { get; set; } = true;
+    /// <summary>Warum-Info: zeigt je Hand, warum eine Geste erkannt oder verworfen wurde (rechnet die Klassifikatoren zusätzlich, solange sichtbar).</summary>
+    public bool ShowVerdicts { get; set; }
+    public TrackingOverlayStyle Style { get; set; } = TrackingOverlayStyle.Technik;
+    /// <summary>Größe von Punkten, Linien und Schrift in Prozent (<see cref="SettingsLimits.TrackingOverlayScaleMin"/> bis <see cref="SettingsLimits.TrackingOverlayScaleMax"/>).</summary>
+    public int ScalePercent { get; set; } = SettingsLimits.TrackingOverlayScaleDefault;
+
+    /// <summary>Tiefe Kopie.</summary>
+    public TrackingOverlaySettings Clone() => (TrackingOverlaySettings)MemberwiseClone();
 }

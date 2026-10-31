@@ -62,6 +62,10 @@ Admin-Tab „Leistung“: Auswahl, auf welchem Gerät die KI-Erkennung rechnet (
 
 Strg+Alt+Y blendet in der Gastansicht oben rechts eine Leistungsanzeige ein und aus (frei belegbar oder entfernbar im Tab „Tasten“; ab Werk aus, nach jedem Start wieder aus, wird nicht gespeichert). Sie zeigt wahlweise CPU-, GPU- und NPU-Auslastung, Takt, Temperatur, Grafikspeicher, RAM, Kamera- und Anzeige-FPS, Analysen pro Sekunde, Rechenzeit und das Gerät je KI-Modell, als Text oder mit Balken; ab 70 % gelb, ab 90 % rot. Sie liegt über allem außer dem Blitz und ist nie im Foto oder Video. Gemessen wird nur bei sichtbarer Anzeige (Windows-Bordmittel, ohne Treiber oder Zusatzpaket); was Windows für ein Gerät nicht liefert, steht als „nicht verfügbar“ da. Einstellungen im Tab „Leistung“, Karte „Leistungsanzeige“. Details: `beschleunigung.md`.
 
+### Tracking-Overlay (seit 2.10.3)
+
+Strg+Alt+X blendet in der Gastansicht ein, was die laufenden Erkennungen sehen (frei belegbar oder entfernbar im Tab „Tasten“; ab Werk aus, nach jedem Start wieder aus, wird nicht gespeichert). Es zeichnet Personen-Boxen und Zielmarken, die fünf Gesichtspunkte, die 21 Punkte jeder Hand (mit Nummer), erkannte Gesten (Peace mit Haltefortschritt, Mittelfinger, Herz), Bärte und oben links eine Statuszeile mit aktiv/aus und Analysen pro Sekunde je Erkennung. Optional zeigt die „Warum-Info“ je Hand, warum eine Geste erkannt oder verworfen wurde (Standard aus). Sichtbar nur im Leerlauf und im Foto-Countdown, über den Fun-Effekten, nie im Foto oder Video. Die Anzeige ist rein passiv: keine eigene Anforderung an die Erkennung, keine geänderte Analyserate; ohne sichtbares Overlay gibt es keine Zusatzarbeit. Einstellungen im Tab „Fun“, Kachel „Tracking-Overlay“. Details: `architektur.md`, `fun-peace-mittelfinger.md`.
+
 ### Einstellungen teilen
 
 Admin-Tab „Sicherheit & Daten“: Export und Import der Einstellungen als JSON-Datei (ohne gerätespezifische Werte wie Kamera, Drucker, Ordner), optional mit PIN. Dazu „Standardwerte wiederherstellen“. Details: `einstellungen.md`.
@@ -75,6 +79,7 @@ Admin-Tab „Sicherheit & Daten“: Export und Import der Einstellungen als JSON
 | Abbrechen | Esc | Bricht Countdown (auch die Kisscam) still ab, bricht den Video-Countdown ab, storniert einen laufenden Druck (nicht mehr in der Druckersperre). Im Leerlauf lässt sie sichtbare Schnurrbärte verschwinden. Eine laufende Videoaufnahme beendet sie nicht (dafür die Videotaste). |
 | Video starten/beenden | Enter | Gleiche Taste in Start und Stopp = Umschalten. |
 | Leistungsanzeige ein/aus | Strg+Alt+Y | Frei belegbar oder entfernbar; wirkt nur in der Gastansicht, in jedem Zustand; hat bei Konflikten den geringsten Vorrang. |
+| Tracking-Overlay ein/aus | Strg+Alt+X | Frei belegbar oder entfernbar; wirkt nur in der Gastansicht, hat bei Konflikten den geringsten Vorrang (nach der Leistungsanzeige); zu sehen nur im Leerlauf und im Foto-Countdown. |
 | Layout wechseln | Mausrad (im Leerlauf) | Nach oben = vorheriges Layout; `InvertMouseWheel` kehrt um. |
 
 Pro Aktion sind bis zu 8 Tasten möglich (`SettingsLimits.KeysPerActionMax`). Systemkombinationen (Alt+F4, Alt+Tab, Alt+Leertaste, Alt+Esc, Strg+Esc, Strg+Alt+Entf, Windows-Taste) sind als Belegung gesperrt; Alt+F4 und Alt+Leertaste sind in der Gastansicht zusätzlich wirkungslos.

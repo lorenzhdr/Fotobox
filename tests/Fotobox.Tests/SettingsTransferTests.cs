@@ -58,6 +58,7 @@ public sealed class SettingsTransferTests : IDisposable
         s.Input.VideoStartKeys = ["F6"];
         s.Input.VideoStopKeys = ["F7"];
         s.Input.PerformanceOverlayKeys = ["F8"];
+        s.Input.TrackingOverlayKeys = ["F4"];
         s.Input.TriggerOnLeftClick = false;
         s.Input.TriggerOnRightClick = false;
         s.Input.InvertMouseWheel = true;
@@ -148,6 +149,13 @@ public sealed class SettingsTransferTests : IDisposable
         s.PerformanceOverlay.RefreshMs = 2000;
         s.PerformanceOverlay.FontSize = 26;
         s.PerformanceOverlay.BackgroundOpacityPercent = 40;
+        s.TrackingOverlay.ShowPersons = false;
+        s.TrackingOverlay.ShowMoustaches = false;
+        s.TrackingOverlay.ShowLabels = false;
+        s.TrackingOverlay.ShowStatusLine = false;
+        s.TrackingOverlay.ShowVerdicts = true;
+        s.TrackingOverlay.Style = TrackingOverlayStyle.SciFi;
+        s.TrackingOverlay.ScalePercent = 150;
 
         FillDevices(s);
         return s;

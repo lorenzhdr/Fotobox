@@ -92,6 +92,12 @@ public sealed class FunOverlayViewModel : ObservableObject, IDisposable
     /// <summary>Aktueller Text (leer, wenn keiner gezeigt wird).</summary>
     public string Text => TextVisible ? _snapshot.Text : "";
 
+    /// <summary>
+    /// Rohdaten jeder Analyse (auf dem UI-Thread, vor der Engine), nur zum passiven Beobachten durch das Tracking-Overlay: Der Abonnent
+    /// liest nur und berührt die Engine nie; eine Ausnahme darin wird abgefangen und geloggt. Ohne Abonnent kostet der Abgriff nichts.
+    /// </summary>
+    public event EventHandler<DetectionUpdate>? Observed;
+
     /// <summary>Zustand des Erkennungsdienstes (Laden, Ausweichen auf Gesicht …); null ohne offene Anforderung.</summary>
     public DetectionStatus? Status => _status;
 
@@ -288,7 +294,25 @@ public sealed class FunOverlayViewModel : ObservableObject, IDisposable
         _status = update.Status;
         if (statusChanged)
             OnPropertyChanged(nameof(Status)); // Analyserate und Methode für die Statuszeile der Admin-Vorschau
+        NotifyObserved(update);
         _engine.OnDetections(update.Detections);
+    }
+
+    // Passiver Abgriff für das Tracking-Overlay: nur der Verweis auf das Update, vor der Engine, in try/catch (ein Fehler des Beobachters
+    // darf die Engine nie überspringen). Ohne Abonnent geschieht nichts.
+    private void NotifyObserved(DetectionUpdate update)
+    {
+        var handler = Observed;
+        if (handler is null)
+            return;
+        try
+        {
+            handler(this, update);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Tracking-Overlay: Beobachtung der Personenerkennung fehlgeschlagen.", ex);
+        }
     }
 
     private void OnStatusChanged(object? sender, DetectionStatus status)
