@@ -58,8 +58,7 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
     private int _busy;
 
     // Nur vom Kamera-Handler (seriell).
-    private long _lastStartTimestamp;
-    private bool _hasStarted;
+    private readonly AnalysisPacer _pacer;
     private long _cycle;
     private readonly byte[]?[] _buffers = new byte[]?[2];
     private int _bufferIndex;
@@ -72,6 +71,7 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
         _faceFactory = faceFactory ?? throw new ArgumentNullException(nameof(faceFactory));
         _handFactory = handFactory ?? throw new ArgumentNullException(nameof(handFactory));
         _time = time ?? throw new ArgumentNullException(nameof(time));
+        _pacer = new AnalysisPacer(_time);
     }
 
     /// <summary>Anzahl offener Anforderungen (für Tests und Diagnose).</summary>
@@ -345,9 +345,9 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
             if (!runnable)
                 return;
 
-            var perSecond = Math.Clamp(options.AnalysesPerSecond, 1, 30);
+            var perSecond = Math.Clamp(options.AnalysesPerSecond, SettingsLimits.PeaceAnalysesPerSecondMin, SettingsLimits.PeaceAnalysesPerSecondMax);
             var interval = TimeSpan.FromTicks(TimeSpan.TicksPerSecond / perSecond);
-            if (_hasStarted && _time.GetElapsedTime(_lastStartTimestamp) < interval)
+            if (!_pacer.IsDue(interval))
                 return;
             if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
                 return;
@@ -374,8 +374,7 @@ public sealed partial class PeaceDetectionService : IGestureDetectionService
                 return;
             }
 
-            _lastStartTimestamp = _time.GetTimestamp();
-            _hasStarted = true;
+            _pacer.MarkStarted(interval);
             var cycle = ++_cycle;
             _ = AnalyzeAsync(copy, frame.Width, frame.Height, options, cycle, frameTime);
         }

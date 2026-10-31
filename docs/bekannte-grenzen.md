@@ -74,6 +74,9 @@ Stand: 2.5.1. Nichts davon blockiert den Betrieb. Die Einträge sind thematisch 
 - **Überzählige Palm-Läufe (neu in der 2.5.1-Prüfung).** Belegen verfolgte Hände schon alle Landmark-Plätze, macht die Handerkennung trotzdem Palm-Läufe, deren Ergebnis nicht mehr verwendet wird – eine kleine CPU-Verschwendung ohne Funktionsfolge; bewusst nicht geändert. Mit `PairedHands` kann das auch eintreten, wenn gescheiterte verfolgte Hände alle vier Läufe verbraucht haben und die vorgezogene Palm-Suche trotzdem läuft.
 
 - **Töne teilen sich den Kanal (neu in 2.10.0).** Countdown-Piepen und Kamera-Sound (`BoothSoundPlayer`) nutzen wie die Fun-Töne winmm `PlaySound`, das nur eine Wiedergabe je Prozess kennt: Ein neuer Ton schneidet einen laufenden ab (auch einen Fun-Ton wie das Zielerfassungs-Einrasten und umgekehrt). Bewusst so: keine Warteschlange, nie ein verzögerter Ton. Ohne Audiogerät bleibt es still (einmal Logwarnung). Nicht auf echter Hardware mit Lautsprechern geprüft.
+- **Hohe Analyseraten (bis 50, neu in 2.10.4) nicht mit echter Kamera geprüft.** Der Takt (`AnalysisPacer`) und die Bereiche sind nur per Unit-Tests abgedeckt. Die reale Rate ist durch Kamerabildrate und Analysedauer begrenzt (mehr Analysen als Kamerabilder gibt es nicht).
+- **Kopierlast bei hohen Raten.** Jede Analyse kopiert ein Bild bis 1920 px Breite auf dem Kamera-Thread; bei hohen Raten kann das die Kamerabildrate drücken. Dann die Rate senken.
+- **Leistungsanzeige zählt Zyklen.** Im Bartmodus läuft die Gesichtsstufe mit max(10, 2 × Rate), höchstens 50 Zyklen/s, die Handstufe nur in jedem 2. Zyklus (ab Rate 26 in jedem Zyklus); die Anzeige zeigt Zyklen, nicht Handanalysen, also ggf. das Doppelte der eingestellten Handrate.
 
 ## Fun: Herzerkennung und Kisscam
 

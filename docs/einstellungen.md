@@ -111,13 +111,13 @@ Wertebereiche stehen ausschließlich in `SettingsLimits` (gleiche Datei). Admin-
 | `Fun.LockOnMilliseconds` | 1200 | 500–5000 (100er-Schritte) |
 | `Fun.LockOnIntensityPercent` | 50 | 0–100 (5er-Schritte) |
 | `Fun.MaxLockOnRestarts` | 3 | 0–10 |
-| `Fun.AnalysesPerSecond` | 5 | 1–10 |
+| `Fun.AnalysesPerSecond` | 5 | 1–50 |
 | `Peace.Enabled` | an | – |
 | `Peace.ActionSelfDestruct` / `ActionPhoto` / `ActionMoustache` | an / aus / aus | mindestens eine (Normalizer erzwingt Selbstzerstörung) |
 | `Peace.HoldMilliseconds` | 1000 | 300–3000 (100er) |
 | `Peace.CooldownSeconds` | 0 | 0–600 |
 | `Peace.SensitivityPercent` | 50 | 10–95 |
-| `Peace.AnalysesPerSecond` | 5 | 1–10 (gemeinsam mit Mittelfinger) |
+| `Peace.AnalysesPerSecond` | 5 | 1–50 (gemeinsam mit Mittelfinger) |
 | `Peace.SelfDestructSeconds` | 10 | 5–30 |
 | `Peace.PhotoCountdownSeconds` | 3 | 0–30 |
 | `Peace.MoustacheDurationSeconds` | 15 | 3–120 |

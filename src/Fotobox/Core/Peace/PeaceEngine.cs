@@ -13,6 +13,15 @@ public sealed class PeaceEngine
     public static readonly TimeSpan MinRearmQuietTime = TimeSpan.FromMilliseconds(400);
     /// <summary>Beide Fristen umfassen mindestens so viele Analyseabstände, damit eine verspätete oder verpasste Analyse nicht stört.</summary>
     public const double AnalysisIntervalFactor = 2.5;
+    /// <summary>Untergrenze der Verlustfrist von Gesichts- und Handspuren (heutiger Wert bei 20 Analysen/s); bei hohen Raten läge sie sonst nahe am Kamera-Bildabstand.</summary>
+    public static readonly TimeSpan MinLostAfter = TimeSpan.FromMilliseconds(125);
+
+    /// <summary>Verlustfrist einer Spur bei der Rate: <see cref="AnalysisIntervalFactor"/> Analyseabstände, nie unter <see cref="MinLostAfter"/>.</summary>
+    public static TimeSpan LostAfterFor(int analysesPerSecond)
+    {
+        var interval = TimeSpan.FromSeconds(AnalysisIntervalFactor / Math.Max(1, analysesPerSecond));
+        return interval > MinLostAfter ? interval : MinLostAfter;
+    }
 
     private sealed class HandState
     {
@@ -99,7 +108,7 @@ public sealed class PeaceEngine
         var interval = TimeSpan.FromSeconds(AnalysisIntervalFactor / Math.Max(1, settings.AnalysesPerSecond));
         _gapTolerance = interval > MinGapTolerance ? interval : MinGapTolerance;
         _rearmQuietTime = interval > MinRearmQuietTime ? interval : MinRearmQuietTime;
-        _handTracker.LostAfter = interval;
+        _handTracker.LostAfter = _gapTolerance; // bis 10/s wie bisher der Analyseabstand, darüber nie unter 250 ms
     }
 
     /// <summary>

@@ -51,7 +51,7 @@ Wertebereiche stehen einzig in `SettingsLimits.Fun*` (`src/Fotobox/Core/Settings
 | `LockOnMilliseconds` | 1200 | 500–5000 ms, UI-Schritt 100 | Dauer des Einrastens bis zum Text |
 | `LockOnIntensityPercent` | 50 | 0–100 %, UI-Schritt 5 | Auffälligkeit der Einrast-Animation und der Töne |
 | `MaxLockOnRestarts` | 3 | 0–10 | Wie oft das Einrasten für alle neu startet, wenn währenddessen jemand dazukommt (0 = Spätkommer rasten einzeln ein) |
-| `AnalysesPerSecond` | 5 | 1–10 | Analyserate (Rechenlast) |
+| `AnalysesPerSecond` | 5 | 1–50 | Analyserate (Rechenlast) |
 | `SoundEnabled` | aus | | Signaltöne |
 
 Standardtexte: `FunSettings.DefaultSingularText` („Hey du, nimm doch ein Foto oder Video mit mir auf!“) und `DefaultPluralText` („Hey ihr, nehmt doch ein Foto oder Video mit mir auf!“). `FunTextFormatter.Resolve` wählt Einzahl bei genau einer Person, sonst Mehrzahl, ersetzt `{Anzahl}` (ohne Beachtung der Groß-/Kleinschreibung) und lässt unbekannte Platzhalter wörtlich stehen. Eigene Texte mit `{Anzahl}` greifen live, auch bei laufendem Text.
@@ -79,7 +79,7 @@ flowchart TD
 ### `PersonDetectionService` (`IPersonDetectionService`, Singleton)
 
 - **Abo nur bei Anforderung:** Der Dienst hört auf `ICameraService.FrameArrived` nur, solange mindestens eine Anforderung (`Request(FunSettings)`) offen ist. Die letzte Anforderung gilt (Stapel): Die Admin-Vorschau überholt die Gastansicht, nach dem Schließen der Vorschau gilt wieder die vorherige. Anforderungen können per `UpdateSettings` geändert werden.
-- **Kamera-Handler** (`OnFrame`) läuft synchron auf dem Kamera-Thread und kehrt sofort zurück, wenn gerade eine Analyse läuft (Busy-Flag je Detektor), die Rate (`AnalysesPerSecond`, auf 1–10 geklemmt) noch nicht erreicht ist oder kein Detektor bereit ist.
+- **Kamera-Handler** (`OnFrame`) läuft synchron auf dem Kamera-Thread und kehrt sofort zurück, wenn gerade eine Analyse läuft (Busy-Flag je Detektor), die Rate (`AnalysesPerSecond`, auf 1–50 geklemmt) noch nicht erreicht ist oder kein Detektor bereit ist. Seit 2.10.4 gibt der `AnalysisPacer` den Takt vor (fortgeschriebene Sollzeit statt Abstand seit dem letzten Start): Die Verspätung bis zum nächsten Kamerabild geht nicht mehr je Analyse verloren, die Rate liegt im Mittel bei der eingestellten, und nach einem Rückstand wird nicht in Salven nachgeholt. Mehr Analysen als Kamerabilder gibt es nie; hohe Raten kopieren je Analyse ein Bild auf dem Kamera-Thread und können die Kamerarate drücken.
 - **Verkleinern:** Der Handler kopiert das Bild per Nearest-Neighbor auf höchstens `MaxAnalysisWidth` = 640 px Breite (Seitenverhältnis bleibt) in einen von zwei wechselnden Puffern (`DetectionFrame`, Bgra32, ungespiegelt).
 - **Frist:** Die Analyse läuft per `Task.Run` mit `AnalysisTimeout` = 2 s. Das Busy-Flag wird erst gelöst, wenn die Analyse wirklich fertig ist (nach einem Timeout wird auf den hängenden Lauf gewartet), damit sich nichts stapelt.
 - **Ergebnisse** kommen auf dem `SynchronizationContext`, auf dem die Anforderung gestellt wurde. Der Status (`DetectionStatus`: gewünscht, tatsächlich aktiv, Ausweichgrund, Nicht-verfügbar-Grund, gemessene Rate) wird nur bei „wesentlicher“ Änderung als `StatusChanged` gemeldet; die Rate allein zählt nicht. Die Rate wird über ein gleitendes 4-s-Fenster der Analyse-Abschlüsse gemessen.
@@ -161,7 +161,7 @@ Ordnet Boxen aufeinanderfolgender Analysen einander zu und bestätigt Ziele erst
 | 2 | 0,5 s | 1,25 s | 3,0 s |
 | 3 | 0,33 s | 0,83 s | 3,0 s |
 | 4 | 0,25 s | 0,7 s | 3,0 s |
-| 5 (Standard) bis 10 | ≤ 0,2 s | 0,7 s | 3,0 s |
+| 5 (Standard) bis 50 | ≤ 0,2 s | 0,7 s | 3,0 s |
 
 Bei 4 Analysen/s und mehr ändert sich also nichts gegenüber früher; bei 1–3 Analysen/s funktioniert die Zielerfassung dadurch wieder.
 

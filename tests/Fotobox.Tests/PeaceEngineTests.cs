@@ -124,6 +124,32 @@ public sealed class PeaceEngineTests
         Assert.Equal(TimeSpan.FromMilliseconds(expectedMs), engine.GapTolerance);
     }
 
+    [Theory]
+    [InlineData(1, 2500)]
+    [InlineData(5, 500)]
+    [InlineData(10, 250)]
+    [InlineData(20, 125)]
+    [InlineData(30, 125)]
+    [InlineData(50, 125)]
+    public void LostAfterFor_IsTwoAndAHalfIntervals_ButNeverBelow125ms(int analysesPerSecond, int expectedMs)
+    {
+        Assert.Equal(TimeSpan.FromMilliseconds(expectedMs), PeaceEngine.LostAfterFor(analysesPerSecond));
+    }
+
+    [Fact]
+    public void HandTrack_AtTheMaximumRate_SurvivesAGapBeyondOneAndAHalfCameraFrames()
+    {
+        // 2,5 / 50 = 50 ms läge knapp über einem Kamerabild; die Handspur lebt mindestens so lange wie der Aussetzer-Toleranz (250 ms).
+        var engine = Create(Settings(s => s.AnalysesPerSecond = SettingsLimits.PeaceAnalysesPerSecondMax));
+        Step(engine, 0, Peace);
+        var id = engine.Snapshot.Hands.Single().TrackId;
+
+        Step(engine, 100, null);
+        Step(engine, 20, Peace);
+
+        Assert.Equal(id, engine.Snapshot.Hands.Single().TrackId);
+    }
+
     [Fact]
     public void SlowAnalyses_OneSecondApart_StillCompleteTheHold()
     {

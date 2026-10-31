@@ -459,6 +459,27 @@ public sealed class PeaceOverlayViewModelTests
         Assert.Equal(8, fast.AnalysesPerSecond / fast.HandCycleDivisor);
     }
 
+    [Theory]
+    [InlineData(1, 10, 2)]
+    [InlineData(10, 20, 2)]
+    [InlineData(25, 50, 2)]
+    [InlineData(26, 50, 1)]
+    [InlineData(30, 50, 1)]
+    [InlineData(50, 50, 1)]
+    public void FastFaceMode_UsesTheDoubleRateOnlyWhileItFitsIntoTheMaximum(int rate, int expectedCycleRate, int expectedDivisor)
+    {
+        using var vm = Create();
+        vm.SetMode(PeaceMode.Watching, Settings(s => s.AnalysesPerSecond = rate), false);
+        _service.Last.RaiseUpdated([Face], []);
+
+        vm.StartMoustache(new PeaceTrigger(PeaceAction.Moustache, 1, 1, new NormPoint(0.5, 0.6)));
+
+        var fast = _service.Last.Options; // bei Rate 50 ändert sich nichts: normaler und schneller Modus sind dort gleich
+        Assert.Equal(expectedCycleRate, fast.AnalysesPerSecond);
+        Assert.Equal(expectedDivisor, fast.HandCycleDivisor);
+        Assert.True(fast.AnalysesPerSecond <= SettingsLimits.PeaceAnalysesPerSecondMax);
+    }
+
     [Fact]
     public void FacesOnlyMode_StaysFacesOnlyEvenWithAMoustache()
     {

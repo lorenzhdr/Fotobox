@@ -150,7 +150,7 @@ public static class SettingsLimits
     /// <summary>Fun: Wie oft das Einrasten für alle neu startet, wenn während einer Einrastrunde weitere Personen dazukommen (0 = Spätkommer rasten einzeln ein).</summary>
     public const int FunLockOnRestartsMin = 0, FunLockOnRestartsMax = 10;
     /// <summary>Fun: Analysen pro Sekunde (Rechenlast); das Livebild hat immer Vorrang.</summary>
-    public const int FunAnalysesPerSecondMin = 1, FunAnalysesPerSecondMax = 10;
+    public const int FunAnalysesPerSecondMin = 1, FunAnalysesPerSecondMax = 50;
     /// <summary>Peace: Haltedauer des Zeichens in Millisekunden (100er-Schritte).</summary>
     public const int PeaceHoldMillisecondsMin = 300, PeaceHoldMillisecondsMax = 3000, PeaceHoldMillisecondsStep = 100;
     /// <summary>Peace: Sperrzeit nach einer Auslösung in Sekunden.</summary>
@@ -158,7 +158,7 @@ public static class SettingsLimits
     /// <summary>Peace: Empfindlichkeit in Prozent.</summary>
     public const int PeaceSensitivityMin = 10, PeaceSensitivityMax = 95;
     /// <summary>Peace: Analysen pro Sekunde (Rechenlast).</summary>
-    public const int PeaceAnalysesPerSecondMin = 1, PeaceAnalysesPerSecondMax = 10;
+    public const int PeaceAnalysesPerSecondMin = 1, PeaceAnalysesPerSecondMax = 50;
     /// <summary>Peace: Dauer der Selbstzerstörung in Sekunden.</summary>
     public const int PeaceSelfDestructSecondsMin = 5, PeaceSelfDestructSecondsMax = 30;
     /// <summary>Peace: Countdown der Aktion Foto in Sekunden (0 = sofort).</summary>
