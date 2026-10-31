@@ -168,6 +168,28 @@ public class AdminVisualRenderTests
         Assert.True(Directory.GetFiles(dir, $"admin_*_{ThemeName(mode)}.png").Length >= 6);
     }
 
+    /// <summary>Das ganze Admin-Fenster auf Mindesthöhe: Die Tab-Leiste links scrollt (schmale Scrollleiste), der gewählte Tab bleibt sichtbar.</summary>
+    [Trait("Category", "Visual")]
+    [StaTheory]
+    [InlineData(AdminThemeMode.Light)]
+    [InlineData(AdminThemeMode.Dark)]
+    public void Render_AdminTabStrip_AtMinimumHeight(AdminThemeMode mode)
+    {
+        var dir = RenderDir();
+        if (dir is null)
+            return;
+
+        using var rig = new Rig(mode);
+        Layout(rig.Root, 900, 620);
+        SavePng(rig.Root, 900, 620, Path.Combine(dir, $"admin_tabstrip_minheight_{ThemeName(mode)}.png"), rig.Background);
+
+        var tabs = FindTabControl(rig.Root)!;
+        tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(t => t.Header as string == "Fun");
+        rig.Window.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Background, () => { });
+        Layout(rig.Root, 900, 620);
+        SavePng(rig.Root, 900, 620, Path.Combine(dir, $"admin_tabstrip_minheight_fun_{ThemeName(mode)}.png"), rig.Background);
+    }
+
     /// <summary>Tab „Leistung“ mit erfundenen Geräten: laufende Zuordnung mit Rückfall, Messtabelle, Anbieter und Neustart-Hinweis.</summary>
     [Trait("Category", "Visual")]
     [StaTheory]
@@ -315,7 +337,8 @@ public class AdminVisualRenderTests
     /// <summary>Der äußerste ScrollViewer mit Inhalt, der Platz einnimmt (ausgeblendete Seiten des Fun-Tabs haben Höhe 0).</summary>
     private static ScrollViewer? FindVisibleScrollViewer(DependencyObject parent)
     {
-        if (parent is ScrollViewer scroll && scroll.Content is FrameworkElement && scroll.ActualHeight > 0)
+        // Die scrollbare Tab-Leiste (PART_TabStripScroll) ist nicht der Inhalt des Tabs.
+        if (parent is ScrollViewer scroll && scroll.Name != "PART_TabStripScroll" && scroll.Content is FrameworkElement && scroll.ActualHeight > 0)
             return scroll;
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
         {

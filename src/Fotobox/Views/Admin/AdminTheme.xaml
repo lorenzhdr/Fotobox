@@ -479,6 +479,86 @@
         </Setter>
     </Style>
 
+    <!-- Scrollbare Tab-Leiste: schmale, unaufdringliche Scrollleiste, nur bei Bedarf (Farben aus der Palette) -->
+    <Style x:Key="TabStripScrollPageButton" TargetType="RepeatButton">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border Background="Transparent" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="TabStripScrollThumb" TargetType="Thumb">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Border x:Name="Bar" CornerRadius="3" Background="{DynamicResource TrackBrush}" />
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bar" Property="Background" Value="{DynamicResource FrameBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="Bar" Property="Background" Value="{DynamicResource FrameBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="TabStripScrollBar" TargetType="ScrollBar">
+        <Setter Property="Width" Value="6" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Grid Background="Transparent">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageUpCommand" Style="{StaticResource TabStripScrollPageButton}" />
+                            </Track.DecreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Style="{StaticResource TabStripScrollThumb}" />
+                            </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageDownCommand" Style="{StaticResource TabStripScrollPageButton}" />
+                            </Track.IncreaseRepeatButton>
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <!-- Die Spalte der Scrollleiste ist immer reserviert: Die Leiste wird nie breiter oder schmaler und die Einträge werden nie abgeschnitten,
+         wenn die Scrollleiste erscheint. -->
+    <Style x:Key="TabStripScrollViewer" TargetType="ScrollViewer">
+        <Setter Property="local:ProportionalWheelScroll.IsEnabled" Value="True" />
+        <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+        <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid Background="Transparent">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                        </Grid.ColumnDefinitions>
+                        <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" Grid.Column="0"
+                                                CanContentScroll="{TemplateBinding CanContentScroll}" />
+                        <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="1" Style="{StaticResource TabStripScrollBar}"
+                                   Orientation="Vertical" HorizontalAlignment="Right" Margin="0,0,2,0" Cursor="Arrow"
+                                   Minimum="0" Maximum="{TemplateBinding ScrollableHeight}"
+                                   ViewportSize="{TemplateBinding ViewportHeight}" Value="{TemplateBinding VerticalOffset}"
+                                   Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Seitenleiste mit Tabs -->
     <Style TargetType="TabControl">
         <Setter Property="TabStripPlacement" Value="Left" />
@@ -493,9 +573,12 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <Border Grid.Column="0" Margin="0,0,16,0" Padding="10" CornerRadius="14"
+                        <!-- Die Leiste scrollt, wenn das Fenster für alle Tabs zu niedrig ist (sonst würde der letzte abgeschnitten). -->
+                        <Border Grid.Column="0" Margin="0,0,16,0" Padding="10,10,0,10" CornerRadius="14"
                                 Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
-                            <StackPanel IsItemsHost="True" Width="190" />
+                            <ScrollViewer x:Name="PART_TabStripScroll" Style="{StaticResource TabStripScrollViewer}">
+                                <StackPanel IsItemsHost="True" Width="190" />
+                            </ScrollViewer>
                         </Border>
                         <!-- Zoom nur für den Inhaltsbereich (Tab-Leiste bleibt 100 %): LayoutTransform, damit der Inhalt den verkleinerten
                              Platz belegt und Scrollbereich/Umbrüche stimmen (RenderTransform würde nur zeichnen). Der Faktor kommt aus dem

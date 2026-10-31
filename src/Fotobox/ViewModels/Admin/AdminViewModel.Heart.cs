@@ -76,9 +76,6 @@ public sealed partial class AdminViewModel
     public const string KisscamMusicSaveFailedText =
         "Die Songeinstellungen konnten nicht in den Musikordner gespeichert werden. Prüfen Sie die Schreibrechte des Ordners.";
 
-    /// <summary>Hinweis unter dem Timer, wenn die Kisscam nur die letzten Sekunden dauert (kein Gasttext).</summary>
-    public const string KisscamOnlyCountdownHintText = "Bei 3 Sekunden erscheint nur der Countdown 3 – 2 – 1, kein Text.";
-
     private readonly IMusicPlayer? _music;
     private IKisscamMusicLibrary? _library;
     private IReadOnlyList<HeartActionOption>? _heartActionOptions;
@@ -259,18 +256,11 @@ public sealed partial class AdminViewModel
         get => _draft.Heart.KisscamSeconds;
         set
         {
-            if (SetProperty(_draft.Heart.KisscamSeconds,
-                    Math.Clamp(value, SettingsLimits.KisscamSecondsMin, SettingsLimits.KisscamSecondsMax),
-                    v => _draft.Heart.KisscamSeconds = v))
-                OnPropertyChanged(nameof(HasKisscamOnlyCountdownHint));
+            SetProperty(_draft.Heart.KisscamSeconds,
+                Math.Clamp(value, SettingsLimits.KisscamSecondsMin, SettingsLimits.KisscamSecondsMax),
+                v => _draft.Heart.KisscamSeconds = v);
         }
     }
-
-    /// <summary>
-    /// Bei höchstens <see cref="SettingsLimits.KisscamFinalDigitsSeconds"/> Sekunden zeigt die Gastansicht von Anfang an nur die großen
-    /// Ziffern, nie den Gasttext (Hinweis unter dem Timer).
-    /// </summary>
-    public bool HasKisscamOnlyCountdownHint => _draft.Heart.KisscamSeconds <= SettingsLimits.KisscamFinalDigitsSeconds;
 
     /// <summary>Hinweistext des Gastes mit Platzhalter <c>{Sekunden}</c>; leer = <see cref="KisscamTextPlaceholder"/>.</summary>
     public string KisscamText
@@ -812,15 +802,13 @@ public sealed partial class AdminViewModel
     /// <summary>Gasttext des Tests, mit der Restzeit formatiert (wie in der Gastansicht).</summary>
     public string KisscamTestText => KisscamTextFormatter.Format(_draft.Heart.KisscamText, _kisscamTestSeconds);
 
-    /// <summary>Gasttext einblenden: solange mehr als <see cref="SettingsLimits.KisscamFinalDigitsSeconds"/> Sekunden übrig sind.</summary>
-    public bool KisscamTestShowText =>
-        _kisscamTestRunning && !_kisscamTestPhotoBadge && _kisscamTestSeconds > SettingsLimits.KisscamFinalDigitsSeconds;
+    /// <summary>Gasttext einblenden: den ganzen Test über, bis das Abzeichen „Foto würde jetzt ausgelöst“ kommt (wie in der Gastansicht).</summary>
+    public bool KisscamTestShowText => _kisscamTestRunning && !_kisscamTestPhotoBadge;
 
-    /// <summary>Die großen Ziffern der letzten Sekunden stehen in der Vorschau.</summary>
-    public bool KisscamTestShowDigits =>
-        _kisscamTestRunning && !_kisscamTestPhotoBadge && _kisscamTestSeconds >= 1 && _kisscamTestSeconds <= SettingsLimits.KisscamFinalDigitsSeconds;
+    /// <summary>Die großen Ziffern stehen in der Vorschau, solange noch mindestens eine Sekunde übrig ist (wie in der Gastansicht).</summary>
+    public bool KisscamTestShowDigits => _kisscamTestRunning && !_kisscamTestPhotoBadge && _kisscamTestSeconds >= 1;
 
-    /// <summary>Die Ziffer der letzten Sekunden (3, 2, 1).</summary>
+    /// <summary>Die aktuelle Ziffer des Countdowns (… 3, 2, 1).</summary>
     public string KisscamTestDigits => KisscamTestShowDigits ? _kisscamTestSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
 
     /// <summary>Abzeichen „Foto würde jetzt ausgelöst 📷“ am Ende des Tests (kurz sichtbar, danach endet der Test).</summary>
@@ -1020,7 +1008,7 @@ public sealed partial class AdminViewModel
         propertyName is nameof(HeartStatusText) or nameof(HeartHasNoShape) or nameof(IsKisscamActionSelected)
             or nameof(KisscamMusicStatus) or nameof(KisscamMusicHints) or nameof(KisscamMusicHintsText) or nameof(HasKisscamMusicHints)
             or nameof(KisscamTextProblems) or nameof(KisscamTextProblemsText) or nameof(HasKisscamTextProblems)
-            or nameof(KisscamFileNameExample) or nameof(HasKisscamOnlyCountdownHint)
+            or nameof(KisscamFileNameExample)
         || (propertyName is not null && propertyName.StartsWith("HeartShape", StringComparison.Ordinal)
             && propertyName.EndsWith("Enabled", StringComparison.Ordinal))
         // Live-Vorschau und Kisscam-Test: reiner Zustand, keine Einstellung
