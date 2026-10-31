@@ -459,6 +459,12 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
+        // Die Skizze des Druckbereichs folgt Layout und Papier des Entwurfs.
+        if (!_disposed && AffectsPrintAreaPreview(e.PropertyName))
+        {
+            base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(PrintAreaPreviewRect)));
+            base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(PrintAreaPreviewText)));
+        }
         // Läuft die Vorschau im Tab „Fun“, gelten geänderte Entwurfswerte sofort.
         if (_isFunTabSelected && !_disposed && AffectsFunPreview(e.PropertyName))
             UpdateFunPreview();
@@ -3304,6 +3310,7 @@ public sealed partial class AdminViewModel : ObservableObject, IDisposable
         ValidatePeace(errors);
         ValidateMiddleFinger(errors);
         ValidateHeart(errors);
+        ValidatePrintArea(errors);
 
         if (_newPin.Length > 0 || _repeatPin.Length > 0)
         {

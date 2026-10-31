@@ -248,9 +248,22 @@ public sealed class BoothController(
     /// </summary>
     public PrinterAttention BlockedReason => _printBlock is { } run ? run.Reason : PrinterAttention.None;
 
+    /// <summary>
+    /// Zuletzt vom Druck ermittelte Seitengröße für <paramref name="kind"/> mit den aktuellen Druckereinstellungen (inklusive aufgelöster
+    /// Ausrichtung); <c>null</c>, solange noch keine echte Abfrage gelungen ist. Reiner Lesezugriff, blockiert nie und fragt den Drucker
+    /// nicht ab (für die Anzeige des Druckbereichs in der Gastansicht).
+    /// </summary>
+    public PageSpec? GetLastKnownPageSpec(LayoutKind kind) =>
+        _lastGoodPage.TryGetValue(PageSpecKey.From(settings.Current.Printer, kind), out var known) ? known : null;
+
     public event EventHandler? StateChanged;
     /// <summary>Alle übrigen Eigenschaften (Countdown, Fotonummer, Status, Druckfortschritt …) haben sich geändert.</summary>
     public event EventHandler? Changed;
+    /// <summary>
+    /// Eine Seitengröße wurde neu ermittelt und weicht vom zuletzt bekannten Wert ab (<see cref="GetLastKnownPageSpec"/>). Kann auf einem
+    /// Hintergrundthread kommen. Bewusst getrennt von <see cref="Changed"/>.
+    /// </summary>
+    public event EventHandler? PageSpecUpdated;
     /// <summary>Unmittelbar vor der Aufnahme: weißen Blitz anzeigen.</summary>
     public event EventHandler? FlashRequested;
 
@@ -1381,9 +1394,12 @@ public sealed class BoothController(
                 try
                 {
                     var spec = print.GetPageSpec(printer, kind);
+                    var specChanged = !_lastGoodPage.TryGetValue(key, out var previousSpec) || previousSpec != spec;
                     _lastGoodPage[key] = spec;
                     _pageQueries.TryRemove(key, out _);
                     tcs.TrySetResult(spec);
+                    if (specChanged)
+                        Raise(PageSpecUpdated);
                 }
                 catch (Exception ex)
                 {

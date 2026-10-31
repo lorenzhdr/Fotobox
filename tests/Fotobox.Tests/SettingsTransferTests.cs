@@ -135,6 +135,12 @@ public sealed class SettingsTransferTests : IDisposable
         s.Heart.KisscamSeconds = 20;
         s.Heart.KisscamColor = KisscamColor.Gold;
         s.Heart.KisscamFilePrefix = "Kuss";
+        s.PrintArea.Enabled = true;
+        s.PrintArea.Style = PrintAreaStyle.Corners;
+        s.PrintArea.Color = PrintAreaColor.Orange;
+        s.PrintArea.OpacityPercent = 60;
+        s.PrintArea.ThicknessPx = 5;
+        s.PrintArea.ShadePercent = 55;
 
         FillDevices(s);
         return s;

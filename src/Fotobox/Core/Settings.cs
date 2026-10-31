@@ -63,6 +63,14 @@ public enum KisscamColor { PinkRed, Red, Gold, Purple, BlackWhite }
 /// scheitert es, läuft die Erkennung auf der CPU. Nur hinten erweitern.
 /// </summary>
 public enum AcceleratorMode { Auto, Cpu, Gpu, Npu }
+/// <summary>
+/// Gastansicht „Druckbereich anzeigen“: Darstellung der Markierung, die zeigt, welcher Ausschnitt des Kamerabilds gedruckt wird.
+/// Lines = nur Linien an den Schnittkanten, LinesShaded = Linien und abgedunkelter Bereich außerhalb, Corners = vier Eckmarken.
+/// Nur hinten erweitern.
+/// </summary>
+public enum PrintAreaStyle { Lines, LinesShaded, Corners }
+/// <summary>Feste Farbpalette der Druckbereich-Markierung (Farbwerte in <c>PrintAreaPalette</c>). Nur hinten erweitern.</summary>
+public enum PrintAreaColor { White, Black, Red, Yellow, Green, Blue, Pink, Orange }
 
 /// <summary>Gemeinsame Wertebereiche für Admin-UI, Validierung und Normalisierung.</summary>
 public static class SettingsLimits
@@ -185,6 +193,12 @@ public static class SettingsLimits
     public const int AdminZoomMin = 60, AdminZoomMax = 100, AdminZoomStep = 5, AdminZoomDefault = 80;
     /// <summary>Leistung: längster gespeicherter Geräteschlüssel der gewählten Grafikkarte (<see cref="PerformanceSettings.GpuDeviceKey"/>); längere Werte werden verworfen (gekürzt passte der Schlüssel nie).</summary>
     public const int GpuDeviceKeyMaxLength = 200;
+    /// <summary>Druckbereich: Deckkraft der Linien und Eckmarken in Prozent (5er-Schritte).</summary>
+    public const int PrintAreaOpacityMin = 20, PrintAreaOpacityMax = 100, PrintAreaOpacityStep = 5, PrintAreaOpacityDefault = 80;
+    /// <summary>Druckbereich: Linienstärke in Bildschirmpunkten (DIPs der Gastansicht).</summary>
+    public const int PrintAreaThicknessMin = 1, PrintAreaThicknessMax = 10, PrintAreaThicknessDefault = 3;
+    /// <summary>Druckbereich: Abdunklung außerhalb des Druckbereichs in Prozent (5er-Schritte; nur bei <see cref="PrintAreaStyle.LinesShaded"/>).</summary>
+    public const int PrintAreaShadeMin = 10, PrintAreaShadeMax = 80, PrintAreaShadeStep = 5, PrintAreaShadeDefault = 40;
 }
 
 /// <summary>
@@ -276,6 +290,7 @@ public sealed class AppSettings
     public MiddleFingerSettings MiddleFinger { get; set; } = new();
     public HeartSettings Heart { get; set; } = new();
     public PerformanceSettings Performance { get; set; } = new();
+    public PrintAreaSettings PrintArea { get; set; } = new();
 
     /// <summary>Tiefe Kopie via JSON-Roundtrip.</summary>
     public AppSettings Clone() =>
@@ -773,4 +788,25 @@ public sealed class PerformanceSettings
     /// Wirkt ab dem nächsten Start. Gerätespezifisch.
     /// </summary>
     public bool PreferHighPerformanceGpu { get; set; } = true;
+}
+
+/// <summary>
+/// Gastansicht „Druckbereich anzeigen“: Wird das Foto beim Drucken zugeschnitten (Einzelfoto, Overlay, Doppelstreifen), zeigt die
+/// Gastansicht im Leerlauf und im Foto-Countdown, welcher Ausschnitt des Livebilds gedruckt wird. Nur eine Anzeige im Livebild, nie im
+/// Foto. Übertragbar (wird mit „Einstellungen teilen“ weitergegeben). Nur Werttypen.
+/// </summary>
+public sealed class PrintAreaSettings
+{
+    public bool Enabled { get; set; }
+    public PrintAreaStyle Style { get; set; } = PrintAreaStyle.LinesShaded;
+    public PrintAreaColor Color { get; set; } = PrintAreaColor.White;
+    /// <summary>Deckkraft der Linien und Eckmarken in Prozent (<see cref="SettingsLimits.PrintAreaOpacityMin"/> bis <see cref="SettingsLimits.PrintAreaOpacityMax"/>).</summary>
+    public int OpacityPercent { get; set; } = SettingsLimits.PrintAreaOpacityDefault;
+    /// <summary>Linienstärke in Bildschirmpunkten (<see cref="SettingsLimits.PrintAreaThicknessMin"/> bis <see cref="SettingsLimits.PrintAreaThicknessMax"/>).</summary>
+    public int ThicknessPx { get; set; } = SettingsLimits.PrintAreaThicknessDefault;
+    /// <summary>Abdunklung außerhalb des Druckbereichs in Prozent; wirkt nur bei <see cref="PrintAreaStyle.LinesShaded"/>.</summary>
+    public int ShadePercent { get; set; } = SettingsLimits.PrintAreaShadeDefault;
+
+    /// <summary>Tiefe Kopie.</summary>
+    public PrintAreaSettings Clone() => (PrintAreaSettings)MemberwiseClone();
 }

@@ -290,6 +290,14 @@
             <Grid>
                 <controls:CameraPreview Camera="{Binding Camera}" Mirror="{Binding MirrorPreview}" ShowStatusOverlay="False" />
 
+                <!-- Druckbereich anzeigen (optional): zeigt, welcher Ausschnitt gedruckt wird; nur eine Anzeige im Livebild, nie im Foto, nimmt keine Eingaben an -->
+                <booth:PrintAreaOverlay Area="{Binding PrintAreaRect}" ImageWidth="{Binding PrintAreaImageWidth}"
+                                        ImageHeight="{Binding PrintAreaImageHeight}" Mirror="{Binding MirrorPreview}"
+                                        AreaStyle="{Binding PrintAreaShape}" AreaColor="{Binding PrintAreaLineColor}"
+                                        OpacityPercent="{Binding PrintAreaOpacityPercent}" ThicknessPx="{Binding PrintAreaThickness}"
+                                        ShadePercent="{Binding PrintAreaShadePercent}"
+                                        Visibility="{Binding ShowPrintArea, Converter={StaticResource BoolToVis}}" />
+
                 <!-- Fun „Zielerfassung“: Zielboxen über dem Livebild (nur im Leerlauf, nie im Foto/Video); der Ausschnitt geht zurück an die Engine -->
                 <booth:TargetOverlay Snapshot="{Binding Fun.Snapshot}" ImageWidth="{Binding Fun.ImageWidth}"
                                      ImageHeight="{Binding Fun.ImageHeight}" Mirror="{Binding Fun.Mirror}"

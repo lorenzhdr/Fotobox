@@ -39,6 +39,7 @@ internal static class SettingsNormalizer
         s.MiddleFinger ??= new MiddleFingerSettings();
         s.Heart ??= new HeartSettings();
         s.Performance ??= new PerformanceSettings();
+        s.PrintArea ??= new PrintAreaSettings();
 
         NormalizeCamera(s.Camera);
 
@@ -79,6 +80,7 @@ internal static class SettingsNormalizer
         NormalizeMiddleFinger(s.MiddleFinger);
         NormalizeHeart(s.Heart);
         NormalizePerformance(s.Performance);
+        NormalizePrintArea(s.PrintArea);
 
         // PinIterations wird bewusst nicht geklemmt: Ein anderer Wert passte nicht mehr zum gespeicherten Hash (siehe PinService).
 
@@ -372,6 +374,21 @@ internal static class SettingsNormalizer
         if (string.IsNullOrEmpty(key) || key.Length > SettingsLimits.GpuDeviceKeyMaxLength || key.Any(char.IsControl))
             key = null;
         p.GpuDeviceKey = key;
+    }
+
+    /// <summary>
+    /// Druckbereich: unbekannte Form/Farbe → Standard (Linien mit Abdunklung, Weiß); Deckkraft und Abdunklung auf den Bereich klemmen und
+    /// auf 5er-Schritte runden, Linienstärke klemmen.
+    /// </summary>
+    private static void NormalizePrintArea(PrintAreaSettings p)
+    {
+        if (!Enum.IsDefined(p.Style))
+            p.Style = PrintAreaStyle.LinesShaded;
+        if (!Enum.IsDefined(p.Color))
+            p.Color = PrintAreaColor.White;
+        p.OpacityPercent = ClampToStep(p.OpacityPercent, SettingsLimits.PrintAreaOpacityMin, SettingsLimits.PrintAreaOpacityMax, SettingsLimits.PrintAreaOpacityStep);
+        p.ThicknessPx = Math.Clamp(p.ThicknessPx, SettingsLimits.PrintAreaThicknessMin, SettingsLimits.PrintAreaThicknessMax);
+        p.ShadePercent = ClampToStep(p.ShadePercent, SettingsLimits.PrintAreaShadeMin, SettingsLimits.PrintAreaShadeMax, SettingsLimits.PrintAreaShadeStep);
     }
 
     /// <summary>Rundet kaufmännisch auf ein Vielfaches von <paramref name="step"/> und klemmt auf [<paramref name="min"/>, <paramref name="max"/>].</summary>

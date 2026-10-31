@@ -8,6 +8,8 @@ using Fotobox.Core.Fun;
 using Fotobox.Core.Heart;
 using Fotobox.Core.Peace;
 using Fotobox.Services.Camera;
+using Fotobox.Services.Layout;
+using Fotobox.Services.Printing;
 using Fotobox.Services.Storage;
 
 namespace Fotobox.ViewModels.Booth;
@@ -65,6 +67,15 @@ public sealed class BoothViewModel : ObservableObject
     private bool _kisscamPending;
     private PhotoFrame? _kisscamFrame;
     private NormRect? _kisscamRegion;
+
+    // Druckbereich: das Layout des laufenden Durchgangs (der Gast hat es vor dem Auslösen gewählt, die Auswahl springt beim Auslösen
+    // zurück auf den Standard) und das zuletzt berechnete Ergebnis samt Eingaben (die Anzeige liest es bei jedem Refresh).
+    private GuestLayout? _sessionLayout;
+    private PrintAreaKey? _printAreaKey;
+    private NormRect? _printAreaCached;
+
+    private readonly record struct PrintAreaKey(GuestLayout Layout, int StripPhotos, bool HasCaption, bool HasDate, PageSpec Page,
+        double ImageWidth, double ImageHeight);
 
     /// <summary>So lange bleibt die Alarm-Ansicht nach dem Blitz sichtbar, damit die Explosion zu Ende spielt.</summary>
     private static readonly TimeSpan ExplosionDuration = TimeSpan.FromMilliseconds(1200);
@@ -124,6 +135,8 @@ public sealed class BoothViewModel : ObservableObject
 
         controller.StateChanged += (_, _) => OnUi(Refresh);
         controller.Changed += (_, _) => OnUi(Refresh);
+        // Eine neu ermittelte Seitengröße ändert den Druckbereich (Hintergrundthread, deshalb über OnUi).
+        controller.PageSpecUpdated += (_, _) => OnUi(RaisePrintArea);
         controller.FlashRequested += (_, _) =>
         {
             // Der Stil wird hier gelesen, bevor der Aufruf auf den UI-Thread wechselt: Er gilt nur bis zum Ende des Durchgangs.
@@ -244,6 +257,79 @@ public sealed class BoothViewModel : ObservableObject
 
     /// <summary>Das Herz der Erkennung für die Fortschrittsanzeige (ungespiegelt, normiert).</summary>
     public HeartView? HeartFeedback => Peace.Heart;
+
+    // ---- Druckbereich
+
+    private PrintAreaSettings PrintAreaConfig => Settings.Current.PrintArea ?? new PrintAreaSettings();
+
+    /// <summary>
+    /// Druckbereich-Markierung sichtbar: eingeschaltet, Kamera läuft und der Ausschnitt weicht vom ganzen Bild ab (<see cref="PrintAreaRect"/>);
+    /// nur im Leerlauf und im Foto-Countdown bzw. bei der Aufnahme. Nie im Videomodus (Video-Countdown, Aufnahme), nie bei der Kisscam,
+    /// nie in Vorschau, Druck, Druckersperre oder Fertig-Anzeige.
+    /// </summary>
+    public bool ShowPrintArea =>
+        PrintAreaConfig.Enabled && !_isShutDown && Camera.Status == CameraStatus.Running
+        && (Controller.State == BoothState.Idle
+            || (Controller.State is BoothState.Countdown or BoothState.Capturing && Controller.CountdownStyle != CountdownStyle.Kisscam))
+        && PrintAreaRect is not null;
+
+    /// <summary>
+    /// Der gedruckte Ausschnitt des Kamerabilds (normiert, ungespiegelt) für das aktuelle Layout des Gastes; <c>null</c> = kein Zuschnitt
+    /// (Einzelstreifen, oder das Bild passt zur Seite) oder die Funktion ist aus. Rechnet mit der zuletzt vom Druck bekannten Seitengröße
+    /// (sonst Seite laut Einstellungen bzw. 10 × 15 cm in der Ausrichtung des Layouts) und denselben Formeln wie der Druck
+    /// (<see cref="PrintAreaPreview"/>). Im Leerlauf folgt es der Mausrad-Auswahl, im Durchgang dem beim Auslösen gewählten Layout.
+    /// </summary>
+    public NormRect? PrintAreaRect
+    {
+        get
+        {
+            if (!PrintAreaConfig.Enabled)
+                return null;
+
+            var settings = Settings.Current;
+            var layout = settings.Layout ?? new LayoutSettings();
+            var guest = Controller.State == BoothState.Idle ? SelectedLayout : _sessionLayout ?? DefaultLayout;
+            var applied = new LayoutSettings();
+            GuestLayouts.ApplyTo(applied, guest);
+            var printer = settings.Printer ?? new PrinterSettings();
+            var page = Controller.GetLastKnownPageSpec(applied.Kind) ?? PrintLayoutResolver.ResolvePageSpec(printer, applied.Kind, [], null);
+
+            var key = new PrintAreaKey(guest, layout.StripPhotoCount, PrintAreaPreview.HasCaption(layout), layout.ShowDate, page,
+                PrintAreaImageWidth, PrintAreaImageHeight);
+            if (_printAreaKey != key)
+            {
+                _printAreaCached = PrintAreaPreview.Compute(guest, layout, page, key.ImageWidth, key.ImageHeight);
+                _printAreaKey = key;
+            }
+            return _printAreaCached;
+        }
+    }
+
+    /// <summary>Größe des Kamerabilds für die Berechnung und Anzeige: laufende Kameraauflösung, sonst das Bild der Erkennung, sonst 16:9.</summary>
+    public double PrintAreaImageWidth => PrintAreaImageSize().Width;
+
+    public double PrintAreaImageHeight => PrintAreaImageSize().Height;
+
+    private (double Width, double Height) PrintAreaImageSize()
+    {
+        if (Camera.ActiveResolution is { Width: > 0, Height: > 0 } resolution)
+            return (resolution.Width, resolution.Height);
+        if (Peace.ImageWidth > 0 && Peace.ImageHeight > 0)
+            return (Peace.ImageWidth, Peace.ImageHeight);
+        return (OverlayMapper.DefaultAspect * 1000, 1000);
+    }
+
+    public PrintAreaStyle PrintAreaShape => PrintAreaConfig.Style;
+    public PrintAreaColor PrintAreaLineColor => PrintAreaConfig.Color;
+    public int PrintAreaOpacityPercent => PrintAreaConfig.OpacityPercent;
+    public int PrintAreaThickness => PrintAreaConfig.ThicknessPx;
+    public int PrintAreaShadePercent => PrintAreaConfig.ShadePercent;
+
+    private void RaisePrintArea()
+    {
+        OnPropertyChanged(nameof(PrintAreaRect));
+        OnPropertyChanged(nameof(ShowPrintArea));
+    }
 
     public bool ShowShotInfo => Controller.ShotCount > 1 && Controller.State is BoothState.Countdown or BoothState.Capturing;
     public string ShotInfoText => ShowShotInfo ? $"Foto {Controller.ShotIndex} von {Controller.ShotCount}" : "";
@@ -784,8 +870,14 @@ public sealed class BoothViewModel : ObservableObject
 
         // Nur bei echter Auswahlmöglichkeit überschreibt die Wahl des Gastes das Standard-Layout.
         GuestLayout? layout = LayoutChoices.Count >= 2 ? SelectedLayout : null;
+        // Der Druckbereich folgt dem gewählten Layout, auch wenn die Auswahl gleich zurückspringt (vor dem Start gemerkt,
+        // weil schon der Zustandswechsel die Anzeige aktualisiert).
+        _sessionLayout = layout ?? DefaultLayout;
         if (!Controller.TryTrigger(layout))
+        {
+            _sessionLayout = null;
             return false;
+        }
 
         ResetLayoutSelection();
         return true;
@@ -1261,8 +1353,14 @@ public sealed class BoothViewModel : ObservableObject
             CountdownSeconds = countdownSeconds,
             Style = style,
         };
+        // Wie der Controller: Peace-Fotos sind immer Einzelfotos (Streifen werden zum Einzelfoto).
+        var effective = layout ?? DefaultLayout;
+        _sessionLayout = effective is GuestLayout.StripDouble or GuestLayout.StripSingle ? GuestLayout.Single : effective;
         if (!Controller.TryTrigger(options))
+        {
+            _sessionLayout = null;
             return false;
+        }
 
         ResetLayoutSelection();
         return true;
